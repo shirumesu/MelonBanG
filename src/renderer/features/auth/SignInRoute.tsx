@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Check, ExternalLink } from "lucide-react";
+import { useLocation } from "react-router-dom";
+import { AlertCircle, Check, ExternalLink } from "lucide-react";
 import { useAppState } from "../../app/AppStateProvider";
 import { WindowFrame } from "../../app/shell/WindowFrame";
 import { Button } from "@/components/ui/button";
@@ -30,14 +31,23 @@ const NOTES = [
 ];
 
 export function SignInRoute() {
-  const { signIn } = useAppState();
+  const { signIn, syncState } = useAppState();
+  const location = useLocation();
   const [authorizing, setAuthorizing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const locationState = location.state as { reason?: string } | null;
+  const notice =
+    locationState?.reason === "signed-out" ? "账户已解绑，请重新连接 Bangumi 后继续使用。" : null;
+  const authError = error ?? syncState?.lastSyncError;
 
   async function connect(): Promise<void> {
     setAuthorizing(true);
+    setError(null);
     try {
       await signIn();
-    } catch {
+    } catch (connectError) {
+      setError(errorMessage(connectError));
       setAuthorizing(false);
     }
   }
@@ -130,6 +140,20 @@ export function SignInRoute() {
               ))}
             </div>
 
+            {notice ? (
+              <div className="border-mint-200 bg-mint-50 text-mint-600 dark:border-mint-400/20 dark:bg-mint-400/10 mt-4 flex items-start gap-2.5 rounded-[14px] border p-3 text-left text-[12.5px] leading-relaxed font-semibold">
+                <Check className="mt-0.5 size-4 flex-none" />
+                <span>{notice}</span>
+              </div>
+            ) : null}
+
+            {authError ? (
+              <div className="border-cherry-500/30 text-cherry-600 dark:border-cherry-500/25 dark:bg-cherry-500/10 mt-4 flex items-start gap-2.5 rounded-[14px] border bg-[#ffe6ea] p-3 text-left text-[12.5px] leading-relaxed font-semibold">
+                <AlertCircle className="mt-0.5 size-4 flex-none" />
+                <span>{authError}</span>
+              </div>
+            ) : null}
+
             <a
               className="text-ink-faint mt-4 flex items-center justify-center gap-1.5 text-[12.5px] font-semibold"
               href="https://bgm.tv"
@@ -139,15 +163,16 @@ export function SignInRoute() {
               <ExternalLink className="size-4" />
               什么是 Bangumi？
             </a>
-            <div
-              className="text-ink-faint hover:text-ink-soft mt-4 cursor-pointer text-[12.5px] font-semibold"
-              onClick={() => void connect()}
-            >
-              稍后再说，先随便逛逛 →
+            <div className="text-ink-faint mt-4 text-[12.5px] font-semibold">
+              登录成功后会自动进入首页。
             </div>
           </div>
         )}
       </div>
     </WindowFrame>
   );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Bangumi 授权失败，请稍后重试。";
 }

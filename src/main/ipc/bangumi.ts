@@ -25,27 +25,25 @@ const trackingMutationSchema = z.discriminatedUnion("kind", [
 ]);
 
 export function registerBangumiIpc(): void {
-  const service = getBangumiService();
-
-  handle("bangumi:getSession", () => service.getSession());
-  handle("bangumi:signIn", () => service.signIn());
-  handle("bangumi:signOut", () => service.signOut());
+  handle("bangumi:getSession", () => getBangumiService().getSession());
+  handle("bangumi:signIn", () => getBangumiService().signIn());
+  handle("bangumi:signOut", () => getBangumiService().signOut());
   handle("bangumi:listCollection", (filter?: CollectionFilter) =>
-    service.listCollection(filterSchema.parse(filter))
+    getBangumiService().listCollection(filterSchema.parse(filter))
   );
   handle("bangumi:getSubject", (subjectId: number) =>
-    service.getSubject(z.number().int().positive().parse(subjectId))
+    getBangumiService().getSubject(z.number().int().positive().parse(subjectId))
   );
   handle("bangumi:searchSubjects", (keyword: string) =>
-    service.searchSubjects(z.string().trim().min(1).parse(keyword))
+    getBangumiService().searchSubjects(z.string().trim().min(1).parse(keyword))
   );
   handle("bangumi:updateTracking", (input: TrackingMutation) =>
-    service.updateTracking(trackingMutationSchema.parse(input))
+    getBangumiService().updateTracking(trackingMutationSchema.parse(input))
   );
   handle("bangumi:refreshCollection", (force?: boolean) =>
-    service.refreshCollection(z.boolean().optional().parse(force))
+    getBangumiService().refreshCollection(z.boolean().optional().parse(force))
   );
-  handle("bangumi:getSyncState", () => service.getSyncState());
+  handle("bangumi:getSyncState", () => getBangumiService().getSyncState());
 }
 
 function handle<Args extends unknown[], Result>(

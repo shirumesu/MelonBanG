@@ -26,11 +26,17 @@ export function AppRouter() {
   }
 
   if (!session) {
-    return <SignInRoute />;
+    return (
+      <Routes>
+        <Route path="/signin" element={<SignInRoute />} />
+        <Route path="*" element={<Navigate to="/signin" replace />} />
+      </Routes>
+    );
   }
 
   return (
     <Routes>
+      <Route path="/signin" element={<Navigate to="/home" replace />} />
       <Route element={<AppShell />}>
         <Route index element={<Navigate to="/home" replace />} />
         <Route path="/home" element={<HomeRoute />} />

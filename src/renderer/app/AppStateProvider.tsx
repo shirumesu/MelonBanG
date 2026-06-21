@@ -51,16 +51,35 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       } else {
         setHomeItems([]);
       }
+    } catch (error) {
+      setSession(null);
+      setSyncState({
+        stale: true,
+        pendingMutationCount: 0,
+        lastSyncError: errorMessage(error)
+      });
+      setHomeItems([]);
     } finally {
       setIsBootstrapping(false);
     }
   }
 
   async function signIn(): Promise<void> {
-    const nextSession = await window.melonbang.bangumi.signIn();
-    setSession(nextSession);
-    setSyncState(await window.melonbang.bangumi.getSyncState());
-    setHomeItems(await window.melonbang.bangumi.listCollection({ status: "watching" }));
+    try {
+      const nextSession = await window.melonbang.bangumi.signIn();
+      setSession(nextSession);
+      setSyncState(await window.melonbang.bangumi.getSyncState());
+      setHomeItems(await window.melonbang.bangumi.listCollection({ status: "watching" }));
+    } catch (error) {
+      setSession(null);
+      setSyncState({
+        stale: true,
+        pendingMutationCount: 0,
+        lastSyncError: errorMessage(error)
+      });
+      setHomeItems([]);
+      throw error;
+    }
   }
 
   async function signOut(): Promise<void> {
@@ -113,4 +132,8 @@ export function useAppState(): AppStateValue {
     throw new Error("AppStateProvider is missing.");
   }
   return value;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "未知错误";
 }

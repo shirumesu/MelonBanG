@@ -249,9 +249,22 @@ function sectionDomId(category: SettingsCategory, section: string): string {
   return `settings-${category}-${section}`;
 }
 
+function formatSyncTime(value: string | undefined): string {
+  if (!value) {
+    return "尚未同步";
+  }
+
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return value;
+  }
+
+  return new Date(timestamp).toLocaleString("zh-CN", { hour12: false });
+}
+
 export function SettingsRoute() {
   const navigate = useNavigate();
-  const { session, syncState } = useAppState();
+  const { session, syncState, signOut, refreshCollection } = useAppState();
   const { accent, mode, resolvedTheme, setAccent, setMode } = useTheme();
   const mainRef = useRef<HTMLElement>(null);
   const [active, setActive] = useState<SettingsCategory>("account");
@@ -262,6 +275,8 @@ export function SettingsRoute() {
   const [cacheDirectory, setCacheDirectory] = useState(directoryOptions[0]);
   const [customDirectory, setCustomDirectory] = useState("");
   const [lastSyncLabel, setLastSyncLabel] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   const [syncFrequency, setSyncFrequency] =
     useState<(typeof choiceOptions.syncFrequency)[number]["value"]>("realtime");
@@ -318,7 +333,16 @@ export function SettingsRoute() {
     []
   );
 
-  const syncDescription = `${lastSyncLabel ?? syncState?.lastSuccessfulSyncAt ?? "2026-06-20 14:32"} · ${
+  const isAccountConnected = Boolean(session);
+  const accountName = session ? session.nickname || session.username : "未连接 Bangumi";
+  const accountInitial = accountName.slice(0, 1);
+  const accountSubtitle = session
+    ? `@${session.username} · Bangumi ID ${session.userId}`
+    : "本机没有已保存的 Bangumi 登录凭证";
+  const accountProfileUrl = session
+    ? `https://bgm.tv/user/${encodeURIComponent(session.username)}`
+    : null;
+  const syncDescription = `${lastSyncLabel ?? formatSyncTime(syncState?.lastSuccessfulSyncAt)} · ${
     syncState?.pendingMutationCount ?? 0
   } 项待同步变更`;
 
@@ -355,9 +379,28 @@ export function SettingsRoute() {
     setToggles((current) => ({ ...current, [key]: checked }));
   }
 
-  function handleMockSync(): void {
-    setLastSyncLabel(new Date().toLocaleString("zh-CN", { hour12: false }));
-    showToast("同步完成", "收藏、进度与待同步状态已完成一次前端模拟刷新。");
+  async function handleSync(): Promise<void> {
+    setSyncing(true);
+    try {
+      await refreshCollection(true);
+      setLastSyncLabel(new Date().toLocaleString("zh-CN", { hour12: false }));
+      showToast("同步完成", "收藏、进度与待同步状态已刷新。");
+    } catch (error) {
+      showToast("同步失败", error instanceof Error ? error.message : "请稍后重试。");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function handleDisconnect(): Promise<void> {
+    setDisconnecting(true);
+    try {
+      await signOut();
+      void navigate("/signin", { replace: true, state: { reason: "signed-out" } });
+    } catch (error) {
+      setDisconnecting(false);
+      showToast("解绑失败", error instanceof Error ? error.message : "请稍后重试。");
+    }
   }
 
   function handleDirectoryConfirm(): void {
@@ -442,30 +485,40 @@ export function SettingsRoute() {
 
               <SettingsGroup category="account" section="connection" title="账户">
                 <div className="border-line bg-surface mt-4 flex items-center gap-4 rounded-[20px] border p-[18px] shadow-[var(--shadow-sm)]">
-                  <GradientAvatar initial={session?.nickname?.slice(0, 1) ?? "栞"} size="lg" />
+                  <GradientAvatar initial={accountInitial} size="lg" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <b className="truncate text-base">{session?.nickname ?? "栞めす"}</b>
-                      <Badge variant="mint" className="text-[10px]">
-                        已连接
+                      <b className="truncate text-base">{accountName}</b>
+                      <Badge
+                        variant={isAccountConnected ? "mint" : "outline"}
+                        className="text-[10px]"
+                      >
+                        {isAccountConnected ? "已连接" : "未连接"}
                       </Badge>
                     </div>
                     <div className="text-ink-faint mt-0.5 truncate text-[12.5px]">
-                      @{session?.username ?? "shirumesu"} · Bangumi ID {session?.userId ?? "839778"}
+                      {accountSubtitle}
                     </div>
                   </div>
-                  <Button variant="soft" size="sm" asChild>
-                    <a href="https://bgm.tv" target="_blank" rel="noreferrer">
-                      <ExternalLink className="size-4" />
-                      主页
-                    </a>
-                  </Button>
+                  {accountProfileUrl ? (
+                    <Button variant="soft" size="sm" asChild>
+                      <a href={accountProfileUrl} target="_blank" rel="noreferrer">
+                        <ExternalLink className="size-4" />
+                        主页
+                      </a>
+                    </Button>
+                  ) : (
+                    <Button variant="soft" size="sm" onClick={() => void navigate("/signin")}>
+                      去登录
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => showToast("已模拟解绑", "账户连接状态未写入真实数据。")}
+                    disabled={!isAccountConnected || disconnecting}
+                    onClick={() => void handleDisconnect()}
                   >
-                    解绑
+                    {disconnecting ? "解绑中…" : "解绑"}
                   </Button>
                 </div>
               </SettingsGroup>
@@ -486,9 +539,9 @@ export function SettingsRoute() {
                   />
                 </SettingsRow>
                 <SettingsRow title="上次同步" description={syncDescription}>
-                  <Button size="sm" onClick={handleMockSync}>
-                    <RefreshCw className="size-4" />
-                    立即同步
+                  <Button size="sm" onClick={() => void handleSync()} disabled={syncing}>
+                    <RefreshCw className={cn("size-4", syncing && "animate-spin")} />
+                    {syncing ? "同步中…" : "立即同步"}
                   </Button>
                 </SettingsRow>
               </SettingsGroup>

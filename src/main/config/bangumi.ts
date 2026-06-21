@@ -11,13 +11,17 @@ export type BangumiOAuthConfig = {
 
 type LocalBangumiOAuthConfig = Partial<BangumiOAuthConfig>;
 
+export const DEFAULT_BANGUMI_REDIRECT_URI = "http://127.0.0.1:14567/callback";
+
 export function getBangumiOAuthConfig(): BangumiOAuthConfig | null {
   const localConfig = readLocalBangumiOAuthConfig();
   const clientId = readConfigValue("BANGUMI_CLIENT_ID", localConfig.clientId);
   const clientSecret = readConfigValue("BANGUMI_CLIENT_SECRET", localConfig.clientSecret);
-  const redirectUri = readConfigValue("BANGUMI_REDIRECT_URI", localConfig.redirectUri);
+  const redirectUri =
+    readConfigValue("BANGUMI_REDIRECT_URI", localConfig.redirectUri) ??
+    DEFAULT_BANGUMI_REDIRECT_URI;
 
-  if (!clientId || !clientSecret || !redirectUri) {
+  if (!clientId || !clientSecret) {
     return null;
   }
 
