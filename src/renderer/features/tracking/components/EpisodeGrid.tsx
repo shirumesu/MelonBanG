@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import type { EpisodeCollectionState, EpisodeStatus } from "@shared/contracts/bangumi";
 import { cn } from "@/lib/utils";
 
@@ -7,7 +8,7 @@ export function EpisodeGrid({
 }: {
   episodes: EpisodeCollectionState[];
   onSelect?: (episode: EpisodeCollectionState) => void;
-}): JSX.Element {
+}): ReactElement {
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(58px,1fr))] gap-2.5">
       {episodes.map((episode) => (

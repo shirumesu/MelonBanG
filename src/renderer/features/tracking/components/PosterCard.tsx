@@ -1,5 +1,5 @@
 import { Play } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { CollectionListItem } from "@shared/contracts/bangumi";
 import { ArtworkCard } from "@/components/melon/artwork";
@@ -15,7 +15,7 @@ export function PosterCard({
   item: CollectionListItem;
   compact?: boolean;
   extra?: ReactNode;
-}): JSX.Element {
+}): ReactElement {
   const meta = collectionStatusMeta[item.collection.status];
   const progressText = item.nextEpisode
     ? `看到 EP${Math.max(1, item.nextEpisode.sort - (item.nextEpisode.status === "watched" ? 0 : 1))}`

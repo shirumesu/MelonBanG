@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, SlidersHorizontal } from "lucide-react";
+import { ChevronLeft, Inbox, SlidersHorizontal } from "lucide-react";
 import { TODAY_INDEX, WEEK } from "@/data/schedule";
 import { Timeline } from "@/components/melon/Timeline";
 import { IconButton, SearchBox, Topbar } from "@/components/melon/layout";
@@ -18,7 +18,7 @@ export function ScheduleRoute() {
         title="新番时间表"
         subtitle="2026 夏季 · 每周放送"
         leading={
-          <IconButton onClick={() => navigate("/home")}>
+          <IconButton onClick={() => void navigate("/home")}>
             <ChevronLeft />
           </IconButton>
         }
@@ -71,7 +71,7 @@ export function ScheduleRoute() {
         <div className="px-[26px] pb-10">
           {day.items.length === 0 ? (
             <div className="text-ink-faint flex flex-col items-center justify-center py-20 text-center">
-              <div className="text-[56px]">📭</div>
+              <Inbox className="size-14" />
               <b className="text-ink-soft mt-3 text-base">本日暂无新番放送</b>
               <p className="mt-1.5 text-[13px]">选择其他日期查看新番时间表</p>
             </div>

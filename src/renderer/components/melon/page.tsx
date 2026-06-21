@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -17,7 +17,7 @@ export function PageHeader({
   searchValue?: string;
   onSearchChange?: (value: string) => void;
   searchPlaceholder?: string;
-}): JSX.Element {
+}): ReactElement {
   return (
     <div className="from-background via-background sticky top-0 z-20 flex items-center gap-4 bg-linear-to-b to-transparent py-6">
       <div>
@@ -52,7 +52,7 @@ export function SectionTitle({
   title: ReactNode;
   subtitle?: ReactNode;
   action?: ReactNode;
-}): JSX.Element {
+}): ReactElement {
   return (
     <div className="mb-4 flex items-end gap-3">
       <div className="text-[17px] font-black">{title}</div>
@@ -70,6 +70,6 @@ export function PageSection({
 }: {
   className?: string;
   children: ReactNode;
-}): JSX.Element {
+}): ReactElement {
   return <section className={cn("mt-7", className)}>{children}</section>;
 }

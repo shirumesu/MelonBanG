@@ -72,7 +72,7 @@ const continueSeed = [
 
 export const CONTINUE_ITEMS: ContinueItem[] = continueSeed.map((entry, index) => ({
   index,
-  title: ["夏日终幕的我们", "缔造神话的少女们", "刀锋上的舞者", "天空彼端的信", "星之追忆", "光与影的协奏", "绯色的契约", "创世笔记"][index]!,
+  title: ["夏日终幕的我们", "缔造神话的少女们", "刀锋上的舞者", "天空彼端的信", "星之追忆", "光与影的协奏", "绯色的契约", "创世笔记"][index],
   score: (8 + (index % 3) * 0.3).toFixed(1),
   currentEp: entry.currentEp,
   progress: entry.progress

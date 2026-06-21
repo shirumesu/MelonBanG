@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { ReactElement } from "react";
 import { ChevronLeft, ChevronRight, Heart, Play } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { CollectionListItem } from "@shared/contracts/bangumi";
@@ -11,7 +12,7 @@ const heroBackgrounds = [
   "radial-gradient(130% 130% at 86% 6%,rgba(255,255,255,.16),transparent 44%),linear-gradient(115deg,#c0641d,#ef7f43 44%,#ff5f7a)"
 ];
 
-export function HomeHero({ items }: { items: CollectionListItem[] }): JSX.Element {
+export function HomeHero({ items }: { items: CollectionListItem[] }): ReactElement {
   const slides = useMemo(
     () =>
       items.slice(0, 3).map((item, index) => ({

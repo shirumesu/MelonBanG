@@ -44,10 +44,10 @@ export const STORAGE = {
 };
 
 export const CACHE_TABS = [
-  { label: "⬇️ 正在下载", count: "3" },
-  { label: "⏳ 排队中", count: "2" },
-  { label: "✅ 已完成", count: "24" },
-  { label: "📂 全部", count: "" }
+  { label: "正在下载", count: "3" },
+  { label: "排队中", count: "2" },
+  { label: "已完成", count: "24" },
+  { label: "全部", count: "" }
 ];
 
 export const DOWNLOADING: DownloadTask[] = [
@@ -97,15 +97,79 @@ export const DOWNLOADING: DownloadTask[] = [
 ];
 
 export const QUEUED: QueuedTask[] = [
-  { index: 3, kanji: "創", title: "创世笔记", ep: "06", quality: "1080P", size: "1.3 GB", position: 1 },
-  { index: 4, kanji: "旅", title: "千里旅人", ep: "09", quality: "1080P", size: "1.4 GB", position: 2 }
+  {
+    index: 3,
+    kanji: "創",
+    title: "创世笔记",
+    ep: "06",
+    quality: "1080P",
+    size: "1.3 GB",
+    position: 1
+  },
+  {
+    index: 4,
+    kanji: "旅",
+    title: "千里旅人",
+    ep: "09",
+    quality: "1080P",
+    size: "1.4 GB",
+    position: 2
+  }
 ];
 
 export const COMPLETED: CompletedItem[] = [
-  { index: 0, kanji: "夏", title: "光与影的协奏", episodes: 12, size: "4.2 GB", score: "8.0", quality: "1080P" },
-  { index: 1, kanji: "刃", title: "绯色的契约", episodes: 13, size: "3.8 GB", score: "8.3", quality: "720P" },
-  { index: 2, kanji: "星", title: "蒼之纪元", episodes: 24, size: "9.1 GB", score: "8.6", quality: "1080P" },
-  { index: 3, kanji: "創", title: "奏响的青春", episodes: 11, size: "3.1 GB", score: "8.0", quality: "720P" },
-  { index: 4, kanji: "旅", title: "幻夜咖啡馆", episodes: 12, size: "4.0 GB", score: "8.3", quality: "1080P" },
-  { index: 5, kanji: "奏", title: "逐风之翼", episodes: 24, size: "8.6 GB", score: "8.6", quality: "720P" }
+  {
+    index: 0,
+    kanji: "夏",
+    title: "光与影的协奏",
+    episodes: 12,
+    size: "4.2 GB",
+    score: "8.0",
+    quality: "1080P"
+  },
+  {
+    index: 1,
+    kanji: "刃",
+    title: "绯色的契约",
+    episodes: 13,
+    size: "3.8 GB",
+    score: "8.3",
+    quality: "720P"
+  },
+  {
+    index: 2,
+    kanji: "星",
+    title: "蒼之纪元",
+    episodes: 24,
+    size: "9.1 GB",
+    score: "8.6",
+    quality: "1080P"
+  },
+  {
+    index: 3,
+    kanji: "創",
+    title: "奏响的青春",
+    episodes: 11,
+    size: "3.1 GB",
+    score: "8.0",
+    quality: "720P"
+  },
+  {
+    index: 4,
+    kanji: "旅",
+    title: "幻夜咖啡馆",
+    episodes: 12,
+    size: "4.0 GB",
+    score: "8.3",
+    quality: "1080P"
+  },
+  {
+    index: 5,
+    kanji: "奏",
+    title: "逐风之翼",
+    episodes: 24,
+    size: "8.6 GB",
+    score: "8.6",
+    quality: "720P"
+  }
 ];

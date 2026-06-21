@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import { cn } from "@/lib/utils";
 
 const gradients = [
@@ -25,7 +26,7 @@ export function ArtworkCard({
   title: string;
   className?: string;
   overlay?: boolean;
-}): JSX.Element {
+}): ReactElement {
   const gradient = gradients[id % gradients.length];
   const mark = extractMark(title);
 

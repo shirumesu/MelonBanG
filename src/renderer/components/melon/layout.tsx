@@ -16,9 +16,9 @@ export function Topbar({
   children?: ReactNode;
 }) {
   return (
-    <div className="bg-[linear-gradient(180deg,var(--bg)_60%,transparent)] sticky top-0 z-20 flex items-center gap-3.5 px-[26px] py-4">
+    <div className="bg-[linear-gradient(180deg,var(--bg)_60%,transparent)] sticky top-0 z-20 flex min-w-0 items-center gap-3.5 px-[26px] py-4">
       {leading}
-      <div>
+      <div className="min-w-0">
         <div className="font-extrabold tracking-[0.01em]" style={{ fontSize: titleSize }}>
           {title}
         </div>
@@ -26,7 +26,7 @@ export function Topbar({
           <div className="text-ink-faint mt-px text-[12.5px] font-semibold">{subtitle}</div>
         ) : null}
       </div>
-      {children ? <div className="ml-auto flex items-center gap-3.5">{children}</div> : null}
+      {children ? <div className="ml-auto flex min-w-0 items-center gap-3.5">{children}</div> : null}
     </div>
   );
 }
@@ -145,7 +145,7 @@ export function PageContent({
   return (
     <div
       className={cn(
-        "flex-1 overflow-auto px-[26px] pt-1.5 pb-10",
+        "min-w-0 flex-1 overflow-auto px-[26px] pt-1.5 pb-10",
         narrow && "mx-auto w-full max-w-[1180px]",
         className
       )}

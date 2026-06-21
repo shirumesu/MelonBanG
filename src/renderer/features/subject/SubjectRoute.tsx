@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Play } from "lucide-react";
 import { SUBJECT_DEMO, buildEpisodes } from "@/data/subject";
@@ -20,7 +21,7 @@ function Divider() {
   return <div className="bg-line my-[18px] h-px" />;
 }
 
-function SectionTitle({ size, children }: { size: 16 | 18; children: React.ReactNode }) {
+function SectionTitle({ size, children }: { size: 16 | 18; children: ReactNode }) {
   return (
     <div className="mb-3 font-extrabold" style={{ fontSize: size }}>
       {children}
@@ -37,7 +38,7 @@ export function SubjectRoute() {
 
   const playEpisode = (): void => {
     setEpOpen(false);
-    navigate("/player");
+    void navigate("/player");
   };
 
   return (
@@ -46,7 +47,7 @@ export function SubjectRoute() {
         title="番剧详情"
         titleSize={18}
         leading={
-          <IconButton onClick={() => navigate(-1)}>
+          <IconButton onClick={() => void navigate(-1)}>
             <ChevronLeft />
           </IconButton>
         }
@@ -125,11 +126,9 @@ export function SubjectRoute() {
                     "relative grid aspect-square place-items-center rounded-[11px] border text-[15px] font-extrabold transition",
                     ep.current &&
                       "text-on-accent border-transparent bg-[linear-gradient(135deg,var(--mint-400),var(--mint-300))] shadow-[0_6px_14px_rgba(34,179,136,.3)]",
-                    ep.watched &&
-                      !ep.current &&
-                      "border-mint-200 bg-mint-50 text-mint-600",
+                    ep.watched && !ep.current && "border-mint-200 bg-mint-50 text-mint-600",
                     ep.unaired &&
-                      "text-ink-faint cursor-not-allowed border-line bg-[repeating-linear-gradient(45deg,var(--surface-2),var(--surface-2)_6px,var(--surface-3)_6px,var(--surface-3)_12px)] opacity-45",
+                      "text-ink-faint border-line cursor-not-allowed bg-[repeating-linear-gradient(45deg,var(--surface-2),var(--surface-2)_6px,var(--surface-3)_6px,var(--surface-3)_12px)] opacity-45",
                     !ep.current &&
                       !ep.watched &&
                       !ep.unaired &&
@@ -138,7 +137,9 @@ export function SubjectRoute() {
                 >
                   {ep.n}
                   {ep.watched && !ep.current ? (
-                    <span className="text-mint-500 absolute top-[3px] right-[5px] text-[10px]">✓</span>
+                    <span className="text-mint-500 absolute top-[3px] right-[5px] text-[10px]">
+                      ✓
+                    </span>
                   ) : null}
                 </button>
               ))}

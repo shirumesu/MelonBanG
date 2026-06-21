@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bell, ChevronRight } from "lucide-react";
+import { Bell, ChevronRight, PlayCircle, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { TODAY_ITEMS, TODAY_SUBTITLE } from "@/data/home";
 import { HeroCarousel } from "./components/HeroCarousel";
@@ -40,7 +40,8 @@ export function HomeRoute() {
           <SectionHead
             title={
               <>
-                <span className="text-[19px]">▶️</span>继续播放
+                <PlayCircle className="text-mint-500 size-[19px]" />
+                继续播放
               </>
             }
             sub="接着上次看"
@@ -52,7 +53,8 @@ export function HomeRoute() {
           <SectionHead
             title={
               <>
-                <span className="text-[19px]">🆕</span>今日更新
+                <Sparkles className="text-cherry-500 size-[19px]" />
+                今日更新
               </>
             }
             sub={TODAY_SUBTITLE}

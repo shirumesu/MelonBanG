@@ -1,5 +1,6 @@
 import { Bell, Play } from "lucide-react";
 import { Link } from "react-router-dom";
+import type { ReactElement } from "react";
 import type { CollectionListItem } from "@shared/contracts/bangumi";
 import { ArtworkCard } from "@/components/melon/artwork";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +8,7 @@ import { Button } from "@/components/ui/button";
 
 const scheduleTimes = ["02:00", "12:30", "19:00", "22:00", "23:30", "24:00"];
 
-export function TodayTimeline({ items }: { items: CollectionListItem[] }): JSX.Element {
+export function TodayTimeline({ items }: { items: CollectionListItem[] }): ReactElement {
   return (
     <div className="flex flex-col">
       {items.slice(0, 6).map((item, index) => {

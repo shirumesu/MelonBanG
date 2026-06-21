@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { ArrowUp, ChevronRight, Folder, Pause, Trash2 } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUp,
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
+  Folder,
+  FolderOpen,
+  Pause,
+  Trash2
+} from "lucide-react";
 import {
   CACHE_TABS,
   COMPLETED,
@@ -17,7 +27,17 @@ import { Card } from "@/components/ui/card";
 import { artGradient } from "@/data/artwork";
 import { cn } from "@/lib/utils";
 
-function Cover({ index, kanji, desaturate }: { index: number; kanji: string; desaturate?: boolean }) {
+const CACHE_TAB_ICONS = [ArrowDownToLine, Clock3, CheckCircle2, FolderOpen];
+
+function Cover({
+  index,
+  kanji,
+  desaturate
+}: {
+  index: number;
+  kanji: string;
+  desaturate?: boolean;
+}) {
   return (
     <div
       className="relative h-16 w-12 flex-none overflow-hidden rounded-[9px] shadow-[var(--shadow-sm)]"
@@ -139,7 +159,9 @@ export function CacheRoute() {
         <Card className="flex items-center gap-[18px] p-[16px_18px]">
           <div
             className="grid size-[54px] flex-none place-items-center rounded-full"
-            style={{ background: "conic-gradient(var(--mint-400) 0 48%, var(--surface-3) 48% 100%)" }}
+            style={{
+              background: "conic-gradient(var(--mint-400) 0 48%, var(--surface-3) 48% 100%)"
+            }}
           >
             <div className="bg-surface text-mint-600 grid size-[42px] place-items-center rounded-full text-[13px] font-extrabold">
               {STORAGE.pct}%
@@ -176,6 +198,7 @@ export function CacheRoute() {
         <div className="border-line bg-surface mt-5 inline-flex gap-1 rounded-full border p-1.5 shadow-[var(--shadow-sm)]">
           {CACHE_TABS.map((entry, i) => {
             const active = i === tab;
+            const TabIcon = CACHE_TAB_ICONS[i] ?? FolderOpen;
             return (
               <button
                 key={entry.label}
@@ -188,6 +211,7 @@ export function CacheRoute() {
                     : "text-ink-soft hover:text-ink"
                 )}
               >
+                <TabIcon className="size-4" />
                 {entry.label}
                 {entry.count ? (
                   <span
@@ -208,7 +232,8 @@ export function CacheRoute() {
           <SectionHead
             title={
               <>
-                <span className="text-[15px]">⬇️</span>正在下载
+                <ArrowDownToLine className="text-mint-500 size-[15px]" />
+                正在下载
               </>
             }
           />
@@ -223,7 +248,8 @@ export function CacheRoute() {
           <SectionHead
             title={
               <>
-                <span className="text-[15px]">⏳</span>排队中
+                <Clock3 className="text-gold-500 size-[15px]" />
+                排队中
               </>
             }
           />
@@ -238,7 +264,8 @@ export function CacheRoute() {
           <SectionHead
             title={
               <>
-                <span className="text-[15px]">✅</span>已完成 · 可播放
+                <CheckCircle2 className="size-[15px] text-sky-500" />
+                已完成 · 可播放
               </>
             }
             action={
@@ -247,7 +274,7 @@ export function CacheRoute() {
               </span>
             }
           />
-          <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(168px,1fr))]">
+          <div className="grid [grid-template-columns:repeat(auto-fill,minmax(168px,1fr))] gap-4">
             {COMPLETED.map((item) => (
               <Poster
                 key={item.index}

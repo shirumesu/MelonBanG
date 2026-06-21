@@ -7,7 +7,7 @@ export function AppShell() {
     <WindowFrame>
       <div className="grid h-full min-h-0 grid-cols-[236px_1fr]">
         <Sidebar />
-        <main className="flex min-h-0 flex-col">
+        <main className="flex min-h-0 min-w-0 flex-col">
           <Outlet />
         </main>
       </div>

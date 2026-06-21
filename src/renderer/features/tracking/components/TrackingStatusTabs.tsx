@@ -1,6 +1,6 @@
 import type { CollectionStatus } from "@shared/contracts/bangumi";
 import { Bookmark, CheckCircle2, Eye, PauseCircle, XCircle } from "lucide-react";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactElement } from "react";
 import { TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const statusConfig: Array<{
@@ -21,7 +21,7 @@ export function TrackingStatusTabs({
 }: {
   counts: Record<CollectionStatus, number>;
   value: CollectionStatus;
-}): JSX.Element {
+}): ReactElement {
   return (
     <TabsList className="flex flex-wrap gap-1 rounded-full">
       {statusConfig.map(({ status, label, icon: Icon }) => (

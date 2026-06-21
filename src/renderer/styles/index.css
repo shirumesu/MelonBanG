@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ============================================================
    melonbang · design tokens
    Ported from DESIGN/design-system.css ("melon soda" language).
