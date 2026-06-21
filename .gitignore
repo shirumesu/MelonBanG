@@ -1,2 +1,17 @@
-# Gei spec system - internal agent state, not product source
-spec/
+# Gei spec system - internal agent state, keep runnable tests visible
+spec/*
+DESIGN/
+node_modules/
+out/
+.codex-*.log
+dist/
+coverage/
+.vite/
+.cache/
+*.log
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+Thumbs.db
+Desktop.ini

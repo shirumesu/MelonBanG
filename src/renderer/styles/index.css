@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+:root {
+  --background: #eef3f1;
+  --foreground: #243239;
+  --card: #ffffff;
+  --card-foreground: #243239;
+  --popover: #ffffff;
+  --popover-foreground: #243239;
+  --primary: #43c99f;
+  --primary-foreground: #08321f;
+  --secondary: #f6f9f8;
+  --secondary-foreground: #243239;
+  --muted: #eef2f1;
+  --muted-foreground: #5c6b72;
+  --accent: #ff6b81;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4f69;
+  --destructive-foreground: #ffffff;
+  --border: #e6ece9;
+  --input: #e6ece9;
+  --ring: color-mix(in srgb, var(--primary) 35%, transparent);
+  --radius: 1.25rem;
+  --surface-2: #f6f9f8;
+  --surface-3: #eef2f1;
+  --line-strong: #d6e0db;
+  --shadow-sm: 0 1px 2px rgba(35, 60, 50, 0.06), 0 2px 8px rgba(35, 60, 50, 0.05);
+  --shadow-md: 0 6px 18px rgba(35, 60, 50, 0.1), 0 2px 6px rgba(35, 60, 50, 0.06);
+  --shadow-lg: 0 18px 50px rgba(28, 55, 45, 0.18);
+  --mint-50: #eafaf3;
+  --mint-100: #d2f4e6;
+  --mint-200: #a7e9cf;
+  --mint-300: #6fd9b1;
+  --mint-400: #43c99f;
+  --mint-500: #22b388;
+  --mint-600: #129a73;
+  --sky-400: #8bbcf6;
+  --sky-500: #6aa6f0;
+  --grape-400: #b6a4f0;
+  --grape-500: #9c87e8;
+  --gold-400: #ffcf6b;
+  --gold-500: #ffb83d;
+  --cherry-300: #ffb0bd;
+  --cherry-400: #ff869a;
+  --cherry-500: #ff6b81;
+  --cherry-600: #ef4f69;
+  color-scheme: light;
+}
+
+.dark {
+  --background: #0f1722;
+  --foreground: #e7eef1;
+  --card: #16202d;
+  --card-foreground: #e7eef1;
+  --popover: #16202d;
+  --popover-foreground: #e7eef1;
+  --primary: #43c99f;
+  --primary-foreground: #06251a;
+  --secondary: #1b2735;
+  --secondary-foreground: #e7eef1;
+  --muted: #212f3f;
+  --muted-foreground: #9fb0b8;
+  --accent: #ff6b81;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4f69;
+  --destructive-foreground: #ffffff;
+  --border: #26323f;
+  --input: #26323f;
+  --ring: color-mix(in srgb, var(--primary) 35%, transparent);
+  --surface-2: #1b2735;
+  --surface-3: #212f3f;
+  --line-strong: #33424f;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 8px 22px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 22px 60px rgba(0, 0, 0, 0.55);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 8px);
+  --radius-md: calc(var(--radius) - 6px);
+  --radius-lg: calc(var(--radius) - 2px);
+  --radius-xl: var(--radius);
+  --font-sans: "M PLUS Rounded 1c", "Nunito", system-ui, "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(1200px 600px at 12% -8%, #e7f7ef 0%, rgba(231, 247, 239, 0) 60%),
+    radial-gradient(900px 520px at 100% 0%, #eaf1ff 0%, rgba(234, 241, 255, 0) 55%),
+    var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+.dark body {
+  background:
+    radial-gradient(1200px 600px at 12% -8%, #11302a 0%, rgba(17, 48, 42, 0) 60%),
+    radial-gradient(900px 520px at 100% 0%, #1a2740 0%, rgba(26, 39, 64, 0) 55%), var(--background);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
