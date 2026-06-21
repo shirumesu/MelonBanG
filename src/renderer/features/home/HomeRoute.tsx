@@ -1,51 +1,73 @@
-import { ArrowRight } from "lucide-react";
+import { useState } from "react";
+import { Bell, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useMemo } from "react";
-import { useAppState } from "@/app/AppStateProvider";
-import { PageHeader, PageSection, SectionTitle } from "@/components/melon/page";
-import { HomeHero } from "./components/HomeHero";
+import { TODAY_ITEMS, TODAY_SUBTITLE } from "@/data/home";
+import { HeroCarousel } from "./components/HeroCarousel";
 import { ContinueRail } from "./components/ContinueRail";
-import { TodayTimeline } from "./components/TodayTimeline";
+import { Timeline } from "@/components/melon/Timeline";
+import {
+  IconButton,
+  PageContent,
+  SearchBox,
+  Section,
+  SectionHead,
+  SyncPill,
+  Topbar
+} from "@/components/melon/layout";
 
 export function HomeRoute() {
-  const { homeItems, syncState } = useAppState();
-  const updates = useMemo(() => [...homeItems].slice(0, 6), [homeItems]);
+  const [search, setSearch] = useState("");
 
   return (
-    <div className="pb-8">
-      <PageHeader
-        title="探索"
-        subtitle={`Goal 1 追番基础界面 · ${homeItems.length} 部作品已接入`}
-        actions={
-          <div className="rounded-full border border-[var(--mint-200)] bg-[var(--mint-50)] px-4 py-2 text-xs font-extrabold text-[var(--mint-600)]">
-            {syncState?.lastSuccessfulSyncAt ? "已同步" : "待同步"}
-          </div>
-        }
-      />
-
-      <HomeHero items={homeItems} />
-
-      <PageSection>
-        <SectionTitle title="继续播放" subtitle="接着上次看到的地方" />
-        <ContinueRail items={homeItems} />
-      </PageSection>
-
-      <PageSection>
-        <SectionTitle
-          title="今日更新"
-          subtitle={`周五 · ${updates.length} 部有新集`}
-          action={
-            <Link
-              to="/tracking"
-              className="text-muted-foreground inline-flex items-center gap-1 text-xs font-extrabold transition hover:text-[var(--mint-600)]"
-            >
-              新番时间表
-              <ArrowRight className="size-3.5" />
-            </Link>
-          }
+    <>
+      <Topbar title="探索" subtitle="2026 夏季新番放送中 · 共 312 部">
+        <SearchBox
+          className="min-w-[280px]"
+          placeholder="搜索番剧、角色、制作公司…"
+          value={search}
+          onChange={setSearch}
         />
-        <TodayTimeline items={updates} />
-      </PageSection>
-    </div>
+        <SyncPill label="已同步 · 2 分钟前" />
+        <IconButton badge={5}>
+          <Bell />
+        </IconButton>
+      </Topbar>
+
+      <PageContent>
+        <HeroCarousel />
+
+        <Section>
+          <SectionHead
+            title={
+              <>
+                <span className="text-[19px]">▶️</span>继续播放
+              </>
+            }
+            sub="接着上次看"
+          />
+          <ContinueRail />
+        </Section>
+
+        <Section>
+          <SectionHead
+            title={
+              <>
+                <span className="text-[19px]">🆕</span>今日更新
+              </>
+            }
+            sub={TODAY_SUBTITLE}
+            action={
+              <Link
+                to="/schedule"
+                className="text-ink-faint hover:text-mint-500 inline-flex items-center gap-1 text-[12.5px] font-bold"
+              >
+                新番时间表 <ChevronRight className="size-4" />
+              </Link>
+            }
+          />
+          <Timeline items={TODAY_ITEMS} />
+        </Section>
+      </PageContent>
+    </>
   );
 }

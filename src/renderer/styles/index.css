@@ -1,32 +1,14 @@
 @import "tailwindcss";
 
+/* ============================================================
+   melonbang · design tokens
+   Ported from DESIGN/design-system.css ("melon soda" language).
+   DESIGN semantic tokens are canonical; shadcn aliases reference
+   them so light/dark only needs to override the DESIGN tokens.
+   Dark theme is keyed off the `.dark` class (ThemeProvider).
+   ============================================================ */
 :root {
-  --background: #eef3f1;
-  --foreground: #243239;
-  --card: #ffffff;
-  --card-foreground: #243239;
-  --popover: #ffffff;
-  --popover-foreground: #243239;
-  --primary: #43c99f;
-  --primary-foreground: #08321f;
-  --secondary: #f6f9f8;
-  --secondary-foreground: #243239;
-  --muted: #eef2f1;
-  --muted-foreground: #5c6b72;
-  --accent: #ff6b81;
-  --accent-foreground: #ffffff;
-  --destructive: #ef4f69;
-  --destructive-foreground: #ffffff;
-  --border: #e6ece9;
-  --input: #e6ece9;
-  --ring: color-mix(in srgb, var(--primary) 35%, transparent);
-  --radius: 1.25rem;
-  --surface-2: #f6f9f8;
-  --surface-3: #eef2f1;
-  --line-strong: #d6e0db;
-  --shadow-sm: 0 1px 2px rgba(35, 60, 50, 0.06), 0 2px 8px rgba(35, 60, 50, 0.05);
-  --shadow-md: 0 6px 18px rgba(35, 60, 50, 0.1), 0 2px 6px rgba(35, 60, 50, 0.06);
-  --shadow-lg: 0 18px 50px rgba(28, 55, 45, 0.18);
+  /* brand scales */
   --mint-50: #eafaf3;
   --mint-100: #d2f4e6;
   --mint-200: #a7e9cf;
@@ -34,42 +16,83 @@
   --mint-400: #43c99f;
   --mint-500: #22b388;
   --mint-600: #129a73;
+  --cherry-300: #ffb0bd;
+  --cherry-400: #ff869a;
+  --cherry-500: #ff6b81;
+  --cherry-600: #ef4f69;
+  --sky-300: #bcdcff;
   --sky-400: #8bbcf6;
   --sky-500: #6aa6f0;
   --grape-400: #b6a4f0;
   --grape-500: #9c87e8;
   --gold-400: #ffcf6b;
   --gold-500: #ffb83d;
-  --cherry-300: #ffb0bd;
-  --cherry-400: #ff869a;
-  --cherry-500: #ff6b81;
-  --cherry-600: #ef4f69;
+
+  /* semantic (light) */
+  --bg: #eef3f1;
+  --bg-tint:
+    radial-gradient(1200px 600px at 12% -8%, #e7f7ef 0%, rgba(231, 247, 239, 0) 60%),
+    radial-gradient(900px 520px at 100% 0%, #eaf1ff 0%, rgba(234, 241, 255, 0) 55%), var(--bg);
+  --surface: #ffffff;
+  --surface-2: #f6f9f8;
+  --surface-3: #eef2f1;
+  --line: #e6ece9;
+  --line-strong: #d6e0db;
+
+  --text: #243239;
+  --text-2: #5c6b72;
+  --text-3: #93a1a6;
+  --on-accent: #08321f;
+
+  --primary: var(--mint-400);
+  --primary-strong: var(--mint-500);
+  --accent: var(--cherry-500);
+
+  --shadow-sm: 0 1px 2px rgba(35, 60, 50, 0.06), 0 2px 8px rgba(35, 60, 50, 0.05);
+  --shadow-md: 0 6px 18px rgba(35, 60, 50, 0.1), 0 2px 6px rgba(35, 60, 50, 0.06);
+  --shadow-lg: 0 18px 50px rgba(28, 55, 45, 0.18);
+  --ring: 0 0 0 3px rgba(67, 201, 159, 0.3);
+
+  /* player-specific */
+  --player-bg: #0a0f14;
+  --player-surface: #16202b;
+  --player-border: #243340;
+
+  /* shadcn semantic aliases (reference the DESIGN tokens above) */
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
+  --primary-foreground: var(--on-accent);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--text);
+  --muted: var(--surface-3);
+  --muted-foreground: var(--text-2);
+  --accent-foreground: #ffffff;
+  --destructive: var(--cherry-600);
+  --destructive-foreground: #ffffff;
+  --border: var(--line);
+  --input: var(--line);
+  --radius: 1.25rem;
   color-scheme: light;
 }
 
 .dark {
-  --background: #0f1722;
-  --foreground: #e7eef1;
-  --card: #16202d;
-  --card-foreground: #e7eef1;
-  --popover: #16202d;
-  --popover-foreground: #e7eef1;
-  --primary: #43c99f;
-  --primary-foreground: #06251a;
-  --secondary: #1b2735;
-  --secondary-foreground: #e7eef1;
-  --muted: #212f3f;
-  --muted-foreground: #9fb0b8;
-  --accent: #ff6b81;
-  --accent-foreground: #ffffff;
-  --destructive: #ef4f69;
-  --destructive-foreground: #ffffff;
-  --border: #26323f;
-  --input: #26323f;
-  --ring: color-mix(in srgb, var(--primary) 35%, transparent);
+  --bg: #0f1722;
+  --bg-tint:
+    radial-gradient(1200px 600px at 12% -8%, #11302a 0%, rgba(17, 48, 42, 0) 60%),
+    radial-gradient(900px 520px at 100% 0%, #1a2740 0%, rgba(26, 39, 64, 0) 55%), var(--bg);
+  --surface: #16202d;
   --surface-2: #1b2735;
   --surface-3: #212f3f;
+  --line: #26323f;
   --line-strong: #33424f;
+  --text: #e7eef1;
+  --text-2: #9fb0b8;
+  --text-3: #6c7c85;
+  --on-accent: #06251a;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 8px 22px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 22px 60px rgba(0, 0, 0, 0.55);
@@ -77,6 +100,7 @@
 }
 
 @theme inline {
+  /* shadcn aliases */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -95,53 +119,147 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
-  --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 8px);
-  --radius-md: calc(var(--radius) - 6px);
-  --radius-lg: calc(var(--radius) - 2px);
-  --radius-xl: var(--radius);
+  --color-ring: var(--primary);
+
+  /* DESIGN semantic color utilities */
+  --color-ink: var(--text);
+  --color-ink-soft: var(--text-2);
+  --color-ink-faint: var(--text-3);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-on-accent: var(--on-accent);
+
+  /* brand scale utilities */
+  --color-mint-50: var(--mint-50);
+  --color-mint-100: var(--mint-100);
+  --color-mint-200: var(--mint-200);
+  --color-mint-300: var(--mint-300);
+  --color-mint-400: var(--mint-400);
+  --color-mint-500: var(--mint-500);
+  --color-mint-600: var(--mint-600);
+  --color-cherry-300: var(--cherry-300);
+  --color-cherry-400: var(--cherry-400);
+  --color-cherry-500: var(--cherry-500);
+  --color-cherry-600: var(--cherry-600);
+  --color-sky-300: var(--sky-300);
+  --color-sky-400: var(--sky-400);
+  --color-sky-500: var(--sky-500);
+  --color-grape-400: var(--grape-400);
+  --color-grape-500: var(--grape-500);
+  --color-gold-400: var(--gold-400);
+  --color-gold-500: var(--gold-500);
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+
   --font-sans: "M PLUS Rounded 1c", "Nunito", system-ui, "Microsoft YaHei", sans-serif;
+
+  --animate-melon-pulse: melon-pulse 1.8s ease-in-out infinite;
 }
 
-* {
-  box-sizing: border-box;
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text);
+    background: var(--bg-tint);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* hide scrollbars while keeping scroll (matches DESIGN) */
+  * {
+    scrollbar-width: none;
+  }
+
+  *::-webkit-scrollbar {
+    display: none;
+  }
+
+  ::selection {
+    background: var(--mint-200);
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  img {
+    display: block;
+    max-width: 100%;
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
 }
 
-html,
-body,
-#root {
-  height: 100%;
+/* ---- keyframes ---- */
+@keyframes melon-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
-body {
-  margin: 0;
-  font-family: var(--font-sans);
-  background:
-    radial-gradient(1200px 600px at 12% -8%, #e7f7ef 0%, rgba(231, 247, 239, 0) 60%),
-    radial-gradient(900px 520px at 100% 0%, #eaf1ff 0%, rgba(234, 241, 255, 0) 55%),
-    var(--background);
-  color: var(--foreground);
-  -webkit-font-smoothing: antialiased;
+@keyframes danmaku-fly {
+  from {
+    transform: translateX(100vw);
+  }
+  to {
+    transform: translateX(-60vw);
+  }
 }
 
-.dark body {
-  background:
-    radial-gradient(1200px 600px at 12% -8%, #11302a 0%, rgba(17, 48, 42, 0) 60%),
-    radial-gradient(900px 520px at 100% 0%, #1a2740 0%, rgba(26, 39, 64, 0) 55%), var(--background);
+/* ---- frameless window drag regions ---- */
+.drag-region {
+  -webkit-app-region: drag;
 }
 
-button,
-input,
-textarea {
-  font: inherit;
+.no-drag {
+  -webkit-app-region: no-drag;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* ---- range inputs (settings / player sliders) ---- */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--surface-3);
+  outline: none;
 }
 
-img {
-  display: block;
-  max-width: 100%;
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 17px;
+  height: 17px;
+  border-radius: 99px;
+  background: var(--mint-400);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
 }

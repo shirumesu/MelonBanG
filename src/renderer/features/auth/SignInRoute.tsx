@@ -1,87 +1,153 @@
-import { ArrowRight, ShieldCheck, Sparkles } from "lucide-react";
 import { useState } from "react";
+import { Check, ExternalLink } from "lucide-react";
 import { useAppState } from "../../app/AppStateProvider";
+import { WindowFrame } from "../../app/shell/WindowFrame";
+import { Button } from "@/components/ui/button";
+import { GRADIENTS } from "@/data/artwork";
+
+function MelonMark() {
+  return (
+    <svg
+      className="size-10"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="13" r="8" />
+      <path d="M12 5c-1.3 0-2.4.5-3.2 1.3M15.2 6.3A4.5 4.5 0 0 0 12 5" />
+      <path d="M9 10v6M12 10v6M15 10v6" />
+    </svg>
+  );
+}
+
+const NOTES = [
+  "采用 Bangumi 官方 OAuth 授权，会在系统浏览器中打开授权页面。",
+  "melonbang 不会接触你的密码，仅获取你授权的收藏与进度权限。",
+  "登录凭证经加密后仅保存在本地，可随时在设置中断开。"
+];
 
 export function SignInRoute() {
   const { signIn } = useAppState();
-  const [pending, setPending] = useState(false);
+  const [authorizing, setAuthorizing] = useState(false);
 
-  async function handleSignIn(): Promise<void> {
-    setPending(true);
+  async function connect(): Promise<void> {
+    setAuthorizing(true);
     try {
       await signIn();
-    } finally {
-      setPending(false);
+    } catch {
+      setAuthorizing(false);
     }
   }
 
   return (
-    <div className="bg-background grid h-full grid-cols-[1.15fr_0.85fr]">
-      <section className="relative overflow-hidden p-10">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(67,201,159,0.18),_transparent_45%),radial-gradient(circle_at_right,_rgba(255,107,129,0.18),_transparent_42%)]" />
-        <div className="relative flex h-full flex-col justify-between rounded-[28px] border border-white/50 bg-linear-to-br from-[#0f7d5e] via-[#1aa183] to-[#3f7fd8] p-10 text-white shadow-[var(--shadow-lg)]">
-          <div className="flex items-center gap-3 text-sm font-extrabold tracking-[0.24em] text-white/85 uppercase">
-            <Sparkles className="size-5" />
-            melonbang
-          </div>
-          <div className="max-w-xl">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/15 px-4 py-2 text-xs font-bold">
-              <ShieldCheck className="size-4" />
-              Goal 1 · Secure Bangumi Desktop Shell
-            </div>
-            <h1 className="text-5xl font-black tracking-[0.01em]">
-              把 Bangumi 追番、条目细节和进度更新，收回到桌面里。
-            </h1>
-            <p className="mt-5 max-w-lg text-sm leading-7 text-white/92">
-              当前阶段先完成认证、收藏浏览、条目详情、章节状态和同步诊断。下载、播放、弹幕和缓存管理留到后续
-              Goal。
-            </p>
-          </div>
-          <div className="grid max-w-xl grid-cols-3 gap-4 text-sm">
-            <InfoTile title="OAuth 2.0" detail="外部浏览器授权 + 本地 loopback 回调" />
-            <InfoTile title="SQLite Cache" detail="本地缓存、队列和后续播放状态的基础" />
-            <InfoTile title="Renderer Safe" detail="只有 preload bridge，没有直连 Node 或网络" />
-          </div>
+    <WindowFrame crumb="连接账户">
+      <div className="relative grid h-full place-items-center overflow-hidden">
+        {/* ghosted poster wall */}
+        <div className="pointer-events-none absolute inset-0 grid grid-cols-8 gap-4 p-[30px] opacity-50 blur-[2px] [transform:rotate(-8deg)_scale(1.25)]">
+          {Array.from({ length: 24 }, (_, i) => {
+            const [a, b] = GRADIENTS[i % GRADIENTS.length];
+            return (
+              <div
+                key={i}
+                className="aspect-3/4 rounded-[14px]"
+                style={{ background: `linear-gradient(135deg, ${a}, ${b})` }}
+              />
+            );
+          })}
         </div>
-      </section>
+        <span className="bg-mint-300 pointer-events-none absolute top-[8%] left-[6%] size-[340px] rounded-full opacity-50 blur-[30px]" />
+        <span className="bg-cherry-300 pointer-events-none absolute right-[4%] bottom-[6%] size-[300px] rounded-full opacity-50 blur-[30px]" />
+        <span className="bg-sky-300 pointer-events-none absolute top-[2%] right-[24%] size-[260px] rounded-full opacity-50 blur-[30px]" />
 
-      <section className="flex items-center justify-center p-10">
-        <div className="border-border bg-card w-full max-w-md rounded-[28px] border p-8 shadow-[var(--shadow-lg)]">
-          <div className="mb-6">
-            <div className="text-muted-foreground text-sm font-bold tracking-[0.26em] uppercase">
-              Sign In
+        {authorizing ? (
+          <div className="border-line relative z-[2] w-[min(440px,92vw)] rounded-[28px] border bg-white/60 px-9 py-[38px] text-center shadow-[var(--shadow-lg)] backdrop-blur-[10px] dark:bg-[rgba(22,32,45,.6)]">
+            <div className="border-mint-100 border-t-mint-400 mx-auto mb-3.5 size-[42px] animate-spin rounded-full border-[3px]" />
+            <div className="text-xl font-extrabold">正在等待浏览器授权…</div>
+            <div className="text-ink-soft my-3.5 text-sm leading-relaxed">
+              已在浏览器中打开 Bangumi 授权页面，
+              <br />
+              请在浏览器内完成登录并点击「授权」后返回本应用。
             </div>
-            <h2 className="mt-3 text-3xl font-black">连接 Bangumi 账号</h2>
-            <p className="text-muted-foreground mt-3 text-sm leading-7">
-              授权只在主进程中完成。访问令牌不会进入 renderer，也不会以明文写入磁盘。
-            </p>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => window.open("https://bgm.tv", "_blank")}
+            >
+              重新打开授权页面
+            </Button>
+            <div
+              className="text-ink-faint hover:text-ink-soft mt-4 cursor-pointer text-[12.5px] font-semibold"
+              onClick={() => setAuthorizing(false)}
+            >
+              取消登录
+            </div>
           </div>
+        ) : (
+          <div className="border-line relative z-[2] w-[min(440px,92vw)] rounded-[28px] border bg-white/60 px-9 py-[38px] text-center shadow-[var(--shadow-lg)] backdrop-blur-[10px] dark:bg-[rgba(22,32,45,.6)]">
+            <div className="text-on-accent mx-auto mb-3.5 grid size-[74px] place-items-center rounded-[22px] bg-[linear-gradient(135deg,var(--mint-300),var(--mint-500))] shadow-[0_12px_28px_rgba(34,179,136,.4),inset_0_0_0_2px_rgba(255,255,255,.45)]">
+              <MelonMark />
+            </div>
+            <div className="text-[26px] font-extrabold tracking-[0.01em]">melonbang</div>
+            <div className="text-ink-faint mt-0.5 text-[13px] font-semibold">你的桌面追番伙伴</div>
+            <div className="text-ink-soft my-5 text-sm leading-relaxed">
+              连接你的 <b>Bangumi</b> 账户，
+              <br />
+              开始管理你的追番收藏与放送进度。
+            </div>
 
-          <button
-            type="button"
-            onClick={() => void handleSignIn()}
-            disabled={pending}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-linear-to-br from-[var(--mint-400)] to-[var(--mint-500)] px-5 py-3.5 text-sm font-extrabold text-white shadow-[0_8px_18px_rgba(34,179,136,.32)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <span>{pending ? "连接中…" : "使用 Bangumi 登录"}</span>
-            <ArrowRight className="size-4" />
-          </button>
+            <Button size="lg" className="w-full" onClick={() => void connect()}>
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M4 5h16v11H8l-4 3z" />
+                <path d="M8 10h8M8 13h5" />
+              </svg>
+              使用 Bangumi 账户登录
+            </Button>
 
-          <div className="bg-secondary text-muted-foreground mt-6 rounded-2xl p-4 text-sm">
-            本地凭据未配置时，当前工程先使用 mock service 提供 UI 联调。后续接入真实 OAuth
-            与仓储层时，这一页不需要重做。
+            <div className="border-line bg-surface-2 mt-[18px] rounded-[14px] border p-4 text-left">
+              {NOTES.map((note, i) => (
+                <div
+                  key={i}
+                  className={
+                    "text-ink-soft flex items-start gap-2.5 text-[12.5px] leading-relaxed " +
+                    (i > 0 ? "mt-2" : "")
+                  }
+                >
+                  <Check className="text-mint-500 mt-0.5 size-4 flex-none" />
+                  <span>{note}</span>
+                </div>
+              ))}
+            </div>
+
+            <a
+              className="text-ink-faint mt-4 flex items-center justify-center gap-1.5 text-[12.5px] font-semibold"
+              href="https://bgm.tv"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <ExternalLink className="size-4" />
+              什么是 Bangumi？
+            </a>
+            <div
+              className="text-ink-faint hover:text-ink-soft mt-4 cursor-pointer text-[12.5px] font-semibold"
+              onClick={() => void connect()}
+            >
+              稍后再说，先随便逛逛 →
+            </div>
           </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function InfoTile({ title, detail }: { title: string; detail: string }) {
-  return (
-    <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
-      <div className="text-lg font-black">{title}</div>
-      <div className="mt-2 text-xs leading-6 text-white/75">{detail}</div>
-    </div>
+        )}
+      </div>
+    </WindowFrame>
   );
 }

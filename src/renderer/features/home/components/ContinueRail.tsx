@@ -1,60 +1,92 @@
+import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useRef } from "react";
-import type { CollectionListItem } from "@shared/contracts/bangumi";
-import { PosterCard } from "@/features/tracking/components/PosterCard";
-import { Button } from "@/components/ui/button";
+import { CONTINUE_ITEMS } from "@/data/home";
+import { Poster } from "@/components/melon/Poster";
 
-export function ContinueRail({ items }: { items: CollectionListItem[] }): JSX.Element {
-  const railRef = useRef<HTMLDivElement | null>(null);
+export function ContinueRail() {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [atStart, setAtStart] = useState(true);
+  const [atEnd, setAtEnd] = useState(false);
 
-  function scrollBy(direction: -1 | 1): void {
-    railRef.current?.scrollBy({
-      left: railRef.current.clientWidth * 0.8 * direction,
-      behavior: "smooth"
-    });
-  }
+  const update = (): void => {
+    const row = rowRef.current;
+    if (!row) {
+      return;
+    }
+    const max = row.scrollWidth - row.clientWidth;
+    setAtStart(row.scrollLeft <= 1);
+    setAtEnd(row.scrollLeft >= max - 1);
+  };
+
+  useEffect(() => {
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  const scrollBy = (dir: number): void => {
+    const row = rowRef.current;
+    if (!row) {
+      return;
+    }
+    row.scrollBy({ left: dir * Math.max(220, row.clientWidth * 0.8), behavior: "smooth" });
+  };
 
   return (
-    <div className="relative">
-      <Button
+    <div className="group relative">
+      <button
         type="button"
-        variant="outline"
-        size="sm"
-        className="absolute top-[42%] left-[-8px] z-10 size-9 rounded-full p-0"
+        aria-label="向左"
         onClick={() => scrollBy(-1)}
+        className={
+          "border-line bg-surface text-ink-soft hover:border-mint-200 hover:text-mint-600 absolute top-[46%] -left-2 z-[5] grid size-[38px] -translate-y-1/2 place-items-center rounded-full border opacity-0 shadow-[var(--shadow-md)] transition group-hover:opacity-100 " +
+          (atStart ? "hidden" : "")
+        }
       >
-        <ChevronLeft className="size-4" />
-      </Button>
-      <div ref={railRef} className="flex gap-4 overflow-x-auto px-1 pb-3">
-        {items.map((item) => (
-          <PosterCard
-            key={item.subjectId}
-            item={item}
-            compact
-            extra={
-              item.nextEpisode ? (
-                <div className="bg-secondary h-1 rounded-full">
+        <ChevronLeft className="size-[18px]" />
+      </button>
+
+      <div
+        ref={rowRef}
+        onScroll={update}
+        className="flex gap-4 overflow-x-auto px-0.5 pt-1 pb-3.5"
+      >
+        {CONTINUE_ITEMS.map((item) => (
+          <Poster
+            key={item.index}
+            index={item.index}
+            href="/subject/0"
+            width={172}
+            overlayTitle={item.title}
+            body={
+              <>
+                <div className="text-ink-faint flex items-center gap-1.5 text-[11.5px] font-semibold">
+                  <span className="text-gold-500 font-extrabold">★ {item.score}</span>·
+                  <span>看到 EP{item.currentEp}</span>
+                </div>
+                <div className="bg-surface-3 mt-2 h-1 overflow-hidden rounded-full">
                   <div
-                    className="h-full rounded-full bg-linear-to-r from-[var(--mint-400)] to-[var(--mint-300)]"
-                    style={{
-                      width: `${Math.max(8, Math.min(100, ((item.nextEpisode.sort - 1) / (item.episodeTotal ?? 1)) * 100))}%`
-                    }}
+                    className="h-full rounded-full bg-[linear-gradient(90deg,var(--mint-400),var(--mint-300))]"
+                    style={{ width: `${item.progress}%` }}
                   />
                 </div>
-              ) : null
+              </>
             }
           />
         ))}
       </div>
-      <Button
+
+      <button
         type="button"
-        variant="outline"
-        size="sm"
-        className="absolute top-[42%] right-[-8px] z-10 size-9 rounded-full p-0"
+        aria-label="向右"
         onClick={() => scrollBy(1)}
+        className={
+          "border-line bg-surface text-ink-soft hover:border-mint-200 hover:text-mint-600 absolute top-[46%] -right-2 z-[5] grid size-[38px] -translate-y-1/2 place-items-center rounded-full border opacity-0 shadow-[var(--shadow-md)] transition group-hover:opacity-100 " +
+          (atEnd ? "hidden" : "")
+        }
       >
-        <ChevronRight className="size-4" />
-      </Button>
+        <ChevronRight className="size-[18px]" />
+      </button>
     </div>
   );
 }

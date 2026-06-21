@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { BangumiBridge } from "../shared/contracts/bangumi";
+import type { WindowControlsBridge } from "../shared/contracts/window";
+import type { MelonbangBridge } from "../shared/contracts/bridge";
 
 const bangumi: BangumiBridge = {
   getSession: () => ipcRenderer.invoke("bangumi:getSession"),
@@ -13,6 +15,18 @@ const bangumi: BangumiBridge = {
   getSyncState: () => ipcRenderer.invoke("bangumi:getSyncState")
 };
 
-contextBridge.exposeInMainWorld("melonbang", {
-  bangumi
-});
+const windowControls: WindowControlsBridge = {
+  minimize: () => ipcRenderer.send("window:minimize"),
+  toggleMaximize: () => ipcRenderer.send("window:toggleMaximize"),
+  close: () => ipcRenderer.send("window:close"),
+  isMaximized: () => ipcRenderer.invoke("window:isMaximized"),
+  onMaximizeChange: (callback) => {
+    const listener = (_event: unknown, maximized: boolean): void => callback(maximized);
+    ipcRenderer.on("window:maximizeChanged", listener);
+    return () => ipcRenderer.removeListener("window:maximizeChanged", listener);
+  }
+};
+
+const api: MelonbangBridge = { bangumi, windowControls };
+
+contextBridge.exposeInMainWorld("melonbang", api);

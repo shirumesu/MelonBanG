@@ -108,11 +108,3 @@ export interface BangumiBridge {
   refreshCollection(force?: boolean): Promise<SyncState>;
   getSyncState(): Promise<SyncState>;
 }
-
-declare global {
-  interface Window {
-    melonbang: {
-      bangumi: BangumiBridge;
-    };
-  }
-}

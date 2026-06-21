@@ -3,17 +3,17 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-extrabold tracking-[0.01em] whitespace-nowrap",
+  "inline-flex items-center gap-1 rounded-full px-2.5 py-[3px] text-[11.5px] font-bold whitespace-nowrap",
   {
     variants: {
       variant: {
-        default: "bg-secondary text-secondary-foreground",
-        outline: "text-muted-foreground border border-[var(--line-strong)] bg-transparent",
-        mint: "bg-[var(--mint-100)] text-[var(--mint-600)]",
-        cherry: "bg-[#ffe6ea] text-[var(--cherry-600)]",
-        sky: "bg-[#e3efff] text-[#3f74c4]",
-        grape: "bg-[#efeaff] text-[#6f57c4]",
-        gold: "bg-[#fff2d6] text-[#b5742a]"
+        default: "bg-surface-3 text-ink-soft",
+        outline: "border border-line-strong bg-transparent text-ink-soft",
+        mint: "bg-mint-100 text-mint-600 dark:bg-mint-400/20",
+        cherry: "bg-[#ffe6ea] text-cherry-600 dark:bg-cherry-500/20",
+        sky: "bg-[#e3efff] text-[#3f74c4] dark:bg-sky-500/20 dark:text-sky-300",
+        grape: "bg-[#efeaff] text-[#6f57c4] dark:bg-grape-500/20 dark:text-grape-400",
+        gold: "bg-[#fff2d6] text-[#b5742a] dark:bg-gold-500/20 dark:text-gold-400"
       }
     },
     defaultVariants: {
