@@ -16,7 +16,7 @@ export function ScheduleRoute() {
     <div className="flex min-h-0 flex-1 flex-col">
       <Topbar
         title="新番时间表"
-        subtitle="2026 夏季 · 每周放送"
+        subtitle={`${currentSeasonLabel()} · 每周放送`}
         leading={
           <IconButton onClick={() => void navigate("/home")}>
             <ChevronLeft />
@@ -82,4 +82,19 @@ export function ScheduleRoute() {
       </div>
     </div>
   );
+}
+
+function currentSeasonLabel(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  if (month >= 10) {
+    return `${year} 秋季`;
+  }
+  if (month >= 7) {
+    return `${year} 夏季`;
+  }
+  if (month >= 4) {
+    return `${year} 春季`;
+  }
+  return `${year} 冬季`;
 }

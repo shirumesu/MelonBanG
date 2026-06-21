@@ -1,6 +1,6 @@
 import { app } from "electron";
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 let databaseInstance: DatabaseSync | null = null;
@@ -10,7 +10,7 @@ export function getAppDatabase(): DatabaseSync {
     return databaseInstance;
   }
 
-  const dataDir = app.getPath("userData");
+  const dataDir = getAppDataDirectory();
   mkdirSync(dataDir, { recursive: true });
 
   const dbPath = join(dataDir, "melonbang.sqlite");
@@ -94,6 +94,19 @@ export function getAppDatabase(): DatabaseSync {
 
   databaseInstance = database;
   return database;
+}
+
+function getAppDataDirectory(): string {
+  const override = process.env.MELONBANG_DATA_DIR?.trim();
+  if (override) {
+    return resolve(override);
+  }
+
+  if (!app.isPackaged) {
+    return join(app.getAppPath(), "temp");
+  }
+
+  return app.getPath("userData");
 }
 
 function ensureColumn(

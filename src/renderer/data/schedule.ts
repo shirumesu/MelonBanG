@@ -9,7 +9,14 @@ export type WeekDay = {
   items: TimelineItem[];
 };
 
-function it(time: string, index: number, ep: number, total: number, done: boolean, title?: string): TimelineItem {
+function it(
+  time: string,
+  index: number,
+  ep: number,
+  total: number,
+  done: boolean,
+  title?: string
+): TimelineItem {
   return { time, index, title: title ?? S_TITLES[index], ep, total, done };
 }
 
@@ -19,7 +26,11 @@ export const WEEK: WeekDay[] = [
   {
     day: "周一",
     en: "MON",
-    items: [it("01:00", 5, 8, 24, true), it("18:30", 10, 7, 13, true), it("21:00", 14, 9, 24, false)]
+    items: [
+      it("01:00", 5, 8, 24, true),
+      it("18:30", 10, 7, 13, true),
+      it("21:00", 14, 9, 24, false)
+    ]
   },
   {
     day: "周二",

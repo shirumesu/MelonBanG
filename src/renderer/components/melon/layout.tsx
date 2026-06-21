@@ -16,7 +16,7 @@ export function Topbar({
   children?: ReactNode;
 }) {
   return (
-    <div className="bg-[linear-gradient(180deg,var(--bg)_60%,transparent)] sticky top-0 z-20 flex min-w-0 items-center gap-3.5 px-[26px] py-4">
+    <div className="sticky top-0 z-20 flex min-w-0 items-center gap-3.5 bg-[linear-gradient(180deg,var(--bg)_60%,transparent)] px-[26px] py-4">
       {leading}
       <div className="min-w-0">
         <div className="font-extrabold tracking-[0.01em]" style={{ fontSize: titleSize }}>
@@ -26,7 +26,9 @@ export function Topbar({
           <div className="text-ink-faint mt-px text-[12.5px] font-semibold">{subtitle}</div>
         ) : null}
       </div>
-      {children ? <div className="ml-auto flex min-w-0 items-center gap-3.5">{children}</div> : null}
+      {children ? (
+        <div className="ml-auto flex min-w-0 items-center gap-3.5">{children}</div>
+      ) : null}
     </div>
   );
 }
@@ -54,20 +56,16 @@ export function SearchBox({
         value={value}
         onChange={(event) => onChange?.(event.target.value)}
         placeholder={placeholder}
-        className="text-ink min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-ink-faint"
+        className="text-ink placeholder:text-ink-faint min-w-0 flex-1 bg-transparent text-[13.5px] outline-none"
       />
-      <kbd className="bg-surface-3 text-ink-faint rounded-md px-1.5 py-0.5 text-[10.5px]">Ctrl K</kbd>
+      <kbd className="bg-surface-3 text-ink-faint rounded-md px-1.5 py-0.5 text-[10.5px]">
+        Ctrl K
+      </kbd>
     </div>
   );
 }
 
-export function SyncPill({
-  stale = false,
-  label
-}: {
-  stale?: boolean;
-  label?: string;
-}) {
+export function SyncPill({ stale = false, label }: { stale?: boolean; label?: string }) {
   return (
     <span
       className={cn(

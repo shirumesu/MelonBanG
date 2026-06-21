@@ -39,6 +39,13 @@ export type RemoteUserSubjectCollection = {
   subject: RemoteBangumiSubject;
 };
 
+export type RemoteUserSubjectCollectionPage = {
+  total: number;
+  limit: number;
+  offset: number;
+  items: RemoteUserSubjectCollection[];
+};
+
 export type RemoteUserEpisodeCollection = {
   episode: RemoteBangumiEpisode;
   status: EpisodeStatus;
@@ -46,24 +53,31 @@ export type RemoteUserEpisodeCollection = {
 };
 
 type SearchSubjectsResponse = {
+  total?: number;
+  limit?: number;
+  offset?: number;
   data: Array<{
     id: number;
     name: string;
     name_cn: string;
-    summary: string;
-    eps: number;
-    total_episodes: number;
-    date: string;
-    images: {
+    summary?: string;
+    short_summary?: string;
+    eps?: number;
+    total_episodes?: number;
+    date?: string;
+    images?: {
       small?: string;
       medium?: string;
       large?: string;
       common?: string;
-    };
+      grid?: string;
+    } | null;
     rating?: {
       rank?: number;
       score?: number;
     };
+    rank?: number;
+    score?: number;
   }>;
 };
 
@@ -71,16 +85,17 @@ type SubjectResponse = {
   id: number;
   name: string;
   name_cn: string;
-  summary: string;
-  date: string;
-  eps: number;
-  total_episodes: number;
-  images: {
+  summary?: string;
+  date?: string;
+  eps?: number;
+  total_episodes?: number;
+  images?: {
     small?: string;
     medium?: string;
     large?: string;
     common?: string;
-  };
+    grid?: string;
+  } | null;
   rating?: {
     rank?: number;
     score?: number;
@@ -88,9 +103,13 @@ type SubjectResponse = {
 };
 
 type EpisodesResponse = {
+  total?: number;
+  limit?: number;
+  offset?: number;
   data: Array<{
     id: number;
-    subject_id: number;
+    subject_id?: number;
+    type: number;
     sort: number;
     ep?: number;
     name: string;
@@ -99,40 +118,53 @@ type EpisodesResponse = {
 };
 
 type UserCollectionsResponse = {
+  total: number;
+  limit: number;
+  offset: number;
   data: Array<{
     subject_id: number;
+    subject_type: number;
     type: number;
     rate: number;
     ep_status: number;
     updated_at: string;
-    subject: {
+    subject?: {
       id: number;
+      type: number;
       name: string;
       name_cn: string;
-      summary: string;
-      date: string;
-      eps: number;
-      images: {
+      short_summary?: string;
+      summary?: string;
+      date?: string;
+      eps?: number;
+      total_episodes?: number;
+      images?: {
         small?: string;
         medium?: string;
         large?: string;
         common?: string;
-      };
+        grid?: string;
+      } | null;
       rating?: {
         rank?: number;
         score?: number;
       };
+      rank?: number;
+      score?: number;
     };
   }>;
 };
 
 type UserEpisodeCollectionsResponse = {
+  total?: number;
+  limit?: number;
+  offset?: number;
   data: Array<{
     type: number;
     updated_at: number;
     episode: {
       id: number;
-      subject_id: number;
+      subject_id?: number;
       sort: number;
       ep?: number;
       name: string;
@@ -140,6 +172,10 @@ type UserEpisodeCollectionsResponse = {
     };
   }>;
 };
+
+const USER_COLLECTION_PAGE_SIZE = 50;
+const EPISODE_PAGE_SIZE = 200;
+const USER_EPISODE_COLLECTION_PAGE_SIZE = 1000;
 
 export class BangumiClient {
   constructor(
@@ -182,17 +218,13 @@ export class BangumiClient {
       id: subject.id,
       name: subject.name,
       nameCn: subject.name_cn || undefined,
-      summary: subject.summary || undefined,
+      summary: subject.summary || subject.short_summary || undefined,
       date: subject.date || undefined,
       totalEpisodes: subject.total_episodes || subject.eps || undefined,
       eps: subject.eps || undefined,
-      rank: subject.rating?.rank,
-      score: subject.rating?.score,
-      coverUrl:
-        subject.images.common ??
-        subject.images.medium ??
-        subject.images.large ??
-        subject.images.small
+      rank: positiveNumber(subject.rating?.rank ?? subject.rank),
+      score: positiveNumber(subject.rating?.score ?? subject.score),
+      coverUrl: pickImage(subject.images)
     }));
   }
 
@@ -206,25 +238,21 @@ export class BangumiClient {
       date: subject.date || undefined,
       totalEpisodes: subject.total_episodes || subject.eps || undefined,
       eps: subject.eps || undefined,
-      rank: subject.rating?.rank,
-      score: subject.rating?.score,
-      coverUrl:
-        subject.images.common ??
-        subject.images.medium ??
-        subject.images.large ??
-        subject.images.small
+      rank: positiveNumber(subject.rating?.rank),
+      score: positiveNumber(subject.rating?.score),
+      coverUrl: pickImage(subject.images)
     };
   }
 
   async getEpisodes(subjectId: number): Promise<RemoteBangumiEpisode[]> {
     const response = await this.fetchJson<EpisodesResponse>(
-      `/v0/episodes?subject_id=${subjectId}&limit=200&offset=0`
+      `/v0/episodes?subject_id=${subjectId}&type=0&limit=${EPISODE_PAGE_SIZE}&offset=0`
     );
     return response.data
-      .filter((episode) => episode.id > 0)
+      .filter((episode) => episode.id > 0 && episode.type === 0)
       .map((episode) => ({
         id: episode.id,
-        subjectId: episode.subject_id,
+        subjectId: episode.subject_id ?? subjectId,
         sort:
           Number.isFinite(episode.ep) && episode.ep && episode.ep > 0 ? episode.ep : episode.sort,
         ep: episode.ep,
@@ -233,47 +261,57 @@ export class BangumiClient {
       }));
   }
 
-  async getUserCollections(username: string): Promise<RemoteUserSubjectCollection[]> {
+  async getUserCollections(username: string): Promise<RemoteUserSubjectCollectionPage> {
     const response = await this.fetchJson<UserCollectionsResponse>(
-      `/v0/users/${encodeURIComponent(username)}/collections?subject_type=2&limit=200&offset=0`
+      `/v0/users/${encodeURIComponent(username)}/collections?subject_type=2&limit=${USER_COLLECTION_PAGE_SIZE}&offset=0`
     );
 
-    return response.data.map((collection) => ({
-      subjectId: collection.subject_id,
-      status: mapSubjectCollectionType(collection.type),
-      score: collection.rate > 0 ? collection.rate : undefined,
-      epStatus: collection.ep_status,
-      updatedAt: collection.updated_at,
-      subject: {
-        id: collection.subject.id,
-        name: collection.subject.name,
-        nameCn: collection.subject.name_cn || undefined,
-        summary: collection.subject.summary || undefined,
-        date: collection.subject.date || undefined,
-        totalEpisodes: collection.subject.eps || undefined,
-        eps: collection.subject.eps || undefined,
-        rank: collection.subject.rating?.rank,
-        score: collection.subject.rating?.score,
-        coverUrl:
-          collection.subject.images.common ??
-          collection.subject.images.medium ??
-          collection.subject.images.large ??
-          collection.subject.images.small
-      }
-    }));
+    return {
+      total: response.total,
+      limit: response.limit,
+      offset: response.offset,
+      items: response.data.flatMap((collection) => {
+        const subject = collection.subject;
+        if (collection.subject_type !== 2 || !subject) {
+          return [];
+        }
+
+        return [
+          {
+            subjectId: collection.subject_id,
+            status: mapSubjectCollectionType(collection.type),
+            score: collection.rate > 0 ? collection.rate : undefined,
+            epStatus: collection.ep_status,
+            updatedAt: collection.updated_at,
+            subject: {
+              id: subject.id,
+              name: subject.name,
+              nameCn: subject.name_cn || undefined,
+              summary: subject.summary || subject.short_summary || undefined,
+              date: subject.date || undefined,
+              totalEpisodes: subject.total_episodes || subject.eps || undefined,
+              eps: subject.eps || undefined,
+              rank: positiveNumber(subject.rating?.rank ?? subject.rank),
+              score: positiveNumber(subject.rating?.score ?? subject.score),
+              coverUrl: pickImage(subject.images)
+            }
+          }
+        ];
+      })
+    };
   }
 
   async getUserSubjectEpisodeCollections(
     subjectId: number
   ): Promise<RemoteUserEpisodeCollection[]> {
     const response = await this.fetchJson<UserEpisodeCollectionsResponse>(
-      `/v0/users/-/collections/${subjectId}/episodes?limit=1000&offset=0`
+      `/v0/users/-/collections/${subjectId}/episodes?episode_type=0&limit=${USER_EPISODE_COLLECTION_PAGE_SIZE}&offset=0`
     );
 
     return response.data.map((item) => ({
       episode: {
         id: item.episode.id,
-        subjectId: item.episode.subject_id,
+        subjectId: item.episode.subject_id ?? subjectId,
         sort:
           Number.isFinite(item.episode.ep) && item.episode.ep && item.episode.ep > 0
             ? item.episode.ep
@@ -340,7 +378,7 @@ export class BangumiClient {
     }
   }
 
-  private headers(headers?: HeadersInit): Record<string, string> {
+  private headers(headers?: RequestInit["headers"]): Record<string, string> {
     const overrides = normalizeHeaders(headers);
 
     return {
@@ -353,7 +391,7 @@ export class BangumiClient {
   }
 }
 
-function normalizeHeaders(headers?: HeadersInit): Record<string, string> {
+function normalizeHeaders(headers?: RequestInit["headers"]): Record<string, string> {
   if (!headers) {
     return {};
   }
@@ -373,6 +411,22 @@ function normalizeHeaders(headers?: HeadersInit): Record<string, string> {
   }
 
   return normalized;
+}
+
+function pickImage(
+  images?: {
+    common?: string;
+    medium?: string;
+    large?: string;
+    small?: string;
+    grid?: string;
+  } | null
+): string | undefined {
+  return images?.common ?? images?.medium ?? images?.large ?? images?.small ?? images?.grid;
+}
+
+function positiveNumber(value: number | undefined): number | undefined {
+  return typeof value === "number" && value > 0 ? value : undefined;
 }
 
 function mapSubjectCollectionType(value: number): CollectionStatus {

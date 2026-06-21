@@ -57,7 +57,7 @@ export function SubjectTabs() {
             <div className="flex-1">
               <textarea
                 placeholder="写下你的吐槽…"
-                className="text-ink min-h-[84px] w-full resize-none bg-transparent text-sm outline-none placeholder:text-ink-faint"
+                className="text-ink placeholder:text-ink-faint min-h-[84px] w-full resize-none bg-transparent text-sm outline-none"
               />
               <div className="mt-3 flex items-center gap-3">
                 <div className="flex items-center gap-2">

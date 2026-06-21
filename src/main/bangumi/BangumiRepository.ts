@@ -130,7 +130,9 @@ export class BangumiRepository implements BangumiBridge {
     };
   }
 
-  async refreshCollection(): Promise<SyncState> {
+  async refreshCollection(force?: boolean): Promise<SyncState> {
+    void force;
+
     try {
       const client = await this.getClient();
       const session = await this.oauth.getStoredSession();
@@ -138,8 +140,8 @@ export class BangumiRepository implements BangumiBridge {
         throw new Error("Bangumi session is missing.");
       }
 
-      const collections = await client.getUserCollections(session.username);
-      for (const collection of collections) {
+      const collectionPage = await client.getUserCollections(session.username);
+      for (const collection of collectionPage.items) {
         this.collectionStore.upsertSubjectCache({
           subjectId: collection.subject.id,
           name: collection.subject.name,
@@ -158,16 +160,6 @@ export class BangumiRepository implements BangumiBridge {
           updatedAt: collection.updatedAt,
           epStatus: collection.epStatus
         });
-      }
-
-      for (const collection of collections) {
-        const episodes = await client.getEpisodes(collection.subjectId);
-        const episodeCollections = await client.getUserSubjectEpisodeCollections(
-          collection.subjectId
-        );
-        for (const episode of mergeEpisodeState(episodes, episodeCollections)) {
-          this.collectionStore.updateEpisodeStatus(episode);
-        }
       }
 
       this.reapplyPendingMutations();

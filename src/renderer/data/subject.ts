@@ -139,8 +139,18 @@ export const SUBJECT_DEMO = {
     }
   ] satisfies SubjectComment[],
   discussions: [
-    { title: "难以理解的误解与批评", author: "愿世长安", replies: "10 replies", date: "2026-03-21" },
-    { title: '浅谈大家心目中"神作"的槽点', author: "饿龙ou", replies: "82 replies", date: "2026-03-14" },
+    {
+      title: "难以理解的误解与批评",
+      author: "愿世长安",
+      replies: "10 replies",
+      date: "2026-03-21"
+    },
+    {
+      title: '浅谈大家心目中"神作"的槽点',
+      author: "饿龙ou",
+      replies: "82 replies",
+      date: "2026-03-14"
+    },
     {
       title: "（真的不要只看我标题啊！）第二季作画的一点疑问",
       author: "泽渡真琴",
@@ -153,7 +163,12 @@ export const SUBJECT_DEMO = {
       replies: "61 replies",
       date: "2026-04-28"
     },
-    { title: "我说10话率高于50%的都是刷分刷上来的", author: "韩谕", replies: "10 replies", date: "2026-06-09" }
+    {
+      title: "我说10话率高于50%的都是刷分刷上来的",
+      author: "韩谕",
+      replies: "10 replies",
+      date: "2026-06-09"
+    }
   ] satisfies Discussion[]
 };
 

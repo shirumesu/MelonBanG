@@ -20,11 +20,13 @@ export function ArtworkCard({
   id,
   title,
   className,
+  imageUrl,
   overlay = true
 }: {
   id: number;
   title: string;
   className?: string;
+  imageUrl?: string;
   overlay?: boolean;
 }): ReactElement {
   const gradient = gradients[id % gradients.length];
@@ -38,9 +40,20 @@ export function ArtworkCard({
       )}
       style={{ background: `linear-gradient(135deg, ${gradient[0]}, ${gradient[1]})` }}
     >
-      <span className="absolute inset-0 grid place-items-center text-6xl font-black text-white/20">
-        {mark}
-      </span>
+      {imageUrl ? (
+        <img
+          src={imageUrl}
+          alt={title}
+          className="absolute inset-0 size-full object-cover"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
+      ) : null}
+      {!imageUrl ? (
+        <span className="absolute inset-0 grid place-items-center text-6xl font-black text-white/20">
+          {mark}
+        </span>
+      ) : null}
       {overlay ? (
         <div className="absolute inset-0 bg-linear-to-b from-transparent via-transparent to-black/50" />
       ) : null}

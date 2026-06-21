@@ -120,7 +120,7 @@ export class BangumiOAuth {
       throw new Error(`Bangumi OAuth code exchange failed with ${response.status}.`);
     }
 
-    const data: OAuthTokenResponse = await response.json();
+    const data = (await response.json()) as OAuthTokenResponse;
     return {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
@@ -148,7 +148,7 @@ export class BangumiOAuth {
       throw new Error(`Bangumi OAuth refresh failed with ${response.status}.`);
     }
 
-    const data: OAuthTokenResponse = await response.json();
+    const data = (await response.json()) as OAuthTokenResponse;
     const tokenStatus = await this.queryTokenStatus(data.access_token);
     const bundle = this.tokenStore.read();
     const session = bundle ? (JSON.parse(bundle.sessionPayload) as BangumiSession) : null;
@@ -178,7 +178,7 @@ export class BangumiOAuth {
       throw new Error(`Bangumi token status request failed with ${response.status}.`);
     }
 
-    const tokenStatus: TokenStatusResponse = await response.json();
+    const tokenStatus = (await response.json()) as TokenStatusResponse;
     return tokenStatus;
   }
 
@@ -195,7 +195,7 @@ export class BangumiOAuth {
       throw new Error(`Bangumi /v0/me failed with ${response.status}.`);
     }
 
-    const me: MeResponse = await response.json();
+    const me = (await response.json()) as MeResponse;
     return {
       userId: String(me.id),
       username: me.username,

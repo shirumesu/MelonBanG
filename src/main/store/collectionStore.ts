@@ -505,6 +505,7 @@ export class CollectionStore {
       nameCn: row.name_cn ?? undefined,
       coverUrl: row.cover_url ?? undefined,
       episodeTotal: row.episode_total ?? undefined,
+      watchedEpisodeCount: row.ep_status > 0 ? row.ep_status : undefined,
       summary: row.summary ?? undefined,
       collection: this.toSubjectCollectionState(row),
       nextEpisode: nextEpisode ? this.toEpisodeCollectionState(nextEpisode) : undefined,

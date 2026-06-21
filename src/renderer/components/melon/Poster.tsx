@@ -14,6 +14,7 @@ type PosterProps = {
   corner?: ReactNode;
   /** title rendered as an overlay on the bottom of the cover */
   overlayTitle?: ReactNode;
+  imageUrl?: string;
   /** bottom-of-cover bar (e.g. "12 集 · 4.2 GB") */
   footer?: ReactNode;
   /** content rendered below the cover */
@@ -29,6 +30,7 @@ export function Poster({
   index,
   href,
   kanji,
+  imageUrl,
   badge,
   corner,
   overlayTitle,
@@ -45,9 +47,19 @@ export function Poster({
         className="relative aspect-3/4 overflow-hidden rounded-[14px] shadow-[var(--shadow-md)] transition group-hover:shadow-[var(--shadow-lg)]"
         style={{ background: artGradient(index), filter: dim ? "grayscale(.35)" : undefined }}
       >
-        <span className="absolute inset-0 grid place-items-center text-6xl font-extrabold text-white/20 [text-shadow:0_2px_10px_rgba(0,0,0,.15)]">
-          {kanji ?? artKanji(index)}
-        </span>
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt={typeof overlayTitle === "string" ? overlayTitle : ""}
+            className="absolute inset-0 size-full object-cover"
+            loading="lazy"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <span className="absolute inset-0 grid place-items-center text-6xl font-extrabold text-white/20 [text-shadow:0_2px_10px_rgba(0,0,0,.15)]">
+            {kanji ?? artKanji(index)}
+          </span>
+        )}
         <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_38%,rgba(0,0,0,.62))]" />
         {badge ? <div className="absolute top-2 left-2 z-[2]">{badge}</div> : null}
         {corner ? <div className="absolute top-2 right-2 z-[2]">{corner}</div> : null}

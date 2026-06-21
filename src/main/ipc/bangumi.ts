@@ -1,10 +1,6 @@
 import { ipcMain } from "electron";
 import { z } from "zod";
-import type {
-  BangumiBridge,
-  CollectionFilter,
-  TrackingMutation
-} from "../../shared/contracts/bangumi";
+import type { CollectionFilter, TrackingMutation } from "../../shared/contracts/bangumi";
 import { getBangumiService } from "../services/serviceFactory";
 
 const filterSchema = z
@@ -52,9 +48,9 @@ export function registerBangumiIpc(): void {
   handle("bangumi:getSyncState", () => service.getSyncState());
 }
 
-function handle<Key extends keyof BangumiBridge>(
+function handle<Args extends unknown[], Result>(
   channel: `bangumi:${string}`,
-  fn: (...args: Parameters<BangumiBridge[Key]>) => ReturnType<BangumiBridge[Key]>
+  fn: (...args: Args) => Result | Promise<Result>
 ): void {
-  ipcMain.handle(channel, (_event, ...args) => fn(...(args as Parameters<BangumiBridge[Key]>)));
+  ipcMain.handle(channel, (_event, ...args) => fn(...(args as Args)));
 }

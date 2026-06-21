@@ -9,14 +9,14 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-linear-to-br from-mint-400 to-mint-500 text-white shadow-[0_8px_18px_rgba(34,179,136,.32)] hover:-translate-y-px hover:brightness-105",
+          "from-mint-400 to-mint-500 bg-linear-to-br text-white shadow-[0_8px_18px_rgba(34,179,136,.32)] hover:-translate-y-px hover:brightness-105",
         cherry:
-          "bg-linear-to-br from-cherry-400 to-cherry-500 text-white shadow-[0_8px_18px_rgba(255,107,129,.3)] hover:-translate-y-px hover:brightness-105",
-        soft: "bg-mint-50 text-mint-600 border border-mint-200 hover:bg-mint-100",
+          "from-cherry-400 to-cherry-500 bg-linear-to-br text-white shadow-[0_8px_18px_rgba(255,107,129,.3)] hover:-translate-y-px hover:brightness-105",
+        soft: "bg-mint-50 text-mint-600 border-mint-200 hover:bg-mint-100 border",
         secondary: "bg-secondary text-secondary-foreground hover:bg-surface-3",
         outline:
-          "bg-card text-foreground border border-line-strong hover:border-mint-300 hover:text-mint-600",
-        ghost: "bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground"
+          "bg-card text-foreground border-line-strong hover:border-mint-300 hover:text-mint-600 border",
+        ghost: "text-muted-foreground hover:bg-secondary hover:text-foreground bg-transparent"
       },
       size: {
         default: "h-10 px-[18px] py-2.5",

@@ -51,7 +51,7 @@ function DialogHeader({ className, children, ...props }: React.HTMLAttributes<HT
       {...props}
     >
       {children}
-      <DialogClose className="text-ink-soft hover:border-mint-200 border-line bg-card ml-auto grid size-[34px] shrink-0 place-items-center rounded-[13px] border shadow-[var(--shadow-sm)] transition hover:text-ink">
+      <DialogClose className="text-ink-soft hover:border-mint-200 border-line bg-card hover:text-ink ml-auto grid size-[34px] shrink-0 place-items-center rounded-[13px] border shadow-[var(--shadow-sm)] transition">
         <X className="size-4" />
       </DialogClose>
     </div>

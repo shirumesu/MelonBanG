@@ -73,8 +73,8 @@ export function SubjectHero({
         </div>
 
         <div className="text-ink-soft text-[13.5px] leading-normal font-medium">
-          连载至 <span className="text-mint-500 text-[15px] font-extrabold">{subject.current}</span> /
-          预定全 {subject.total} 话 · {subject.schedule}
+          连载至 <span className="text-mint-500 text-[15px] font-extrabold">{subject.current}</span>{" "}
+          / 预定全 {subject.total} 话 · {subject.schedule}
         </div>
 
         <div className="flex flex-col items-start gap-1">

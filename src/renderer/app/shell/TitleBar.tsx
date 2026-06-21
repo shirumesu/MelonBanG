@@ -64,18 +64,39 @@ export function TitleBar({ crumb }: { crumb?: string }) {
       <div className="flex-1" />
       <div className="no-drag flex gap-0.5">
         <WinButton title="最小化" onClick={() => controls.minimize()}>
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <svg
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+          >
             <path d="M5 12h14" />
           </svg>
         </WinButton>
         <WinButton title="最大化" onClick={() => controls.toggleMaximize()}>
           {maximized ? (
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <svg
+              viewBox="0 0 24 24"
+              width="13"
+              height="13"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+            >
               <rect x="7" y="7" width="11" height="11" rx="2" />
               <path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4H18.5A1.5 1.5 0 0 1 20 5.5v8A1.5 1.5 0 0 1 18.5 15H17" />
             </svg>
           ) : (
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <svg
+              viewBox="0 0 24 24"
+              width="13"
+              height="13"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+            >
               <rect x="5" y="5" width="14" height="14" rx="2" />
             </svg>
           )}

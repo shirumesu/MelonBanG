@@ -21,10 +21,7 @@ function StarCell({ fill, size }: { fill: number; size: number }) {
         className="absolute inset-0 overflow-hidden"
         style={{ clipPath: `inset(0 ${(1 - clamped) * 100}% 0 0)` }}
       >
-        <Star
-          className="text-gold-500 fill-current"
-          style={{ width: size, height: size }}
-        />
+        <Star className="text-gold-500 fill-current" style={{ width: size, height: size }} />
       </span>
     </span>
   );

@@ -47,6 +47,7 @@ export function SearchRoute() {
                   <ArtworkCard
                     id={result.subjectId}
                     title={result.nameCn ?? result.name}
+                    imageUrl={result.coverUrl}
                     className="aspect-[3/4]"
                   />
                 </div>

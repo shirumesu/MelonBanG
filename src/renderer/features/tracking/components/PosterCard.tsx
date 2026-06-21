@@ -19,7 +19,9 @@ export function PosterCard({
   const meta = collectionStatusMeta[item.collection.status];
   const progressText = item.nextEpisode
     ? `看到 EP${Math.max(1, item.nextEpisode.sort - (item.nextEpisode.status === "watched" ? 0 : 1))}`
-    : `全 ${item.episodeTotal ?? "?"} 话`;
+    : typeof item.watchedEpisodeCount === "number"
+      ? `看到 EP${item.watchedEpisodeCount}`
+      : `全 ${item.episodeTotal ?? "?"} 话`;
 
   return (
     <Link
@@ -33,6 +35,7 @@ export function PosterCard({
         <ArtworkCard
           id={item.subjectId}
           title={item.nameCn ?? item.name}
+          imageUrl={item.coverUrl}
           className={cn(
             compact ? "aspect-[3/4]" : "aspect-[3/4] w-full",
             item.collection.status === "dropped" && "opacity-90 grayscale-[0.3]"

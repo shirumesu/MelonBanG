@@ -46,7 +46,7 @@ export function SignInRoute() {
     <WindowFrame crumb="连接账户">
       <div className="relative grid h-full place-items-center overflow-hidden">
         {/* ghosted poster wall */}
-        <div className="pointer-events-none absolute inset-0 grid grid-cols-8 gap-4 p-[30px] opacity-50 blur-[2px] [transform:rotate(-8deg)_scale(1.25)]">
+        <div className="pointer-events-none absolute inset-0 grid [transform:rotate(-8deg)_scale(1.25)] grid-cols-8 gap-4 p-[30px] opacity-50 blur-[2px]">
           {Array.from({ length: 24 }, (_, i) => {
             const [a, b] = GRADIENTS[i % GRADIENTS.length];
             return (
@@ -60,7 +60,7 @@ export function SignInRoute() {
         </div>
         <span className="bg-mint-300 pointer-events-none absolute top-[8%] left-[6%] size-[340px] rounded-full opacity-50 blur-[30px]" />
         <span className="bg-cherry-300 pointer-events-none absolute right-[4%] bottom-[6%] size-[300px] rounded-full opacity-50 blur-[30px]" />
-        <span className="bg-sky-300 pointer-events-none absolute top-[2%] right-[24%] size-[260px] rounded-full opacity-50 blur-[30px]" />
+        <span className="pointer-events-none absolute top-[2%] right-[24%] size-[260px] rounded-full bg-sky-300 opacity-50 blur-[30px]" />
 
         {authorizing ? (
           <div className="border-line relative z-[2] w-[min(440px,92vw)] rounded-[28px] border bg-white/60 px-9 py-[38px] text-center shadow-[var(--shadow-lg)] backdrop-blur-[10px] dark:bg-[rgba(22,32,45,.6)]">

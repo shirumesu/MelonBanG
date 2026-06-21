@@ -5,7 +5,8 @@ import { WindowFrame } from "./shell/WindowFrame";
 import { SignInRoute } from "../features/auth/SignInRoute";
 import { HomeRoute } from "../features/home/HomeRoute";
 import { TrackingRoute } from "../features/tracking/TrackingRoute";
-import { SubjectRoute } from "../features/subject/SubjectRoute";
+import { SearchRoute } from "../features/tracking/SearchRoute";
+import { SubjectRoute } from "../features/tracking/SubjectRoute";
 import { ScheduleRoute } from "../features/schedule/ScheduleRoute";
 import { CacheRoute } from "../features/cache/CacheRoute";
 import { PlayerRoute } from "../features/player/PlayerRoute";
@@ -34,6 +35,7 @@ export function AppRouter() {
         <Route index element={<Navigate to="/home" replace />} />
         <Route path="/home" element={<HomeRoute />} />
         <Route path="/tracking" element={<TrackingRoute />} />
+        <Route path="/search" element={<SearchRoute />} />
         <Route path="/subject/:subjectId" element={<SubjectRoute />} />
         <Route path="/schedule" element={<ScheduleRoute />} />
         <Route path="/cache" element={<CacheRoute />} />

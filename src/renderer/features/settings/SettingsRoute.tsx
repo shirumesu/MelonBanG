@@ -209,7 +209,11 @@ const choiceOptions = {
   ]
 } as const;
 
-const directoryOptions = ["应用数据目录 / cache", "下载目录 / melonbang", "外置磁盘 / melonbang-cache"];
+const directoryOptions = [
+  "应用数据目录 / cache",
+  "下载目录 / melonbang",
+  "外置磁盘 / melonbang-cache"
+];
 
 const contributorGradients = [
   "linear-gradient(135deg,var(--mint-300),var(--mint-500))",
@@ -259,10 +263,10 @@ export function SettingsRoute() {
   const [customDirectory, setCustomDirectory] = useState("");
   const [lastSyncLabel, setLastSyncLabel] = useState<string | null>(null);
 
-  const [syncFrequency, setSyncFrequency] = useState<(typeof choiceOptions.syncFrequency)[number]["value"]>(
-    "realtime"
-  );
-  const [language, setLanguage] = useState<(typeof choiceOptions.language)[number]["value"]>("zhCN");
+  const [syncFrequency, setSyncFrequency] =
+    useState<(typeof choiceOptions.syncFrequency)[number]["value"]>("realtime");
+  const [language, setLanguage] =
+    useState<(typeof choiceOptions.language)[number]["value"]>("zhCN");
   const [initialPage, setInitialPage] =
     useState<(typeof choiceOptions.initialPage)[number]["value"]>("home");
   const [closeBehavior, setCloseBehavior] =
@@ -406,7 +410,7 @@ export function SettingsRoute() {
               </button>
 
               {active === key ? (
-                <div className="ml-[30px] flex flex-col gap-1 border-l border-line pl-2">
+                <div className="border-line ml-[30px] flex flex-col gap-1 border-l pl-2">
                   {sections.map((section) => (
                     <button
                       key={section.key}
@@ -781,10 +785,7 @@ export function SettingsRoute() {
                 >
                   <UnitInput value={seedSpeed} onChange={setSeedSpeed} unit="MB/s" />
                 </SettingsRow>
-                <SettingsRow
-                  title="分享率限制"
-                  description="上传量 / 下载量达到设定比例后停止做种"
-                >
+                <SettingsRow title="分享率限制" description="上传量 / 下载量达到设定比例后停止做种">
                   <UnitInput value={shareRatio} onChange={setShareRatio} unit="x" step="0.1" />
                 </SettingsRow>
                 <SettingsRow
@@ -827,19 +828,19 @@ export function SettingsRoute() {
             <section>
               <PanelHeading title="快捷键" description="点击快捷键后按下新的组合键。" />
               <SettingsGroup category="keys" section="playback" title="播放控制">
-                {(["playPause", "seek", "nextEpisode", "danmaku", "fullscreen"] as ShortcutKey[]).map(
-                  (key) => (
-                    <ShortcutRow
-                      key={key}
-                      label={shortcutLabels[key]}
-                      value={shortcuts[key]}
-                      recording={recordingShortcut === key}
-                      onStart={() => setRecordingShortcut(key)}
-                      onKeyDown={(event) => handleShortcutKey(key, event)}
-                      onBlur={() => setRecordingShortcut(null)}
-                    />
-                  )
-                )}
+                {(
+                  ["playPause", "seek", "nextEpisode", "danmaku", "fullscreen"] as ShortcutKey[]
+                ).map((key) => (
+                  <ShortcutRow
+                    key={key}
+                    label={shortcutLabels[key]}
+                    value={shortcuts[key]}
+                    recording={recordingShortcut === key}
+                    onStart={() => setRecordingShortcut(key)}
+                    onKeyDown={(event) => handleShortcutKey(key, event)}
+                    onBlur={() => setRecordingShortcut(null)}
+                  />
+                ))}
               </SettingsGroup>
               <SettingsGroup category="keys" section="app" title="应用操作">
                 <ShortcutRow
@@ -877,7 +878,10 @@ export function SettingsRoute() {
                       v0.1.0 · Goal 1 · 追番基础版
                     </div>
                     <div className="mt-3.5 flex flex-wrap items-center gap-2">
-                      <Button size="sm" onClick={() => showToast("已是最新版本", "当前版本 v0.1.0。")}>
+                      <Button
+                        size="sm"
+                        onClick={() => showToast("已是最新版本", "当前版本 v0.1.0。")}
+                      >
                         检查更新
                       </Button>
                       <Button
@@ -1013,7 +1017,11 @@ function SettingsRow({
         <div className="text-sm font-semibold">{title}</div>
         {description ? <div className="text-ink-faint mt-0.5 text-xs">{description}</div> : null}
       </div>
-      {children ? <div className="flex min-w-0 items-center justify-end gap-2">{children}</div> : <span />}
+      {children ? (
+        <div className="flex min-w-0 items-center justify-end gap-2">{children}</div>
+      ) : (
+        <span />
+      )}
     </div>
   );
 }
@@ -1065,7 +1073,9 @@ function ChoicePill<T extends string>({
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-bold">{option.label}</span>
                   {option.description ? (
-                    <span className="text-ink-faint mt-0.5 block text-xs">{option.description}</span>
+                    <span className="text-ink-faint mt-0.5 block text-xs">
+                      {option.description}
+                    </span>
                   ) : null}
                 </span>
                 {option.value === value ? <Check className="text-mint-600 size-4" /> : null}
@@ -1230,12 +1240,16 @@ function DirectoryDialog({
                 }}
                 className={cn(
                   "border-line bg-surface hover:border-mint-300 flex items-center gap-3 rounded-[14px] border p-3 text-left transition",
-                  current === option && !customValue && "border-mint-300 bg-mint-50 dark:bg-mint-400/10"
+                  current === option &&
+                    !customValue &&
+                    "border-mint-300 bg-mint-50 dark:bg-mint-400/10"
                 )}
               >
                 <FolderOpen className="text-ink-faint size-4" />
                 <span className="min-w-0 flex-1 truncate text-sm font-bold">{option}</span>
-                {current === option && !customValue ? <Check className="text-mint-600 size-4" /> : null}
+                {current === option && !customValue ? (
+                  <Check className="text-mint-600 size-4" />
+                ) : null}
               </button>
             ))}
           </div>
@@ -1309,7 +1323,7 @@ function SettingsToast({ toast }: { toast: ToastState | null }) {
 
   return (
     <div className="border-line bg-surface fixed right-6 bottom-6 z-50 flex max-w-[340px] items-center gap-3 rounded-[14px] border p-3.5 shadow-[var(--shadow-lg)]">
-      <div className="bg-mint-100 text-mint-600 grid size-[34px] shrink-0 place-items-center rounded-[10px] dark:bg-mint-400/20">
+      <div className="bg-mint-100 text-mint-600 dark:bg-mint-400/20 grid size-[34px] shrink-0 place-items-center rounded-[10px]">
         <Check className="size-4" />
       </div>
       <div className="min-w-0">

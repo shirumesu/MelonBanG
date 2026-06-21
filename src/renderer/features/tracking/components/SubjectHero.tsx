@@ -26,6 +26,7 @@ export function SubjectHero({
           <ArtworkCard
             id={subject.subjectId}
             title={subject.nameCn ?? subject.name}
+            imageUrl={subject.coverUrl}
             className="aspect-[3/4] rounded-[14px]"
           />
         </div>

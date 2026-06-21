@@ -37,6 +37,7 @@ export type CollectionListItem = {
   nameCn?: string;
   coverUrl?: string;
   episodeTotal?: number;
+  watchedEpisodeCount?: number;
   summary?: string;
   collection: SubjectCollectionState;
   nextEpisode?: EpisodeCollectionState;
