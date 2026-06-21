@@ -1,29 +1,34 @@
 import { Link } from "react-router-dom";
-import { Play } from "lucide-react";
+import { Eye, Play } from "lucide-react";
 import type { TimelineItem } from "@/data/home";
 import { artGradient, artKanji } from "@/data/artwork";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 function RowMeta({ item, isNext }: { item: TimelineItem; isNext: boolean }) {
+  const badgeLabel =
+    item.badgeLabel ??
+    (item.done
+      ? `已更新${typeof item.ep === "number" ? ` EP${item.ep}` : ""}`
+      : `${isNext ? "即将" : "待播"}${typeof item.ep === "number" ? ` · EP${item.ep}` : ""}`);
+
   if (item.done) {
     return (
       <>
-        <Badge variant="mint">已更新 EP{item.ep}</Badge>
+        <Badge variant="mint">{badgeLabel}</Badge>
         <Button variant="soft" size="sm">
           <Play className="size-4 fill-current" />
-          播放
+          {item.actionLabel ?? "播放"}
         </Button>
       </>
     );
   }
   return (
     <>
-      <Badge variant={isNext ? "cherry" : "outline"}>
-        {isNext ? "即将" : "待播"} · EP{item.ep}
-      </Badge>
+      <Badge variant={isNext ? "cherry" : "outline"}>{badgeLabel}</Badge>
       <Button variant="outline" size="sm">
-        提醒我
+        <Eye className="size-4" />
+        {item.actionLabel ?? "提醒我"}
       </Button>
     </>
   );
@@ -73,7 +78,7 @@ function TimelineRow({
       </div>
 
       <Link
-        to={`/subject/${item.index}`}
+        to={`/subject/${item.subjectId ?? item.index}`}
         className={
           "group border-line bg-surface my-1.5 flex flex-1 items-center gap-3.5 rounded-[14px] border px-3.5 py-2.5 shadow-[var(--shadow-sm)] transition hover:translate-x-[3px] hover:shadow-[var(--shadow-md)] " +
           (isNext
@@ -85,9 +90,18 @@ function TimelineRow({
           className="relative h-14 w-[42px] flex-none overflow-hidden rounded-[9px] shadow-[var(--shadow-sm)]"
           style={{ background: artGradient(item.index) }}
         >
-          <span className="absolute inset-0 grid place-items-center text-2xl font-extrabold text-white/35">
-            {artKanji(item.index)}
-          </span>
+          {item.coverUrl ? (
+            <img
+              src={item.coverUrl}
+              alt=""
+              className="absolute inset-0 size-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <span className="absolute inset-0 grid place-items-center text-2xl font-extrabold text-white/35">
+              {artKanji(item.index)}
+            </span>
+          )}
           <span className="absolute inset-0 grid place-items-center bg-black/35 text-white opacity-0 transition group-hover:opacity-100">
             <Play className="size-4 fill-current" />
           </span>
@@ -95,7 +109,10 @@ function TimelineRow({
         <div className="min-w-0 flex-1">
           <b className="block truncate text-sm font-bold">{item.title}</b>
           <div className="text-ink-faint mt-[3px] text-xs font-semibold">
-            {item.done ? `已放送 · 更新至 EP${item.ep}` : `即将放送 · 全${item.total}话`}
+            {item.subtitle ??
+              (item.done
+                ? `已放送${typeof item.ep === "number" ? ` · 更新至 EP${item.ep}` : ""}`
+                : `即将放送${typeof item.total === "number" ? ` · 全${item.total}话` : ""}`)}
           </div>
         </div>
         <div className="flex flex-none items-center gap-2.5">

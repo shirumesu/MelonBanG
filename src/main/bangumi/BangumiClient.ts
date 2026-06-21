@@ -1,4 +1,11 @@
-import type { CollectionStatus, EpisodeStatus } from "../../shared/contracts/bangumi";
+import type {
+  BroadcastDay,
+  CollectionStatus,
+  EpisodeStatus,
+  SubjectCollectionStats,
+  SubjectInfoBoxItem,
+  SubjectTag
+} from "../../shared/contracts/bangumi";
 import type { BangumiOAuthConfig } from "../config/bangumi";
 
 export type RemoteBangumiUser = {
@@ -14,10 +21,16 @@ export type RemoteBangumiSubject = {
   nameCn?: string;
   summary?: string;
   date?: string;
+  platform?: string;
   totalEpisodes?: number;
   eps?: number;
   rank?: number;
   score?: number;
+  ratingCount?: number;
+  collectionStats?: SubjectCollectionStats;
+  metaTags?: string[];
+  tags?: SubjectTag[];
+  infoBox?: SubjectInfoBoxItem[];
   coverUrl?: string;
 };
 
@@ -83,10 +96,13 @@ type SearchSubjectsResponse = {
 
 type SubjectResponse = {
   id: number;
+  type?: number;
   name: string;
   name_cn: string;
   summary?: string;
   date?: string;
+  platform?: string;
+  meta_tags?: string[];
   eps?: number;
   total_episodes?: number;
   images?: {
@@ -98,8 +114,37 @@ type SubjectResponse = {
   } | null;
   rating?: {
     rank?: number;
+    total?: number;
     score?: number;
+    count?: Record<string, number>;
   };
+  collection?: {
+    wish?: number;
+    collect?: number;
+    doing?: number;
+    on_hold?: number;
+    dropped?: number;
+  };
+  tags?: Array<{
+    name: string;
+    count?: number;
+  }>;
+  infobox?: InfoboxResponseItem[];
+};
+
+type InfoboxResponseItem = {
+  key: string;
+  value:
+    | string
+    | Array<
+        | {
+            k?: string;
+            v: string;
+          }
+        | {
+            v: string;
+          }
+      >;
 };
 
 type EpisodesResponse = {
@@ -173,6 +218,16 @@ type UserEpisodeCollectionsResponse = {
   }>;
 };
 
+type CalendarResponse = Array<{
+  weekday: {
+    en: string;
+    cn: string;
+    ja?: string;
+    id: number;
+  };
+  items: SubjectResponse[];
+}>;
+
 const USER_COLLECTION_PAGE_SIZE = 50;
 const EPISODE_PAGE_SIZE = 200;
 const USER_EPISODE_COLLECTION_PAGE_SIZE = 1000;
@@ -236,12 +291,43 @@ export class BangumiClient {
       nameCn: subject.name_cn || undefined,
       summary: subject.summary || undefined,
       date: subject.date || undefined,
+      platform: subject.platform || undefined,
       totalEpisodes: subject.total_episodes || subject.eps || undefined,
       eps: subject.eps || undefined,
       rank: positiveNumber(subject.rating?.rank),
       score: positiveNumber(subject.rating?.score),
+      ratingCount: positiveNumber(subject.rating?.total),
+      collectionStats: mapSubjectCollectionStats(subject.collection),
+      metaTags: subject.meta_tags?.filter(Boolean),
+      tags: subject.tags?.map((tag) => ({ name: tag.name, count: tag.count })),
+      infoBox: mapInfobox(subject.infobox),
       coverUrl: pickImage(subject.images)
     };
+  }
+
+  async getCalendar(): Promise<BroadcastDay[]> {
+    const response = await this.fetchJson<CalendarResponse>("/calendar");
+    return response.map((day) => ({
+      weekday: {
+        id: day.weekday.id,
+        cn: day.weekday.cn,
+        en: day.weekday.en,
+        ja: day.weekday.ja
+      },
+      items: day.items
+        .filter((subject) => subject.type === 2 || typeof subject.type === "undefined")
+        .map((subject) => ({
+          subjectId: subject.id,
+          name: subject.name,
+          nameCn: subject.name_cn || undefined,
+          summary: subject.summary || undefined,
+          airDate: subject.date || undefined,
+          episodeTotal: subject.total_episodes || subject.eps || undefined,
+          rank: positiveNumber(subject.rating?.rank),
+          score: positiveNumber(subject.rating?.score),
+          coverUrl: pickImage(subject.images)
+        }))
+    }));
   }
 
   async getEpisodes(subjectId: number): Promise<RemoteBangumiEpisode[]> {
@@ -261,9 +347,9 @@ export class BangumiClient {
       }));
   }
 
-  async getUserCollections(username: string): Promise<RemoteUserSubjectCollectionPage> {
+  async getUserCollections(username: string, offset = 0): Promise<RemoteUserSubjectCollectionPage> {
     const response = await this.fetchJson<UserCollectionsResponse>(
-      `/v0/users/${encodeURIComponent(username)}/collections?subject_type=2&limit=${USER_COLLECTION_PAGE_SIZE}&offset=0`
+      `/v0/users/${encodeURIComponent(username)}/collections?subject_type=2&limit=${USER_COLLECTION_PAGE_SIZE}&offset=${offset}`
     );
 
     return {
@@ -299,6 +385,27 @@ export class BangumiClient {
         ];
       })
     };
+  }
+
+  async getAllUserCollections(username: string): Promise<RemoteUserSubjectCollection[]> {
+    const items: RemoteUserSubjectCollection[] = [];
+    let offset = 0;
+    let total = Number.POSITIVE_INFINITY;
+
+    while (offset < total) {
+      const page = await this.getUserCollections(username, offset);
+      items.push(...page.items);
+      total = page.total;
+
+      const nextOffset = page.offset + (page.limit || USER_COLLECTION_PAGE_SIZE);
+      if (nextOffset <= offset || page.items.length === 0) {
+        break;
+      }
+
+      offset = nextOffset;
+    }
+
+    return items;
   }
 
   async getUserSubjectEpisodeCollections(
@@ -474,6 +581,48 @@ function mapEpisodeCollectionType(value: number): EpisodeStatus {
     default:
       return "unwatched";
   }
+}
+
+function mapSubjectCollectionStats(
+  collection: SubjectResponse["collection"]
+): SubjectCollectionStats | undefined {
+  if (!collection) {
+    return undefined;
+  }
+
+  return {
+    wish: collection.wish ?? 0,
+    watching: collection.doing ?? 0,
+    completed: collection.collect ?? 0,
+    on_hold: collection.on_hold ?? 0,
+    dropped: collection.dropped ?? 0
+  };
+}
+
+function mapInfobox(infobox: SubjectResponse["infobox"]): SubjectInfoBoxItem[] | undefined {
+  if (!infobox?.length) {
+    return undefined;
+  }
+
+  return infobox.flatMap((item) => {
+    const value = infoboxValueToString(item.value);
+    if (!value) {
+      return [];
+    }
+
+    return [{ key: item.key, value }];
+  });
+}
+
+function infoboxValueToString(value: InfoboxResponseItem["value"]): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  return value
+    .map((entry) => ("k" in entry && entry.k ? `${entry.k}: ${entry.v}` : entry.v))
+    .filter(Boolean)
+    .join(" / ");
 }
 
 function episodeCollectionTypeValue(value: EpisodeStatus): number {

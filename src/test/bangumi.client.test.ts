@@ -80,6 +80,149 @@ describe("BangumiClient", () => {
     });
   });
 
+  it("loads all anime collection pages sequentially", async () => {
+    const fetchMock = mockJsonResponses([
+      {
+        total: 51,
+        limit: 50,
+        offset: 0,
+        data: [
+          {
+            subject_id: 123,
+            subject_type: 2,
+            type: 3,
+            rate: 8,
+            ep_status: 7,
+            updated_at: "2026-06-22T10:00:00+08:00",
+            subject: collectionSubject(123, "First Anime")
+          }
+        ]
+      },
+      {
+        total: 51,
+        limit: 50,
+        offset: 50,
+        data: [
+          {
+            subject_id: 456,
+            subject_type: 2,
+            type: 1,
+            rate: 0,
+            ep_status: 0,
+            updated_at: "2026-06-23T10:00:00+08:00",
+            subject: collectionSubject(456, "Second Anime")
+          }
+        ]
+      }
+    ]);
+
+    const client = new BangumiClient(config, "token");
+    const collections = await client.getAllUserCollections("demo-user");
+
+    expect(requestUrl(fetchMock, 0)).toContain("limit=50&offset=0");
+    expect(requestUrl(fetchMock, 1)).toContain("limit=50&offset=50");
+    expect(collections.map((item) => item.subjectId)).toEqual([123, 456]);
+  });
+
+  it("maps subject detail fields needed by the design page", async () => {
+    mockJsonResponse({
+      id: 123,
+      type: 2,
+      name: "Test Anime",
+      name_cn: "测试动画",
+      summary: "Line one.\nLine two.",
+      date: "2026-04-01",
+      platform: "TV",
+      meta_tags: ["TV", "小说改"],
+      images: { common: "https://example.com/cover.jpg" },
+      eps: 12,
+      total_episodes: 13,
+      rating: {
+        rank: 42,
+        total: 1234,
+        score: 8.2,
+        count: { "8": 100 }
+      },
+      collection: {
+        wish: 10,
+        collect: 20,
+        doing: 30,
+        on_hold: 4,
+        dropped: 2
+      },
+      tags: [{ name: "青春", count: 99 }],
+      infobox: [
+        { key: "导演", value: "示例监督" },
+        { key: "别名", value: [{ v: "Example" }, { k: "日文名", v: "テスト" }] }
+      ]
+    });
+
+    const client = new BangumiClient(config, "token");
+    const subject = await client.getSubject(123);
+
+    expect(subject).toMatchObject({
+      id: 123,
+      name: "Test Anime",
+      nameCn: "测试动画",
+      platform: "TV",
+      totalEpisodes: 13,
+      rank: 42,
+      score: 8.2,
+      ratingCount: 1234,
+      collectionStats: {
+        wish: 10,
+        completed: 20,
+        watching: 30,
+        on_hold: 4,
+        dropped: 2
+      },
+      metaTags: ["TV", "小说改"],
+      tags: [{ name: "青春", count: 99 }],
+      infoBox: [
+        { key: "导演", value: "示例监督" },
+        { key: "别名", value: "Example / 日文名: テスト" }
+      ]
+    });
+  });
+
+  it("loads the official calendar endpoint for broadcast schedule data", async () => {
+    const fetchMock = mockJsonResponse([
+      {
+        weekday: { en: "Mon", cn: "星期一", ja: "月曜日", id: 1 },
+        items: [
+          {
+            id: 123,
+            type: 2,
+            name: "Test Anime",
+            name_cn: "测试动画",
+            summary: "Airing today.",
+            date: "2026-04-01",
+            images: { common: "https://example.com/cover.jpg" },
+            eps: 12,
+            rating: { rank: 42, score: 8.2 }
+          }
+        ]
+      }
+    ]);
+
+    const client = new BangumiClient(config, "token");
+    const calendar = await client.getCalendar();
+
+    expect(requestUrl(fetchMock)).toBe("https://api.bgm.tv/calendar");
+    expect(calendar[0]).toMatchObject({
+      weekday: { id: 1, cn: "星期一", en: "Mon", ja: "月曜日" },
+      items: [
+        {
+          subjectId: 123,
+          nameCn: "测试动画",
+          episodeTotal: 12,
+          rank: 42,
+          score: 8.2
+        }
+      ]
+    });
+  });
+
   it("loads only main episodes in one page for subject detail", async () => {
     const fetchMock = mockJsonResponse({
       total: 2,
@@ -192,6 +335,19 @@ function mockJsonResponse(payload: unknown) {
   return fetchMock;
 }
 
+function mockJsonResponses(payloads: unknown[]) {
+  const fetchMock = vi.fn(
+    (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      void input;
+      void init;
+      const payload = payloads.shift();
+      return Promise.resolve(jsonResponse(payload));
+    }
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 function mockVoidResponse() {
   const fetchMock = vi.fn(
     (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
@@ -239,4 +395,19 @@ function jsonResponse(payload: unknown): Response {
     status: 200,
     headers: { "Content-Type": "application/json" }
   });
+}
+
+function collectionSubject(id: number, name: string) {
+  return {
+    id,
+    type: 2,
+    name,
+    name_cn: "",
+    short_summary: "A slim subject summary.",
+    date: "2026-04-01",
+    images: { common: `https://example.com/${id}.jpg` },
+    eps: 12,
+    rank: 42,
+    score: 8.2
+  };
 }

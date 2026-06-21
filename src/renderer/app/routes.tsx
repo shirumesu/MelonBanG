@@ -6,7 +6,7 @@ import { SignInRoute } from "../features/auth/SignInRoute";
 import { HomeRoute } from "../features/home/HomeRoute";
 import { TrackingRoute } from "../features/tracking/TrackingRoute";
 import { SearchRoute } from "../features/tracking/SearchRoute";
-import { SubjectRoute } from "../features/tracking/SubjectRoute";
+import { SubjectRoute } from "../features/subject/SubjectRoute";
 import { ScheduleRoute } from "../features/schedule/ScheduleRoute";
 import { CacheRoute } from "../features/cache/CacheRoute";
 import { PlayerRoute } from "../features/player/PlayerRoute";

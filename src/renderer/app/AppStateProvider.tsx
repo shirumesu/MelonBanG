@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type {
   BangumiSession,
+  BroadcastDay,
   CollectionFilter,
   CollectionListItem,
   SubjectDetail,
@@ -15,12 +16,14 @@ type AppStateValue = {
   syncState: SyncState | null;
   isBootstrapping: boolean;
   homeItems: CollectionListItem[];
+  calendarDays: BroadcastDay[];
   refreshSession: () => Promise<void>;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   listCollection: (filter?: CollectionFilter) => Promise<CollectionListItem[]>;
   getSubject: (subjectId: number) => Promise<SubjectDetail>;
   searchSubjects: (keyword: string) => Promise<SubjectSearchResult[]>;
+  refreshCalendar: () => Promise<void>;
   updateTracking: (input: TrackingMutation) => Promise<void>;
   refreshCollection: (force?: boolean) => Promise<void>;
 };
@@ -31,6 +34,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<BangumiSession | null>(null);
   const [syncState, setSyncState] = useState<SyncState | null>(null);
   const [homeItems, setHomeItems] = useState<CollectionListItem[]>([]);
+  const [calendarDays, setCalendarDays] = useState<BroadcastDay[]>([]);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
 
   useEffect(() => {
@@ -47,9 +51,15 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setSession(nextSession);
       setSyncState(nextSyncState);
       if (nextSession) {
-        setHomeItems(await window.melonbang.bangumi.listCollection({ status: "watching" }));
+        const [nextHomeItems, nextCalendarDays] = await Promise.all([
+          window.melonbang.bangumi.listCollection({ status: "watching" }),
+          window.melonbang.bangumi.getCalendar().catch(() => [])
+        ]);
+        setHomeItems(nextHomeItems);
+        setCalendarDays(nextCalendarDays);
       } else {
         setHomeItems([]);
+        setCalendarDays([]);
       }
     } catch (error) {
       setSession(null);
@@ -59,6 +69,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         lastSyncError: errorMessage(error)
       });
       setHomeItems([]);
+      setCalendarDays([]);
     } finally {
       setIsBootstrapping(false);
     }
@@ -69,7 +80,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       const nextSession = await window.melonbang.bangumi.signIn();
       setSession(nextSession);
       setSyncState(await window.melonbang.bangumi.getSyncState());
-      setHomeItems(await window.melonbang.bangumi.listCollection({ status: "watching" }));
+      const [nextHomeItems, nextCalendarDays] = await Promise.all([
+        window.melonbang.bangumi.listCollection({ status: "watching" }),
+        window.melonbang.bangumi.getCalendar().catch(() => [])
+      ]);
+      setHomeItems(nextHomeItems);
+      setCalendarDays(nextCalendarDays);
     } catch (error) {
       setSession(null);
       setSyncState({
@@ -78,6 +94,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         lastSyncError: errorMessage(error)
       });
       setHomeItems([]);
+      setCalendarDays([]);
       throw error;
     }
   }
@@ -87,12 +104,17 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     setSession(null);
     setSyncState(null);
     setHomeItems([]);
+    setCalendarDays([]);
   }
 
   async function refreshCollection(force?: boolean): Promise<void> {
     const nextSyncState = await window.melonbang.bangumi.refreshCollection(force);
     setSyncState(nextSyncState);
     setHomeItems(await window.melonbang.bangumi.listCollection({ status: "watching" }));
+  }
+
+  async function refreshCalendar(): Promise<void> {
+    setCalendarDays(await window.melonbang.bangumi.getCalendar());
   }
 
   async function updateTracking(input: TrackingMutation): Promise<void> {
@@ -111,16 +133,18 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       syncState,
       isBootstrapping,
       homeItems,
+      calendarDays,
       refreshSession,
       signIn,
       signOut,
       listCollection,
       getSubject: (subjectId) => window.melonbang.bangumi.getSubject(subjectId),
       searchSubjects: (keyword) => window.melonbang.bangumi.searchSubjects(keyword),
+      refreshCalendar,
       updateTracking,
       refreshCollection
     }),
-    [homeItems, isBootstrapping, session, syncState]
+    [calendarDays, homeItems, isBootstrapping, session, syncState]
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;

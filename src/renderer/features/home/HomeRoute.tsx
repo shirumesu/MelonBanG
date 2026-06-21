@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Bell, ChevronRight, PlayCircle, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
-import { TODAY_ITEMS, TODAY_SUBTITLE } from "@/data/home";
+import type { TimelineItem } from "@/data/home";
+import type { BroadcastDay } from "@shared/contracts/bangumi";
 import { useAppState } from "@/app/AppStateProvider";
 import { HeroCarousel } from "./components/HeroCarousel";
 import { ContinueRail } from "./components/ContinueRail";
@@ -18,7 +19,9 @@ import {
 
 export function HomeRoute() {
   const [search, setSearch] = useState("");
-  const { syncState } = useAppState();
+  const { calendarDays, syncState } = useAppState();
+  const today = findToday(calendarDays);
+  const todayItems = today ? toTimelineItems(today) : [];
   const syncLabel = syncState?.lastSuccessfulSyncAt
     ? `已同步 · ${formatRelativeTime(syncState.lastSuccessfulSyncAt)}`
     : syncState?.stale
@@ -64,7 +67,7 @@ export function HomeRoute() {
                 今日更新
               </>
             }
-            sub={TODAY_SUBTITLE}
+            sub={today ? `${today.weekday.cn} · ${today.items.length} 部放送` : "正在读取放送表"}
             action={
               <Link
                 to="/schedule"
@@ -74,11 +77,43 @@ export function HomeRoute() {
               </Link>
             }
           />
-          <Timeline items={TODAY_ITEMS} />
+          {todayItems.length > 0 ? (
+            <Timeline items={todayItems} />
+          ) : (
+            <div className="border-line bg-surface text-ink-faint rounded-[20px] border p-8 text-center text-sm font-bold shadow-[var(--shadow-sm)]">
+              今日暂无 Bangumi 放送数据。
+            </div>
+          )}
         </Section>
       </PageContent>
     </>
   );
+}
+
+function findToday(days: BroadcastDay[]): BroadcastDay | undefined {
+  const todayId = bangumiWeekdayId(new Date());
+  return days.find((day) => day.weekday.id === todayId);
+}
+
+function toTimelineItems(day: BroadcastDay): TimelineItem[] {
+  return day.items.slice(0, 8).map((item) => ({
+    time: "放送",
+    index: item.subjectId,
+    subjectId: item.subjectId,
+    title: item.nameCn ?? item.name,
+    total: item.episodeTotal,
+    done: false,
+    coverUrl: item.coverUrl,
+    subtitle:
+      typeof item.episodeTotal === "number" ? `今日放送 · 全 ${item.episodeTotal} 话` : "今日放送",
+    badgeLabel: "今日放送",
+    actionLabel: "详情"
+  }));
+}
+
+function bangumiWeekdayId(date: Date): number {
+  const day = date.getDay();
+  return day === 0 ? 7 : day;
 }
 
 function formatRelativeTime(value: string): string {

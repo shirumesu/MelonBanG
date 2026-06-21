@@ -42,6 +42,9 @@ function createUnconfiguredBangumiService(): BangumiBridge {
     searchSubjects() {
       return Promise.reject(new Error(missingOAuthConfigMessage));
     },
+    getCalendar() {
+      return Promise.resolve([]);
+    },
     updateTracking() {
       return Promise.reject(new Error(missingOAuthConfigMessage));
     },

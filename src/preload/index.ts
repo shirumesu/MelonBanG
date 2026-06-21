@@ -10,6 +10,7 @@ const bangumi: BangumiBridge = {
   listCollection: (filter) => ipcRenderer.invoke("bangumi:listCollection", filter),
   getSubject: (subjectId) => ipcRenderer.invoke("bangumi:getSubject", subjectId),
   searchSubjects: (keyword) => ipcRenderer.invoke("bangumi:searchSubjects", keyword),
+  getCalendar: () => ipcRenderer.invoke("bangumi:getCalendar"),
   updateTracking: (input) => ipcRenderer.invoke("bangumi:updateTracking", input),
   refreshCollection: (force) => ipcRenderer.invoke("bangumi:refreshCollection", force),
   getSyncState: () => ipcRenderer.invoke("bangumi:getSyncState")

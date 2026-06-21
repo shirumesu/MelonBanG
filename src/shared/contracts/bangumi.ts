@@ -44,6 +44,24 @@ export type CollectionListItem = {
   pendingMutationKeys: string[];
 };
 
+export type SubjectCollectionStats = {
+  wish: number;
+  watching: number;
+  completed: number;
+  on_hold: number;
+  dropped: number;
+};
+
+export type SubjectTag = {
+  name: string;
+  count?: number;
+};
+
+export type SubjectInfoBoxItem = {
+  key: string;
+  value: string;
+};
+
 export type SubjectSearchResult = {
   subjectId: number;
   name: string;
@@ -61,10 +79,38 @@ export type SubjectDetail = {
   summary?: string;
   episodeTotal?: number;
   airDate?: string;
+  platform?: string;
   score?: number;
   rank?: number;
+  ratingCount?: number;
+  collectionStats?: SubjectCollectionStats;
+  metaTags?: string[];
+  tags?: SubjectTag[];
+  infoBox?: SubjectInfoBoxItem[];
   collection: SubjectCollectionState | null;
   episodes: EpisodeCollectionState[];
+};
+
+export type BroadcastItem = {
+  subjectId: number;
+  name: string;
+  nameCn?: string;
+  coverUrl?: string;
+  summary?: string;
+  airDate?: string;
+  episodeTotal?: number;
+  score?: number;
+  rank?: number;
+};
+
+export type BroadcastDay = {
+  weekday: {
+    id: number;
+    cn: string;
+    en: string;
+    ja?: string;
+  };
+  items: BroadcastItem[];
 };
 
 export type SubjectCollectionMutation = {
@@ -105,6 +151,7 @@ export interface BangumiBridge {
   listCollection(filter?: CollectionFilter): Promise<CollectionListItem[]>;
   getSubject(subjectId: number): Promise<SubjectDetail>;
   searchSubjects(keyword: string): Promise<SubjectSearchResult[]>;
+  getCalendar(): Promise<BroadcastDay[]>;
   updateTracking(input: TrackingMutation): Promise<MutationResult>;
   refreshCollection(force?: boolean): Promise<SyncState>;
   getSyncState(): Promise<SyncState>;

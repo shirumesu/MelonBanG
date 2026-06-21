@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Inbox, SlidersHorizontal } from "lucide-react";
-import { TODAY_INDEX, WEEK } from "@/data/schedule";
+import type { TimelineItem } from "@/data/home";
+import type { BroadcastDay } from "@shared/contracts/bangumi";
+import { useAppState } from "@/app/AppStateProvider";
 import { Timeline } from "@/components/melon/Timeline";
 import { IconButton, SearchBox, Topbar } from "@/components/melon/layout";
 import { Button } from "@/components/ui/button";
@@ -9,8 +11,11 @@ import { cn } from "@/lib/utils";
 
 export function ScheduleRoute() {
   const navigate = useNavigate();
-  const [selected, setSelected] = useState(TODAY_INDEX);
-  const day = WEEK[selected];
+  const { calendarDays } = useAppState();
+  const week = useMemo(() => calendarDaysToWeek(calendarDays), [calendarDays]);
+  const todayIndex = useMemo(() => findTodayIndex(week), [week]);
+  const [selected, setSelected] = useState(todayIndex);
+  const day = week[selected] ?? week[todayIndex] ?? emptyToday();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -31,7 +36,7 @@ export function ScheduleRoute() {
       </Topbar>
 
       <div className="border-line bg-surface-2 flex gap-[7px] overflow-x-auto border-b px-[26px] py-4">
-        {WEEK.map((entry, i) => {
+        {week.map((entry, i) => {
           const active = i === selected;
           return (
             <button
@@ -61,7 +66,7 @@ export function ScheduleRoute() {
         <div className="flex items-center gap-3.5 px-[26px] pt-[22px] pb-3">
           <h2 className="text-xl font-extrabold">
             {day.day}
-            {selected === TODAY_INDEX ? " · 今天" : ""}
+            {selected === todayIndex ? " · 今天" : ""}
           </h2>
           <span className="text-ink-faint text-[13px] font-semibold">
             {day.items.length === 0 ? "本日无放送" : `${day.items.length} 部放送`}
@@ -82,6 +87,80 @@ export function ScheduleRoute() {
       </div>
     </div>
   );
+}
+
+type WeekDay = {
+  day: string;
+  en: string;
+  weekdayId: number;
+  items: TimelineItem[];
+};
+
+const FALLBACK_WEEKDAYS: WeekDay[] = [
+  { day: "周一", en: "MON", weekdayId: 1, items: [] },
+  { day: "周二", en: "TUE", weekdayId: 2, items: [] },
+  { day: "周三", en: "WED", weekdayId: 3, items: [] },
+  { day: "周四", en: "THU", weekdayId: 4, items: [] },
+  { day: "周五", en: "FRI", weekdayId: 5, items: [] },
+  { day: "周六", en: "SAT", weekdayId: 6, items: [] },
+  { day: "周日", en: "SUN", weekdayId: 7, items: [] }
+];
+
+function calendarDaysToWeek(days: BroadcastDay[]): WeekDay[] {
+  if (days.length === 0) {
+    return FALLBACK_WEEKDAYS;
+  }
+
+  const byId = new Map(days.map((day) => [day.weekday.id, day]));
+  return FALLBACK_WEEKDAYS.map((fallback) => {
+    const day = byId.get(fallback.weekdayId);
+    if (!day) {
+      return fallback;
+    }
+
+    return {
+      day: day.weekday.cn.replace("星期", "周"),
+      en: day.weekday.en.toUpperCase(),
+      weekdayId: day.weekday.id,
+      items: toTimelineItems(day)
+    };
+  });
+}
+
+function toTimelineItems(day: BroadcastDay): TimelineItem[] {
+  const todayId = bangumiWeekdayId(new Date());
+  const dayHasPassed = day.weekday.id < todayId;
+
+  return day.items.map((item) => ({
+    time: "放送",
+    index: item.subjectId,
+    subjectId: item.subjectId,
+    title: item.nameCn ?? item.name,
+    total: item.episodeTotal,
+    done: dayHasPassed,
+    coverUrl: item.coverUrl,
+    subtitle:
+      typeof item.episodeTotal === "number"
+        ? `${day.weekday.cn}放送 · 全 ${item.episodeTotal} 话`
+        : `${day.weekday.cn}放送`,
+    badgeLabel: day.weekday.id === todayId ? "今日放送" : dayHasPassed ? "本周已放送" : "待放送",
+    actionLabel: "详情"
+  }));
+}
+
+function findTodayIndex(week: WeekDay[]): number {
+  const todayId = bangumiWeekdayId(new Date());
+  const index = week.findIndex((day) => day.weekdayId === todayId);
+  return index >= 0 ? index : 0;
+}
+
+function emptyToday(): WeekDay {
+  return FALLBACK_WEEKDAYS[findTodayIndex(FALLBACK_WEEKDAYS)];
+}
+
+function bangumiWeekdayId(date: Date): number {
+  const day = date.getDay();
+  return day === 0 ? 7 : day;
 }
 
 function currentSeasonLabel(date = new Date()): string {

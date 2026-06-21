@@ -40,9 +40,15 @@ export function getAppDatabase(): DatabaseSync {
       cover_url TEXT,
       summary TEXT,
       air_date TEXT,
+      platform TEXT,
       episode_total INTEGER,
       rank INTEGER,
       score REAL,
+      rating_count INTEGER,
+      collection_stats_json TEXT,
+      meta_tags_json TEXT,
+      tags_json TEXT,
+      infobox_json TEXT,
       updated_at TEXT NOT NULL
     ) STRICT;
 
@@ -82,6 +88,12 @@ export function getAppDatabase(): DatabaseSync {
   `);
 
   ensureColumn(database, "subject_collections", "ep_status", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "subject_cache", "platform", "TEXT");
+  ensureColumn(database, "subject_cache", "rating_count", "INTEGER");
+  ensureColumn(database, "subject_cache", "collection_stats_json", "TEXT");
+  ensureColumn(database, "subject_cache", "meta_tags_json", "TEXT");
+  ensureColumn(database, "subject_cache", "tags_json", "TEXT");
+  ensureColumn(database, "subject_cache", "infobox_json", "TEXT");
   database
     .prepare(
       `

@@ -51,58 +51,16 @@ export const HERO_SLIDES: HeroSlide[] = [
   }
 ];
 
-export type ContinueItem = {
-  index: number;
-  title: string;
-  score: string;
-  currentEp: number;
-  progress: number;
-};
-
-const continueSeed = [
-  { currentEp: 7, progress: 62 },
-  { currentEp: 3, progress: 24 },
-  { currentEp: 11, progress: 84 },
-  { currentEp: 5, progress: 20 },
-  { currentEp: 9, progress: 38 },
-  { currentEp: 2, progress: 12 },
-  { currentEp: 16, progress: 67 },
-  { currentEp: 8, progress: 44 }
-];
-
-export const CONTINUE_ITEMS: ContinueItem[] = continueSeed.map((entry, index) => ({
-  index,
-  title: [
-    "夏日终幕的我们",
-    "缔造神话的少女们",
-    "刀锋上的舞者",
-    "天空彼端的信",
-    "星之追忆",
-    "光与影的协奏",
-    "绯色的契约",
-    "创世笔记"
-  ][index],
-  score: (8 + (index % 3) * 0.3).toFixed(1),
-  currentEp: entry.currentEp,
-  progress: entry.progress
-}));
-
 export type TimelineItem = {
   time: string;
   index: number;
+  subjectId?: number;
   title: string;
-  ep: number;
-  total: number;
+  ep?: number;
+  total?: number;
   done: boolean;
+  coverUrl?: string;
+  subtitle?: string;
+  badgeLabel?: string;
+  actionLabel?: string;
 };
-
-export const TODAY_ITEMS: TimelineItem[] = [
-  { time: "02:00", index: 7, title: "创世笔记", ep: 6, total: 12, done: true },
-  { time: "12:30", index: 3, title: "天空彼端的信", ep: 5, total: 24, done: true },
-  { time: "19:00", index: 8, title: "千里旅人", ep: 9, total: 13, done: true },
-  { time: "22:00", index: 0, title: "夏日终幕的我们", ep: 8, total: 24, done: false },
-  { time: "23:30", index: 2, title: "刀锋上的舞者", ep: 5, total: 11, done: false },
-  { time: "24:00", index: 4, title: "星之追忆", ep: 7, total: 24, done: false }
-];
-
-export const TODAY_SUBTITLE = `周五 · ${TODAY_ITEMS.length} 部有新集`;

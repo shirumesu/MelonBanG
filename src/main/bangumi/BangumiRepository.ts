@@ -1,6 +1,7 @@
 import type {
   BangumiBridge,
   BangumiSession,
+  BroadcastDay,
   CollectionFilter,
   CollectionListItem,
   EpisodeCollectionState,
@@ -22,6 +23,7 @@ export class BangumiRepository implements BangumiBridge {
   private readonly collectionStore = new CollectionStore();
   private readonly mutationQueueStore = new MutationQueueStore();
   private readonly syncStateStore = new SyncStateStore();
+  private calendarCache: { fetchedAt: number; days: BroadcastDay[] } | null = null;
 
   constructor(private readonly config: BangumiOAuthConfig) {
     this.oauth = new BangumiOAuth(config);
@@ -66,9 +68,15 @@ export class BangumiRepository implements BangumiBridge {
       summary: subject.summary,
       coverUrl: subject.coverUrl,
       airDate: subject.date,
+      platform: subject.platform,
       episodeTotal: subject.totalEpisodes,
       rank: subject.rank,
-      score: subject.score
+      score: subject.score,
+      ratingCount: subject.ratingCount,
+      collectionStats: subject.collectionStats,
+      metaTags: subject.metaTags,
+      tags: subject.tags,
+      infoBox: subject.infoBox
     });
 
     for (const episode of mergeEpisodeState(episodes, episodeCollections)) {
@@ -95,13 +103,30 @@ export class BangumiRepository implements BangumiBridge {
         summary: subject.summary,
         coverUrl: subject.coverUrl,
         airDate: subject.date,
+        platform: subject.platform,
         episodeTotal: subject.totalEpisodes,
         rank: subject.rank,
-        score: subject.score
+        score: subject.score,
+        ratingCount: subject.ratingCount,
+        collectionStats: subject.collectionStats,
+        metaTags: subject.metaTags,
+        tags: subject.tags,
+        infoBox: subject.infoBox
       });
     }
 
     return this.collectionStore.searchSubjects(keyword);
+  }
+
+  async getCalendar(): Promise<BroadcastDay[]> {
+    if (this.calendarCache && Date.now() - this.calendarCache.fetchedAt < 30 * 60 * 1000) {
+      return this.calendarCache.days;
+    }
+
+    const client = await this.getClient();
+    const days = await client.getCalendar();
+    this.calendarCache = { fetchedAt: Date.now(), days };
+    return days;
   }
 
   async updateTracking(input: TrackingMutation): Promise<MutationResult> {
@@ -140,27 +165,29 @@ export class BangumiRepository implements BangumiBridge {
         throw new Error("Bangumi session is missing.");
       }
 
-      const collectionPage = await client.getUserCollections(session.username);
-      for (const collection of collectionPage.items) {
-        this.collectionStore.upsertSubjectCache({
-          subjectId: collection.subject.id,
-          name: collection.subject.name,
-          nameCn: collection.subject.nameCn,
-          summary: collection.subject.summary,
-          coverUrl: collection.subject.coverUrl,
-          airDate: collection.subject.date,
-          episodeTotal: collection.subject.totalEpisodes,
-          rank: collection.subject.rank,
-          score: collection.subject.score
-        });
-        this.collectionStore.upsertStoredSubjectCollection({
-          subjectId: collection.subjectId,
-          status: collection.status,
-          score: collection.score,
-          updatedAt: collection.updatedAt,
-          epStatus: collection.epStatus
-        });
-      }
+      const collections = await client.getAllUserCollections(session.username);
+      this.collectionStore.replaceSubjectCollections(
+        collections.map((collection) => ({
+          subject: {
+            subjectId: collection.subject.id,
+            name: collection.subject.name,
+            nameCn: collection.subject.nameCn,
+            summary: collection.subject.summary,
+            coverUrl: collection.subject.coverUrl,
+            airDate: collection.subject.date,
+            episodeTotal: collection.subject.totalEpisodes,
+            rank: collection.subject.rank,
+            score: collection.subject.score
+          },
+          collection: {
+            subjectId: collection.subjectId,
+            status: collection.status,
+            score: collection.score,
+            updatedAt: collection.updatedAt,
+            epStatus: collection.epStatus
+          }
+        }))
+      );
 
       this.reapplyPendingMutations();
       const flushResult = await this.flushPendingMutations();

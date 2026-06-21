@@ -4,8 +4,10 @@ import type {
   CollectionStatus,
   EpisodeCollectionState,
   EpisodeStatus,
+  SubjectCollectionStats,
   SubjectCollectionState,
   SubjectDetail,
+  SubjectInfoBoxItem,
   SubjectSearchResult
 } from "../../shared/contracts/bangumi";
 import { getAppDatabase } from "./appDatabase";
@@ -17,9 +19,15 @@ type SubjectCacheRow = {
   cover_url: string | null;
   summary: string | null;
   air_date: string | null;
+  platform: string | null;
   episode_total: number | null;
   rank: number | null;
   score: number | null;
+  rating_count: number | null;
+  collection_stats_json: string | null;
+  meta_tags_json: string | null;
+  tags_json: string | null;
+  infobox_json: string | null;
   updated_at: string;
 };
 
@@ -39,6 +47,31 @@ type EpisodeCollectionRow = {
   name_cn: string | null;
   status: EpisodeStatus;
   updated_at: string | null;
+};
+
+type SubjectCacheInput = {
+  subjectId: number;
+  name: string;
+  nameCn?: string;
+  coverUrl?: string;
+  summary?: string;
+  airDate?: string;
+  platform?: string;
+  episodeTotal?: number;
+  rank?: number;
+  score?: number;
+  ratingCount?: number;
+  collectionStats?: SubjectCollectionStats;
+  metaTags?: string[];
+  tags?: Array<{ name: string; count?: number }>;
+  infoBox?: SubjectInfoBoxItem[];
+};
+
+type SubjectCollectionInput = SubjectCollectionState & { epStatus?: number };
+
+type SubjectCollectionSnapshot = {
+  subject: SubjectCacheInput;
+  collection: SubjectCollectionInput;
 };
 
 export class CollectionStore {
@@ -95,7 +128,23 @@ export class CollectionStore {
     const subject = this.database
       .prepare(
         `
-      SELECT subject_id, name, name_cn, cover_url, summary, air_date, episode_total, rank, score, updated_at
+      SELECT
+        subject_id,
+        name,
+        name_cn,
+        cover_url,
+        summary,
+        air_date,
+        platform,
+        episode_total,
+        rank,
+        score,
+        rating_count,
+        collection_stats_json,
+        meta_tags_json,
+        tags_json,
+        infobox_json,
+        updated_at
       FROM subject_cache
       WHERE subject_id = ?
     `
@@ -134,9 +183,15 @@ export class CollectionStore {
       coverUrl: subject.cover_url ?? undefined,
       summary: subject.summary ?? undefined,
       airDate: subject.air_date ?? undefined,
+      platform: subject.platform ?? undefined,
       episodeTotal: subject.episode_total ?? undefined,
       rank: subject.rank ?? undefined,
       score: subject.score ?? undefined,
+      ratingCount: subject.rating_count ?? undefined,
+      collectionStats: parseJson<SubjectCollectionStats>(subject.collection_stats_json),
+      metaTags: parseJson<string[]>(subject.meta_tags_json),
+      tags: parseJson<Array<{ name: string; count?: number }>>(subject.tags_json),
+      infoBox: parseJson<SubjectInfoBoxItem[]>(subject.infobox_json),
       collection: collection ? this.toSubjectCollectionState(collection) : null,
       episodes: episodes.map((episode) => this.toEpisodeCollectionState(episode))
     };
@@ -161,7 +216,7 @@ export class CollectionStore {
     const rows = this.database
       .prepare(
         `
-      SELECT subject_id, name, name_cn, cover_url, summary, episode_total, air_date, rank, score, updated_at
+      SELECT subject_id, name, name_cn, cover_url, summary, air_date, platform, episode_total, rank, score, rating_count, collection_stats_json, meta_tags_json, tags_json, infobox_json, updated_at
       FROM subject_cache
       WHERE lower(name) LIKE ? OR lower(COALESCE(name_cn, '')) LIKE ? OR lower(COALESCE(summary, '')) LIKE ?
       ORDER BY updated_at DESC
@@ -180,17 +235,7 @@ export class CollectionStore {
     }));
   }
 
-  upsertSubjectCache(input: {
-    subjectId: number;
-    name: string;
-    nameCn?: string;
-    coverUrl?: string;
-    summary?: string;
-    airDate?: string;
-    episodeTotal?: number;
-    rank?: number;
-    score?: number;
-  }): void {
+  upsertSubjectCache(input: SubjectCacheInput): void {
     this.database
       .prepare(
         `
@@ -201,21 +246,33 @@ export class CollectionStore {
         cover_url,
         summary,
         air_date,
+        platform,
         episode_total,
         rank,
         score,
+        rating_count,
+        collection_stats_json,
+        meta_tags_json,
+        tags_json,
+        infobox_json,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(subject_id) DO UPDATE SET
         name = excluded.name,
         name_cn = excluded.name_cn,
         cover_url = excluded.cover_url,
         summary = excluded.summary,
         air_date = excluded.air_date,
+        platform = COALESCE(excluded.platform, subject_cache.platform),
         episode_total = excluded.episode_total,
         rank = excluded.rank,
         score = excluded.score,
+        rating_count = COALESCE(excluded.rating_count, subject_cache.rating_count),
+        collection_stats_json = COALESCE(excluded.collection_stats_json, subject_cache.collection_stats_json),
+        meta_tags_json = COALESCE(excluded.meta_tags_json, subject_cache.meta_tags_json),
+        tags_json = COALESCE(excluded.tags_json, subject_cache.tags_json),
+        infobox_json = COALESCE(excluded.infobox_json, subject_cache.infobox_json),
         updated_at = excluded.updated_at
     `
       )
@@ -226,9 +283,15 @@ export class CollectionStore {
         input.coverUrl ?? null,
         input.summary ?? null,
         input.airDate ?? null,
+        input.platform ?? null,
         input.episodeTotal ?? null,
         input.rank ?? null,
         input.score ?? null,
+        input.ratingCount ?? null,
+        jsonOrNull(input.collectionStats),
+        jsonOrNull(input.metaTags),
+        jsonOrNull(input.tags),
+        jsonOrNull(input.infoBox),
         isoNow()
       );
   }
@@ -257,6 +320,42 @@ export class CollectionStore {
         input.epStatus ?? 0,
         input.updatedAt
       );
+  }
+
+  replaceSubjectCollections(input: SubjectCollectionSnapshot[]): void {
+    this.database.exec(`
+      CREATE TEMP TABLE IF NOT EXISTS temp_subject_collection_refresh (
+        subject_id INTEGER PRIMARY KEY
+      ) STRICT;
+    `);
+
+    this.database.prepare("BEGIN").run();
+    try {
+      this.database.prepare("DELETE FROM temp_subject_collection_refresh").run();
+
+      for (const entry of input) {
+        this.upsertSubjectCache(entry.subject);
+        this.upsertStoredSubjectCollection(entry.collection);
+        this.database
+          .prepare("INSERT OR REPLACE INTO temp_subject_collection_refresh (subject_id) VALUES (?)")
+          .run(entry.collection.subjectId);
+      }
+
+      this.database
+        .prepare(
+          `
+        DELETE FROM subject_collections
+        WHERE subject_id NOT IN (SELECT subject_id FROM temp_subject_collection_refresh)
+      `
+        )
+        .run();
+
+      this.database.prepare("DELETE FROM temp_subject_collection_refresh").run();
+      this.database.prepare("COMMIT").run();
+    } catch (error) {
+      this.database.prepare("ROLLBACK").run();
+      throw error;
+    }
   }
 
   updateEpisodeStatus(input: EpisodeCollectionState): void {
@@ -581,4 +680,20 @@ function seedEpisodes(
 
 function isoNow(): string {
   return new Date().toISOString();
+}
+
+function jsonOrNull(value: unknown): string | null {
+  return typeof value === "undefined" ? null : JSON.stringify(value);
+}
+
+function parseJson<T>(value: string | null): T | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return undefined;
+  }
 }
