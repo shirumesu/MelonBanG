@@ -95,9 +95,11 @@
   --text-2: #9fb0b8;
   --text-3: #6c7c85;
   --on-accent: #06251a;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 8px 22px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 22px 60px rgba(0, 0, 0, 0.55);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.45);
+  --shadow-xl: 0 22px 60px rgba(0, 0, 0, 0.55);
   color-scheme: dark;
 }
 
@@ -154,12 +156,19 @@
   --color-gold-400: var(--gold-400);
   --color-gold-500: var(--gold-500);
 
-  --radius-sm: 10px;
+  --radius-xs: 10px;
+  --radius-sm: 12px;
   --radius-md: 14px;
   --radius-lg: 20px;
   --radius-xl: 28px;
 
   --font-sans: "M PLUS Rounded 1c", "Nunito", system-ui, "Microsoft YaHei", sans-serif;
+
+  --shadow-xs: 0 1px 2px rgba(35, 60, 50, 0.04), 0 1px 4px rgba(35, 60, 50, 0.04);
+  --shadow-sm: 0 1px 2px rgba(35, 60, 50, 0.06), 0 2px 8px rgba(35, 60, 50, 0.05);
+  --shadow-md: 0 4px 12px rgba(35, 60, 50, 0.08), 0 2px 6px rgba(35, 60, 50, 0.06);
+  --shadow-lg: 0 12px 32px rgba(28, 55, 45, 0.14), 0 4px 12px rgba(28, 55, 45, 0.08);
+  --shadow-xl: 0 18px 50px rgba(28, 55, 45, 0.18), 0 8px 20px rgba(28, 55, 45, 0.1);
 
   --animate-melon-pulse: melon-pulse 1.8s ease-in-out infinite;
 }
@@ -258,10 +267,20 @@ input[type="range"] {
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
   border-radius: 99px;
   background: var(--mint-400);
   cursor: pointer;
   box-shadow: var(--shadow-sm);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 99px;
+  background: var(--mint-400);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  border: none;
 }

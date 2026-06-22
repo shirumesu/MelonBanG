@@ -27,7 +27,7 @@ export function PosterCard({
     <Link
       to={`/subject/${item.subjectId}`}
       className={cn(
-        "flex flex-col transition hover:-translate-y-1",
+        "flex flex-col transition hover:-translate-y-0.5",
         compact ? "w-[188px] flex-none" : "min-w-0"
       )}
     >
@@ -54,14 +54,14 @@ export function PosterCard({
             <Play className="size-4.5 fill-current" />
           </div>
         </div>
-        <div className="absolute inset-x-0 bottom-0 rounded-b-[14px] bg-linear-to-t from-black/70 to-transparent px-3 pt-8 pb-3">
-          <div className="line-clamp-2 text-sm font-black text-white">
+        <div className="absolute inset-x-0 bottom-0 rounded-b-[14px] bg-linear-to-t from-black/70 to-transparent px-3 pt-10 pb-3">
+          <div className="line-clamp-2 text-[13.5px] font-black leading-tight text-white">
             {item.nameCn ?? item.name}
           </div>
         </div>
       </div>
-      <div className="px-0.5 pt-2">
-        <div className="text-muted-foreground flex items-center justify-between gap-2 text-[11px] font-bold">
+      <div className="px-0.5 pt-2.5">
+        <div className="text-muted-foreground flex items-center justify-between gap-2 text-xs font-bold">
           <span className="truncate">★ {formatScore(item.score)}</span>
           <span className="truncate">{progressText}</span>
         </div>

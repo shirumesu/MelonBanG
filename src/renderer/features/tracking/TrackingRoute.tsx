@@ -142,16 +142,16 @@ export function TrackingRoute() {
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-full px-[15px] py-2 text-[13px] font-bold transition",
                   active
-                    ? "text-on-accent bg-[linear-gradient(135deg,var(--mint-400),var(--mint-300))] shadow-[0_5px_12px_rgba(34,179,136,.28)]"
+                    ? "text-on-accent bg-[linear-gradient(135deg,var(--mint-400),var(--mint-300))] shadow-[0_4px_10px_rgba(34,179,136,.22)]"
                     : "text-ink-soft hover:text-ink"
                 )}
               >
-                <Icon className="size-4" />
+                <Icon className="size-[17px] opacity-90" />
                 {tab.label}
                 <span
                   className={cn(
-                    "rounded-full px-[7px] text-[11px] font-extrabold",
-                    active ? "text-on-accent bg-white/50" : "bg-surface-3 text-ink-faint"
+                    "ml-0.5 rounded-full px-[7px] py-px text-[10.5px] font-extrabold",
+                    active ? "text-on-accent bg-white/40" : "bg-surface-3 text-ink-faint"
                   )}
                 >
                   {counts[tab.key]}

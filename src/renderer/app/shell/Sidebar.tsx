@@ -98,7 +98,10 @@ export function Sidebar() {
           <b className="block truncate text-[13px] leading-tight">{nickname}</b>
           <span className="text-ink-faint text-[11px]">@{username}</span>
         </span>
-        <span className="bg-mint-400 ml-auto size-2 rounded-full shadow-[0_0_0_3px_var(--mint-100)]" />
+        <span
+          className="bg-mint-400 dark:shadow-[0_0_0_3px_rgba(67,201,159,0.15)] ml-auto size-2 rounded-full shadow-[0_0_0_3px_var(--mint-100)]"
+          title="已连接"
+        />
       </NavLink>
     </aside>
   );

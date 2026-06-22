@@ -453,16 +453,16 @@ export function SettingsRoute() {
               </button>
 
               {active === key ? (
-                <div className="border-line ml-[30px] flex flex-col gap-1 border-l pl-2">
+                <div className="border-line-strong ml-[30px] flex flex-col gap-1 border-l-[1.5px] pl-2.5">
                   {sections.map((section) => (
                     <button
                       key={section.key}
                       type="button"
                       onClick={() => selectSection(key, section.key)}
                       className={cn(
-                        "rounded-lg px-2.5 py-1.5 text-left text-[12px] font-bold transition",
+                        "rounded-lg px-2.5 py-1.5 text-left text-[11px] font-bold transition",
                         activeSection === section.key
-                          ? "bg-mint-50 text-mint-600 dark:bg-mint-400/15"
+                          ? "bg-mint-100 text-mint-600 dark:bg-mint-400/20 dark:text-mint-300"
                           : "text-ink-faint hover:bg-surface-2 hover:text-ink"
                       )}
                     >
@@ -1360,7 +1360,7 @@ function UpdateNotesDialog({
 
 function PlaceholderCard({ title }: { title: string }) {
   return (
-    <div className="border-line bg-surface mt-4 grid min-h-[180px] place-items-center rounded-[20px] border p-6 text-center shadow-[var(--shadow-sm)]">
+    <div className="border-line bg-surface mt-4 grid min-h-[140px] place-items-center rounded-[20px] border p-6 text-center shadow-[var(--shadow-sm)]">
       <div className="flex flex-col items-center gap-2">
         <div className="bg-surface-3 text-ink-faint grid size-12 place-items-center rounded-2xl">
           <Plus className="size-5" />

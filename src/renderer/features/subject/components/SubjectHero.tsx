@@ -57,14 +57,14 @@ export function SubjectHero({
   const stats = buildStats(subject);
 
   return (
-    <div className="border-line bg-surface relative grid grid-cols-[230px_1fr] gap-16 overflow-hidden rounded-[20px] border p-7 shadow-[var(--shadow-sm)] max-[1080px]:grid-cols-[160px_1fr] max-[1080px]:gap-7">
-      <div className="absolute inset-0 opacity-[0.07] [background:radial-gradient(ellipse_650px_460px_at_22%_32%,#ffb84d,transparent),radial-gradient(ellipse_500px_360px_at_72%_52%,var(--mint-300),transparent),radial-gradient(ellipse_380px_300px_at_55%_92%,#ff8a5b,transparent)]" />
+    <div className="border-line bg-surface relative grid grid-cols-[230px_1fr] gap-16 overflow-hidden rounded-[20px] border p-7 shadow-[var(--shadow-sm)] max-[1080px]:grid-cols-[160px_1fr] max-[1080px]:gap-7 max-[1080px]:p-5">
+      <div className="absolute inset-0 opacity-[0.07] dark:opacity-[0.05] [background:radial-gradient(ellipse_650px_460px_at_22%_32%,var(--gold-400),transparent),radial-gradient(ellipse_500px_360px_at_72%_52%,var(--mint-300),transparent),radial-gradient(ellipse_380px_300px_at_55%_92%,var(--cherry-400),transparent)]" />
 
       <a
         href={`https://bgm.tv/subject/${subject.subjectId}`}
         target="_blank"
         rel="noreferrer"
-        className="text-mint-600 border-mint-200 bg-mint-50 hover:bg-mint-100 absolute top-3.5 right-[18px] z-[2] inline-flex items-center gap-1.5 rounded-full border px-[11px] py-[5px] text-xs font-bold"
+        className="text-mint-600 border-mint-200 bg-mint-50 hover:bg-mint-100 absolute top-3.5 right-[18px] z-[2] inline-flex items-center gap-1.5 rounded-full border px-[11px] py-[5px] text-xs font-bold max-[1080px]:relative max-[1080px]:top-0 max-[1080px]:right-0 max-[1080px]:mb-2 max-[1080px]:self-start"
       >
         <ExternalLink className="size-4" />在 Bangumi 打开
       </a>
@@ -83,7 +83,7 @@ export function SubjectHero({
       </div>
 
       <div className="relative flex min-w-0 flex-col gap-2">
-        <h1 className="pr-[120px] text-2xl font-extrabold tracking-[-0.01em]">{title}</h1>
+        <h1 className="text-2xl font-extrabold tracking-[-0.01em] max-[1080px]:pr-0">{title}</h1>
         <div className="text-ink-faint mb-0.5 text-[12.5px] font-semibold">{subject.name}</div>
 
         <div className="flex flex-wrap gap-1.5">
@@ -105,12 +105,12 @@ export function SubjectHero({
         </div>
 
         <div className="flex flex-col items-start gap-1">
-          <div className="flex items-center gap-3.5">
+          <div className="flex items-baseline gap-3.5">
             <span className="inline-flex items-baseline text-[48px] leading-none font-extrabold tracking-[-0.03em]">
               {subject.score?.toFixed(1) ?? "—"}
               <small className="text-ink-faint ml-[3px] text-xl font-bold">/10</small>
             </span>
-            <div className="inline-flex items-center gap-1.5 rounded-[14px] border border-[rgba(255,107,129,.2)] bg-[linear-gradient(135deg,rgba(255,107,129,.08),rgba(255,107,129,.14))] px-3.5 py-2">
+            <div className="inline-flex items-center gap-1.5 rounded-[14px] border border-[rgba(255,107,129,.2)] bg-[linear-gradient(135deg,rgba(255,107,129,.08),rgba(255,107,129,.14))] px-3.5 py-2 self-end">
               <span className="text-cherry-500 text-[18px] font-extrabold">
                 #{subject.rank ?? "—"}
               </span>
@@ -120,7 +120,7 @@ export function SubjectHero({
                 Rank
               </span>
             </div>
-            <div className="flex flex-col items-start gap-0.5">
+            <div className="flex flex-col items-start gap-0.5 self-end">
               <StarRow value={(subject.score ?? 0) / 2} size={16} />
               <div className="text-ink-faint text-xs font-medium">
                 {subject.ratingCount ? `${subject.ratingCount} 人评分` : "评分人数未知"}

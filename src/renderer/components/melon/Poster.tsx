@@ -86,7 +86,7 @@ export function Poster({
   );
 
   const classes = cn(
-    "group flex flex-col transition-transform duration-200 hover:-translate-y-1",
+    "group flex flex-col transition-transform duration-200 hover:-translate-y-0.5",
     width ? "shrink-0" : "w-auto",
     href ? "cursor-pointer" : "",
     className

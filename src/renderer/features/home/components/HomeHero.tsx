@@ -5,23 +5,33 @@ import { Link } from "react-router-dom";
 import type { CollectionListItem } from "@shared/contracts/bangumi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useTheme } from "@/app/ThemeProvider";
 
 const heroBackgrounds = [
   "radial-gradient(130% 130% at 86% 6%,rgba(255,255,255,.20),transparent 44%),linear-gradient(115deg,#0f7d5e,#1aa183 42%,#3f7fd8)",
   "radial-gradient(130% 130% at 86% 6%,rgba(255,255,255,.16),transparent 44%),linear-gradient(115deg,#a8336e,#d65189 44%,#8a5fd8)",
   "radial-gradient(130% 130% at 86% 6%,rgba(255,255,255,.16),transparent 44%),linear-gradient(115deg,#c0641d,#ef7f43 44%,#ff5f7a)"
-];
+] as const;
+
+const heroBackgroundsDark = [
+  "radial-gradient(130% 130% at 86% 6%,rgba(255,255,255,.08),transparent 44%),linear-gradient(115deg,#0a5d48,#138569 42%,#2d5fb8)",
+  "radial-gradient(130% 130% at 86% 6%,rgba(255,255,255,.06),transparent 44%),linear-gradient(115deg,#7a2652,#b23e6d 44%,#6a47b8)",
+  "radial-gradient(130% 130% at 86% 6%,rgba(255,255,255,.06),transparent 44%),linear-gradient(115deg,#9a4e15,#c86333 44%,#d94858)"
+] as const;
 
 export function HomeHero({ items }: { items: CollectionListItem[] }): ReactElement {
+  const { resolvedTheme } = useTheme();
   const slides = useMemo(
     () =>
       items.slice(0, 3).map((item, index) => ({
         ...item,
-        background: heroBackgrounds[index % heroBackgrounds.length],
+        background: (resolvedTheme === "dark" ? heroBackgroundsDark : heroBackgrounds)[
+          index % heroBackgrounds.length
+        ],
         kanji: Array.from(item.nameCn ?? item.name)[0] ?? "夏",
         tag: index === 0 ? "本季热度 #1" : index === 1 ? "本周新上架" : "高分推荐"
       })),
-    [items]
+    [items, resolvedTheme]
   );
 
   const [index, setIndex] = useState(0);
@@ -51,7 +61,7 @@ export function HomeHero({ items }: { items: CollectionListItem[] }): ReactEleme
         style={{ background: active.background }}
       >
         <div className="absolute inset-0 bg-linear-to-r from-black/45 via-black/10 to-transparent" />
-        <div className="absolute right-[-8px] bottom-[-48px] text-[230px] leading-none font-black text-white/10">
+        <div className="absolute right-[-8px] bottom-[-48px] text-[170px] leading-none font-black text-white/[0.07]">
           {active.kanji}
         </div>
         <div className="relative z-10 max-w-[560px]">

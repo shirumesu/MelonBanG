@@ -9,11 +9,11 @@ const badgeVariants = cva(
       variant: {
         default: "bg-surface-3 text-ink-soft",
         outline: "border-line-strong text-ink-soft border bg-transparent",
-        mint: "bg-mint-100 text-mint-600 dark:bg-mint-400/20",
-        cherry: "text-cherry-600 dark:bg-cherry-500/20 bg-[#ffe6ea]",
+        mint: "bg-mint-100 text-mint-600 dark:bg-mint-400/20 dark:text-mint-300",
+        cherry: "text-cherry-600 dark:bg-cherry-500/20 dark:text-cherry-300 bg-[#ffe6ea]",
         sky: "bg-[#e3efff] text-[#3f74c4] dark:bg-sky-500/20 dark:text-sky-300",
-        grape: "dark:bg-grape-500/20 dark:text-grape-400 bg-[#efeaff] text-[#6f57c4]",
-        gold: "dark:bg-gold-500/20 dark:text-gold-400 bg-[#fff2d6] text-[#b5742a]"
+        grape: "dark:bg-grape-500/20 dark:text-grape-300 bg-[#efeaff] text-[#6f57c4]",
+        gold: "dark:bg-gold-500/20 dark:text-gold-300 bg-[#fff2d6] text-[#b5742a]"
       }
     },
     defaultVariants: {

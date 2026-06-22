@@ -58,7 +58,7 @@ export function SearchBox({
         placeholder={placeholder}
         className="text-ink placeholder:text-ink-faint min-w-0 flex-1 bg-transparent text-[13.5px] outline-none"
       />
-      <kbd className="bg-surface-3 text-ink-faint rounded-md px-1.5 py-0.5 text-[10.5px]">
+      <kbd className="bg-surface-3 text-ink-faint hidden rounded-md px-1.5 py-0.5 text-[10.5px] sm:inline-block">
         Ctrl K
       </kbd>
     </div>

@@ -130,7 +130,7 @@ function TrendingPoster({ slide }: { slide: Slide }) {
   return (
     <Link
       to={`/subject/${slide.subjectId}`}
-      className="group/poster flex w-[180px] flex-none flex-col transition-transform duration-180 hover:-translate-y-1"
+      className="group/poster flex w-[180px] flex-none flex-col transition-transform duration-180 hover:-translate-y-0.5"
     >
       {/* 封面区域 */}
       <div
@@ -154,7 +154,7 @@ function TrendingPoster({ slide }: { slide: Slide }) {
         )}
 
         {/* 渐变遮罩 */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/5 to-transparent" />
 
         {/* 排名徽章 */}
         <span
@@ -176,7 +176,7 @@ function TrendingPoster({ slide }: { slide: Slide }) {
         </div>
 
         {/* 标题覆盖在底部 */}
-        <div className="absolute inset-x-2.5 bottom-2.5 z-[2] line-clamp-2 text-[13px] font-extrabold leading-tight text-white [text-shadow:0_1px_5px_rgba(0,0,0,.6)]">
+        <div className="absolute inset-x-2.5 bottom-2.5 z-[2] line-clamp-2 text-[13px] font-extrabold leading-tight text-white [text-shadow:0_1px_3px_rgba(0,0,0,.5),0_2px_8px_rgba(0,0,0,.4)]">
           {slide.title}
         </div>
       </div>
