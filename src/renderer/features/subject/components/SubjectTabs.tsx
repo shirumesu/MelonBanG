@@ -1,13 +1,25 @@
 import { useState } from "react";
+import type {
+  SubjectComment as ApiSubjectComment,
+  SubjectTopic
+} from "@shared/contracts/bangumi";
 import { InteractiveRating } from "@/components/melon/RatingStars";
 import { GradientAvatar } from "@/components/melon/GradientAvatar";
 import { Button } from "@/components/ui/button";
+import { SUBJECT_DEMO } from "@/data/subject";
 import { cn } from "@/lib/utils";
 
 type Tab = "comments" | "discussions";
 
-export function SubjectTabs() {
+export function SubjectTabs({
+  comments,
+  topics
+}: {
+  comments: ApiSubjectComment[];
+  topics: SubjectTopic[];
+}) {
   const [tab, setTab] = useState<Tab>("comments");
+  const displayComments = comments.length > 0 ? comments : FALLBACK_COMMENTS;
 
   return (
     <>
@@ -57,15 +69,112 @@ export function SubjectTabs() {
             </div>
           </div>
 
-          <div className="border-line bg-surface-2 text-ink-faint mt-3.5 rounded-[14px] border p-5 text-center text-sm font-semibold">
-            暂未加载吐槽箱内容。
-          </div>
+          {displayComments.length > 0 ? (
+            <div className="border-line bg-surface-2 mt-3.5 rounded-[14px] border p-4">
+              <div className="space-y-3.5">
+                {displayComments.map((comment, index) => (
+                  <div
+                    key={comment.id ?? `${comment.user.nickname}-${index}`}
+                    className="flex gap-3"
+                  >
+                    <GradientAvatar
+                      initial={comment.user.nickname.slice(0, 1)}
+                      className="mt-0.5"
+                      size="sm"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {comment.url ? (
+                          <a
+                            href={comment.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[13px] font-extrabold hover:text-mint-600"
+                          >
+                            {comment.user.nickname}
+                          </a>
+                        ) : (
+                          <b className="text-[13px]">{comment.user.nickname}</b>
+                        )}
+                        {comment.status ? (
+                          <span className="text-ink-faint text-[11px] font-bold">
+                            {comment.status}
+                          </span>
+                        ) : null}
+                        {typeof comment.score === "number" ? (
+                          <span className="text-cherry-500 text-[11px] font-extrabold">
+                            {comment.score} 分
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-ink-soft mt-1 text-[13px] leading-relaxed">
+                        {comment.text}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="border-line bg-surface-2 text-ink-faint mt-3.5 rounded-[14px] border p-5 text-center text-sm font-semibold">
+              暂未加载吐槽箱内容。
+            </div>
+          )}
         </div>
       ) : (
-        <div className="border-line bg-surface-2 text-ink-faint rounded-[14px] border p-5 text-center text-sm font-semibold">
-          暂未加载讨论内容。
-        </div>
+        <>
+          {topics.length > 0 ? (
+            <div className="border-line bg-surface-2 rounded-[14px] border p-[18px]">
+              <div className="space-y-3.5">
+                {topics.map((topic, index) => (
+                  <div
+                    key={topic.topicId ?? `${topic.title}-${index}`}
+                    className="border-line border-b pb-3.5 last:border-b-0 last:pb-0"
+                  >
+                    {topic.url ? (
+                      <a
+                        href={topic.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-ink hover:text-mint-600 text-[15px] leading-snug font-bold"
+                      >
+                        {topic.title}
+                      </a>
+                    ) : (
+                      <div className="text-ink text-[15px] leading-snug font-bold">
+                        {topic.title}
+                      </div>
+                    )}
+                    <div className="text-ink-faint mt-1.5 text-[12.5px] leading-relaxed font-medium">
+                      {[
+                        topic.author,
+                        typeof topic.replies === "number" ? `${topic.replies} 回复` : null,
+                        typeof topic.replies !== "number" ? topic.updatedAt : null
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="border-line bg-surface-2 text-ink-faint rounded-[14px] border p-5 text-center text-sm font-semibold">
+              暂未加载讨论内容。
+            </div>
+          )}
+        </>
       )}
     </>
   );
 }
+
+const FALLBACK_COMMENTS: ApiSubjectComment[] = SUBJECT_DEMO.comments.map((comment) => ({
+  user: {
+    nickname: comment.name
+  },
+  score: comment.stars,
+  status: comment.statusTag,
+  createdAt: comment.time,
+  text: comment.text
+}));

@@ -49,6 +49,13 @@ export function getAppDatabase(): DatabaseSync {
       meta_tags_json TEXT,
       tags_json TEXT,
       infobox_json TEXT,
+      characters_json TEXT,
+      staff_json TEXT,
+      related_subjects_json TEXT,
+      comments_json TEXT,
+      topics_json TEXT,
+      schedule_json TEXT,
+      source_notes_json TEXT,
       updated_at TEXT NOT NULL
     ) STRICT;
 
@@ -94,6 +101,13 @@ export function getAppDatabase(): DatabaseSync {
   ensureColumn(database, "subject_cache", "meta_tags_json", "TEXT");
   ensureColumn(database, "subject_cache", "tags_json", "TEXT");
   ensureColumn(database, "subject_cache", "infobox_json", "TEXT");
+  ensureColumn(database, "subject_cache", "characters_json", "TEXT");
+  ensureColumn(database, "subject_cache", "staff_json", "TEXT");
+  ensureColumn(database, "subject_cache", "related_subjects_json", "TEXT");
+  ensureColumn(database, "subject_cache", "comments_json", "TEXT");
+  ensureColumn(database, "subject_cache", "topics_json", "TEXT");
+  ensureColumn(database, "subject_cache", "schedule_json", "TEXT");
+  ensureColumn(database, "subject_cache", "source_notes_json", "TEXT");
   database
     .prepare(
       `

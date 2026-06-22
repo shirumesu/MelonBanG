@@ -2,6 +2,7 @@ import type {
   BangumiBridge,
   BangumiSession,
   BroadcastDay,
+  BroadcastItem,
   CollectionFilter,
   CollectionListItem,
   EpisodeCollectionState,
@@ -16,6 +17,7 @@ import { CollectionStore } from "../store/collectionStore";
 import { MutationQueueStore } from "../store/mutationQueueStore";
 import { SyncStateStore } from "../store/syncStateStore";
 import { BangumiClient } from "./BangumiClient";
+import { MelonApiClient } from "./MelonApiClient";
 import { BangumiOAuth } from "./BangumiOAuth";
 
 export class BangumiRepository implements BangumiBridge {
@@ -23,7 +25,10 @@ export class BangumiRepository implements BangumiBridge {
   private readonly collectionStore = new CollectionStore();
   private readonly mutationQueueStore = new MutationQueueStore();
   private readonly syncStateStore = new SyncStateStore();
+  private readonly melonApi = new MelonApiClient();
   private calendarCache: { fetchedAt: number; days: BroadcastDay[] } | null = null;
+  private todayScheduleCache: { fetchedAt: number; day: BroadcastDay } | null = null;
+  private trendingCache: { fetchedAt: number; items: BroadcastItem[] } | null = null;
 
   constructor(private readonly config: BangumiOAuthConfig) {
     this.oauth = new BangumiOAuth(config);
@@ -50,8 +55,31 @@ export class BangumiRepository implements BangumiBridge {
 
   async getSubject(subjectId: number): Promise<SubjectDetail> {
     const cached = this.collectionStore.getSubject(subjectId);
-    if (cached && cached.episodes.length > 0) {
-      return cached;
+
+    try {
+      const subject = await this.melonApi.getSubject(subjectId);
+      const episodeCollections = await this.getOptionalClient()
+        .then(
+          (client) => client?.getUserSubjectEpisodeCollections(subjectId) ?? Promise.resolve([])
+        )
+        .catch(() => []);
+
+      this.upsertSubject(subject);
+
+      for (const episode of mergeEpisodeState(subject.episodes, episodeCollections)) {
+        this.collectionStore.updateEpisodeStatus(episode);
+      }
+
+      const refreshed = this.collectionStore.getSubject(subjectId);
+      if (!refreshed) {
+        throw new Error(`Subject ${subjectId} could not be loaded.`);
+      }
+
+      return refreshed;
+    } catch {
+      if (cached) {
+        return cached;
+      }
     }
 
     const client = await this.getClient();
@@ -61,23 +89,7 @@ export class BangumiRepository implements BangumiBridge {
       .getUserSubjectEpisodeCollections(subjectId)
       .catch(() => []);
 
-    this.collectionStore.upsertSubjectCache({
-      subjectId: subject.id,
-      name: subject.name,
-      nameCn: subject.nameCn,
-      summary: subject.summary,
-      coverUrl: subject.coverUrl,
-      airDate: subject.date,
-      platform: subject.platform,
-      episodeTotal: subject.totalEpisodes,
-      rank: subject.rank,
-      score: subject.score,
-      ratingCount: subject.ratingCount,
-      collectionStats: subject.collectionStats,
-      metaTags: subject.metaTags,
-      tags: subject.tags,
-      infoBox: subject.infoBox
-    });
+    this.upsertSubject(subject);
 
     for (const episode of mergeEpisodeState(episodes, episodeCollections)) {
       this.collectionStore.updateEpisodeStatus(episode);
@@ -92,30 +104,39 @@ export class BangumiRepository implements BangumiBridge {
   }
 
   async searchSubjects(keyword: string): Promise<SubjectSearchResult[]> {
-    const client = await this.getClient();
-    const remote = await client.searchSubjects(keyword);
+    const remote = await this.melonApi.searchSubjects(keyword).catch(async () => {
+      const client = await this.getClient();
+      return client.searchSubjects(keyword);
+    });
 
     for (const subject of remote) {
-      this.collectionStore.upsertSubjectCache({
-        subjectId: subject.id,
-        name: subject.name,
-        nameCn: subject.nameCn,
-        summary: subject.summary,
-        coverUrl: subject.coverUrl,
-        airDate: subject.date,
-        platform: subject.platform,
-        episodeTotal: subject.totalEpisodes,
-        rank: subject.rank,
-        score: subject.score,
-        ratingCount: subject.ratingCount,
-        collectionStats: subject.collectionStats,
-        metaTags: subject.metaTags,
-        tags: subject.tags,
-        infoBox: subject.infoBox
-      });
+      this.upsertSubject(subject);
     }
 
     return this.collectionStore.searchSubjects(keyword);
+  }
+
+  async getTrendingCurrent(): Promise<BroadcastItem[]> {
+    if (this.trendingCache && Date.now() - this.trendingCache.fetchedAt < 30 * 60 * 1000) {
+      return this.trendingCache.items;
+    }
+
+    const items = await this.melonApi.getTrendingCurrent();
+    this.trendingCache = { fetchedAt: Date.now(), items };
+    return items;
+  }
+
+  async getTodaySchedule(): Promise<BroadcastDay> {
+    if (
+      this.todayScheduleCache &&
+      Date.now() - this.todayScheduleCache.fetchedAt < 30 * 60 * 1000
+    ) {
+      return this.todayScheduleCache.day;
+    }
+
+    const day = await this.melonApi.getTodaySchedule();
+    this.todayScheduleCache = { fetchedAt: Date.now(), day };
+    return day;
   }
 
   async getCalendar(): Promise<BroadcastDay[]> {
@@ -123,8 +144,7 @@ export class BangumiRepository implements BangumiBridge {
       return this.calendarCache.days;
     }
 
-    const client = await this.getClient();
-    const days = await client.getCalendar();
+    const days = await this.melonApi.getScheduleWeek();
     this.calendarCache = { fetchedAt: Date.now(), days };
     return days;
   }
@@ -222,6 +242,65 @@ export class BangumiRepository implements BangumiBridge {
     }
 
     return new BangumiClient(this.config, token.accessToken);
+  }
+
+  private async getOptionalClient(): Promise<BangumiClient | null> {
+    const token = await this.oauth.getValidAccessToken().catch(() => null);
+    if (!token) {
+      return null;
+    }
+
+    return new BangumiClient(this.config, token.accessToken);
+  }
+
+  private upsertSubject(subject: {
+    id: number;
+    name: string;
+    nameCn?: string;
+    summary?: string;
+    coverUrl?: string;
+    date?: string;
+    platform?: string;
+    totalEpisodes?: number;
+    rank?: number;
+    score?: number;
+    ratingCount?: number;
+    collectionStats?: SubjectDetail["collectionStats"];
+    metaTags?: string[];
+    tags?: SubjectDetail["tags"];
+    infoBox?: SubjectDetail["infoBox"];
+    characters?: SubjectDetail["characters"];
+    staff?: SubjectDetail["staff"];
+    relatedSubjects?: SubjectDetail["relatedSubjects"];
+    comments?: SubjectDetail["comments"];
+    topics?: SubjectDetail["topics"];
+    schedule?: SubjectDetail["schedule"];
+    sourceNotes?: string[];
+  }): void {
+    this.collectionStore.upsertSubjectCache({
+      subjectId: subject.id,
+      name: subject.name,
+      nameCn: subject.nameCn,
+      summary: subject.summary,
+      coverUrl: subject.coverUrl,
+      airDate: subject.date,
+      platform: subject.platform,
+      episodeTotal: subject.totalEpisodes,
+      rank: subject.rank,
+      score: subject.score,
+      ratingCount: subject.ratingCount,
+      collectionStats: subject.collectionStats,
+      metaTags: subject.metaTags,
+      tags: subject.tags,
+      infoBox: subject.infoBox,
+      characters: subject.characters,
+      staff: subject.staff,
+      relatedSubjects: subject.relatedSubjects,
+      comments: subject.comments,
+      topics: subject.topics,
+      schedule: subject.schedule,
+      sourceNotes: subject.sourceNotes
+    });
   }
 
   private applyLocalMutation(input: TrackingMutation, updatedAt: string): void {

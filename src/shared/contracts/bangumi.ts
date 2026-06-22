@@ -37,6 +37,7 @@ export type CollectionListItem = {
   nameCn?: string;
   coverUrl?: string;
   episodeTotal?: number;
+  score?: number;
   watchedEpisodeCount?: number;
   summary?: string;
   collection: SubjectCollectionState;
@@ -60,6 +61,85 @@ export type SubjectTag = {
 export type SubjectInfoBoxItem = {
   key: string;
   value: string;
+};
+
+export type SeasonName = "WINTER" | "SPRING" | "SUMMER" | "FALL";
+
+export type SeasonInfo = {
+  year: number;
+  quarter: 1 | 2 | 3 | 4;
+  code: string;
+  label: string;
+  name: SeasonName;
+};
+
+export type SubjectPersonCredit = {
+  personId?: number;
+  name: string;
+  nameCn?: string;
+  displayName: string;
+  imageUrl?: string;
+  relation?: string;
+  career?: string[];
+  url?: string;
+};
+
+export type SubjectCharacterCredit = {
+  characterId: number;
+  name: string;
+  nameCn?: string;
+  displayName: string;
+  role?: string;
+  imageUrl?: string;
+  actors: SubjectPersonCredit[];
+  url?: string;
+};
+
+export type SubjectStaffCredit = SubjectPersonCredit & {
+  role?: string;
+};
+
+export type RelatedSubject = {
+  subjectId: number;
+  name: string;
+  nameCn?: string;
+  displayName: string;
+  relation?: string;
+  coverUrl?: string;
+  url?: string;
+};
+
+export type SubjectComment = {
+  id?: string;
+  user: {
+    username?: string;
+    nickname: string;
+    avatarUrl?: string;
+  };
+  score?: number;
+  status?: string;
+  createdAt?: string;
+  text: string;
+  url?: string;
+};
+
+export type SubjectTopic = {
+  topicId?: number;
+  title: string;
+  author?: string;
+  replies?: number;
+  updatedAt?: string;
+  url?: string;
+};
+
+export type SubjectSchedule = {
+  firstAiringAt?: string;
+  firstAiringAtShanghai?: string;
+  weekday?: string;
+  recurrence?: "P0D" | "P1D" | "P7D" | "P1M";
+  nextAiringAt?: string;
+  nextAiringAtShanghai?: string;
+  source?: "bangumi-data" | "bangumi-date" | "unknown";
 };
 
 export type SubjectSearchResult = {
@@ -87,20 +167,46 @@ export type SubjectDetail = {
   metaTags?: string[];
   tags?: SubjectTag[];
   infoBox?: SubjectInfoBoxItem[];
+  season?: SeasonInfo;
+  characters?: SubjectCharacterCredit[];
+  staff?: SubjectStaffCredit[];
+  relatedSubjects?: RelatedSubject[];
+  comments?: SubjectComment[];
+  topics?: SubjectTopic[];
+  schedule?: SubjectSchedule;
+  sourceNotes?: string[];
   collection: SubjectCollectionState | null;
   episodes: EpisodeCollectionState[];
 };
 
 export type BroadcastItem = {
-  subjectId: number;
+  subjectId?: number;
   name: string;
   nameCn?: string;
+  displayName?: string;
   coverUrl?: string;
   summary?: string;
   airDate?: string;
+  airingAt?: string;
+  airingAtShanghai?: string;
+  weekday?: string;
+  season?: SeasonInfo;
+  platform?: string;
   episodeTotal?: number;
   score?: number;
   rank?: number;
+  tags?: SubjectTag[];
+  metaTags?: string[];
+  nsfw?: boolean;
+  nsfwStatus?: "safe" | "nsfw" | "unknown";
+  hasSubjectId?: boolean;
+  detailAvailable?: boolean;
+  needsFallback?: {
+    cover: boolean;
+    episodeTotal: boolean;
+    nsfw: boolean;
+  };
+  url?: string;
 };
 
 export type BroadcastDay = {
@@ -151,6 +257,8 @@ export interface BangumiBridge {
   listCollection(filter?: CollectionFilter): Promise<CollectionListItem[]>;
   getSubject(subjectId: number): Promise<SubjectDetail>;
   searchSubjects(keyword: string): Promise<SubjectSearchResult[]>;
+  getTrendingCurrent(): Promise<BroadcastItem[]>;
+  getTodaySchedule(): Promise<BroadcastDay>;
   getCalendar(): Promise<BroadcastDay[]>;
   updateTracking(input: TrackingMutation): Promise<MutationResult>;
   refreshCollection(force?: boolean): Promise<SyncState>;

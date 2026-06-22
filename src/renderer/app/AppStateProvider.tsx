@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type {
   BangumiSession,
   BroadcastDay,
+  BroadcastItem,
   CollectionFilter,
   CollectionListItem,
   SubjectDetail,
@@ -16,6 +17,8 @@ type AppStateValue = {
   syncState: SyncState | null;
   isBootstrapping: boolean;
   homeItems: CollectionListItem[];
+  trendingItems: BroadcastItem[];
+  todaySchedule: BroadcastDay | null;
   calendarDays: BroadcastDay[];
   refreshSession: () => Promise<void>;
   signIn: () => Promise<void>;
@@ -34,6 +37,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<BangumiSession | null>(null);
   const [syncState, setSyncState] = useState<SyncState | null>(null);
   const [homeItems, setHomeItems] = useState<CollectionListItem[]>([]);
+  const [trendingItems, setTrendingItems] = useState<BroadcastItem[]>([]);
+  const [todaySchedule, setTodaySchedule] = useState<BroadcastDay | null>(null);
   const [calendarDays, setCalendarDays] = useState<BroadcastDay[]>([]);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
 
@@ -44,22 +49,23 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   async function refreshSession(): Promise<void> {
     setIsBootstrapping(true);
     try {
-      const [nextSession, nextSyncState] = await Promise.all([
+      const [nextSession, nextSyncState, publicData] = await Promise.all([
         window.melonbang.bangumi.getSession(),
-        window.melonbang.bangumi.getSyncState()
+        window.melonbang.bangumi.getSyncState(),
+        loadPublicHomeData()
       ]);
       setSession(nextSession);
       setSyncState(nextSyncState);
+      setTrendingItems(publicData.trendingItems);
+      setTodaySchedule(publicData.todaySchedule);
+      setCalendarDays(publicData.calendarDays);
       if (nextSession) {
-        const [nextHomeItems, nextCalendarDays] = await Promise.all([
-          window.melonbang.bangumi.listCollection({ status: "watching" }),
-          window.melonbang.bangumi.getCalendar().catch(() => [])
-        ]);
+        const nextHomeItems = await window.melonbang.bangumi.listCollection({
+          status: "watching"
+        });
         setHomeItems(nextHomeItems);
-        setCalendarDays(nextCalendarDays);
       } else {
         setHomeItems([]);
-        setCalendarDays([]);
       }
     } catch (error) {
       setSession(null);
@@ -69,6 +75,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         lastSyncError: errorMessage(error)
       });
       setHomeItems([]);
+      setTrendingItems([]);
+      setTodaySchedule(null);
       setCalendarDays([]);
     } finally {
       setIsBootstrapping(false);
@@ -80,12 +88,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       const nextSession = await window.melonbang.bangumi.signIn();
       setSession(nextSession);
       setSyncState(await window.melonbang.bangumi.getSyncState());
-      const [nextHomeItems, nextCalendarDays] = await Promise.all([
+      const [nextHomeItems, publicData] = await Promise.all([
         window.melonbang.bangumi.listCollection({ status: "watching" }),
-        window.melonbang.bangumi.getCalendar().catch(() => [])
+        loadPublicHomeData()
       ]);
       setHomeItems(nextHomeItems);
-      setCalendarDays(nextCalendarDays);
+      setTrendingItems(publicData.trendingItems);
+      setTodaySchedule(publicData.todaySchedule);
+      setCalendarDays(publicData.calendarDays);
     } catch (error) {
       setSession(null);
       setSyncState({
@@ -94,6 +104,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         lastSyncError: errorMessage(error)
       });
       setHomeItems([]);
+      setTrendingItems([]);
+      setTodaySchedule(null);
       setCalendarDays([]);
       throw error;
     }
@@ -104,7 +116,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     setSession(null);
     setSyncState(null);
     setHomeItems([]);
-    setCalendarDays([]);
   }
 
   async function refreshCollection(force?: boolean): Promise<void> {
@@ -114,7 +125,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }
 
   async function refreshCalendar(): Promise<void> {
-    setCalendarDays(await window.melonbang.bangumi.getCalendar());
+    const publicData = await loadPublicHomeData();
+    setTrendingItems(publicData.trendingItems);
+    setTodaySchedule(publicData.todaySchedule);
+    setCalendarDays(publicData.calendarDays);
   }
 
   async function updateTracking(input: TrackingMutation): Promise<void> {
@@ -133,6 +147,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       syncState,
       isBootstrapping,
       homeItems,
+      trendingItems,
+      todaySchedule,
       calendarDays,
       refreshSession,
       signIn,
@@ -144,7 +160,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       updateTracking,
       refreshCollection
     }),
-    [calendarDays, homeItems, isBootstrapping, session, syncState]
+    [calendarDays, homeItems, isBootstrapping, session, syncState, todaySchedule, trendingItems]
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
@@ -160,4 +176,18 @@ export function useAppState(): AppStateValue {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "未知错误";
+}
+
+async function loadPublicHomeData(): Promise<{
+  trendingItems: BroadcastItem[];
+  todaySchedule: BroadcastDay | null;
+  calendarDays: BroadcastDay[];
+}> {
+  const [trendingItems, todaySchedule, calendarDays] = await Promise.all([
+    window.melonbang.bangumi.getTrendingCurrent().catch(() => []),
+    window.melonbang.bangumi.getTodaySchedule().catch(() => null),
+    window.melonbang.bangumi.getCalendar().catch(() => [])
+  ]);
+
+  return { trendingItems, todaySchedule, calendarDays };
 }

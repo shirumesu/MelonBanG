@@ -53,6 +53,8 @@ export const HERO_SLIDES: HeroSlide[] = [
 
 export type TimelineItem = {
   time: string;
+  airingAt?: string;
+  airingAtShanghai?: string;
   index: number;
   subjectId?: number;
   title: string;

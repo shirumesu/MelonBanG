@@ -5,14 +5,15 @@ import { ChevronLeft, Play } from "lucide-react";
 import type {
   CollectionStatus,
   EpisodeCollectionState,
-  SubjectDetail
+  SubjectDetail,
+  SubjectStaffCredit
 } from "@shared/contracts/bangumi";
 import { useAppState } from "@/app/AppStateProvider";
 import { SubjectHero } from "./components/SubjectHero";
 import { SubjectTabs } from "./components/SubjectTabs";
-import { GradientAvatar } from "@/components/melon/GradientAvatar";
 import { IconButton, PageContent, Topbar } from "@/components/melon/layout";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogBody,
@@ -26,13 +27,43 @@ function Divider() {
   return <div className="bg-line my-[18px] h-px" />;
 }
 
-function SectionTitle({ size, children }: { size: 16 | 18; children: ReactNode }) {
+function SectionTitle({
+  size,
+  children,
+  action
+}: {
+  size: 16 | 18;
+  children: ReactNode;
+  action?: ReactNode;
+}) {
   return (
-    <div className="mb-3 font-extrabold" style={{ fontSize: size }}>
-      {children}
+    <div className="mb-3 flex items-center gap-3">
+      <div className="font-extrabold" style={{ fontSize: size }}>
+        {children}
+      </div>
+      {action ? <div className="ml-auto">{action}</div> : null}
     </div>
   );
 }
+
+type DetailDialog = "synopsis" | "characters" | "staff" | null;
+
+type CharacterCardModel = {
+  id: number;
+  name: string;
+  role: string;
+  actorName?: string;
+  imageUrl?: string;
+  initial: string;
+};
+
+type StaffCardModel = {
+  key: string;
+  name: string;
+  role: string;
+  imageUrl?: string;
+  initial: string;
+};
 
 export function SubjectRoute() {
   const navigate = useNavigate();
@@ -42,6 +73,7 @@ export function SubjectRoute() {
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [epOpen, setEpOpen] = useState(false);
   const [pvOpen, setPvOpen] = useState(false);
+  const [detailDialog, setDetailDialog] = useState<DetailDialog>(null);
 
   useEffect(() => {
     if (!subjectId) {
@@ -68,7 +100,18 @@ export function SubjectRoute() {
   }, [getSubject, subjectId]);
 
   const synopsis = useMemo(() => splitSynopsis(subject?.summary), [subject?.summary]);
+  const synopsisHasMore = synopsis.length > 2 || synopsis.join("").length > 260;
+  const visibleSynopsis = useMemo(
+    () => (synopsisHasMore ? previewSynopsis(synopsis, 260) : synopsis),
+    [synopsis, synopsisHasMore]
+  );
+  const characters = useMemo(() => buildCharacters(subject), [subject]);
+  const visibleCharacters = useMemo(() => {
+    const mainCharacters = characters.filter((character) => isMainCharacterRole(character.role));
+    return (mainCharacters.length > 0 ? mainCharacters : characters).slice(0, 6);
+  }, [characters]);
   const staff = useMemo(() => buildStaff(subject), [subject]);
+  const visibleStaff = staff.slice(0, 6);
   const nextEpisode = useMemo(
     () =>
       subject?.episodes.find(
@@ -148,37 +191,68 @@ export function SubjectRoute() {
         />
 
         <div className="border-line bg-surface mt-5 rounded-[20px] border p-[18px] shadow-[var(--shadow-sm)]">
-          <SectionTitle size={18}>简介</SectionTitle>
+          <SectionTitle
+            size={18}
+            action={
+              synopsisHasMore ? (
+                <Button variant="ghost" size="sm" onClick={() => setDetailDialog("synopsis")}>
+                  查看全部
+                </Button>
+              ) : null
+            }
+          >
+            简介
+          </SectionTitle>
           <div className="[&>p]:text-ink-soft [&>p]:mt-3 [&>p]:leading-[1.85] [&>p:first-child]:mt-0">
-            {synopsis.map((paragraph, i) => (
+            {visibleSynopsis.map((paragraph, i) => (
               <p key={i}>{paragraph}</p>
             ))}
           </div>
 
           <Divider />
 
-          <SectionTitle size={16}>主要声优</SectionTitle>
-          <div className="border-line bg-surface-2 text-ink-faint rounded-[14px] border p-5 text-sm font-semibold">
-            暂未加载声优信息。
-          </div>
+          <SectionTitle
+            size={16}
+            action={
+              characters.length > visibleCharacters.length ? (
+                <Button variant="ghost" size="sm" onClick={() => setDetailDialog("characters")}>
+                  查看全部
+                </Button>
+              ) : null
+            }
+          >
+            主要角色
+          </SectionTitle>
+          {visibleCharacters.length > 0 ? (
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
+              {visibleCharacters.map((character, index) => (
+                <CreditCard key={character.id} credit={character} index={index} />
+              ))}
+            </div>
+          ) : (
+            <div className="border-line bg-surface-2 text-ink-faint rounded-[14px] border p-5 text-sm font-semibold">
+              暂未加载角色信息。
+            </div>
+          )}
 
           <Divider />
 
-          <SectionTitle size={16}>制作团队</SectionTitle>
-          {staff.length > 0 ? (
-            <div className="grid grid-cols-2 gap-2.5">
-              {staff.map((member, index) => (
-                <div key={`${member.role}-${member.name}`} className="flex items-center gap-2.5">
-                  <GradientAvatar
-                    initial={member.initial}
-                    gradient={staffGradient(index)}
-                    size="sm"
-                  />
-                  <div>
-                    <b className="text-[13px]">{member.name}</b>
-                    <small className="text-ink-faint block text-[11px]">{member.role}</small>
-                  </div>
-                </div>
+          <SectionTitle
+            size={16}
+            action={
+              staff.length > visibleStaff.length ? (
+                <Button variant="ghost" size="sm" onClick={() => setDetailDialog("staff")}>
+                  查看全部
+                </Button>
+              ) : null
+            }
+          >
+            制作团队
+          </SectionTitle>
+          {visibleStaff.length > 0 ? (
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
+              {visibleStaff.map((member, index) => (
+                <CreditCard key={member.key} credit={member} index={index} />
               ))}
             </div>
           ) : (
@@ -189,7 +263,7 @@ export function SubjectRoute() {
 
           <Divider />
 
-          <SubjectTabs />
+          <SubjectTabs comments={subject.comments ?? []} topics={subject.topics ?? []} />
         </div>
       </PageContent>
 
@@ -260,7 +334,97 @@ export function SubjectRoute() {
           </DialogBody>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={detailDialog === "synopsis"}
+        onOpenChange={(open) => !open && setDetailDialog(null)}
+      >
+        <DialogContent className="w-[min(720px,94vw)]">
+          <DialogHeader>
+            <DialogTitle>简介 · {subject.nameCn ?? subject.name}</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="max-h-[70vh] overflow-auto">
+            <div className="[&>p]:text-ink-soft [&>p]:mt-3 [&>p]:leading-[1.9] [&>p:first-child]:mt-0">
+              {synopsis.map((paragraph, i) => (
+                <p key={i}>{paragraph}</p>
+              ))}
+            </div>
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={detailDialog === "characters"}
+        onOpenChange={(open) => !open && setDetailDialog(null)}
+      >
+        <DialogContent className="w-[min(860px,94vw)]">
+          <DialogHeader>
+            <DialogTitle>全部角色 · {subject.nameCn ?? subject.name}</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="max-h-[72vh] overflow-auto">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(124px,1fr))] gap-3">
+              {characters.map((character, index) => (
+                <CreditCard key={character.id} credit={character} index={index} />
+              ))}
+            </div>
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={detailDialog === "staff"}
+        onOpenChange={(open) => !open && setDetailDialog(null)}
+      >
+        <DialogContent className="w-[min(860px,94vw)]">
+          <DialogHeader>
+            <DialogTitle>全部制作团队 · {subject.nameCn ?? subject.name}</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="max-h-[72vh] overflow-auto">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(124px,1fr))] gap-3">
+              {staff.map((member, index) => (
+                <CreditCard key={member.key} credit={member} index={index} />
+              ))}
+            </div>
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
     </>
+  );
+}
+
+function CreditCard({
+  credit,
+  index
+}: {
+  credit: CharacterCardModel | StaffCardModel;
+  index: number;
+}) {
+  return (
+    <div className="min-w-0">
+      <div
+        className="relative aspect-[3/4] overflow-hidden rounded-[14px] shadow-[var(--shadow-sm)]"
+        style={{ background: staffGradient(index) }}
+      >
+        {credit.imageUrl ? (
+          <img
+            src={credit.imageUrl}
+            alt=""
+            loading="lazy"
+            className="absolute inset-0 size-full object-contain object-top"
+          />
+        ) : (
+          <span className="absolute inset-0 grid place-items-center text-4xl font-extrabold text-white/35">
+            {credit.initial}
+          </span>
+        )}
+      </div>
+      <b className="mt-2 block truncate text-center text-[13px]">{credit.name}</b>
+      <small className="text-ink-faint mt-0.5 block truncate text-center text-[11px] font-bold">
+        {"actorName" in credit && credit.actorName
+          ? `${credit.role} · ${credit.actorName}`
+          : credit.role}
+      </small>
+    </div>
   );
 }
 
@@ -275,11 +439,43 @@ function splitSynopsis(summary: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function buildStaff(subject: SubjectDetail | null): Array<{
-  role: string;
-  name: string;
-  initial: string;
-}> {
+function previewSynopsis(paragraphs: string[], maxLength: number): string[] {
+  const preview: string[] = [];
+  let used = 0;
+
+  for (const paragraph of paragraphs) {
+    const remaining = maxLength - used;
+    if (remaining <= 0 || preview.length >= 2) {
+      break;
+    }
+
+    if (paragraph.length > remaining) {
+      preview.push(`${paragraph.slice(0, Math.max(0, remaining)).trimEnd()}…`);
+      break;
+    }
+
+    preview.push(paragraph);
+    used += paragraph.length;
+  }
+
+  return preview.length > 0 ? preview : paragraphs.slice(0, 1);
+}
+
+function buildStaff(subject: SubjectDetail | null): StaffCardModel[] {
+  if (subject?.staff?.length) {
+    return sortStaffCredits(subject.staff).map((member) => {
+      const name = member.displayName || member.nameCn || member.name;
+      const role = member.role ?? member.relation ?? "制作人员";
+      return {
+        key: `${member.personId ?? name}-${role}`,
+        role,
+        name,
+        imageUrl: member.imageUrl || undefined,
+        initial: name.slice(0, 1)
+      };
+    });
+  }
+
   if (!subject?.infoBox) {
     return [];
   }
@@ -299,12 +495,68 @@ function buildStaff(subject: SubjectDetail | null): Array<{
 
   return subject.infoBox
     .filter((entry) => staffKeys.has(entry.key))
-    .slice(0, 8)
+    .sort((a, b) => staffPriority(a.key) - staffPriority(b.key))
     .map((entry) => ({
+      key: `${entry.key}-${entry.value}`,
       role: entry.key,
       name: entry.value,
+      imageUrl: undefined,
       initial: entry.value.slice(0, 1) || entry.key.slice(0, 1)
     }));
+}
+
+function buildCharacters(subject: SubjectDetail | null): CharacterCardModel[] {
+  if (!subject?.characters?.length) {
+    return [];
+  }
+
+  return subject.characters.map((character) => {
+    const actor = character.actors[0];
+    const characterName = character.displayName || character.nameCn || character.name;
+    const actorName = actor ? actor.displayName || actor.nameCn || actor.name : undefined;
+    return {
+      id: character.characterId,
+      role: character.role ?? "角色",
+      name: characterName,
+      actorName,
+      imageUrl: character.imageUrl || undefined,
+      initial: characterName.slice(0, 1)
+    };
+  });
+}
+
+function isMainCharacterRole(role: string): boolean {
+  return /主角|主人公|main/i.test(role);
+}
+
+function sortStaffCredits(staff: SubjectStaffCredit[]): SubjectStaffCredit[] {
+  return staff
+    .map((member, index) => ({ member, index }))
+    .sort((a, b) => {
+      const priority = staffPriority(a.member.role ?? a.member.relation ?? "");
+      const nextPriority = staffPriority(b.member.role ?? b.member.relation ?? "");
+      return priority - nextPriority || a.index - b.index;
+    })
+    .map((entry) => entry.member);
+}
+
+function staffPriority(role: string): number {
+  const priorityRoles = [
+    /原作|原案|原著/,
+    /导演|監督|监督|总导演|总监督/,
+    /系列构成|シリーズ構成/,
+    /脚本|剧本/,
+    /人物设定|角色设计|キャラクターデザイン/,
+    /动画制作|アニメーション制作|制作公司|製作会社/,
+    /音乐|音楽/,
+    /美术|美術/,
+    /色彩/,
+    /摄影|撮影/,
+    /音响|音響/,
+    /制片|企画|製作/
+  ];
+  const index = priorityRoles.findIndex((pattern) => pattern.test(role));
+  return index >= 0 ? index : priorityRoles.length;
 }
 
 function staffGradient(index: number): string {

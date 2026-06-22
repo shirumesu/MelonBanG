@@ -4,11 +4,17 @@ import type {
   CollectionStatus,
   EpisodeCollectionState,
   EpisodeStatus,
+  RelatedSubject,
+  SubjectCharacterCredit,
   SubjectCollectionStats,
   SubjectCollectionState,
+  SubjectComment,
   SubjectDetail,
   SubjectInfoBoxItem,
-  SubjectSearchResult
+  SubjectSchedule,
+  SubjectSearchResult,
+  SubjectStaffCredit,
+  SubjectTopic
 } from "../../shared/contracts/bangumi";
 import { getAppDatabase } from "./appDatabase";
 
@@ -28,6 +34,13 @@ type SubjectCacheRow = {
   meta_tags_json: string | null;
   tags_json: string | null;
   infobox_json: string | null;
+  characters_json: string | null;
+  staff_json: string | null;
+  related_subjects_json: string | null;
+  comments_json: string | null;
+  topics_json: string | null;
+  schedule_json: string | null;
+  source_notes_json: string | null;
   updated_at: string;
 };
 
@@ -65,6 +78,13 @@ type SubjectCacheInput = {
   metaTags?: string[];
   tags?: Array<{ name: string; count?: number }>;
   infoBox?: SubjectInfoBoxItem[];
+  characters?: SubjectCharacterCredit[];
+  staff?: SubjectStaffCredit[];
+  relatedSubjects?: RelatedSubject[];
+  comments?: SubjectComment[];
+  topics?: SubjectTopic[];
+  schedule?: SubjectSchedule;
+  sourceNotes?: string[];
 };
 
 type SubjectCollectionInput = SubjectCollectionState & { epStatus?: number };
@@ -72,6 +92,20 @@ type SubjectCollectionInput = SubjectCollectionState & { epStatus?: number };
 type SubjectCollectionSnapshot = {
   subject: SubjectCacheInput;
   collection: SubjectCollectionInput;
+};
+
+type CollectionListRow = {
+  subject_id: number;
+  name: string;
+  name_cn: string | null;
+  cover_url: string | null;
+  summary: string | null;
+  episode_total: number | null;
+  subject_score: number | null;
+  status: CollectionStatus;
+  collection_score: number | null;
+  ep_status: number;
+  collection_updated_at: string;
 };
 
 export class CollectionStore {
@@ -88,16 +122,17 @@ export class CollectionStore {
         sc.cover_url,
         sc.summary,
         sc.episode_total,
+        sc.score AS subject_score,
         c.status,
-        c.score,
+        c.score AS collection_score,
         c.ep_status,
-        c.updated_at
+        c.updated_at AS collection_updated_at
       FROM subject_cache sc
       INNER JOIN subject_collections c ON c.subject_id = sc.subject_id
       ORDER BY c.updated_at DESC
     `
       )
-      .all() as Array<SubjectCacheRow & SubjectCollectionRow>;
+      .all() as CollectionListRow[];
 
     const loweredSearch = filter?.search?.trim().toLowerCase();
 
@@ -144,6 +179,13 @@ export class CollectionStore {
         meta_tags_json,
         tags_json,
         infobox_json,
+        characters_json,
+        staff_json,
+        related_subjects_json,
+        comments_json,
+        topics_json,
+        schedule_json,
+        source_notes_json,
         updated_at
       FROM subject_cache
       WHERE subject_id = ?
@@ -192,6 +234,13 @@ export class CollectionStore {
       metaTags: parseJson<string[]>(subject.meta_tags_json),
       tags: parseJson<Array<{ name: string; count?: number }>>(subject.tags_json),
       infoBox: parseJson<SubjectInfoBoxItem[]>(subject.infobox_json),
+      characters: parseJson<SubjectCharacterCredit[]>(subject.characters_json),
+      staff: parseJson<SubjectStaffCredit[]>(subject.staff_json),
+      relatedSubjects: parseJson<RelatedSubject[]>(subject.related_subjects_json),
+      comments: parseJson<SubjectComment[]>(subject.comments_json),
+      topics: parseJson<SubjectTopic[]>(subject.topics_json),
+      schedule: parseJson<SubjectSchedule>(subject.schedule_json),
+      sourceNotes: parseJson<string[]>(subject.source_notes_json),
       collection: collection ? this.toSubjectCollectionState(collection) : null,
       episodes: episodes.map((episode) => this.toEpisodeCollectionState(episode))
     };
@@ -255,9 +304,16 @@ export class CollectionStore {
         meta_tags_json,
         tags_json,
         infobox_json,
+        characters_json,
+        staff_json,
+        related_subjects_json,
+        comments_json,
+        topics_json,
+        schedule_json,
+        source_notes_json,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(subject_id) DO UPDATE SET
         name = excluded.name,
         name_cn = excluded.name_cn,
@@ -273,6 +329,13 @@ export class CollectionStore {
         meta_tags_json = COALESCE(excluded.meta_tags_json, subject_cache.meta_tags_json),
         tags_json = COALESCE(excluded.tags_json, subject_cache.tags_json),
         infobox_json = COALESCE(excluded.infobox_json, subject_cache.infobox_json),
+        characters_json = COALESCE(excluded.characters_json, subject_cache.characters_json),
+        staff_json = COALESCE(excluded.staff_json, subject_cache.staff_json),
+        related_subjects_json = COALESCE(excluded.related_subjects_json, subject_cache.related_subjects_json),
+        comments_json = COALESCE(excluded.comments_json, subject_cache.comments_json),
+        topics_json = COALESCE(excluded.topics_json, subject_cache.topics_json),
+        schedule_json = COALESCE(excluded.schedule_json, subject_cache.schedule_json),
+        source_notes_json = COALESCE(excluded.source_notes_json, subject_cache.source_notes_json),
         updated_at = excluded.updated_at
     `
       )
@@ -292,6 +355,13 @@ export class CollectionStore {
         jsonOrNull(input.metaTags),
         jsonOrNull(input.tags),
         jsonOrNull(input.infoBox),
+        jsonOrNull(input.characters),
+        jsonOrNull(input.staff),
+        jsonOrNull(input.relatedSubjects),
+        jsonOrNull(input.comments),
+        jsonOrNull(input.topics),
+        jsonOrNull(input.schedule),
+        jsonOrNull(input.sourceNotes),
         isoNow()
       );
   }
@@ -582,7 +652,7 @@ export class CollectionStore {
     }
   }
 
-  private toCollectionListItem(row: SubjectCacheRow & SubjectCollectionRow): CollectionListItem {
+  private toCollectionListItem(row: CollectionListRow): CollectionListItem {
     const episodes = this.database
       .prepare(
         `
@@ -604,9 +674,16 @@ export class CollectionStore {
       nameCn: row.name_cn ?? undefined,
       coverUrl: row.cover_url ?? undefined,
       episodeTotal: row.episode_total ?? undefined,
+      score: row.subject_score ?? undefined,
       watchedEpisodeCount: row.ep_status > 0 ? row.ep_status : undefined,
       summary: row.summary ?? undefined,
-      collection: this.toSubjectCollectionState(row),
+      collection: this.toSubjectCollectionState({
+        subject_id: row.subject_id,
+        status: row.status,
+        score: row.collection_score,
+        ep_status: row.ep_status,
+        updated_at: row.collection_updated_at
+      }),
       nextEpisode: nextEpisode ? this.toEpisodeCollectionState(nextEpisode) : undefined,
       pendingMutationKeys: []
     };

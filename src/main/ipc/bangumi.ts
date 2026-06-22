@@ -37,6 +37,8 @@ export function registerBangumiIpc(): void {
   handle("bangumi:searchSubjects", (keyword: string) =>
     getBangumiService().searchSubjects(z.string().trim().min(1).parse(keyword))
   );
+  handle("bangumi:getTrendingCurrent", () => getBangumiService().getTrendingCurrent());
+  handle("bangumi:getTodaySchedule", () => getBangumiService().getTodaySchedule());
   handle("bangumi:getCalendar", () => getBangumiService().getCalendar());
   handle("bangumi:updateTracking", (input: TrackingMutation) =>
     getBangumiService().updateTracking(trackingMutationSchema.parse(input))

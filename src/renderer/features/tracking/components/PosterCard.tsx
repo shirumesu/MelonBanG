@@ -28,7 +28,7 @@ export function PosterCard({
       to={`/subject/${item.subjectId}`}
       className={cn(
         "group flex flex-col transition hover:-translate-y-1",
-        compact ? "w-[172px] flex-none" : "min-w-0"
+        compact ? "w-[188px] flex-none" : "min-w-0"
       )}
     >
       <div className="relative">
@@ -62,11 +62,15 @@ export function PosterCard({
       </div>
       <div className="px-0.5 pt-2">
         <div className="text-muted-foreground flex items-center justify-between gap-2 text-[11px] font-bold">
-          <span className="truncate">★ {item.collection.score || "—"}</span>
+          <span className="truncate">★ {formatScore(item.score)}</span>
           <span className="truncate">{progressText}</span>
         </div>
         {extra ? <div className="mt-2">{extra}</div> : null}
       </div>
     </Link>
   );
+}
+
+function formatScore(score: number | undefined): string {
+  return typeof score === "number" && Number.isFinite(score) && score > 0 ? String(score) : "—";
 }

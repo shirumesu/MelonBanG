@@ -7,6 +7,7 @@ import { useAppState } from "@/app/AppStateProvider";
 import { HeroCarousel } from "./components/HeroCarousel";
 import { ContinueRail } from "./components/ContinueRail";
 import { Timeline } from "@/components/melon/Timeline";
+import { parseAiringTimestamp } from "@/lib/airing";
 import {
   IconButton,
   PageContent,
@@ -19,8 +20,8 @@ import {
 
 export function HomeRoute() {
   const [search, setSearch] = useState("");
-  const { calendarDays, syncState } = useAppState();
-  const today = findToday(calendarDays);
+  const { calendarDays, syncState, todaySchedule, trendingItems } = useAppState();
+  const today = todaySchedule ?? findToday(calendarDays);
   const todayItems = today ? toTimelineItems(today) : [];
   const syncLabel = syncState?.lastSuccessfulSyncAt
     ? `已同步 · ${formatRelativeTime(syncState.lastSuccessfulSyncAt)}`
@@ -44,7 +45,7 @@ export function HomeRoute() {
       </Topbar>
 
       <PageContent>
-        <HeroCarousel />
+        <HeroCarousel items={trendingItems} />
 
         <Section>
           <SectionHead
@@ -78,7 +79,7 @@ export function HomeRoute() {
             }
           />
           {todayItems.length > 0 ? (
-            <Timeline items={todayItems} />
+            <Timeline items={todayItems} variant="home" />
           ) : (
             <div className="border-line bg-surface text-ink-faint rounded-[20px] border p-8 text-center text-sm font-bold shadow-[var(--shadow-sm)]">
               今日暂无 Bangumi 放送数据。
@@ -96,19 +97,30 @@ function findToday(days: BroadcastDay[]): BroadcastDay | undefined {
 }
 
 function toTimelineItems(day: BroadcastDay): TimelineItem[] {
-  return day.items.slice(0, 8).map((item) => ({
-    time: "放送",
-    index: item.subjectId,
-    subjectId: item.subjectId,
-    title: item.nameCn ?? item.name,
-    total: item.episodeTotal,
-    done: false,
-    coverUrl: item.coverUrl,
-    subtitle:
-      typeof item.episodeTotal === "number" ? `今日放送 · 全 ${item.episodeTotal} 话` : "今日放送",
-    badgeLabel: "今日放送",
-    actionLabel: "详情"
-  }));
+  const now = Date.now();
+  return day.items.map((item, index) => {
+    const airingTimestamp = parseAiringTimestamp(item.airingAtShanghai ?? item.airingAt);
+    const done = Number.isFinite(airingTimestamp) && airingTimestamp <= now;
+    return {
+      time: formatAiringTime(item.airingAtShanghai),
+      airingAt: item.airingAt,
+      airingAtShanghai: item.airingAtShanghai,
+      index: item.subjectId ?? index + 1,
+      subjectId: item.subjectId,
+      title: item.displayName ?? item.nameCn ?? item.name,
+      total: item.episodeTotal,
+      done,
+      coverUrl: item.coverUrl,
+      subtitle:
+        typeof item.episodeTotal === "number" ? `今日放送 · 全 ${item.episodeTotal} 话` : "今日放送",
+      badgeLabel: done ? "已放送" : "今日放送",
+      actionLabel: "详情"
+    };
+  });
+}
+
+function formatAiringTime(value: string | undefined): string {
+  return value?.slice(11, 16) || "放送";
 }
 
 function bangumiWeekdayId(date: Date): number {

@@ -7,6 +7,7 @@ import { useAppState } from "@/app/AppStateProvider";
 import { Timeline } from "@/components/melon/Timeline";
 import { IconButton, SearchBox, Topbar } from "@/components/melon/layout";
 import { Button } from "@/components/ui/button";
+import { parseAiringTimestamp } from "@/lib/airing";
 import { cn } from "@/lib/utils";
 
 export function ScheduleRoute() {
@@ -81,7 +82,7 @@ export function ScheduleRoute() {
               <p className="mt-1.5 text-[13px]">选择其他日期查看新番时间表</p>
             </div>
           ) : (
-            <Timeline items={day.items} />
+            <Timeline items={day.items} variant="schedule" />
           )}
         </div>
       </div>
@@ -128,24 +129,35 @@ function calendarDaysToWeek(days: BroadcastDay[]): WeekDay[] {
 }
 
 function toTimelineItems(day: BroadcastDay): TimelineItem[] {
-  const todayId = bangumiWeekdayId(new Date());
-  const dayHasPassed = day.weekday.id < todayId;
+  const now = Date.now();
+  const todayKey = shanghaiDateKey(new Date());
 
-  return day.items.map((item) => ({
-    time: "放送",
-    index: item.subjectId,
-    subjectId: item.subjectId,
-    title: item.nameCn ?? item.name,
-    total: item.episodeTotal,
-    done: dayHasPassed,
-    coverUrl: item.coverUrl,
-    subtitle:
-      typeof item.episodeTotal === "number"
-        ? `${day.weekday.cn}放送 · 全 ${item.episodeTotal} 话`
-        : `${day.weekday.cn}放送`,
-    badgeLabel: day.weekday.id === todayId ? "今日放送" : dayHasPassed ? "本周已放送" : "待放送",
-    actionLabel: "详情"
-  }));
+  return day.items.map((item, index) => {
+    const airingTimestamp = parseAiringTimestamp(item.airingAtShanghai ?? item.airingAt);
+    const done = Number.isFinite(airingTimestamp) && airingTimestamp <= now;
+    const isToday = item.airingAtShanghai?.slice(0, 10) === todayKey;
+    return {
+      time: formatAiringTime(item.airingAtShanghai),
+      airingAt: item.airingAt,
+      airingAtShanghai: item.airingAtShanghai,
+      index: item.subjectId ?? index + 1,
+      subjectId: item.subjectId,
+      title: item.displayName ?? item.nameCn ?? item.name,
+      total: item.episodeTotal,
+      done,
+      coverUrl: item.coverUrl,
+      subtitle:
+        typeof item.episodeTotal === "number"
+          ? `${day.weekday.cn}放送 · 全 ${item.episodeTotal} 话`
+          : `${day.weekday.cn}放送`,
+      badgeLabel: isToday ? (done ? "已放送" : "今日放送") : done ? "本周已放送" : "待放送",
+      actionLabel: "详情"
+    };
+  });
+}
+
+function formatAiringTime(value: string | undefined): string {
+  return value?.slice(11, 16) || "放送";
 }
 
 function findTodayIndex(week: WeekDay[]): number {
@@ -161,6 +173,15 @@ function emptyToday(): WeekDay {
 function bangumiWeekdayId(date: Date): number {
   const day = date.getDay();
   return day === 0 ? 7 : day;
+}
+
+function shanghaiDateKey(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
 }
 
 function currentSeasonLabel(date = new Date()): string {
