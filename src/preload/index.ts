@@ -8,6 +8,7 @@ const bangumi: BangumiBridge = {
   signIn: () => ipcRenderer.invoke("bangumi:signIn"),
   signOut: () => ipcRenderer.invoke("bangumi:signOut"),
   listCollection: (filter) => ipcRenderer.invoke("bangumi:listCollection", filter),
+  getCachedSubject: (subjectId) => ipcRenderer.invoke("bangumi:getCachedSubject", subjectId),
   getSubject: (subjectId) => ipcRenderer.invoke("bangumi:getSubject", subjectId),
   searchSubjects: (keyword) => ipcRenderer.invoke("bangumi:searchSubjects", keyword),
   getTrendingCurrent: () => ipcRenderer.invoke("bangumi:getTrendingCurrent"),

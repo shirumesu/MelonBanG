@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type {
   BangumiSession,
@@ -20,10 +20,12 @@ type AppStateValue = {
   trendingItems: BroadcastItem[];
   todaySchedule: BroadcastDay | null;
   calendarDays: BroadcastDay[];
+  isPublicDataLoading: boolean;
   refreshSession: () => Promise<void>;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   listCollection: (filter?: CollectionFilter) => Promise<CollectionListItem[]>;
+  getCachedSubject: (subjectId: number) => Promise<SubjectDetail | null>;
   getSubject: (subjectId: number) => Promise<SubjectDetail>;
   searchSubjects: (keyword: string) => Promise<SubjectSearchResult[]>;
   refreshCalendar: () => Promise<void>;
@@ -41,24 +43,29 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [todaySchedule, setTodaySchedule] = useState<BroadcastDay | null>(null);
   const [calendarDays, setCalendarDays] = useState<BroadcastDay[]>([]);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [isPublicDataLoading, setIsPublicDataLoading] = useState(false);
 
-  useEffect(() => {
-    void refreshSession();
-  }, []);
-
-  async function refreshSession(): Promise<void> {
-    setIsBootstrapping(true);
+  const refreshPublicHomeData = useCallback(async (): Promise<void> => {
+    setIsPublicDataLoading(true);
     try {
-      const [nextSession, nextSyncState, publicData] = await Promise.all([
-        window.melonbang.bangumi.getSession(),
-        window.melonbang.bangumi.getSyncState(),
-        loadPublicHomeData()
-      ]);
-      setSession(nextSession);
-      setSyncState(nextSyncState);
+      const publicData = await loadPublicHomeData();
       setTrendingItems(publicData.trendingItems);
       setTodaySchedule(publicData.todaySchedule);
       setCalendarDays(publicData.calendarDays);
+    } finally {
+      setIsPublicDataLoading(false);
+    }
+  }, []);
+
+  const refreshSession = useCallback(async (): Promise<void> => {
+    setIsBootstrapping(true);
+    try {
+      const [nextSession, nextSyncState] = await Promise.all([
+        window.melonbang.bangumi.getSession(),
+        window.melonbang.bangumi.getSyncState()
+      ]);
+      setSession(nextSession);
+      setSyncState(nextSyncState);
       if (nextSession) {
         const nextHomeItems = await window.melonbang.bangumi.listCollection({
           status: "watching"
@@ -67,6 +74,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       } else {
         setHomeItems([]);
       }
+      void refreshPublicHomeData();
     } catch (error) {
       setSession(null);
       setSyncState({
@@ -81,21 +89,23 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsBootstrapping(false);
     }
-  }
+  }, [refreshPublicHomeData]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void refreshSession();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [refreshSession]);
 
   async function signIn(): Promise<void> {
     try {
       const nextSession = await window.melonbang.bangumi.signIn();
       setSession(nextSession);
       setSyncState(await window.melonbang.bangumi.getSyncState());
-      const [nextHomeItems, publicData] = await Promise.all([
-        window.melonbang.bangumi.listCollection({ status: "watching" }),
-        loadPublicHomeData()
-      ]);
+      const nextHomeItems = await window.melonbang.bangumi.listCollection({ status: "watching" });
       setHomeItems(nextHomeItems);
-      setTrendingItems(publicData.trendingItems);
-      setTodaySchedule(publicData.todaySchedule);
-      setCalendarDays(publicData.calendarDays);
+      void refreshPublicHomeData();
     } catch (error) {
       setSession(null);
       setSyncState({
@@ -124,12 +134,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     setHomeItems(await window.melonbang.bangumi.listCollection({ status: "watching" }));
   }
 
-  async function refreshCalendar(): Promise<void> {
-    const publicData = await loadPublicHomeData();
-    setTrendingItems(publicData.trendingItems);
-    setTodaySchedule(publicData.todaySchedule);
-    setCalendarDays(publicData.calendarDays);
-  }
+  const refreshCalendar = useCallback(async (): Promise<void> => {
+    await refreshPublicHomeData();
+  }, [refreshPublicHomeData]);
 
   async function updateTracking(input: TrackingMutation): Promise<void> {
     const result = await window.melonbang.bangumi.updateTracking(input);
@@ -141,27 +148,26 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     return window.melonbang.bangumi.listCollection(filter);
   }
 
-  const value = useMemo<AppStateValue>(
-    () => ({
-      session,
-      syncState,
-      isBootstrapping,
-      homeItems,
-      trendingItems,
-      todaySchedule,
-      calendarDays,
-      refreshSession,
-      signIn,
-      signOut,
-      listCollection,
-      getSubject: (subjectId) => window.melonbang.bangumi.getSubject(subjectId),
-      searchSubjects: (keyword) => window.melonbang.bangumi.searchSubjects(keyword),
-      refreshCalendar,
-      updateTracking,
-      refreshCollection
-    }),
-    [calendarDays, homeItems, isBootstrapping, session, syncState, todaySchedule, trendingItems]
-  );
+  const value: AppStateValue = {
+    session,
+    syncState,
+    isBootstrapping,
+    homeItems,
+    trendingItems,
+    todaySchedule,
+    calendarDays,
+    isPublicDataLoading,
+    refreshSession,
+    signIn,
+    signOut,
+    listCollection,
+    getCachedSubject: (subjectId) => window.melonbang.bangumi.getCachedSubject(subjectId),
+    getSubject: (subjectId) => window.melonbang.bangumi.getSubject(subjectId),
+    searchSubjects: (keyword) => window.melonbang.bangumi.searchSubjects(keyword),
+    refreshCalendar,
+    updateTracking,
+    refreshCollection
+  };
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
 }

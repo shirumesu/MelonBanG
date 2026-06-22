@@ -68,9 +68,12 @@ type StaffCardModel = {
 export function SubjectRoute() {
   const navigate = useNavigate();
   const { subjectId } = useParams();
-  const { getSubject, updateTracking } = useAppState();
+  const { getCachedSubject, getSubject, updateTracking } = useAppState();
   const [subject, setSubject] = useState<SubjectDetail | null>(null);
-  const [loadingError, setLoadingError] = useState<string | null>(null);
+  const [loadingError, setLoadingError] = useState<{ subjectId: number; message: string } | null>(
+    null
+  );
+  const [refreshingSubjectId, setRefreshingSubjectId] = useState<number | null>(null);
   const [epOpen, setEpOpen] = useState(false);
   const [pvOpen, setPvOpen] = useState(false);
   const [detailDialog, setDetailDialog] = useState<DetailDialog>(null);
@@ -81,60 +84,81 @@ export function SubjectRoute() {
     }
 
     let ignore = false;
-    void getSubject(Number(subjectId))
-      .then((nextSubject) => {
+    const nextSubjectId = Number(subjectId);
+
+    void (async () => {
+      const cachedSubject = await getCachedSubject(nextSubjectId).catch(() => null);
+      if (!ignore && cachedSubject) {
+        setSubject(cachedSubject);
+        setRefreshingSubjectId(nextSubjectId);
+      }
+
+      try {
+        const nextSubject = await getSubject(nextSubjectId);
         if (!ignore) {
           setLoadingError(null);
           setSubject(nextSubject);
+          setRefreshingSubjectId(null);
         }
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!ignore) {
-          setLoadingError(error instanceof Error ? error.message : "条目加载失败");
+          setRefreshingSubjectId(null);
+          if (!cachedSubject) {
+            setLoadingError({
+              subjectId: nextSubjectId,
+              message: error instanceof Error ? error.message : "条目加载失败"
+            });
+          }
         }
-      });
+      }
+    })();
 
     return () => {
       ignore = true;
     };
-  }, [getSubject, subjectId]);
+  }, [getCachedSubject, getSubject, subjectId]);
 
-  const synopsis = useMemo(() => splitSynopsis(subject?.summary), [subject?.summary]);
+  const currentSubjectId = subjectId ? Number(subjectId) : null;
+  const activeSubject = subject?.subjectId === currentSubjectId ? subject : null;
+  const activeLoadingError =
+    loadingError?.subjectId === currentSubjectId ? loadingError.message : null;
+
+  const synopsis = useMemo(() => splitSynopsis(activeSubject?.summary), [activeSubject?.summary]);
   const synopsisHasMore = synopsis.length > 2 || synopsis.join("").length > 260;
   const visibleSynopsis = useMemo(
     () => (synopsisHasMore ? previewSynopsis(synopsis, 260) : synopsis),
     [synopsis, synopsisHasMore]
   );
-  const characters = useMemo(() => buildCharacters(subject), [subject]);
+  const characters = useMemo(() => buildCharacters(activeSubject), [activeSubject]);
   const visibleCharacters = useMemo(() => {
     const mainCharacters = characters.filter((character) => isMainCharacterRole(character.role));
     return (mainCharacters.length > 0 ? mainCharacters : characters).slice(0, 6);
   }, [characters]);
-  const staff = useMemo(() => buildStaff(subject), [subject]);
+  const staff = useMemo(() => buildStaff(activeSubject), [activeSubject]);
   const visibleStaff = staff.slice(0, 6);
   const nextEpisode = useMemo(
     () =>
-      subject?.episodes.find(
+      activeSubject?.episodes.find(
         (episode) => episode.status === "queue" || episode.status === "unwatched"
       ),
-    [subject?.episodes]
+    [activeSubject?.episodes]
   );
 
   async function reloadSubject(): Promise<void> {
-    if (!subject) {
+    if (!activeSubject) {
       return;
     }
-    setSubject(await getSubject(subject.subjectId));
+    setSubject(await getSubject(activeSubject.subjectId));
   }
 
   async function changeStatus(status: CollectionStatus): Promise<void> {
-    if (!subject) {
+    if (!activeSubject) {
       return;
     }
 
     await updateTracking({
       kind: "subjectCollection",
-      subjectId: subject.subjectId,
+      subjectId: activeSubject.subjectId,
       status
     });
     await reloadSubject();
@@ -149,7 +173,7 @@ export function SubjectRoute() {
     await reloadSubject();
   }
 
-  if (!subject) {
+  if (!activeSubject) {
     return (
       <>
         <Topbar
@@ -163,12 +187,14 @@ export function SubjectRoute() {
         />
         <PageContent narrow>
           <div className="border-line bg-surface text-ink-faint rounded-[20px] border p-10 text-center text-sm font-bold shadow-[var(--shadow-sm)]">
-            {loadingError ?? "加载条目中…"}
+            {activeLoadingError ?? "加载条目中…"}
           </div>
         </PageContent>
       </>
     );
   }
+
+  const isRefreshingSubject = refreshingSubjectId === activeSubject.subjectId;
 
   return (
     <>
@@ -184,7 +210,7 @@ export function SubjectRoute() {
 
       <PageContent narrow>
         <SubjectHero
-          subject={subject}
+          subject={activeSubject}
           onOpenEpisodes={() => setEpOpen(true)}
           onOpenPv={() => setPvOpen(true)}
           onChangeStatus={(status) => void changeStatus(status)}
@@ -263,14 +289,18 @@ export function SubjectRoute() {
 
           <Divider />
 
-          <SubjectTabs comments={subject.comments ?? []} topics={subject.topics ?? []} />
+          <SubjectTabs
+            comments={activeSubject.comments ?? []}
+            topics={activeSubject.topics ?? []}
+            loading={isRefreshingSubject}
+          />
         </div>
       </PageContent>
 
       <Dialog open={epOpen} onOpenChange={setEpOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>选集 · {subject.nameCn ?? subject.name}</DialogTitle>
+            <DialogTitle>选集 · {activeSubject.nameCn ?? activeSubject.name}</DialogTitle>
           </DialogHeader>
           <DialogBody>
             <div className="mb-3.5 flex items-center gap-2">
@@ -281,7 +311,7 @@ export function SubjectRoute() {
               <span className="text-ink-faint text-xs">点击章节可切换看过状态</span>
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(58px,1fr))] gap-[9px]">
-              {subject.episodes.map((episode) => (
+              {activeSubject.episodes.map((episode) => (
                 <button
                   key={episode.episodeId}
                   type="button"
@@ -325,7 +355,7 @@ export function SubjectRoute() {
             </div>
             <div className="mt-3.5 flex flex-wrap gap-2">
               <Badge variant="outline">暂无 PV 源</Badge>
-              {(subject.tags ?? []).slice(0, 4).map((tag, i) => (
+              {(activeSubject.tags ?? []).slice(0, 4).map((tag, i) => (
                 <Badge key={tag.name} variant={i === 0 ? "mint" : "outline"}>
                   {tag.name}
                 </Badge>
@@ -341,7 +371,7 @@ export function SubjectRoute() {
       >
         <DialogContent className="w-[min(720px,94vw)]">
           <DialogHeader>
-            <DialogTitle>简介 · {subject.nameCn ?? subject.name}</DialogTitle>
+            <DialogTitle>简介 · {activeSubject.nameCn ?? activeSubject.name}</DialogTitle>
           </DialogHeader>
           <DialogBody className="max-h-[70vh] overflow-auto">
             <div className="[&>p]:text-ink-soft [&>p]:mt-3 [&>p]:leading-[1.9] [&>p:first-child]:mt-0">
@@ -359,7 +389,7 @@ export function SubjectRoute() {
       >
         <DialogContent className="w-[min(860px,94vw)]">
           <DialogHeader>
-            <DialogTitle>全部角色 · {subject.nameCn ?? subject.name}</DialogTitle>
+            <DialogTitle>全部角色 · {activeSubject.nameCn ?? activeSubject.name}</DialogTitle>
           </DialogHeader>
           <DialogBody className="max-h-[72vh] overflow-auto">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(124px,1fr))] gap-3">
@@ -377,7 +407,7 @@ export function SubjectRoute() {
       >
         <DialogContent className="w-[min(860px,94vw)]">
           <DialogHeader>
-            <DialogTitle>全部制作团队 · {subject.nameCn ?? subject.name}</DialogTitle>
+            <DialogTitle>全部制作团队 · {activeSubject.nameCn ?? activeSubject.name}</DialogTitle>
           </DialogHeader>
           <DialogBody className="max-h-[72vh] overflow-auto">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(124px,1fr))] gap-3">

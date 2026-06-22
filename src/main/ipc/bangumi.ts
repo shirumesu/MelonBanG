@@ -31,6 +31,9 @@ export function registerBangumiIpc(): void {
   handle("bangumi:listCollection", (filter?: CollectionFilter) =>
     getBangumiService().listCollection(filterSchema.parse(filter))
   );
+  handle("bangumi:getCachedSubject", (subjectId: number) =>
+    getBangumiService().getCachedSubject(z.number().int().positive().parse(subjectId))
+  );
   handle("bangumi:getSubject", (subjectId: number) =>
     getBangumiService().getSubject(z.number().int().positive().parse(subjectId))
   );

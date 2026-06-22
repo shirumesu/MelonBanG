@@ -239,8 +239,8 @@ export class MelonApiClient {
       })),
       staff: subject.staff,
       relatedSubjects: subject.relatedSubjects,
-      comments: comments ?? subject.comments,
-      topics: topics ?? subject.topics,
+      comments,
+      topics,
       schedule: subject.schedule,
       sourceNotes: subject.source?.notes
     };
@@ -377,7 +377,7 @@ function mapListSubject(subject: SubjectListItemResponse): RemoteBangumiSubject 
     score: positiveNumber(subject.score),
     metaTags: subject.metaTags?.filter(Boolean),
     tags: subject.tags?.filter((tag) => tag.name),
-    coverUrl: subject.coverUrl || undefined
+    coverUrl: normalizeImageUrl(subject.coverUrl)
   };
 }
 
@@ -387,7 +387,7 @@ function mapBroadcastSubject(subject: SubjectListItemResponse): BroadcastItem {
     name: subject.name,
     nameCn: subject.nameCn || undefined,
     displayName: subject.displayName,
-    coverUrl: subject.coverUrl,
+    coverUrl: normalizeImageUrl(subject.coverUrl),
     summary: subject.summary || subject.shortSummary,
     airDate: subject.airDate,
     season: normalizeSeason(subject.season),
@@ -408,7 +408,7 @@ function mapScheduleOccurrence(item: ScheduleOccurrenceResponse): BroadcastItem 
     name: item.name,
     nameCn: item.nameCn,
     displayName: item.displayName,
-    coverUrl: item.coverUrl,
+    coverUrl: normalizeImageUrl(item.coverUrl),
     airingAt: item.airingAt,
     airingAtShanghai: item.airingAtShanghai,
     weekday: item.weekday,
@@ -483,4 +483,20 @@ function formatDateKey(date: Date): string {
 
 function positiveNumber(value: number | undefined): number | undefined {
   return typeof value === "number" && value > 0 ? value : undefined;
+}
+
+function normalizeImageUrl(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  if (value.startsWith("//")) {
+    return `https:${value}`;
+  }
+
+  if (value.startsWith("http://lain.bgm.tv/")) {
+    return value.replace("http://", "https://");
+  }
+
+  return value;
 }

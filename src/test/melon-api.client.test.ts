@@ -120,7 +120,7 @@ describe("MelonApiClient", () => {
           name: "Native Name",
           nameCn: "中文名",
           displayName: "中文名",
-          coverUrl: "https://example.com/cover.jpg",
+          coverUrl: "http://lain.bgm.tv/pic/cover/c/27/ff/377130_wDU1x.jpg",
           episodeTotal: 13,
           tags: [{ name: "青春" }],
           metaTags: ["TV"],
@@ -146,7 +146,7 @@ describe("MelonApiClient", () => {
       airingAt: "2026-06-22T14:00:00Z",
       airingAtShanghai: "2026-06-22 22:00",
       weekday: "周一",
-      coverUrl: "https://example.com/cover.jpg",
+      coverUrl: "https://lain.bgm.tv/pic/cover/c/27/ff/377130_wDU1x.jpg",
       episodeTotal: 13,
       tags: [{ name: "日常" }],
       metaTags: ["TV"],
@@ -351,6 +351,53 @@ describe("MelonApiClient", () => {
         name: "Episode 1",
         nameCn: "第一话"
       }
+    ]);
+  });
+
+  it("does not fall back to detail comments when independent comments are unavailable", async () => {
+    const fetchMock = vi.fn(
+      (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        void init;
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.endsWith("/comments")) {
+          return Promise.resolve(new Response("{}", { status: 502 }));
+        }
+        if (url.endsWith("/topics")) {
+          return Promise.resolve(
+            jsonResponse({
+              data: [{ title: "Fresh topic", url: "https://bangumi.tv/subject/topic/3" }]
+            })
+          );
+        }
+
+        return Promise.resolve(
+          jsonResponse({
+            data: {
+              subjectId: 123,
+              name: "Test Anime",
+              displayName: "Test Anime",
+              type: "anime",
+              episodeTotal: 12,
+              comments: [{ user: { nickname: "Detail User" }, text: "Detail comment" }],
+              topics: [{ title: "Detail topic", url: "https://bangumi.tv/subject/topic/1" }],
+              episodes: []
+            }
+          })
+        );
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new MelonApiClient();
+    const subject = await client.getSubject(123);
+
+    expect(requestUrl(fetchMock, 1)).toBe(
+      "https://melonapi.konataizumi.com/v1/subjects/123/comments"
+    );
+    expect(subject.comments).toBeUndefined();
+    expect(subject.topics).toEqual([
+      { title: "Fresh topic", url: "https://bangumi.tv/subject/topic/3" }
     ]);
   });
 });

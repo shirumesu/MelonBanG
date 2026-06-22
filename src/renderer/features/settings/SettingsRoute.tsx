@@ -936,7 +936,7 @@ export function SettingsRoute() {
                       </Button>
                       <Button variant="outline" size="sm" asChild>
                         <a
-                          href="https://github.com/83977/melonbang"
+                          href="https://github.com/shirumesu/MelonBanG"
                           target="_blank"
                           rel="noreferrer"
                         >
@@ -968,7 +968,7 @@ export function SettingsRoute() {
                 <SettingsRow title="反馈与建议">
                   <Button variant="outline" size="sm" asChild>
                     <a
-                      href="https://github.com/83977/melonbang/issues"
+                      href="https://github.com/shirumesu/MelonBanG/issues"
                       target="_blank"
                       rel="noreferrer"
                     >

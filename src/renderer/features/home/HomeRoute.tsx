@@ -20,7 +20,8 @@ import {
 
 export function HomeRoute() {
   const [search, setSearch] = useState("");
-  const { calendarDays, syncState, todaySchedule, trendingItems } = useAppState();
+  const { calendarDays, isPublicDataLoading, syncState, todaySchedule, trendingItems } =
+    useAppState();
   const today = todaySchedule ?? findToday(calendarDays);
   const todayItems = today ? toTimelineItems(today) : [];
   const syncLabel = syncState?.lastSuccessfulSyncAt
@@ -55,7 +56,7 @@ export function HomeRoute() {
             }
             sub="当季最受欢迎的番剧"
           />
-          <TrendingRail items={trendingItems} />
+          <TrendingRail items={trendingItems} loading={isPublicDataLoading} />
         </Section>
 
         <Section>
@@ -93,7 +94,7 @@ export function HomeRoute() {
             <Timeline items={todayItems} variant="home" />
           ) : (
             <div className="border-line bg-surface text-ink-faint rounded-[20px] border p-8 text-center text-sm font-bold shadow-[var(--shadow-sm)]">
-              今日暂无 Bangumi 放送数据。
+              {isPublicDataLoading ? "正在读取 Bangumi 放送数据…" : "今日暂无 Bangumi 放送数据。"}
             </div>
           )}
         </Section>

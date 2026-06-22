@@ -11,10 +11,12 @@ type Tab = "comments" | "discussions";
 
 export function SubjectTabs({
   comments,
-  topics
+  topics,
+  loading = false
 }: {
   comments: ApiSubjectComment[];
   topics: SubjectTopic[];
+  loading?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("comments");
 
@@ -140,7 +142,7 @@ export function SubjectTabs({
             </div>
           ) : (
             <div className="border-line bg-surface-2 text-ink-faint mt-3.5 rounded-[14px] border p-5 text-center text-sm font-semibold">
-              没有获取到吐槽箱数据。
+              {loading ? "正在获取吐槽箱数据…" : "没有获取到吐槽箱数据。"}
             </div>
           )}
         </div>
@@ -159,12 +161,12 @@ export function SubjectTabs({
                       href={topic.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-ink group-hover:text-mint-600 mb-2.5 block text-[15px] font-bold leading-snug transition-colors"
+                      className="text-ink group-hover:text-mint-600 mb-2.5 block text-[15px] leading-snug font-bold transition-colors"
                     >
                       {topic.title}
                     </a>
                   ) : (
-                    <div className="text-ink mb-2.5 text-[15px] font-bold leading-snug">
+                    <div className="text-ink mb-2.5 text-[15px] leading-snug font-bold">
                       {topic.title}
                     </div>
                   )}
@@ -195,7 +197,7 @@ export function SubjectTabs({
             </div>
           ) : (
             <div className="border-line bg-surface-2 text-ink-faint rounded-[14px] border p-5 text-center text-sm font-semibold">
-              暂未加载讨论内容。
+              {loading ? "正在获取讨论内容…" : "暂未加载讨论内容。"}
             </div>
           )}
         </>

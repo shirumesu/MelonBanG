@@ -6,7 +6,7 @@ const config: BangumiOAuthConfig = {
   clientId: "client-id",
   clientSecret: "client-secret",
   redirectUri: "http://127.0.0.1:14567/callback",
-  userAgent: "83977/melonbang-test/0.1.0 (https://github.com/83977/melonbang)"
+  userAgent: "melonbang-test/0.1.0"
 };
 
 describe("BangumiClient", () => {

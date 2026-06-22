@@ -18,7 +18,13 @@ const trendingBackgrounds = [
 
 const kanjiPool = ["夏", "恋", "刃", "空", "星", "光", "緋", "創", "旅", "幻", "蒼", "奏"];
 
-export function TrendingRail({ items }: { items: BroadcastItem[] }) {
+export function TrendingRail({
+  items,
+  loading = false
+}: {
+  items: BroadcastItem[];
+  loading?: boolean;
+}) {
   const railRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -64,7 +70,7 @@ export function TrendingRail({ items }: { items: BroadcastItem[] }) {
   if (slides.length === 0) {
     return (
       <div className="border-line bg-surface text-ink-faint mt-1.5 grid min-h-[200px] place-items-center rounded-[20px] border text-sm font-bold shadow-[var(--shadow-sm)]">
-        本季度热播数据暂不可用。
+        {loading ? "正在读取本季度热播数据…" : "本季度热播数据暂不可用。"}
       </div>
     );
   }

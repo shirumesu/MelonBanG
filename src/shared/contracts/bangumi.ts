@@ -255,6 +255,7 @@ export interface BangumiBridge {
   signIn(): Promise<BangumiSession>;
   signOut(): Promise<void>;
   listCollection(filter?: CollectionFilter): Promise<CollectionListItem[]>;
+  getCachedSubject(subjectId: number): Promise<SubjectDetail | null>;
   getSubject(subjectId: number): Promise<SubjectDetail>;
   searchSubjects(keyword: string): Promise<SubjectSearchResult[]>;
   getTrendingCurrent(): Promise<BroadcastItem[]>;

@@ -34,7 +34,7 @@ export function getBangumiOAuthConfig(): BangumiOAuthConfig | null {
 }
 
 function defaultUserAgent(): string {
-  return `83977/melonbang/${app.getVersion()} (https://github.com/83977/melonbang)`;
+  return `melonbang/${app.getVersion()}`;
 }
 
 function readConfigValue(envName: string, localValue?: string): string | undefined {

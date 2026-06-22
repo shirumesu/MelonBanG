@@ -39,6 +39,9 @@ function createUnconfiguredBangumiService(): BangumiBridge {
     listCollection() {
       return Promise.resolve([]);
     },
+    getCachedSubject() {
+      return Promise.resolve(null);
+    },
     async getSubject(subjectId) {
       return toPublicSubjectDetail(await melonApi.getSubject(subjectId));
     },

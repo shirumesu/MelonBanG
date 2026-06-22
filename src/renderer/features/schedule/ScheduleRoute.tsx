@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Inbox, SlidersHorizontal } from "lucide-react";
 import type { TimelineItem } from "@/data/home";
@@ -12,11 +12,15 @@ import { cn } from "@/lib/utils";
 
 export function ScheduleRoute() {
   const navigate = useNavigate();
-  const { calendarDays } = useAppState();
+  const { calendarDays, refreshCalendar } = useAppState();
   const week = useMemo(() => calendarDaysToWeek(calendarDays), [calendarDays]);
   const todayIndex = useMemo(() => findTodayIndex(week), [week]);
   const [selected, setSelected] = useState(todayIndex);
   const day = week[selected] ?? week[todayIndex] ?? emptyToday();
+
+  useEffect(() => {
+    void refreshCalendar();
+  }, [refreshCalendar]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

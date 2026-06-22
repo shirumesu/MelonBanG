@@ -26,9 +26,6 @@ export class BangumiRepository implements BangumiBridge {
   private readonly mutationQueueStore = new MutationQueueStore();
   private readonly syncStateStore = new SyncStateStore();
   private readonly melonApi = new MelonApiClient();
-  private calendarCache: { fetchedAt: number; days: BroadcastDay[] } | null = null;
-  private todayScheduleCache: { fetchedAt: number; day: BroadcastDay } | null = null;
-  private trendingCache: { fetchedAt: number; items: BroadcastItem[] } | null = null;
 
   constructor(private readonly config: BangumiOAuthConfig) {
     this.oauth = new BangumiOAuth(config);
@@ -53,6 +50,10 @@ export class BangumiRepository implements BangumiBridge {
     return Promise.resolve(this.collectionStore.listCollection(filter));
   }
 
+  getCachedSubject(subjectId: number): Promise<SubjectDetail | null> {
+    return Promise.resolve(this.collectionStore.getSubject(subjectId));
+  }
+
   async getSubject(subjectId: number): Promise<SubjectDetail> {
     const cached = this.collectionStore.getSubject(subjectId);
 
@@ -75,7 +76,11 @@ export class BangumiRepository implements BangumiBridge {
         throw new Error(`Subject ${subjectId} could not be loaded.`);
       }
 
-      return refreshed;
+      return {
+        ...refreshed,
+        comments: subject.comments,
+        topics: subject.topics
+      };
     } catch {
       if (cached) {
         return cached;
@@ -117,36 +122,15 @@ export class BangumiRepository implements BangumiBridge {
   }
 
   async getTrendingCurrent(): Promise<BroadcastItem[]> {
-    if (this.trendingCache && Date.now() - this.trendingCache.fetchedAt < 30 * 60 * 1000) {
-      return this.trendingCache.items;
-    }
-
-    const items = await this.melonApi.getTrendingCurrent();
-    this.trendingCache = { fetchedAt: Date.now(), items };
-    return items;
+    return this.melonApi.getTrendingCurrent();
   }
 
   async getTodaySchedule(): Promise<BroadcastDay> {
-    if (
-      this.todayScheduleCache &&
-      Date.now() - this.todayScheduleCache.fetchedAt < 30 * 60 * 1000
-    ) {
-      return this.todayScheduleCache.day;
-    }
-
-    const day = await this.melonApi.getTodaySchedule();
-    this.todayScheduleCache = { fetchedAt: Date.now(), day };
-    return day;
+    return this.melonApi.getTodaySchedule();
   }
 
   async getCalendar(): Promise<BroadcastDay[]> {
-    if (this.calendarCache && Date.now() - this.calendarCache.fetchedAt < 30 * 60 * 1000) {
-      return this.calendarCache.days;
-    }
-
-    const days = await this.melonApi.getScheduleWeek();
-    this.calendarCache = { fetchedAt: Date.now(), days };
-    return days;
+    return this.melonApi.getScheduleWeek();
   }
 
   async updateTracking(input: TrackingMutation): Promise<MutationResult> {
@@ -272,8 +256,6 @@ export class BangumiRepository implements BangumiBridge {
     characters?: SubjectDetail["characters"];
     staff?: SubjectDetail["staff"];
     relatedSubjects?: SubjectDetail["relatedSubjects"];
-    comments?: SubjectDetail["comments"];
-    topics?: SubjectDetail["topics"];
     schedule?: SubjectDetail["schedule"];
     sourceNotes?: string[];
   }): void {
@@ -296,8 +278,6 @@ export class BangumiRepository implements BangumiBridge {
       characters: subject.characters,
       staff: subject.staff,
       relatedSubjects: subject.relatedSubjects,
-      comments: subject.comments,
-      topics: subject.topics,
       schedule: subject.schedule,
       sourceNotes: subject.sourceNotes
     });
