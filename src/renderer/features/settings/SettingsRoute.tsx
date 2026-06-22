@@ -107,7 +107,7 @@ const categories: CategoryConfig[] = [
     key: "sources",
     label: "数据源管理",
     icon: ServerCog,
-    sections: [{ key: "placeholder", label: "数据源" }]
+    sections: [{ key: "sources", label: "数据源" }]
   },
   {
     key: "cache",
@@ -138,7 +138,7 @@ const categories: CategoryConfig[] = [
     key: "logs",
     label: "日志",
     icon: FileText,
-    sections: [{ key: "placeholder", label: "日志" }]
+    sections: [{ key: "logs", label: "日志" }]
   },
   {
     key: "about",
@@ -213,16 +213,6 @@ const directoryOptions = [
   "应用数据目录 / cache",
   "下载目录 / melonbang",
   "外置磁盘 / melonbang-cache"
-];
-
-const contributorGradients = [
-  "linear-gradient(135deg,var(--mint-300),var(--mint-500))",
-  "linear-gradient(135deg,var(--cherry-400),var(--grape-500))",
-  "linear-gradient(135deg,var(--sky-400),var(--mint-300))",
-  "linear-gradient(135deg,var(--gold-400),var(--cherry-400))",
-  "linear-gradient(135deg,var(--grape-400),var(--sky-500))",
-  "linear-gradient(135deg,var(--mint-400),var(--gold-400))",
-  "linear-gradient(135deg,var(--sky-500),var(--grape-500))"
 ];
 
 const shortcutLabels = {
@@ -779,7 +769,7 @@ export function SettingsRoute() {
           {active === "sources" ? (
             <section>
               <PanelHeading title="数据源管理" />
-              <SettingsGroup category="sources" section="placeholder" title="数据源">
+              <SettingsGroup category="sources" section="sources" title="数据源">
                 <PlaceholderCard title="暂无数据源配置" />
               </SettingsGroup>
             </section>
@@ -802,11 +792,11 @@ export function SettingsRoute() {
                     onCheckedChange={(checked) => setToggle("deleteCacheAfterWatch", checked)}
                   />
                 </SettingsRow>
-                <SettingsRow title="清理缓存" description="只显示前端反馈，不删除本地文件">
+                <SettingsRow title="清理缓存" description="真实文件删除尚未接入">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => showToast("缓存已清理", "已完成一次前端模拟清理。")}
+                    onClick={() => showToast("缓存清理尚未接入", "未删除任何本地文件。")}
                   >
                     <Trash2 className="size-4" />
                     清理
@@ -911,7 +901,7 @@ export function SettingsRoute() {
           {active === "logs" ? (
             <section>
               <PanelHeading title="日志" />
-              <SettingsGroup category="logs" section="placeholder" title="日志">
+              <SettingsGroup category="logs" section="logs" title="日志">
                 <PlaceholderCard title="暂无日志内容" />
               </SettingsGroup>
             </section>
@@ -940,7 +930,7 @@ export function SettingsRoute() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => showToast("官网暂未接入", "前端占位按钮已响应。")}
+                        onClick={() => showToast("官网暂未接入", "官网链接尚未配置。")}
                       >
                         官网
                       </Button>
@@ -990,20 +980,7 @@ export function SettingsRoute() {
               </SettingsGroup>
 
               <SettingsGroup category="about" section="thanks" title="鸣谢">
-                <div className="mt-6 flex flex-col items-center gap-3 text-center">
-                  <div className="text-sm font-extrabold">鸣谢</div>
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {["栞", "M", "B", "C", "A", "K", "Q"].map((initial, index) => (
-                      <GradientAvatar
-                        key={`${initial}-${index}`}
-                        initial={initial}
-                        gradient={contributorGradients[index]}
-                        size="md"
-                        className="ring-surface ring-2"
-                      />
-                    ))}
-                  </div>
-                </div>
+                <PlaceholderCard title="暂无鸣谢内容" />
               </SettingsGroup>
             </section>
           ) : null}
@@ -1309,7 +1286,7 @@ function DirectoryDialog({
           <Input
             value={customValue}
             onChange={(event) => onCustomChange(event.currentTarget.value)}
-            placeholder="输入模拟目录"
+            placeholder="输入自定义目录"
             className="rounded-[14px]"
           />
           <div className="flex justify-end gap-2">
@@ -1340,17 +1317,8 @@ function UpdateNotesDialog({
           <DialogTitle>更新说明</DialogTitle>
         </DialogHeader>
         <DialogBody>
-          <div className="flex flex-col gap-3">
-            {[
-              "重整理设置页分类，弹幕设置合并到播放。",
-              "补齐下载、BT、通知、快捷键与关于页的 mock 交互。",
-              "新增数据源管理与日志占位入口。"
-            ].map((item) => (
-              <div key={item} className="flex gap-3 text-sm">
-                <span className="bg-mint-400 mt-2 size-1.5 rounded-full" />
-                <span className="text-ink-soft">{item}</span>
-              </div>
-            ))}
+          <div className="border-line bg-surface-2 text-ink-faint rounded-[14px] border p-5 text-center text-sm font-semibold">
+            暂无更新说明内容。
           </div>
         </DialogBody>
       </DialogContent>

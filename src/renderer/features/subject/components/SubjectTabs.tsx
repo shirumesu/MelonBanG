@@ -3,7 +3,6 @@ import type { SubjectComment as ApiSubjectComment, SubjectTopic } from "@shared/
 import { InteractiveRating } from "@/components/melon/RatingStars";
 import { GradientAvatar } from "@/components/melon/GradientAvatar";
 import { Button } from "@/components/ui/button";
-import { SUBJECT_DEMO } from "@/data/subject";
 import { cn } from "@/lib/utils";
 
 type Tab = "comments" | "discussions";
@@ -16,7 +15,6 @@ export function SubjectTabs({
   topics: SubjectTopic[];
 }) {
   const [tab, setTab] = useState<Tab>("comments");
-  const displayComments = comments.length > 0 ? comments : FALLBACK_COMMENTS;
 
   return (
     <>
@@ -66,10 +64,10 @@ export function SubjectTabs({
             </div>
           </div>
 
-          {displayComments.length > 0 ? (
+          {comments.length > 0 ? (
             <div className="border-line bg-surface-2 mt-3.5 rounded-[14px] border p-4">
               <div className="space-y-3.5">
-                {displayComments.map((comment, index) => (
+                {comments.map((comment, index) => (
                   <div
                     key={comment.id ?? `${comment.user.nickname}-${index}`}
                     className="flex gap-3"
@@ -114,7 +112,7 @@ export function SubjectTabs({
             </div>
           ) : (
             <div className="border-line bg-surface-2 text-ink-faint mt-3.5 rounded-[14px] border p-5 text-center text-sm font-semibold">
-              暂未加载吐槽箱内容。
+              没有获取到吐槽箱数据。
             </div>
           )}
         </div>
@@ -165,13 +163,3 @@ export function SubjectTabs({
     </>
   );
 }
-
-const FALLBACK_COMMENTS: ApiSubjectComment[] = SUBJECT_DEMO.comments.map((comment) => ({
-  user: {
-    nickname: comment.name
-  },
-  score: comment.stars,
-  status: comment.statusTag,
-  createdAt: comment.time,
-  text: comment.text
-}));

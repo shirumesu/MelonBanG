@@ -1,7 +1,19 @@
 import { useRef, useState } from "react";
 import { Star } from "lucide-react";
-import { RATE_LABELS } from "@/data/subject";
 import { cn } from "@/lib/utils";
+
+const RATE_LABELS: Record<number, string> = {
+  1: "不忍直视（请谨慎评价）",
+  2: "很差",
+  3: "差",
+  4: "较差",
+  5: "不过不失",
+  6: "还行",
+  7: "推荐",
+  8: "力荐",
+  9: "神作",
+  10: "超神作（请谨慎评价）"
+};
 
 function StarCell({ fill, size }: { fill: number; size: number }) {
   const clamped = Math.max(0, Math.min(1, fill));

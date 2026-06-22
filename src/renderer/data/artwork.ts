@@ -1,10 +1,3 @@
-/**
- * Shared placeholder artwork helpers. The DESIGN prototype renders every
- * cover as a deterministic gradient + kanji glyph (no real images), keyed by
- * an index. These helpers reproduce that exact palette so React posters match
- * the prototype pixel-for-pixel.
- */
-
 export const GRADIENTS: ReadonlyArray<readonly [string, string]> = [
   ["#7bd0c1", "#3b82c4"],
   ["#f7a8b8", "#9b6ad8"],
@@ -41,25 +34,6 @@ export const KANJI = [
   "絆"
 ] as const;
 
-export const TITLES = [
-  "夏日终幕的我们",
-  "缔造神话的少女们",
-  "刀锋上的舞者",
-  "天空彼端的信",
-  "星之追忆",
-  "光与影的协奏",
-  "绯色的契约",
-  "创世笔记",
-  "千里旅人",
-  "幻夜咖啡馆",
-  "蒼之纪元",
-  "奏响的青春",
-  "焰之魔导书",
-  "无声的旋律",
-  "逐风之翼",
-  "归零的世界"
-] as const;
-
 export function artGradient(index: number): string {
   const pair = GRADIENTS[index % GRADIENTS.length];
   return `linear-gradient(135deg, ${pair[0]}, ${pair[1]})`;
@@ -67,8 +41,4 @@ export function artGradient(index: number): string {
 
 export function artKanji(index: number): string {
   return KANJI[index % KANJI.length];
-}
-
-export function artTitle(index: number): string {
-  return TITLES[index % TITLES.length];
 }

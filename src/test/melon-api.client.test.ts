@@ -224,87 +224,101 @@ describe("MelonApiClient", () => {
   });
 
   it("loads aggregated subject detail fields from Melon API", async () => {
-    mockJsonResponse({
-      data: {
-        subjectId: 123,
-        name: "Test Anime",
-        nameCn: "测试动画",
-        displayName: "测试动画",
-        type: "anime",
-        coverUrl: "https://example.com/cover.jpg",
-        summary: "Line one.",
-        airDate: "2026-04-01",
-        platform: "TV",
-        episodeTotal: 12,
-        rating: { score: 8.2, rank: 42, total: 1234 },
-        collectionStats: {
-          wish: 10,
-          watching: 30,
-          completed: 20,
-          on_hold: 4,
-          dropped: 2
-        },
-        infoBox: [{ key: "导演", value: "示例监督" }],
-        tags: [{ name: "青春", count: 99 }],
-        metaTags: ["TV"],
-        episodes: [
-          {
-            episodeId: 1001,
-            subjectId: 123,
-            type: "main",
-            sort: 1,
-            ep: 1,
-            name: "Episode 1",
-            nameCn: "第一话",
-            displayName: "第一话"
+    const fetchMock = mockJsonResponses(
+      {
+        data: {
+          subjectId: 123,
+          name: "Test Anime",
+          nameCn: "测试动画",
+          displayName: "测试动画",
+          type: "anime",
+          coverUrl: "https://example.com/cover.jpg",
+          summary: "Line one.",
+          airDate: "2026-04-01",
+          platform: "TV",
+          episodeTotal: 12,
+          rating: { score: 8.2, rank: 42, total: 1234 },
+          collectionStats: {
+            wish: 10,
+            watching: 30,
+            completed: 20,
+            on_hold: 4,
+            dropped: 2
           },
-          {
-            episodeId: 1002,
-            subjectId: 123,
-            type: "op",
-            sort: 1,
-            name: "OP",
-            displayName: "OP"
-          }
-        ],
-        characters: [
-          {
-            characterId: 1,
-            name: "Character",
-            displayName: "Character",
-            role: "主角",
-            imageUrl: "https://example.com/character.jpg",
-            actors: [
-              {
-                personId: 2,
-                name: "Actor",
-                displayName: "Actor",
-                imageUrl: "https://example.com/actor.jpg",
-                url: "https://example.com"
-              }
-            ]
-          }
-        ],
-        staff: [
-          {
-            personId: 3,
-            name: "Staff",
-            displayName: "Staff",
-            role: "导演",
-            imageUrl: "https://example.com/staff.jpg",
-            url: "https://example.com"
-          }
-        ],
-        relatedSubjects: [],
-        comments: [{ user: { nickname: "User" }, text: "Comment" }],
-        topics: [{ title: "Topic", replies: 3, url: "https://bangumi.tv/subject/topic/1" }],
-        schedule: { weekday: "周一", source: "bangumi-data" },
-        source: { notes: ["comments unavailable"] }
-      }
-    });
+          infoBox: [{ key: "导演", value: "示例监督" }],
+          tags: [{ name: "青春", count: 99 }],
+          metaTags: ["TV"],
+          episodes: [
+            {
+              episodeId: 1001,
+              subjectId: 123,
+              type: "main",
+              sort: 1,
+              ep: 1,
+              name: "Episode 1",
+              nameCn: "第一话",
+              displayName: "第一话"
+            },
+            {
+              episodeId: 1002,
+              subjectId: 123,
+              type: "op",
+              sort: 1,
+              name: "OP",
+              displayName: "OP"
+            }
+          ],
+          characters: [
+            {
+              characterId: 1,
+              name: "Character",
+              displayName: "Character",
+              role: "主角",
+              imageUrl: "https://example.com/character.jpg",
+              actors: [
+                {
+                  personId: 2,
+                  name: "Actor",
+                  displayName: "Actor",
+                  imageUrl: "https://example.com/actor.jpg",
+                  url: "https://example.com"
+                }
+              ]
+            }
+          ],
+          staff: [
+            {
+              personId: 3,
+              name: "Staff",
+              displayName: "Staff",
+              role: "导演",
+              imageUrl: "https://example.com/staff.jpg",
+              url: "https://example.com"
+            }
+          ],
+          relatedSubjects: [],
+          comments: [{ user: { nickname: "Detail User" }, text: "Detail comment" }],
+          topics: [
+            { title: "Detail topic", replies: 3, url: "https://bangumi.tv/subject/topic/1" }
+          ],
+          schedule: { weekday: "周一", source: "bangumi-data" },
+          source: { notes: ["comments unavailable"] }
+        }
+      },
+      { data: [{ user: { nickname: "User" }, text: "Comment" }] },
+      { data: [{ title: "Topic", replies: 3, url: "https://bangumi.tv/subject/topic/2" }] }
+    );
 
     const client = new MelonApiClient();
     const subject = await client.getSubject(123);
+
+    expect(requestUrl(fetchMock)).toBe("https://melonapi.konataizumi.com/v1/subjects/123");
+    expect(requestUrl(fetchMock, 1)).toBe(
+      "https://melonapi.konataizumi.com/v1/subjects/123/comments"
+    );
+    expect(requestUrl(fetchMock, 2)).toBe(
+      "https://melonapi.konataizumi.com/v1/subjects/123/topics"
+    );
 
     expect(subject).toMatchObject({
       id: 123,
@@ -324,7 +338,7 @@ describe("MelonApiClient", () => {
       ],
       staff: [{ role: "导演", name: "Staff", imageUrl: "https://example.com/staff.jpg" }],
       comments: [{ text: "Comment" }],
-      topics: [{ title: "Topic", url: "https://bangumi.tv/subject/topic/1" }],
+      topics: [{ title: "Topic", url: "https://bangumi.tv/subject/topic/2" }],
       schedule: { weekday: "周一" },
       sourceNotes: ["comments unavailable"]
     });

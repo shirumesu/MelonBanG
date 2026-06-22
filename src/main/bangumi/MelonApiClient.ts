@@ -40,6 +40,14 @@ type ApiSubjectResponse = {
   data: SubjectDetailResponse;
 };
 
+type ApiSubjectCommentsResponse = {
+  data?: SubjectComment[];
+};
+
+type ApiSubjectTopicsResponse = {
+  data?: SubjectTopic[];
+};
+
 type ApiTodayScheduleResponse = {
   date: string;
   items: ScheduleOccurrenceResponse[];
@@ -195,7 +203,15 @@ export class MelonApiClient {
   }
 
   async getSubject(subjectId: number): Promise<RemoteMelonSubjectDetail> {
-    const response = await this.fetchJson<ApiSubjectResponse>(`/v1/subjects/${subjectId}`);
+    const [response, comments, topics] = await Promise.all([
+      this.fetchJson<ApiSubjectResponse>(`/v1/subjects/${subjectId}`),
+      this.fetchOptionalList<SubjectComment, ApiSubjectCommentsResponse>(
+        `/v1/subjects/${subjectId}/comments`
+      ),
+      this.fetchOptionalList<SubjectTopic, ApiSubjectTopicsResponse>(
+        `/v1/subjects/${subjectId}/topics`
+      )
+    ]);
     const subject = response.data;
 
     return {
@@ -223,8 +239,8 @@ export class MelonApiClient {
       })),
       staff: subject.staff,
       relatedSubjects: subject.relatedSubjects,
-      comments: subject.comments,
-      topics: subject.topics,
+      comments: comments ?? subject.comments,
+      topics: topics ?? subject.topics,
       schedule: subject.schedule,
       sourceNotes: subject.source?.notes
     };
@@ -242,6 +258,17 @@ export class MelonApiClient {
     }
 
     return (await response.json()) as T;
+  }
+
+  private async fetchOptionalList<T, Response extends { data?: T[] }>(
+    path: string
+  ): Promise<T[] | undefined> {
+    try {
+      const response = await this.fetchJson<Response>(path);
+      return response.data;
+    } catch {
+      return undefined;
+    }
   }
 
   private async fetchSubjectListPages(path: string): Promise<SubjectListItemResponse[]> {
