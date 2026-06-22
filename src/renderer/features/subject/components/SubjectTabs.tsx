@@ -1,8 +1,10 @@
 import { useState } from "react";
 import type { SubjectComment as ApiSubjectComment, SubjectTopic } from "@shared/contracts/bangumi";
 import { InteractiveRating } from "@/components/melon/RatingStars";
+import { ReadOnlyRating } from "@/components/melon/ReadOnlyRating";
 import { GradientAvatar } from "@/components/melon/GradientAvatar";
 import { Button } from "@/components/ui/button";
+import { Clock, MessageCircle, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Tab = "comments" | "discussions";
@@ -65,50 +67,76 @@ export function SubjectTabs({
           </div>
 
           {comments.length > 0 ? (
-            <div className="border-line bg-surface-2 mt-3.5 rounded-[14px] border p-4">
-              <div className="space-y-3.5">
-                {comments.map((comment, index) => (
-                  <div
-                    key={comment.id ?? `${comment.user.nickname}-${index}`}
-                    className="flex gap-3"
-                  >
-                    <GradientAvatar
-                      initial={comment.user.nickname.slice(0, 1)}
-                      className="mt-0.5"
-                      size="sm"
+            <div className="mt-3.5 space-y-3">
+              {comments.map((comment, index) => (
+                <div
+                  key={comment.id ?? `${comment.user.nickname}-${index}`}
+                  className="border-line bg-surface flex gap-3.5 rounded-[16px] border p-4 shadow-[var(--shadow-xs)] transition-shadow hover:shadow-[var(--shadow-sm)]"
+                >
+                  {comment.user.avatarUrl ? (
+                    <img
+                      src={comment.user.avatarUrl}
+                      alt={comment.user.nickname}
+                      className="bg-surface-2 h-10 w-10 shrink-0 rounded-full object-cover"
+                      onError={(e) => {
+                        // Fallback to GradientAvatar on error
+                        const target = e.currentTarget;
+                        target.style.display = "none";
+                        const fallback = target.nextElementSibling;
+                        if (fallback) {
+                          (fallback as HTMLElement).style.display = "flex";
+                        }
+                      }}
                     />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {comment.url ? (
-                          <a
-                            href={comment.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="hover:text-mint-600 text-[13px] font-extrabold"
-                          >
-                            {comment.user.nickname}
-                          </a>
-                        ) : (
-                          <b className="text-[13px]">{comment.user.nickname}</b>
-                        )}
-                        {comment.status ? (
-                          <span className="text-ink-faint text-[11px] font-bold">
-                            {comment.status}
-                          </span>
-                        ) : null}
-                        {typeof comment.score === "number" ? (
-                          <span className="text-cherry-500 text-[11px] font-extrabold">
-                            {comment.score} 分
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="text-ink-soft mt-1 text-[13px] leading-relaxed">
-                        {comment.text}
-                      </p>
+                  ) : null}
+                  <GradientAvatar
+                    initial={comment.user.nickname.slice(0, 1)}
+                    size="md"
+                    className={cn("shrink-0", comment.user.avatarUrl && "hidden")}
+                  />
+
+                  <div className="min-w-0 flex-1">
+                    {/* Header: nickname + status tag */}
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      {comment.url ? (
+                        <a
+                          href={comment.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-ink hover:text-mint-600 text-[14px] font-extrabold transition-colors"
+                        >
+                          {comment.user.nickname}
+                        </a>
+                      ) : (
+                        <span className="text-ink text-[14px] font-extrabold">
+                          {comment.user.nickname}
+                        </span>
+                      )}
+                      {comment.status ? (
+                        <span className="bg-surface-2 text-ink-faint rounded-full px-2 py-0.5 text-[11px] font-bold">
+                          {comment.status}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {/* Comment text */}
+                    <p className="text-ink mb-3 text-[13.5px] leading-relaxed">{comment.text}</p>
+
+                    {/* Footer: score + time */}
+                    <div className="flex flex-wrap items-center gap-3">
+                      {typeof comment.score === "number" && comment.score > 0 ? (
+                        <ReadOnlyRating score={comment.score} />
+                      ) : null}
+                      {comment.createdAt ? (
+                        <div className="text-ink-faint flex items-center gap-1 text-[12px] font-medium">
+                          <Clock className="h-3 w-3" strokeWidth={2} />
+                          <span>{comment.createdAt}</span>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
           ) : (
             <div className="border-line bg-surface-2 text-ink-faint mt-3.5 rounded-[14px] border p-5 text-center text-sm font-semibold">
@@ -119,39 +147,51 @@ export function SubjectTabs({
       ) : (
         <>
           {topics.length > 0 ? (
-            <div className="border-line bg-surface-2 rounded-[14px] border p-[18px]">
-              <div className="space-y-3.5">
-                {topics.map((topic, index) => (
-                  <div
-                    key={topic.topicId ?? `${topic.title}-${index}`}
-                    className="border-line border-b pb-3.5 last:border-b-0 last:pb-0"
-                  >
-                    {topic.url ? (
-                      <a
-                        href={topic.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-ink hover:text-mint-600 text-[15px] leading-snug font-bold"
-                      >
-                        {topic.title}
-                      </a>
-                    ) : (
-                      <div className="text-ink text-[15px] leading-snug font-bold">
-                        {topic.title}
-                      </div>
-                    )}
-                    <div className="text-ink-faint mt-1.5 text-[12.5px] leading-relaxed font-medium">
-                      {[
-                        topic.author,
-                        typeof topic.replies === "number" ? `${topic.replies} 回复` : null,
-                        typeof topic.replies !== "number" ? topic.updatedAt : null
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
+            <div className="space-y-2.5">
+              {topics.map((topic, index) => (
+                <div
+                  key={topic.topicId ?? `${topic.title}-${index}`}
+                  className="border-line bg-surface group rounded-[14px] border p-4 shadow-[var(--shadow-xs)] transition-shadow hover:shadow-[var(--shadow-sm)]"
+                >
+                  {/* Topic title */}
+                  {topic.url ? (
+                    <a
+                      href={topic.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-ink group-hover:text-mint-600 mb-2.5 block text-[15px] font-bold leading-snug transition-colors"
+                    >
+                      {topic.title}
+                    </a>
+                  ) : (
+                    <div className="text-ink mb-2.5 text-[15px] font-bold leading-snug">
+                      {topic.title}
                     </div>
+                  )}
+
+                  {/* Meta info: author + replies + time */}
+                  <div className="text-ink-faint flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] font-medium">
+                    {topic.author ? (
+                      <div className="flex items-center gap-1">
+                        <User className="h-3 w-3" strokeWidth={2} />
+                        <span>{topic.author}</span>
+                      </div>
+                    ) : null}
+                    {typeof topic.replies === "number" ? (
+                      <div className="text-mint-600 flex items-center gap-1 font-semibold">
+                        <MessageCircle className="h-3 w-3" strokeWidth={2} />
+                        <span>{topic.replies} 回复</span>
+                      </div>
+                    ) : null}
+                    {topic.updatedAt ? (
+                      <div className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" strokeWidth={2} />
+                        <span>{topic.updatedAt}</span>
+                      </div>
+                    ) : null}
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
           ) : (
             <div className="border-line bg-surface-2 text-ink-faint rounded-[14px] border p-5 text-center text-sm font-semibold">
