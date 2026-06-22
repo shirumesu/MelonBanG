@@ -1,8 +1,5 @@
 import { useState } from "react";
-import type {
-  SubjectComment as ApiSubjectComment,
-  SubjectTopic
-} from "@shared/contracts/bangumi";
+import type { SubjectComment as ApiSubjectComment, SubjectTopic } from "@shared/contracts/bangumi";
 import { InteractiveRating } from "@/components/melon/RatingStars";
 import { GradientAvatar } from "@/components/melon/GradientAvatar";
 import { Button } from "@/components/ui/button";
@@ -89,7 +86,7 @@ export function SubjectTabs({
                             href={comment.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-[13px] font-extrabold hover:text-mint-600"
+                            className="hover:text-mint-600 text-[13px] font-extrabold"
                           >
                             {comment.user.nickname}
                           </a>

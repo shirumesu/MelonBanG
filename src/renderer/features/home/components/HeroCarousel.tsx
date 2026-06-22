@@ -5,11 +5,7 @@ import type { BroadcastItem, SeasonInfo } from "@shared/contracts/bangumi";
 import type { Season } from "@/data/home";
 import { SeasonChip } from "@/components/melon/SeasonChip";
 
-const heroBackgrounds = [
-  "#1a9374",
-  "#b84176",
-  "#d97642"
-];
+const heroBackgrounds = ["#1a9374", "#b84176", "#d97642"];
 
 export function HeroCarousel({ items }: { items: BroadcastItem[] }) {
   const [idx, setIdx] = useState(0);
@@ -81,7 +77,7 @@ export function HeroCarousel({ items }: { items: BroadcastItem[] }) {
 
             {/* 左侧内容区 */}
             <div className="relative z-[2] flex flex-1 flex-col justify-end px-7 py-5">
-              <span className="pointer-events-none absolute -left-3 -bottom-8 text-[140px] font-extrabold leading-none text-white/[0.08]">
+              <span className="pointer-events-none absolute -bottom-8 -left-3 text-[140px] leading-none font-extrabold text-white/[0.08]">
                 {slide.kanji}
               </span>
 
@@ -95,7 +91,7 @@ export function HeroCarousel({ items }: { items: BroadcastItem[] }) {
                     {slide.kind}
                   </span>
                 </div>
-                <h2 className="mb-2 text-[27px] font-extrabold leading-tight [text-shadow:0_2px_16px_rgba(0,0,0,.35)]">
+                <h2 className="mb-2 text-[27px] leading-tight font-extrabold [text-shadow:0_2px_16px_rgba(0,0,0,.35)]">
                   {slide.title}
                 </h2>
                 <p className="mb-4 line-clamp-2 text-[13px] leading-relaxed text-white/[0.92] [text-shadow:0_1px_8px_rgba(0,0,0,.25)]">

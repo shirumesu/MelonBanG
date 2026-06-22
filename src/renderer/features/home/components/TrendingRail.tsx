@@ -98,7 +98,7 @@ export function TrendingRail({ items }: { items: BroadcastItem[] }) {
       {/* 滚动容器 */}
       <div
         ref={railRef}
-        className="no-scrollbar flex gap-4 overflow-x-auto scroll-smooth px-0.5 pb-3.5 pt-1"
+        className="no-scrollbar flex gap-4 overflow-x-auto scroll-smooth px-0.5 pt-1 pb-3.5"
         style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
         {slides.map((slide) => (
@@ -148,7 +148,7 @@ function TrendingPoster({ slide }: { slide: Slide }) {
             className="absolute inset-0 size-full object-cover object-center"
           />
         ) : (
-          <span className="absolute inset-0 grid place-items-center text-[64px] font-extrabold leading-none text-white/[0.22] [text-shadow:0_2px_10px_rgba(0,0,0,.15)]">
+          <span className="absolute inset-0 grid place-items-center text-[64px] leading-none font-extrabold text-white/[0.22] [text-shadow:0_2px_10px_rgba(0,0,0,.15)]">
             {slide.kanji}
           </span>
         )}
@@ -176,7 +176,7 @@ function TrendingPoster({ slide }: { slide: Slide }) {
         </div>
 
         {/* 标题覆盖在底部 */}
-        <div className="absolute inset-x-2.5 bottom-2.5 z-[2] line-clamp-2 text-[13px] font-extrabold leading-tight text-white [text-shadow:0_1px_3px_rgba(0,0,0,.5),0_2px_8px_rgba(0,0,0,.4)]">
+        <div className="absolute inset-x-2.5 bottom-2.5 z-[2] line-clamp-2 text-[13px] leading-tight font-extrabold text-white [text-shadow:0_1px_3px_rgba(0,0,0,.5),0_2px_8px_rgba(0,0,0,.4)]">
           {slide.title}
         </div>
       </div>
@@ -211,9 +211,10 @@ function TrendingPoster({ slide }: { slide: Slide }) {
 
 function toSlide(item: BroadcastItem & { subjectId: number }, index: number): Slide {
   // Extract studio from metaTags or use platform as fallback
-  const studio = item.metaTags?.find((tag) =>
-    tag.includes("制作") || tag.includes("Studio") || tag.includes("动画")
-  ) ?? item.platform;
+  const studio =
+    item.metaTags?.find(
+      (tag) => tag.includes("制作") || tag.includes("Studio") || tag.includes("动画")
+    ) ?? item.platform;
 
   return {
     subjectId: item.subjectId,

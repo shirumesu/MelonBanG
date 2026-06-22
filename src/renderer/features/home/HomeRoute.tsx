@@ -123,7 +123,9 @@ function toTimelineItems(day: BroadcastDay): TimelineItem[] {
       done,
       coverUrl: item.coverUrl,
       subtitle:
-        typeof item.episodeTotal === "number" ? `今日放送 · 全 ${item.episodeTotal} 话` : "今日放送",
+        typeof item.episodeTotal === "number"
+          ? `今日放送 · 全 ${item.episodeTotal} 话`
+          : "今日放送",
       badgeLabel: done ? "已放送" : "今日放送",
       actionLabel: "详情"
     };

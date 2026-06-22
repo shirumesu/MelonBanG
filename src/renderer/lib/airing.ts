@@ -10,4 +10,3 @@ export function parseAiringTimestamp(value: string | undefined): number {
 
   return Date.parse(value);
 }
-

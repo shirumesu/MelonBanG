@@ -176,10 +176,15 @@ export class MelonApiClient {
     const weekDates = weekDateKeys(response.centerDate);
     const byDate = new Map(
       await Promise.all(
-        weekDates.map(async (date) => [
-          date,
-          await this.enrichScheduleItems((response.byDate[date] ?? []).map(mapScheduleOccurrence))
-        ] as const)
+        weekDates.map(
+          async (date) =>
+            [
+              date,
+              await this.enrichScheduleItems(
+                (response.byDate[date] ?? []).map(mapScheduleOccurrence)
+              )
+            ] as const
+        )
       )
     );
 
@@ -253,7 +258,8 @@ export class MelonApiClient {
         return subjects;
       }
 
-      offset = response.offset !== undefined ? response.offset + response.data.length : offset + limit;
+      offset =
+        response.offset !== undefined ? response.offset + response.data.length : offset + limit;
     }
   }
 

@@ -52,7 +52,7 @@ describe("MelonApiClient", () => {
             coverUrl: "https://example.com/second.jpg",
             tags: [],
             metaTags: []
-          },
+          }
         ]
       }
     );

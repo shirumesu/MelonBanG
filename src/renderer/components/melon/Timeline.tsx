@@ -88,9 +88,7 @@ function TimelineRow({
   const cardClass = cn(
     "group border-line bg-surface flex flex-1 items-center rounded-[14px] border shadow-[var(--shadow-sm)] transition hover:translate-x-[3px] hover:shadow-[var(--shadow-md)]",
     size.card,
-    isNext
-      ? "border-cherry-300 shadow-[0_6px_16px_rgba(255,107,129,.16)]"
-      : "hover:border-mint-200"
+    isNext ? "border-cherry-300 shadow-[0_6px_16px_rgba(255,107,129,.16)]" : "hover:border-mint-200"
   );
   const content = (
     <>
@@ -115,10 +113,10 @@ function TimelineRow({
         </span>
       </span>
       <div className="min-w-0 flex-1">
-        <b className={cn("line-clamp-2 block font-bold leading-snug", size.title)}>
-          {item.title}
-        </b>
-        <div className={cn("text-ink-faint line-clamp-2 font-semibold leading-relaxed", size.subtitle)}>
+        <b className={cn("line-clamp-2 block leading-snug font-bold", size.title)}>{item.title}</b>
+        <div
+          className={cn("text-ink-faint line-clamp-2 leading-relaxed font-semibold", size.subtitle)}
+        >
           {item.subtitle ??
             (done
               ? `已放送${typeof item.ep === "number" ? ` · 更新至 EP${item.ep}` : ""}`
@@ -134,13 +132,11 @@ function TimelineRow({
   return (
     <div className="flex items-stretch gap-3.5">
       <div
-        className={
-          cn(
-            "flex flex-none items-center justify-end font-extrabold tabular-nums",
-            size.time,
-            done ? "text-ink-faint" : "text-mint-600"
-          )
-        }
+        className={cn(
+          "flex flex-none items-center justify-end font-extrabold tabular-nums",
+          size.time,
+          done ? "text-ink-faint" : "text-mint-600"
+        )}
       >
         {item.time}
       </div>

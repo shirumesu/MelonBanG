@@ -99,7 +99,7 @@ export function Sidebar() {
           <span className="text-ink-faint text-[11px]">@{username}</span>
         </span>
         <span
-          className="bg-mint-400 dark:shadow-[0_0_0_3px_rgba(67,201,159,0.15)] ml-auto size-2 rounded-full shadow-[0_0_0_3px_var(--mint-100)]"
+          className="bg-mint-400 ml-auto size-2 rounded-full shadow-[0_0_0_3px_var(--mint-100)] dark:shadow-[0_0_0_3px_rgba(67,201,159,0.15)]"
           title="已连接"
         />
       </NavLink>

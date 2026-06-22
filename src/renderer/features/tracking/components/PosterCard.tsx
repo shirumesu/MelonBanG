@@ -55,7 +55,7 @@ export function PosterCard({
           </div>
         </div>
         <div className="absolute inset-x-0 bottom-0 rounded-b-[14px] bg-linear-to-t from-black/70 to-transparent px-3 pt-10 pb-3">
-          <div className="line-clamp-2 text-[13.5px] font-black leading-tight text-white">
+          <div className="line-clamp-2 text-[13.5px] leading-tight font-black text-white">
             {item.nameCn ?? item.name}
           </div>
         </div>

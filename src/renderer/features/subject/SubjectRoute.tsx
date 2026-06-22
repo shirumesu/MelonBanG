@@ -417,10 +417,7 @@ function CreditCard({
           </>
         ) : (
           <>
-            <div
-              className="absolute inset-0"
-              style={{ background: staffGradient(index) }}
-            />
+            <div className="absolute inset-0" style={{ background: staffGradient(index) }} />
             <span className="absolute inset-0 grid place-items-center text-4xl font-extrabold text-white/35">
               {credit.initial}
             </span>

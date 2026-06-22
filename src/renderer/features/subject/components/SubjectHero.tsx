@@ -58,7 +58,7 @@ export function SubjectHero({
 
   return (
     <div className="border-line bg-surface relative grid grid-cols-[230px_1fr] gap-16 overflow-hidden rounded-[20px] border p-7 shadow-[var(--shadow-sm)] max-[1080px]:grid-cols-[160px_1fr] max-[1080px]:gap-7 max-[1080px]:p-5">
-      <div className="absolute inset-0 opacity-[0.07] dark:opacity-[0.05] [background:radial-gradient(ellipse_650px_460px_at_22%_32%,var(--gold-400),transparent),radial-gradient(ellipse_500px_360px_at_72%_52%,var(--mint-300),transparent),radial-gradient(ellipse_380px_300px_at_55%_92%,var(--cherry-400),transparent)]" />
+      <div className="absolute inset-0 opacity-[0.07] [background:radial-gradient(ellipse_650px_460px_at_22%_32%,var(--gold-400),transparent),radial-gradient(ellipse_500px_360px_at_72%_52%,var(--mint-300),transparent),radial-gradient(ellipse_380px_300px_at_55%_92%,var(--cherry-400),transparent)] dark:opacity-[0.05]" />
 
       <a
         href={`https://bgm.tv/subject/${subject.subjectId}`}
@@ -110,7 +110,7 @@ export function SubjectHero({
               {subject.score?.toFixed(1) ?? "—"}
               <small className="text-ink-faint ml-[3px] text-xl font-bold">/10</small>
             </span>
-            <div className="inline-flex items-center gap-1.5 rounded-[14px] border border-[rgba(255,107,129,.2)] bg-[linear-gradient(135deg,rgba(255,107,129,.08),rgba(255,107,129,.14))] px-3.5 py-2 self-end">
+            <div className="inline-flex items-center gap-1.5 self-end rounded-[14px] border border-[rgba(255,107,129,.2)] bg-[linear-gradient(135deg,rgba(255,107,129,.08),rgba(255,107,129,.14))] px-3.5 py-2">
               <span className="text-cherry-500 text-[18px] font-extrabold">
                 #{subject.rank ?? "—"}
               </span>
