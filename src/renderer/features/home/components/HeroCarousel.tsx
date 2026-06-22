@@ -6,9 +6,9 @@ import type { Season } from "@/data/home";
 import { SeasonChip } from "@/components/melon/SeasonChip";
 
 const heroBackgrounds = [
-  "radial-gradient(130% 130% at 86% 6%,rgba(255,255,255,.20),transparent 44%),linear-gradient(115deg,#0f7d5e,#1aa183 42%,#3f7fd8)",
-  "radial-gradient(130% 130% at 86% 6%,rgba(255,255,255,.16),transparent 44%),linear-gradient(115deg,#a8336e,#d65189 44%,#8a5fd8)",
-  "radial-gradient(130% 130% at 86% 6%,rgba(255,255,255,.16),transparent 44%),linear-gradient(115deg,#c0641d,#ef7f43 44%,#ff5f7a)"
+  "#1a9374",
+  "#b84176",
+  "#d97642"
 ];
 
 export function HeroCarousel({ items }: { items: BroadcastItem[] }) {
@@ -56,7 +56,7 @@ export function HeroCarousel({ items }: { items: BroadcastItem[] }) {
 
   if (slides.length === 0) {
     return (
-      <div className="border-line bg-surface text-ink-faint mt-1.5 grid min-h-[262px] place-items-center rounded-[28px] border text-sm font-bold shadow-[var(--shadow-lg)]">
+      <div className="border-line bg-surface text-ink-faint mt-1.5 grid min-h-[196px] place-items-center rounded-[24px] border text-sm font-bold shadow-[var(--shadow-md)]">
         本季度热播数据暂不可用。
       </div>
     );
@@ -64,7 +64,7 @@ export function HeroCarousel({ items }: { items: BroadcastItem[] }) {
 
   return (
     <div
-      className="group relative mt-1.5 overflow-hidden rounded-[28px] shadow-[var(--shadow-lg)]"
+      className="group relative mt-1.5 overflow-hidden rounded-[24px] shadow-[var(--shadow-md)]"
       onMouseEnter={pause}
       onMouseLeave={resume}
     >
@@ -75,58 +75,64 @@ export function HeroCarousel({ items }: { items: BroadcastItem[] }) {
         {slides.map((slide) => (
           <div
             key={slide.subjectId}
-            className="relative flex min-h-[262px] flex-[0_0_100%] flex-col justify-end px-[34px] py-[30px] text-white"
+            className="relative flex min-h-[196px] flex-[0_0_100%] items-stretch overflow-hidden text-white"
           >
             <div className="absolute inset-0" style={{ background: slide.background }} />
-            {slide.coverUrl ? (
-              <img
-                src={slide.coverUrl}
-                alt=""
-                className="absolute inset-0 size-full object-cover opacity-35 mix-blend-screen"
-                loading="lazy"
-              />
-            ) : null}
-            <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,.46),rgba(0,0,0,.14)_58%,transparent)]" />
-            <span className="pointer-events-none absolute -right-1.5 -bottom-[46px] text-[230px] leading-none font-extrabold text-white/[0.13]">
-              {slide.kanji}
-            </span>
-            <div className="relative z-[2] max-w-[560px]">
-              <div className="mb-3 flex flex-wrap items-center gap-2.5">
-                <span className="rounded-full bg-white/20 px-2.5 py-1 text-[11.5px] font-bold">
-                  {slide.badge}
-                </span>
-                <SeasonChip season={slide.season} label={slide.seasonLabel} />
-                <span className="rounded-full bg-white/[0.18] px-2.5 py-1 text-[11.5px] font-bold">
-                  {slide.kind}
-                </span>
-              </div>
-              <h2 className="my-2 text-[30px] font-extrabold [text-shadow:0_2px_14px_rgba(0,0,0,.3)]">
-                {slide.title}
-              </h2>
-              <p className="mb-[18px] text-sm leading-relaxed text-white/90">{slide.desc}</p>
-              <div className="flex flex-wrap gap-2.5">
-                <Link
-                  to={`/subject/${slide.subjectId}`}
-                  className="text-mint-600 inline-flex h-12 items-center gap-2 rounded-full bg-white px-6 text-[15px] font-extrabold"
-                >
-                  <Play className="size-[18px] fill-current" />
-                  查看详情 {slide.ep}
-                </Link>
-                <button
-                  type="button"
-                  className="inline-flex h-12 items-center gap-2 rounded-full border border-white/40 bg-white/[0.18] px-6 text-[15px] font-extrabold text-white"
-                >
-                  <Heart className="size-[18px]" />
-                  追番
-                </button>
-                <Link
-                  to={`/subject/${slide.subjectId}`}
-                  className="inline-flex h-12 items-center gap-2 rounded-full border border-white/30 bg-white/[0.12] px-6 text-[15px] font-extrabold text-white"
-                >
-                  查看详情
-                </Link>
+
+            {/* 左侧内容区 */}
+            <div className="relative z-[2] flex flex-1 flex-col justify-end px-7 py-5">
+              <span className="pointer-events-none absolute -left-3 -bottom-8 text-[140px] font-extrabold leading-none text-white/[0.08]">
+                {slide.kanji}
+              </span>
+
+              <div className="relative max-w-[480px]">
+                <div className="mb-2.5 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-extrabold text-gray-800 shadow-sm">
+                    {slide.badge}
+                  </span>
+                  <SeasonChip season={slide.season} label={slide.seasonLabel} />
+                  <span className="rounded-full bg-white/[0.22] px-2.5 py-1 text-[11px] font-bold backdrop-blur-sm">
+                    {slide.kind}
+                  </span>
+                </div>
+                <h2 className="mb-2 text-[27px] font-extrabold leading-tight [text-shadow:0_2px_16px_rgba(0,0,0,.35)]">
+                  {slide.title}
+                </h2>
+                <p className="mb-4 line-clamp-2 text-[13px] leading-relaxed text-white/[0.92] [text-shadow:0_1px_8px_rgba(0,0,0,.25)]">
+                  {slide.desc}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    to={`/subject/${slide.subjectId}`}
+                    className="text-mint-600 inline-flex h-10 items-center gap-1.5 rounded-full bg-white px-5 text-sm font-extrabold shadow-[0_3px_12px_rgba(0,0,0,.25)]"
+                  >
+                    <Play className="size-4 fill-current" />
+                    查看详情
+                  </Link>
+                  <button
+                    type="button"
+                    className="inline-flex h-10 items-center gap-1.5 rounded-full border border-white/40 bg-white/[0.20] px-5 text-sm font-extrabold text-white backdrop-blur-sm transition hover:bg-white/30"
+                  >
+                    <Heart className="size-4" />
+                    追番
+                  </button>
+                </div>
               </div>
             </div>
+
+            {/* 右侧封面区 */}
+            {slide.coverUrl ? (
+              <div className="relative w-[280px] flex-none">
+                <div className="absolute inset-0 bg-gradient-to-r from-black/40 via-black/15 to-transparent" />
+                <img
+                  src={slide.coverUrl}
+                  alt=""
+                  className="absolute inset-0 size-full object-cover object-center"
+                  loading="lazy"
+                />
+                <div className="absolute inset-0 bg-gradient-to-l from-transparent via-transparent to-black/20" />
+              </div>
+            ) : null}
           </div>
         ))}
       </div>
@@ -138,9 +144,9 @@ export function HeroCarousel({ items }: { items: BroadcastItem[] }) {
           go(idx - 1);
           resume();
         }}
-        className="absolute top-1/2 left-4 grid size-10 -translate-y-1/2 place-items-center rounded-full border border-white/40 bg-white/[0.18] text-white opacity-0 backdrop-blur-[6px] transition group-hover:opacity-100 hover:bg-white/30"
+        className="absolute top-1/2 left-3 grid size-9 -translate-y-1/2 place-items-center rounded-full border border-white/30 bg-white/[0.14] text-white opacity-0 backdrop-blur-[4px] transition group-hover:opacity-100 hover:bg-white/25"
       >
-        <ChevronLeft className="size-[18px]" />
+        <ChevronLeft className="size-4" />
       </button>
       <button
         type="button"
@@ -149,12 +155,12 @@ export function HeroCarousel({ items }: { items: BroadcastItem[] }) {
           go(idx + 1);
           resume();
         }}
-        className="absolute top-1/2 right-4 grid size-10 -translate-y-1/2 place-items-center rounded-full border border-white/40 bg-white/[0.18] text-white opacity-0 backdrop-blur-[6px] transition group-hover:opacity-100 hover:bg-white/30"
+        className="absolute top-1/2 right-3 grid size-9 -translate-y-1/2 place-items-center rounded-full border border-white/30 bg-white/[0.14] text-white opacity-0 backdrop-blur-[4px] transition group-hover:opacity-100 hover:bg-white/25"
       >
-        <ChevronRight className="size-[18px]" />
+        <ChevronRight className="size-4" />
       </button>
 
-      <div className="absolute right-6 bottom-[22px] z-[6] flex gap-[7px]">
+      <div className="absolute right-5 bottom-4 z-[6] flex gap-1.5">
         {slides.map((slide, i) => (
           <button
             key={slide.subjectId}
@@ -165,8 +171,8 @@ export function HeroCarousel({ items }: { items: BroadcastItem[] }) {
               resume();
             }}
             className={
-              "h-2 rounded-full transition-all " +
-              (i === idx ? "w-[22px] bg-white" : "w-2 bg-white/45")
+              "h-1.5 rounded-full transition-all " +
+              (i === idx ? "w-5 bg-white" : "w-1.5 bg-white/40")
             }
           />
         ))}

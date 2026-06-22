@@ -27,11 +27,11 @@ export function PosterCard({
     <Link
       to={`/subject/${item.subjectId}`}
       className={cn(
-        "group flex flex-col transition hover:-translate-y-1",
+        "flex flex-col transition hover:-translate-y-1",
         compact ? "w-[188px] flex-none" : "min-w-0"
       )}
     >
-      <div className="relative">
+      <div className="group/cover relative">
         <ArtworkCard
           id={item.subjectId}
           title={item.nameCn ?? item.name}
@@ -49,7 +49,7 @@ export function PosterCard({
             全 {item.episodeTotal} 话
           </div>
         ) : null}
-        <div className="absolute inset-0 grid place-items-center opacity-0 transition group-hover:opacity-100">
+        <div className="absolute inset-0 grid place-items-center opacity-0 transition group-hover/cover:opacity-100">
           <div className="grid size-11 place-items-center rounded-full bg-white/95 text-[var(--mint-600)] shadow-[var(--shadow-md)]">
             <Play className="size-4.5 fill-current" />
           </div>

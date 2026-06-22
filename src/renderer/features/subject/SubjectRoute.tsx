@@ -401,21 +401,30 @@ function CreditCard({
 }) {
   return (
     <div className="min-w-0">
-      <div
-        className="relative aspect-[3/4] overflow-hidden rounded-[14px] shadow-[var(--shadow-sm)]"
-        style={{ background: staffGradient(index) }}
-      >
+      <div className="relative aspect-[3/4] overflow-hidden rounded-[14px] shadow-[var(--shadow-sm)]">
         {credit.imageUrl ? (
-          <img
-            src={credit.imageUrl}
-            alt=""
-            loading="lazy"
-            className="absolute inset-0 size-full object-contain object-top"
-          />
+          <>
+            <div
+              className="absolute inset-0 opacity-20"
+              style={{ background: staffGradient(index) }}
+            />
+            <img
+              src={credit.imageUrl}
+              alt=""
+              loading="lazy"
+              className="absolute inset-0 size-full object-cover object-top"
+            />
+          </>
         ) : (
-          <span className="absolute inset-0 grid place-items-center text-4xl font-extrabold text-white/35">
-            {credit.initial}
-          </span>
+          <>
+            <div
+              className="absolute inset-0"
+              style={{ background: staffGradient(index) }}
+            />
+            <span className="absolute inset-0 grid place-items-center text-4xl font-extrabold text-white/35">
+              {credit.initial}
+            </span>
+          </>
         )}
       </div>
       <b className="mt-2 block truncate text-center text-[13px]">{credit.name}</b>
