@@ -11,16 +11,19 @@ const seasonGradients: Record<string, string> = {
 export function SeasonChip({
   label,
   season = "default",
+  size = "default",
   className
 }: {
   label: string;
   season?: keyof typeof seasonGradients;
+  size?: "default" | "sm";
   className?: string;
 }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-[11px] py-1 text-xs font-extrabold tracking-[0.04em] text-white",
+        "inline-flex items-center gap-1.5 rounded-full font-extrabold tracking-[0.04em] text-white",
+        size === "sm" ? "px-2 py-0.5 text-[10px]" : "px-[11px] py-1 text-xs",
         className
       )}
       style={{ background: seasonGradients[season] ?? seasonGradients.default }}

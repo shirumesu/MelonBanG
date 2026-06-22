@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Bell, ChevronRight, PlayCircle, Sparkles } from "lucide-react";
+import { Bell, ChevronRight, Flame, PlayCircle, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { TimelineItem } from "@/data/home";
 import type { BroadcastDay } from "@shared/contracts/bangumi";
 import { useAppState } from "@/app/AppStateProvider";
-import { HeroCarousel } from "./components/HeroCarousel";
+import { TrendingRail } from "./components/TrendingRail";
 import { ContinueRail } from "./components/ContinueRail";
 import { Timeline } from "@/components/melon/Timeline";
 import { parseAiringTimestamp } from "@/lib/airing";
@@ -45,7 +45,18 @@ export function HomeRoute() {
       </Topbar>
 
       <PageContent>
-        <HeroCarousel items={trendingItems} />
+        <Section>
+          <SectionHead
+            title={
+              <>
+                <Flame className="text-cherry-500 size-[19px]" />
+                本季热度
+              </>
+            }
+            sub="当季最受欢迎的番剧"
+          />
+          <TrendingRail items={trendingItems} />
+        </Section>
 
         <Section>
           <SectionHead
