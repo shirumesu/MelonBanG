@@ -55,11 +55,54 @@ describe("BangumiRepository", () => {
       })
     ]);
   });
+
+  it("maps pending subject and episode mutation keys onto collection list items", async () => {
+    const { CollectionStore, MutationQueueStore } = await loadRepositoryModules();
+    const collectionStore = new CollectionStore();
+    const queue = new MutationQueueStore();
+
+    collectionStore.upsertSubjectCache({
+      subjectId: 123,
+      name: "Test Anime",
+      episodeTotal: 1
+    });
+    collectionStore.upsertStoredSubjectCollection({
+      subjectId: 123,
+      status: "watching",
+      updatedAt: "2026-06-23T10:00:00.000Z"
+    });
+    collectionStore.updateEpisodeStatus({
+      episodeId: 1001,
+      subjectId: 123,
+      sort: 1,
+      name: "Episode 1",
+      status: "queue"
+    });
+
+    const subjectMutation = queue.enqueue({
+      kind: "subjectCollection",
+      subjectId: 123,
+      status: "completed"
+    });
+    const episodeMutation = queue.enqueue({
+      kind: "episodeCollection",
+      episodeId: 1001,
+      status: "watched"
+    });
+
+    const [item] = collectionStore.listCollection();
+
+    expect(item.pendingMutationKeys).toEqual([
+      subjectMutation.mutationKey,
+      episodeMutation.mutationKey
+    ]);
+  });
 });
 
 async function loadRepositoryModules(): Promise<{
   BangumiRepository: typeof import("../main/bangumi/BangumiRepository").BangumiRepository;
   MutationQueueStore: typeof import("../main/store/mutationQueueStore").MutationQueueStore;
+  CollectionStore: typeof import("../main/store/collectionStore").CollectionStore;
 }> {
   vi.resetModules();
   process.env.MELONBANG_DATA_DIR = mkdtempSync(join(tmpdir(), "melonbang-test-"));
@@ -80,17 +123,19 @@ async function loadRepositoryModules(): Promise<{
     }
   }));
 
-  const [{ BangumiRepository }, { MutationQueueStore }] = await Promise.all([
+  const [{ BangumiRepository }, { MutationQueueStore }, { CollectionStore }] = await Promise.all([
     import("../main/bangumi/BangumiRepository"),
-    import("../main/store/mutationQueueStore")
+    import("../main/store/mutationQueueStore"),
+    import("../main/store/collectionStore")
   ]);
 
-  return { BangumiRepository, MutationQueueStore };
+  return { BangumiRepository, MutationQueueStore, CollectionStore };
 }
 
 function mockMelonSubjectFetch() {
   return vi.fn((input: Parameters<typeof fetch>[0]) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
     if (url.endsWith("/v1/subjects/123")) {
       return Promise.resolve(

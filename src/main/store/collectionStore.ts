@@ -12,7 +12,8 @@ import type {
   SubjectInfoBoxItem,
   SubjectSchedule,
   SubjectSearchResult,
-  SubjectStaffCredit
+  SubjectStaffCredit,
+  TrackingMutation
 } from "../../shared/contracts/bangumi";
 import { getAppDatabase } from "./appDatabase";
 
@@ -104,10 +105,22 @@ type CollectionListRow = {
   collection_updated_at: string;
 };
 
+type PendingMutationRow = {
+  mutation_key: string;
+  payload_json: string;
+};
+
 export class CollectionStore {
   private readonly database = getAppDatabase();
 
   listCollection(filter?: CollectionFilter): CollectionListItem[] {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (filter?.status) {
+      where.push("c.status = ?");
+      params.push(filter.status);
+    }
+
     const subjectRows = this.database
       .prepare(
         `
@@ -125,20 +138,26 @@ export class CollectionStore {
         c.updated_at AS collection_updated_at
       FROM subject_cache sc
       INNER JOIN subject_collections c ON c.subject_id = sc.subject_id
+      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
       ORDER BY c.updated_at DESC
     `
       )
-      .all() as CollectionListRow[];
+      .all(...params) as CollectionListRow[];
 
+    const subjectIds = subjectRows.map((row) => row.subject_id);
+    const nextEpisodes = this.listNextEpisodesBySubjectId(subjectIds);
+    const pendingMutationKeys = this.listPendingMutationKeysBySubjectId(subjectIds);
     const loweredSearch = filter?.search?.trim().toLowerCase();
 
     return subjectRows
-      .map((row) => this.toCollectionListItem(row))
+      .map((row) =>
+        this.toCollectionListItem(
+          row,
+          nextEpisodes.get(row.subject_id),
+          pendingMutationKeys.get(row.subject_id) ?? []
+        )
+      )
       .filter((item) => {
-        if (filter?.status && item.collection.status !== filter.status) {
-          return false;
-        }
-
         if (!loweredSearch) {
           return true;
         }
@@ -450,22 +469,11 @@ export class CollectionStore {
       );
   }
 
-  private toCollectionListItem(row: CollectionListRow): CollectionListItem {
-    const episodes = this.database
-      .prepare(
-        `
-      SELECT episode_id, subject_id, sort, name, name_cn, status, updated_at
-      FROM episode_collections
-      WHERE subject_id = ?
-      ORDER BY sort ASC
-    `
-      )
-      .all(row.subject_id) as EpisodeCollectionRow[];
-
-    const nextEpisode = episodes.find(
-      (episode) => episode.status === "queue" || episode.status === "unwatched"
-    );
-
+  private toCollectionListItem(
+    row: CollectionListRow,
+    nextEpisode: EpisodeCollectionState | undefined,
+    pendingMutationKeys: string[]
+  ): CollectionListItem {
     return {
       subjectId: row.subject_id,
       name: row.name,
@@ -482,9 +490,107 @@ export class CollectionStore {
         ep_status: row.ep_status,
         updated_at: row.collection_updated_at
       }),
-      nextEpisode: nextEpisode ? this.toEpisodeCollectionState(nextEpisode) : undefined,
-      pendingMutationKeys: []
+      nextEpisode,
+      pendingMutationKeys
     };
+  }
+
+  private listNextEpisodesBySubjectId(subjectIds: number[]): Map<number, EpisodeCollectionState> {
+    if (subjectIds.length === 0) {
+      return new Map();
+    }
+
+    const placeholders = placeholdersFor(subjectIds);
+    const rows = this.database
+      .prepare(
+        `
+      SELECT episode_id, subject_id, sort, name, name_cn, status, updated_at
+      FROM (
+        SELECT
+          episode_id,
+          subject_id,
+          sort,
+          name,
+          name_cn,
+          status,
+          updated_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY subject_id
+            ORDER BY sort ASC, episode_id ASC
+          ) AS row_number
+        FROM episode_collections
+        WHERE subject_id IN (${placeholders})
+          AND status IN ('queue', 'unwatched')
+      )
+      WHERE row_number = 1
+    `
+      )
+      .all(...subjectIds) as EpisodeCollectionRow[];
+
+    return new Map(rows.map((row) => [row.subject_id, this.toEpisodeCollectionState(row)]));
+  }
+
+  private listPendingMutationKeysBySubjectId(subjectIds: number[]): Map<number, string[]> {
+    const subjectIdSet = new Set(subjectIds);
+    const pendingKeys = new Map<number, string[]>();
+    if (subjectIdSet.size === 0) {
+      return pendingKeys;
+    }
+
+    const pendingMutations = this.database
+      .prepare(
+        `
+      SELECT mutation_key, payload_json
+      FROM mutation_queue
+      WHERE state IN ('pending', 'retry')
+      ORDER BY created_at ASC
+    `
+      )
+      .all() as PendingMutationRow[];
+
+    const parsedMutations = pendingMutations.flatMap((row) => {
+      const payload = parseJson<TrackingMutation>(row.payload_json);
+      return payload ? [{ mutationKey: row.mutation_key, payload }] : [];
+    });
+    const episodeIds = parsedMutations.flatMap(({ payload }) =>
+      payload.kind === "episodeCollection" ? [payload.episodeId] : []
+    );
+    const episodeSubjectIds = this.listSubjectIdsByEpisodeId(episodeIds);
+
+    for (const { mutationKey, payload } of parsedMutations) {
+      if (payload.kind === "subjectCollection") {
+        if (subjectIdSet.has(payload.subjectId)) {
+          appendPendingKey(pendingKeys, payload.subjectId, mutationKey);
+        }
+        continue;
+      }
+
+      const subjectId = episodeSubjectIds.get(payload.episodeId);
+      if (typeof subjectId === "number" && subjectIdSet.has(subjectId)) {
+        appendPendingKey(pendingKeys, subjectId, mutationKey);
+      }
+    }
+
+    return pendingKeys;
+  }
+
+  private listSubjectIdsByEpisodeId(episodeIds: number[]): Map<number, number> {
+    if (episodeIds.length === 0) {
+      return new Map();
+    }
+
+    const uniqueEpisodeIds = Array.from(new Set(episodeIds));
+    const rows = this.database
+      .prepare(
+        `
+      SELECT episode_id, subject_id
+      FROM episode_collections
+      WHERE episode_id IN (${placeholdersFor(uniqueEpisodeIds)})
+    `
+      )
+      .all(...uniqueEpisodeIds) as Array<{ episode_id: number; subject_id: number }>;
+
+    return new Map(rows.map((row) => [row.episode_id, row.subject_id]));
   }
 
   private toSubjectCollectionState(row: SubjectCollectionRow): SubjectCollectionState {
@@ -527,4 +633,22 @@ function parseJson<T>(value: string | null): T | undefined {
   } catch {
     return undefined;
   }
+}
+
+function placeholdersFor(values: unknown[]): string {
+  return values.map(() => "?").join(", ");
+}
+
+function appendPendingKey(
+  keysBySubjectId: Map<number, string[]>,
+  subjectId: number,
+  mutationKey: string
+): void {
+  const keys = keysBySubjectId.get(subjectId);
+  if (keys) {
+    keys.push(mutationKey);
+    return;
+  }
+
+  keysBySubjectId.set(subjectId, [mutationKey]);
 }

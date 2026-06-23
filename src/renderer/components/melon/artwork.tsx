@@ -46,6 +46,7 @@ export function ArtworkCard({
           alt={title}
           className="absolute inset-0 size-full object-cover"
           loading="lazy"
+          decoding="async"
           referrerPolicy="no-referrer"
         />
       ) : null}

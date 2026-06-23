@@ -152,6 +152,9 @@ function TrendingPoster({ slide }: { slide: Slide }) {
             src={slide.coverUrl}
             alt={slide.title}
             className="absolute inset-0 size-full object-cover object-center"
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
           />
         ) : (
           <span className="absolute inset-0 grid place-items-center text-[64px] leading-none font-extrabold text-white/[0.22] [text-shadow:0_2px_10px_rgba(0,0,0,.15)]">

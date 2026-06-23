@@ -80,6 +80,9 @@ export function SubjectTabs({
                       src={comment.user.avatarUrl}
                       alt={comment.user.nickname}
                       className="bg-surface-2 h-10 w-10 shrink-0 rounded-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                      referrerPolicy="no-referrer"
                       onError={(e) => {
                         // Fallback to GradientAvatar on error
                         const target = e.currentTarget;

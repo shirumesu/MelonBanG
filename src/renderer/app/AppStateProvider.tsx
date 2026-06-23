@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import type { ReactNode } from "react";
 import type {
   BangumiSession,
@@ -29,12 +37,13 @@ type AppStateValue = {
   getCachedSubject: (subjectId: number) => Promise<SubjectDetail | null>;
   getSubject: (subjectId: number) => Promise<SubjectDetail>;
   searchSubjects: (keyword: string) => Promise<SubjectSearchResult[]>;
-  refreshCalendar: () => Promise<void>;
+  refreshCalendar: (force?: boolean) => Promise<void>;
   updateTracking: (input: TrackingMutation) => Promise<void>;
   refreshCollection: (force?: boolean) => Promise<void>;
 };
 
 const AppStateContext = createContext<AppStateValue | null>(null);
+const PUBLIC_DATA_TTL_MS = 5 * 60 * 1000;
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<BangumiSession | null>(null);
@@ -45,17 +54,65 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [calendarDays, setCalendarDays] = useState<BroadcastDay[]>([]);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isPublicDataLoading, setIsPublicDataLoading] = useState(false);
+  const publicHomeRequestRef = useRef<Promise<void> | null>(null);
+  const publicHomeLoadedAtRef = useRef(0);
+  const calendarRequestRef = useRef<Promise<void> | null>(null);
+  const calendarLoadedAtRef = useRef(0);
 
-  const refreshPublicHomeData = useCallback(async (): Promise<void> => {
+  const refreshPublicHomeData = useCallback(async (force = false): Promise<void> => {
+    if (!force && publicHomeRequestRef.current) {
+      return publicHomeRequestRef.current;
+    }
+    if (
+      !force &&
+      publicHomeLoadedAtRef.current > 0 &&
+      Date.now() - publicHomeLoadedAtRef.current < PUBLIC_DATA_TTL_MS
+    ) {
+      return;
+    }
+
     setIsPublicDataLoading(true);
-    try {
+    const request = (async () => {
       const publicData = await loadPublicHomeData();
       setTrendingItems(publicData.trendingItems);
       setTodaySchedule(publicData.todaySchedule);
-      setCalendarDays(publicData.calendarDays);
-    } finally {
+      publicHomeLoadedAtRef.current = Date.now();
+    })().finally(() => {
+      if (publicHomeRequestRef.current === request) {
+        publicHomeRequestRef.current = null;
+      }
       setIsPublicDataLoading(false);
+    });
+    publicHomeRequestRef.current = request;
+    return request;
+  }, []);
+
+  const refreshCalendar = useCallback(async (force = false): Promise<void> => {
+    if (!force && calendarRequestRef.current) {
+      return calendarRequestRef.current;
     }
+    if (
+      !force &&
+      calendarLoadedAtRef.current > 0 &&
+      Date.now() - calendarLoadedAtRef.current < PUBLIC_DATA_TTL_MS
+    ) {
+      return;
+    }
+
+    const request = window.melonbang.bangumi
+      .getCalendar()
+      .catch(() => [])
+      .then((nextCalendarDays) => {
+        setCalendarDays(nextCalendarDays);
+        calendarLoadedAtRef.current = Date.now();
+      })
+      .finally(() => {
+        if (calendarRequestRef.current === request) {
+          calendarRequestRef.current = null;
+        }
+      });
+    calendarRequestRef.current = request;
+    return request;
   }, []);
 
   const refreshSession = useCallback(async (): Promise<void> => {
@@ -99,7 +156,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [refreshSession]);
 
-  async function signIn(): Promise<void> {
+  const signIn = useCallback(async (): Promise<void> => {
     try {
       const nextSession = await window.melonbang.bangumi.signIn();
       setSession(nextSession);
@@ -120,60 +177,104 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setCalendarDays([]);
       throw error;
     }
-  }
+  }, [refreshPublicHomeData]);
 
-  async function cancelSignIn(): Promise<void> {
+  const cancelSignIn = useCallback(async (): Promise<void> => {
     await window.melonbang.bangumi.cancelSignIn();
-  }
+  }, []);
 
-  async function signOut(): Promise<void> {
+  const signOut = useCallback(async (): Promise<void> => {
     await window.melonbang.bangumi.signOut();
     setSession(null);
     setSyncState(null);
     setHomeItems([]);
-  }
+  }, []);
 
-  async function refreshCollection(force?: boolean): Promise<void> {
-    const nextSyncState = await window.melonbang.bangumi.refreshCollection(force);
-    setSyncState(nextSyncState);
+  const refreshWatchingItems = useCallback(async (): Promise<void> => {
     setHomeItems(await window.melonbang.bangumi.listCollection({ status: "watching" }));
-  }
+  }, []);
 
-  const refreshCalendar = useCallback(async (): Promise<void> => {
-    await refreshPublicHomeData();
-  }, [refreshPublicHomeData]);
+  const refreshCollection = useCallback(
+    async (force?: boolean): Promise<void> => {
+      const nextSyncState = await window.melonbang.bangumi.refreshCollection(force);
+      setSyncState(nextSyncState);
+      await refreshWatchingItems();
+    },
+    [refreshWatchingItems]
+  );
 
-  async function updateTracking(input: TrackingMutation): Promise<void> {
-    const result = await window.melonbang.bangumi.updateTracking(input);
-    setSyncState(result.syncState);
-    setHomeItems(await window.melonbang.bangumi.listCollection({ status: "watching" }));
-  }
+  const updateTracking = useCallback(
+    async (input: TrackingMutation): Promise<void> => {
+      const result = await window.melonbang.bangumi.updateTracking(input);
+      setSyncState(result.syncState);
+      await refreshWatchingItems();
+    },
+    [refreshWatchingItems]
+  );
 
-  async function listCollection(filter?: CollectionFilter): Promise<CollectionListItem[]> {
-    return window.melonbang.bangumi.listCollection(filter);
-  }
+  const listCollection = useCallback(
+    async (filter?: CollectionFilter): Promise<CollectionListItem[]> =>
+      window.melonbang.bangumi.listCollection(filter),
+    []
+  );
 
-  const value: AppStateValue = {
-    session,
-    syncState,
-    isBootstrapping,
-    homeItems,
-    trendingItems,
-    todaySchedule,
-    calendarDays,
-    isPublicDataLoading,
-    refreshSession,
-    signIn,
-    cancelSignIn,
-    signOut,
-    listCollection,
-    getCachedSubject: (subjectId) => window.melonbang.bangumi.getCachedSubject(subjectId),
-    getSubject: (subjectId) => window.melonbang.bangumi.getSubject(subjectId),
-    searchSubjects: (keyword) => window.melonbang.bangumi.searchSubjects(keyword),
-    refreshCalendar,
-    updateTracking,
-    refreshCollection
-  };
+  const getCachedSubject = useCallback(
+    (subjectId: number) => window.melonbang.bangumi.getCachedSubject(subjectId),
+    []
+  );
+  const getSubject = useCallback(
+    (subjectId: number) => window.melonbang.bangumi.getSubject(subjectId),
+    []
+  );
+  const searchSubjects = useCallback(
+    (keyword: string) => window.melonbang.bangumi.searchSubjects(keyword),
+    []
+  );
+
+  const value: AppStateValue = useMemo(
+    () => ({
+      session,
+      syncState,
+      isBootstrapping,
+      homeItems,
+      trendingItems,
+      todaySchedule,
+      calendarDays,
+      isPublicDataLoading,
+      refreshSession,
+      signIn,
+      cancelSignIn,
+      signOut,
+      listCollection,
+      getCachedSubject,
+      getSubject,
+      searchSubjects,
+      refreshCalendar,
+      updateTracking,
+      refreshCollection
+    }),
+    [
+      session,
+      syncState,
+      isBootstrapping,
+      homeItems,
+      trendingItems,
+      todaySchedule,
+      calendarDays,
+      isPublicDataLoading,
+      refreshSession,
+      signIn,
+      cancelSignIn,
+      signOut,
+      listCollection,
+      getCachedSubject,
+      getSubject,
+      searchSubjects,
+      refreshCalendar,
+      updateTracking,
+      refreshCollection
+    ]
+  );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
 }
@@ -193,13 +294,11 @@ function errorMessage(error: unknown): string {
 async function loadPublicHomeData(): Promise<{
   trendingItems: BroadcastItem[];
   todaySchedule: BroadcastDay | null;
-  calendarDays: BroadcastDay[];
 }> {
-  const [trendingItems, todaySchedule, calendarDays] = await Promise.all([
+  const [trendingItems, todaySchedule] = await Promise.all([
     window.melonbang.bangumi.getTrendingCurrent().catch(() => []),
-    window.melonbang.bangumi.getTodaySchedule().catch(() => null),
-    window.melonbang.bangumi.getCalendar().catch(() => [])
+    window.melonbang.bangumi.getTodaySchedule().catch(() => null)
   ]);
 
-  return { trendingItems, todaySchedule, calendarDays };
+  return { trendingItems, todaySchedule };
 }

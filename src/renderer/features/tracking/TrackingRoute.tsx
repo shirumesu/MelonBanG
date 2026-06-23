@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownWideNarrow,
   Bookmark,
@@ -49,6 +49,7 @@ export function TrackingRoute() {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [items, setItems] = useState<CollectionListItem[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -96,13 +97,13 @@ export function TrackingRoute() {
   }, [collectionItems]);
 
   const visibleItems = useMemo(() => {
-    const loweredSearch = search.trim().toLowerCase();
+    const loweredSearch = deferredSearch.trim().toLowerCase();
     return collectionItems
       .filter((item) => item.collection.status === status)
       .filter((item) => matchesSearch(item, loweredSearch))
       .filter((item) => matchesQuickFilter(item, quickFilter))
       .sort((left, right) => compareItems(left, right, sortKey));
-  }, [collectionItems, quickFilter, search, sortKey, status]);
+  }, [collectionItems, deferredSearch, quickFilter, sortKey, status]);
 
   const syncLabel = syncState?.lastSuccessfulSyncAt
     ? `已同步 · ${formatRelativeTime(syncState.lastSuccessfulSyncAt)}`

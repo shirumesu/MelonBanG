@@ -92,6 +92,18 @@ export function getAppDatabase(): DatabaseSync {
     CREATE UNIQUE INDEX IF NOT EXISTS mutation_queue_pending_key
       ON mutation_queue (mutation_key)
       WHERE state IN ('pending', 'retry');
+
+    CREATE INDEX IF NOT EXISTS subject_collections_status_updated
+      ON subject_collections (status, updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS episode_collections_subject_status_sort
+      ON episode_collections (subject_id, status, sort, episode_id);
+
+    CREATE INDEX IF NOT EXISTS episode_collections_subject_sort
+      ON episode_collections (subject_id, sort, episode_id);
+
+    CREATE INDEX IF NOT EXISTS mutation_queue_state_created
+      ON mutation_queue (state, created_at);
   `);
 
   ensureColumn(database, "subject_collections", "ep_status", "INTEGER NOT NULL DEFAULT 0");

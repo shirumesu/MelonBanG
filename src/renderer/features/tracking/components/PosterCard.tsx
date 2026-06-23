@@ -27,7 +27,7 @@ export function PosterCard({
     <Link
       to={`/subject/${item.subjectId}`}
       className={cn(
-        "flex flex-col transition hover:-translate-y-0.5",
+        "flex flex-col transition [contain-intrinsic-size:260px_360px] [content-visibility:auto] hover:-translate-y-0.5",
         compact ? "w-[188px] flex-none" : "min-w-0"
       )}
     >

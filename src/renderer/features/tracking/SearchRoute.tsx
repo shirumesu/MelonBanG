@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { SubjectSearchResult } from "@shared/contracts/bangumi";
 import { useAppState } from "@/app/AppStateProvider";
@@ -8,6 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
+const SEARCH_DEBOUNCE_MS = 300;
+const MIN_SEARCH_LENGTH = 2;
+
 export function SearchRoute() {
   const { searchSubjects, updateTracking } = useAppState();
   const [query, setQuery] = useState("");
@@ -16,33 +19,59 @@ export function SearchRoute() {
   const [error, setError] = useState<string | null>(null);
   const requestId = useRef(0);
 
-  async function runSearch(value: string): Promise<void> {
-    setQuery(value);
+  useEffect(() => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery || trimmedQuery.length < MIN_SEARCH_LENGTH) {
+      return;
+    }
+
     const currentRequestId = requestId.current + 1;
     requestId.current = currentRequestId;
-    if (!value.trim()) {
+
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      void searchSubjects(trimmedQuery)
+        .then((nextResults) => {
+          if (requestId.current === currentRequestId) {
+            setResults(nextResults);
+          }
+        })
+        .catch((searchError: unknown) => {
+          if (requestId.current === currentRequestId) {
+            setResults([]);
+            setError(searchError instanceof Error ? searchError.message : "搜索失败，请稍后重试。");
+          }
+        })
+        .finally(() => {
+          if (requestId.current === currentRequestId) {
+            setLoading(false);
+          }
+        });
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [query, searchSubjects]);
+
+  function runSearch(value: string): void {
+    setQuery(value);
+    requestId.current += 1;
+    const trimmedValue = value.trim();
+    if (!trimmedValue) {
       setResults([]);
       setError(null);
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setError(null);
-    try {
-      const nextResults = await searchSubjects(value);
-      if (requestId.current === currentRequestId) {
-        setResults(nextResults);
-      }
-    } catch (searchError) {
-      if (requestId.current === currentRequestId) {
-        setResults([]);
-        setError(searchError instanceof Error ? searchError.message : "搜索失败，请稍后重试。");
-      }
-    } finally {
-      if (requestId.current === currentRequestId) {
-        setLoading(false);
-      }
+    if (trimmedValue.length < MIN_SEARCH_LENGTH) {
+      setResults([]);
+      setError(`至少输入 ${MIN_SEARCH_LENGTH} 个字符开始搜索。`);
+      setLoading(false);
+      return;
     }
+
+    setError(null);
+    setLoading(false);
   }
 
   return (
@@ -51,7 +80,7 @@ export function SearchRoute() {
         title="搜索"
         subtitle="搜索 Bangumi 条目并快速加入追番"
         searchValue={query}
-        onSearchChange={(value) => void runSearch(value)}
+        onSearchChange={runSearch}
         searchPlaceholder="搜索番剧、角色、制作公司…"
       />
 

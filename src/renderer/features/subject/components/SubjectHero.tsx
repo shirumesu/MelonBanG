@@ -74,7 +74,13 @@ export function SubjectHero({
         style={{ background: artGradient(subject.subjectId) }}
       >
         {subject.coverUrl ? (
-          <img src={subject.coverUrl} alt="" className="absolute inset-0 size-full object-cover" />
+          <img
+            src={subject.coverUrl}
+            alt=""
+            className="absolute inset-0 size-full object-cover"
+            decoding="async"
+            referrerPolicy="no-referrer"
+          />
         ) : (
           <span className="absolute inset-0 grid place-items-center text-[72px] font-extrabold text-white/10">
             {title.slice(0, 1)}

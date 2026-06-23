@@ -53,6 +53,7 @@ export function Poster({
             alt={typeof overlayTitle === "string" ? overlayTitle : ""}
             className="absolute inset-0 size-full object-cover"
             loading="lazy"
+            decoding="async"
             referrerPolicy="no-referrer"
           />
         ) : (

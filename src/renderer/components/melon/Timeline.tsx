@@ -102,6 +102,8 @@ function TimelineRow({
             alt=""
             className="absolute inset-0 size-full object-cover"
             loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
           />
         ) : (
           <span className="absolute inset-0 grid place-items-center text-3xl font-extrabold text-white/35">
