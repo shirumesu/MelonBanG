@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { SubjectSearchResult } from "@shared/contracts/bangumi";
 import { useAppState } from "@/app/AppStateProvider";
@@ -13,18 +13,35 @@ export function SearchRoute() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SubjectSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
 
   async function runSearch(value: string): Promise<void> {
     setQuery(value);
+    const currentRequestId = requestId.current + 1;
+    requestId.current = currentRequestId;
     if (!value.trim()) {
       setResults([]);
+      setError(null);
+      setLoading(false);
       return;
     }
     setLoading(true);
+    setError(null);
     try {
-      setResults(await searchSubjects(value));
+      const nextResults = await searchSubjects(value);
+      if (requestId.current === currentRequestId) {
+        setResults(nextResults);
+      }
+    } catch (searchError) {
+      if (requestId.current === currentRequestId) {
+        setResults([]);
+        setError(searchError instanceof Error ? searchError.message : "搜索失败，请稍后重试。");
+      }
     } finally {
-      setLoading(false);
+      if (requestId.current === currentRequestId) {
+        setLoading(false);
+      }
     }
   }
 
@@ -98,7 +115,7 @@ export function SearchRoute() {
           {!loading && results.length === 0 ? (
             <Card>
               <CardContent className="text-muted-foreground p-10 text-center text-sm font-semibold">
-                输入关键词开始搜索 Bangumi 条目。
+                {error ?? "输入关键词开始搜索 Bangumi 条目。"}
               </CardContent>
             </Card>
           ) : null}

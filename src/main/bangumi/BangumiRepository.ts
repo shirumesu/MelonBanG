@@ -43,6 +43,12 @@ export class BangumiRepository implements BangumiBridge {
 
   signOut(): Promise<void> {
     this.oauth.clearSession();
+    this.mutationQueueStore.clear();
+    return Promise.resolve();
+  }
+
+  cancelSignIn(): Promise<void> {
+    this.oauth.cancelSignIn();
     return Promise.resolve();
   }
 
@@ -70,6 +76,7 @@ export class BangumiRepository implements BangumiBridge {
       for (const episode of mergeEpisodeState(subject.episodes, episodeCollections)) {
         this.collectionStore.updateEpisodeStatus(episode);
       }
+      this.reapplyPendingMutations(subjectId);
 
       const refreshed = this.collectionStore.getSubject(subjectId);
       if (!refreshed) {
@@ -99,6 +106,7 @@ export class BangumiRepository implements BangumiBridge {
     for (const episode of mergeEpisodeState(episodes, episodeCollections)) {
       this.collectionStore.updateEpisodeStatus(episode);
     }
+    this.reapplyPendingMutations(subjectId);
 
     const refreshed = this.collectionStore.getSubject(subjectId);
     if (!refreshed) {
@@ -345,10 +353,24 @@ export class BangumiRepository implements BangumiBridge {
     await client.updateEpisodeCollection(input.episodeId, input.status);
   }
 
-  private reapplyPendingMutations(): void {
+  private reapplyPendingMutations(subjectId?: number): void {
     for (const mutation of this.mutationQueueStore.listPending()) {
+      if (
+        typeof subjectId === "number" &&
+        !this.mutationAffectsSubject(mutation.payload, subjectId)
+      ) {
+        continue;
+      }
       this.applyLocalMutation(mutation.payload, mutation.updatedAt);
     }
+  }
+
+  private mutationAffectsSubject(input: TrackingMutation, subjectId: number): boolean {
+    if (input.kind === "subjectCollection") {
+      return input.subjectId === subjectId;
+    }
+
+    return this.collectionStore.getEpisode(input.episodeId)?.subjectId === subjectId;
   }
 
   private async flushPendingMutations(): Promise<{ failed: boolean; lastError?: string }> {

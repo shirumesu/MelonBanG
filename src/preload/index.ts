@@ -6,6 +6,7 @@ import type { MelonbangBridge } from "../shared/contracts/bridge";
 const bangumi: BangumiBridge = {
   getSession: () => ipcRenderer.invoke("bangumi:getSession"),
   signIn: () => ipcRenderer.invoke("bangumi:signIn"),
+  cancelSignIn: () => ipcRenderer.invoke("bangumi:cancelSignIn"),
   signOut: () => ipcRenderer.invoke("bangumi:signOut"),
   listCollection: (filter) => ipcRenderer.invoke("bangumi:listCollection", filter),
   getCachedSubject: (subjectId) => ipcRenderer.invoke("bangumi:getCachedSubject", subjectId),

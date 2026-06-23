@@ -27,6 +27,7 @@ const trackingMutationSchema = z.discriminatedUnion("kind", [
 export function registerBangumiIpc(): void {
   handle("bangumi:getSession", () => getBangumiService().getSession());
   handle("bangumi:signIn", () => getBangumiService().signIn());
+  handle("bangumi:cancelSignIn", () => getBangumiService().cancelSignIn());
   handle("bangumi:signOut", () => getBangumiService().signOut());
   handle("bangumi:listCollection", (filter?: CollectionFilter) =>
     getBangumiService().listCollection(filterSchema.parse(filter))

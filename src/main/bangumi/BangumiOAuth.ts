@@ -44,6 +44,7 @@ type FormHeaders = {
 
 export class BangumiOAuth {
   private readonly tokenStore = new TokenStore();
+  private activeAuthorization: AbortController | null = null;
 
   constructor(private readonly config: BangumiOAuthConfig) {}
 
@@ -82,22 +83,39 @@ export class BangumiOAuth {
   }
 
   async signIn(): Promise<BangumiSession> {
+    this.cancelSignIn();
     const state = crypto.randomUUID();
     const redirect = new URL(this.config.redirectUri);
-    const code = await waitForAuthorizationCode({
-      authorizeUrl: buildAuthorizeUrl(this.config, state),
-      redirectUrl: redirect,
-      expectedState: state
-    });
+    const controller = new AbortController();
+    this.activeAuthorization = controller;
 
-    const token = await this.exchangeCode(code, state);
-    const session = await this.fetchSession(token.accessToken);
-    this.persistToken(token, session);
-    return session;
+    try {
+      const code = await waitForAuthorizationCode({
+        authorizeUrl: buildAuthorizeUrl(this.config, state),
+        redirectUrl: redirect,
+        expectedState: state,
+        signal: controller.signal
+      });
+
+      const token = await this.exchangeCode(code, state);
+      const session = await this.fetchSession(token.accessToken);
+      this.persistToken(token, session);
+      return session;
+    } finally {
+      if (this.activeAuthorization === controller) {
+        this.activeAuthorization = null;
+      }
+    }
   }
 
   clearSession(): void {
+    this.cancelSignIn();
     this.tokenStore.clear();
+  }
+
+  cancelSignIn(): void {
+    this.activeAuthorization?.abort();
+    this.activeAuthorization = null;
   }
 
   private async exchangeCode(code: string, state: string): Promise<BangumiAccessToken> {
@@ -241,6 +259,8 @@ async function waitForAuthorizationCode(input: {
   authorizeUrl: string;
   redirectUrl: URL;
   expectedState: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }): Promise<string> {
   return new Promise((resolve, reject) => {
     const hostname = input.redirectUrl.hostname || "127.0.0.1";
@@ -257,13 +277,23 @@ async function waitForAuthorizationCode(input: {
     }
 
     let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const abort = (): void => {
+      finish(() => reject(new Error("Bangumi OAuth sign-in was cancelled.")));
+    };
     const finish = (fn: () => void): void => {
       if (settled) {
         return;
       }
 
       settled = true;
-      server.close();
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      input.signal?.removeEventListener("abort", abort);
+      if (server.listening) {
+        server.close();
+      }
       fn();
     };
 
@@ -295,6 +325,15 @@ async function waitForAuthorizationCode(input: {
     });
 
     server.on("error", (error) => finish(() => reject(asError(error))));
+    if (input.signal?.aborted) {
+      abort();
+      return;
+    }
+    input.signal?.addEventListener("abort", abort, { once: true });
+    timeout = setTimeout(
+      () => finish(() => reject(new Error("Bangumi OAuth sign-in timed out."))),
+      input.timeoutMs ?? 5 * 60_000
+    );
     server.listen(port, hostname, () => {
       void shell
         .openExternal(input.authorizeUrl)

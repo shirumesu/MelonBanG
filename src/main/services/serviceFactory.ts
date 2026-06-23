@@ -33,6 +33,9 @@ function createUnconfiguredBangumiService(): BangumiBridge {
     signIn() {
       return Promise.reject(new Error(missingOAuthConfigMessage));
     },
+    cancelSignIn() {
+      return Promise.resolve();
+    },
     signOut() {
       return Promise.resolve();
     },

@@ -253,6 +253,7 @@ export type MutationResult = {
 export interface BangumiBridge {
   getSession(): Promise<BangumiSession | null>;
   signIn(): Promise<BangumiSession>;
+  cancelSignIn(): Promise<void>;
   signOut(): Promise<void>;
   listCollection(filter?: CollectionFilter): Promise<CollectionListItem[]>;
   getCachedSubject(subjectId: number): Promise<SubjectDetail | null>;

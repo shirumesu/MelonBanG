@@ -31,7 +31,7 @@ const NOTES = [
 ];
 
 export function SignInRoute() {
-  const { signIn, syncState } = useAppState();
+  const { cancelSignIn, signIn, syncState } = useAppState();
   const location = useLocation();
   const [authorizing, setAuthorizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,9 +47,18 @@ export function SignInRoute() {
     try {
       await signIn();
     } catch (connectError) {
-      setError(errorMessage(connectError));
+      const message = errorMessage(connectError);
+      if (message !== "Bangumi OAuth sign-in was cancelled.") {
+        setError(message);
+      }
       setAuthorizing(false);
     }
+  }
+
+  async function cancelAuthorization(): Promise<void> {
+    setError(null);
+    setAuthorizing(false);
+    await cancelSignIn();
   }
 
   return (
@@ -90,7 +99,7 @@ export function SignInRoute() {
             </Button>
             <div
               className="text-ink-faint hover:text-ink-soft mt-4 cursor-pointer text-[12.5px] font-semibold"
-              onClick={() => setAuthorizing(false)}
+              onClick={() => void cancelAuthorization()}
             >
               取消登录
             </div>

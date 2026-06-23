@@ -137,6 +137,10 @@ export class MutationQueueStore {
     return row.count;
   }
 
+  clear(): void {
+    this.database.prepare("DELETE FROM mutation_queue").run();
+  }
+
   markApplied(mutationId: string): void {
     this.database
       .prepare(

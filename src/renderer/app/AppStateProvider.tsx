@@ -23,6 +23,7 @@ type AppStateValue = {
   isPublicDataLoading: boolean;
   refreshSession: () => Promise<void>;
   signIn: () => Promise<void>;
+  cancelSignIn: () => Promise<void>;
   signOut: () => Promise<void>;
   listCollection: (filter?: CollectionFilter) => Promise<CollectionListItem[]>;
   getCachedSubject: (subjectId: number) => Promise<SubjectDetail | null>;
@@ -121,6 +122,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function cancelSignIn(): Promise<void> {
+    await window.melonbang.bangumi.cancelSignIn();
+  }
+
   async function signOut(): Promise<void> {
     await window.melonbang.bangumi.signOut();
     setSession(null);
@@ -159,6 +164,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     isPublicDataLoading,
     refreshSession,
     signIn,
+    cancelSignIn,
     signOut,
     listCollection,
     getCachedSubject: (subjectId) => window.melonbang.bangumi.getCachedSubject(subjectId),
