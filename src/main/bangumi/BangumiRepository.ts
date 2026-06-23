@@ -15,6 +15,7 @@ import type {
 import type { BangumiOAuthConfig } from "../config/bangumi";
 import { CollectionStore } from "../store/collectionStore";
 import { MutationQueueStore } from "../store/mutationQueueStore";
+import { PublicCacheStore } from "../store/publicCacheStore";
 import { SyncStateStore } from "../store/syncStateStore";
 import { BangumiClient } from "./BangumiClient";
 import { MelonApiClient } from "./MelonApiClient";
@@ -24,8 +25,10 @@ export class BangumiRepository implements BangumiBridge {
   private readonly oauth: BangumiOAuth;
   private readonly collectionStore = new CollectionStore();
   private readonly mutationQueueStore = new MutationQueueStore();
+  private readonly publicCacheStore = new PublicCacheStore();
   private readonly syncStateStore = new SyncStateStore();
   private readonly melonApi = new MelonApiClient();
+  private pendingMutationFlush: Promise<void> | null = null;
 
   constructor(private readonly config: BangumiOAuthConfig) {
     this.oauth = new BangumiOAuth(config);
@@ -85,8 +88,8 @@ export class BangumiRepository implements BangumiBridge {
 
       return {
         ...refreshed,
-        comments: subject.comments,
-        topics: subject.topics
+        comments: subject.comments ?? refreshed.comments,
+        topics: subject.topics ?? refreshed.topics
       };
     } catch {
       if (cached) {
@@ -130,41 +133,44 @@ export class BangumiRepository implements BangumiBridge {
   }
 
   async getTrendingCurrent(): Promise<BroadcastItem[]> {
-    return this.melonApi.getTrendingCurrent();
+    const items = await this.melonApi.getTrendingCurrent();
+    this.publicCacheStore.setTrendingCurrent(items);
+    return items;
   }
 
   async getTodaySchedule(): Promise<BroadcastDay> {
-    return this.melonApi.getTodaySchedule();
+    const day = await this.melonApi.getTodaySchedule();
+    this.publicCacheStore.setTodaySchedule(day);
+    return day;
+  }
+
+  getCachedTrendingCurrent(): Promise<BroadcastItem[]> {
+    return Promise.resolve(this.publicCacheStore.getTrendingCurrent());
+  }
+
+  getCachedTodaySchedule(): Promise<BroadcastDay | null> {
+    return Promise.resolve(this.publicCacheStore.getTodaySchedule());
   }
 
   async getCalendar(): Promise<BroadcastDay[]> {
     return this.melonApi.getScheduleWeek();
   }
 
-  async updateTracking(input: TrackingMutation): Promise<MutationResult> {
+  updateTracking(input: TrackingMutation): Promise<MutationResult> {
     const updatedAt = new Date().toISOString();
     const queued = this.mutationQueueStore.enqueue(input);
 
     this.applyLocalMutation(input, updatedAt);
+    this.schedulePendingMutationFlush();
 
-    try {
-      const client = await this.getClient();
-      await this.pushMutation(client, input);
-      this.mutationQueueStore.markApplied(queued.mutationId);
-      this.syncStateStore.markSuccess(updatedAt);
-    } catch (error) {
-      this.mutationQueueStore.markRetry(queued.mutationId, nextRetryAt(1));
-      this.syncStateStore.markError(error instanceof Error ? error.message : "Unknown sync error");
-    }
-
-    return {
+    return Promise.resolve({
       mutationId: queued.mutationId,
       mutationKey: queued.mutationKey,
       accepted: true,
       appliedLocally: true,
       supersededMutationId: queued.supersededMutationId,
       syncState: this.readSyncState()
-    };
+    });
   }
 
   async refreshCollection(force?: boolean): Promise<SyncState> {
@@ -264,6 +270,8 @@ export class BangumiRepository implements BangumiBridge {
     characters?: SubjectDetail["characters"];
     staff?: SubjectDetail["staff"];
     relatedSubjects?: SubjectDetail["relatedSubjects"];
+    comments?: SubjectDetail["comments"];
+    topics?: SubjectDetail["topics"];
     schedule?: SubjectDetail["schedule"];
     sourceNotes?: string[];
   }): void {
@@ -286,9 +294,40 @@ export class BangumiRepository implements BangumiBridge {
       characters: subject.characters,
       staff: subject.staff,
       relatedSubjects: subject.relatedSubjects,
+      comments: subject.comments,
+      topics: subject.topics,
       schedule: subject.schedule,
       sourceNotes: subject.sourceNotes
     });
+  }
+
+  private schedulePendingMutationFlush(): void {
+    if (this.pendingMutationFlush) {
+      return;
+    }
+
+    this.pendingMutationFlush = this.flushPendingMutations()
+      .then((flushResult) => {
+        if (flushResult.failed) {
+          this.syncStateStore.markError(
+            flushResult.lastError ?? "Some tracking changes are still waiting to sync."
+          );
+          return;
+        }
+
+        this.syncStateStore.markSuccess();
+      })
+      .catch((error: unknown) => {
+        this.syncStateStore.markError(
+          error instanceof Error ? error.message : "Unknown mutation sync error"
+        );
+      })
+      .finally(() => {
+        this.pendingMutationFlush = null;
+        if (this.mutationQueueStore.listReady().length > 0) {
+          this.schedulePendingMutationFlush();
+        }
+      });
   }
 
   private applyLocalMutation(input: TrackingMutation, updatedAt: string): void {
@@ -374,10 +413,27 @@ export class BangumiRepository implements BangumiBridge {
   }
 
   private async flushPendingMutations(): Promise<{ failed: boolean; lastError?: string }> {
-    const client = await this.getClient();
+    const readyMutations = this.mutationQueueStore.listReady();
+    let client: BangumiClient;
+    try {
+      client = await this.getClient();
+    } catch (error) {
+      const lastError = error instanceof Error ? error.message : "Unknown mutation sync error";
+      for (const mutation of readyMutations) {
+        this.mutationQueueStore.markRetry(
+          mutation.mutationId,
+          nextRetryAt(mutation.attemptCount + 1)
+        );
+      }
+
+      return {
+        failed: readyMutations.length > 0,
+        lastError
+      };
+    }
     let lastError: string | undefined;
 
-    for (const mutation of this.mutationQueueStore.listReady()) {
+    for (const mutation of readyMutations) {
       try {
         await this.pushMutation(client, mutation.payload);
         this.mutationQueueStore.markApplied(mutation.mutationId);

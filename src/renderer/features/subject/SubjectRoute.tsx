@@ -144,11 +144,26 @@ export function SubjectRoute() {
     [activeSubject?.episodes]
   );
 
-  async function reloadSubject(): Promise<void> {
-    if (!activeSubject) {
+  async function applyCachedSubject(subjectId: number): Promise<void> {
+    const cachedSubject = await getCachedSubject(subjectId).catch(() => null);
+    if (!cachedSubject) {
       return;
     }
-    setSubject(await getSubject(activeSubject.subjectId));
+
+    setSubject((current) => (current?.subjectId === subjectId ? cachedSubject : current));
+  }
+
+  async function refreshSubjectFromRemote(subjectId: number): Promise<void> {
+    setRefreshingSubjectId(subjectId);
+    try {
+      const nextSubject = await getSubject(subjectId);
+      setLoadingError(null);
+      setSubject((current) => (current?.subjectId === subjectId ? nextSubject : current));
+    } catch {
+      // Keep the locally accepted tracking state visible when the remote refresh is unavailable.
+    } finally {
+      setRefreshingSubjectId((current) => (current === subjectId ? null : current));
+    }
   }
 
   async function changeStatus(status: CollectionStatus): Promise<void> {
@@ -156,21 +171,25 @@ export function SubjectRoute() {
       return;
     }
 
+    const subjectId = activeSubject.subjectId;
     await updateTracking({
       kind: "subjectCollection",
-      subjectId: activeSubject.subjectId,
+      subjectId,
       status
     });
-    await reloadSubject();
+    await applyCachedSubject(subjectId);
+    void refreshSubjectFromRemote(subjectId);
   }
 
   async function toggleEpisode(episode: EpisodeCollectionState): Promise<void> {
+    const subjectId = episode.subjectId;
     await updateTracking({
       kind: "episodeCollection",
       episodeId: episode.episodeId,
       status: episode.status === "watched" ? "queue" : "watched"
     });
-    await reloadSubject();
+    await applyCachedSubject(subjectId);
+    void refreshSubjectFromRemote(subjectId);
   }
 
   if (!activeSubject) {

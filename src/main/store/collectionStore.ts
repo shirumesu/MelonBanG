@@ -8,11 +8,13 @@ import type {
   SubjectCharacterCredit,
   SubjectCollectionStats,
   SubjectCollectionState,
+  SubjectComment,
   SubjectDetail,
   SubjectInfoBoxItem,
   SubjectSchedule,
   SubjectSearchResult,
   SubjectStaffCredit,
+  SubjectTopic,
   TrackingMutation
 } from "../../shared/contracts/bangumi";
 import { getAppDatabase } from "./appDatabase";
@@ -80,6 +82,8 @@ type SubjectCacheInput = {
   characters?: SubjectCharacterCredit[];
   staff?: SubjectStaffCredit[];
   relatedSubjects?: RelatedSubject[];
+  comments?: SubjectComment[];
+  topics?: SubjectTopic[];
   schedule?: SubjectSchedule;
   sourceNotes?: string[];
 };
@@ -252,8 +256,8 @@ export class CollectionStore {
       characters: parseJson<SubjectCharacterCredit[]>(subject.characters_json),
       staff: parseJson<SubjectStaffCredit[]>(subject.staff_json),
       relatedSubjects: parseJson<RelatedSubject[]>(subject.related_subjects_json),
-      comments: undefined,
-      topics: undefined,
+      comments: parseJson<SubjectComment[]>(subject.comments_json),
+      topics: parseJson<SubjectTopic[]>(subject.topics_json),
       schedule: parseJson<SubjectSchedule>(subject.schedule_json),
       sourceNotes: parseJson<string[]>(subject.source_notes_json),
       collection: collection ? this.toSubjectCollectionState(collection) : null,
@@ -347,8 +351,8 @@ export class CollectionStore {
         characters_json = COALESCE(excluded.characters_json, subject_cache.characters_json),
         staff_json = COALESCE(excluded.staff_json, subject_cache.staff_json),
         related_subjects_json = COALESCE(excluded.related_subjects_json, subject_cache.related_subjects_json),
-        comments_json = excluded.comments_json,
-        topics_json = excluded.topics_json,
+        comments_json = COALESCE(excluded.comments_json, subject_cache.comments_json),
+        topics_json = COALESCE(excluded.topics_json, subject_cache.topics_json),
         schedule_json = COALESCE(excluded.schedule_json, subject_cache.schedule_json),
         source_notes_json = COALESCE(excluded.source_notes_json, subject_cache.source_notes_json),
         updated_at = excluded.updated_at
@@ -373,8 +377,8 @@ export class CollectionStore {
         jsonOrNull(input.characters),
         jsonOrNull(input.staff),
         jsonOrNull(input.relatedSubjects),
-        null,
-        null,
+        jsonOrNull(input.comments),
+        jsonOrNull(input.topics),
         jsonOrNull(input.schedule),
         jsonOrNull(input.sourceNotes),
         isoNow()

@@ -89,6 +89,12 @@ export function getAppDatabase(): DatabaseSync {
       updated_at TEXT NOT NULL
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS public_cache (
+      cache_key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT;
+
     CREATE UNIQUE INDEX IF NOT EXISTS mutation_queue_pending_key
       ON mutation_queue (mutation_key)
       WHERE state IN ('pending', 'retry');
@@ -140,11 +146,7 @@ function getAppDataDirectory(): string {
     return resolve(override);
   }
 
-  if (!app.isPackaged) {
-    return join(app.getAppPath(), "temp");
-  }
-
-  return app.getPath("userData");
+  return join(app.getAppPath(), "temp");
 }
 
 function ensureColumn(

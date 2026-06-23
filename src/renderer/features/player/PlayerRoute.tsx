@@ -10,7 +10,7 @@ export function PlayerRoute() {
       <div className="grid h-full place-items-center bg-[var(--player-bg)] px-6">
         <div className="max-w-[420px] text-center text-white">
           <div className="mx-auto grid size-[76px] place-items-center rounded-full border border-white/[0.22] bg-white/[0.12] shadow-[0_18px_42px_rgba(0,0,0,.28)]">
-            <Play className="size-8 fill-current text-mint-300" />
+            <Play className="text-mint-300 size-8 fill-current" />
           </div>
           <h1 className="mt-5 text-2xl font-extrabold">暂无播放会话</h1>
           <p className="mt-2 text-sm leading-7 text-white/70">

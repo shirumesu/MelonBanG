@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import {
   ArrowDownWideNarrow,
   Bookmark,
@@ -44,41 +44,24 @@ const TAB_ICONS: Record<CollectionStatus, LucideIcon> = {
 };
 
 export function TrackingRoute() {
-  const { listCollection, refreshCollection, syncState } = useAppState();
+  const { collectionItems, collectionLoaded, refreshCollection, syncState } = useAppState();
   const [status, setStatus] = useState<CollectionStatus>("watching");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
-  const [items, setItems] = useState<CollectionListItem[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-
-  useEffect(() => {
-    let ignore = false;
-
-    void listCollection().then((nextItems) => {
-      if (!ignore) {
-        setItems(nextItems);
-      }
-    });
-
-    return () => {
-      ignore = true;
-    };
-  }, [listCollection]);
 
   async function refresh(): Promise<void> {
     setRefreshing(true);
     try {
       await refreshCollection(true);
-      setItems(await listCollection());
     } finally {
       setRefreshing(false);
     }
   }
 
-  const collectionItems = useMemo(() => items ?? [], [items]);
-  const loading = items === null;
+  const loading = !collectionLoaded && collectionItems.length === 0;
 
   const counts = useMemo(() => {
     const next: Record<CollectionStatus, number> = {

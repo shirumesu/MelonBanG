@@ -259,7 +259,9 @@ export interface BangumiBridge {
   getCachedSubject(subjectId: number): Promise<SubjectDetail | null>;
   getSubject(subjectId: number): Promise<SubjectDetail>;
   searchSubjects(keyword: string): Promise<SubjectSearchResult[]>;
+  getCachedTrendingCurrent(): Promise<BroadcastItem[]>;
   getTrendingCurrent(): Promise<BroadcastItem[]>;
+  getCachedTodaySchedule(): Promise<BroadcastDay | null>;
   getTodaySchedule(): Promise<BroadcastDay>;
   getCalendar(): Promise<BroadcastDay[]>;
   updateTracking(input: TrackingMutation): Promise<MutationResult>;

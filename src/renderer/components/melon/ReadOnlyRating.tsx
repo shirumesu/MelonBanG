@@ -23,38 +23,23 @@ export function ReadOnlyRating({ score, className, showScore = true }: ReadOnlyR
         {Array.from({ length: 5 }, (_, i) => {
           if (i < fullStars) {
             return (
-              <Star
-                key={i}
-                className="text-gold-500 h-3.5 w-3.5 fill-current"
-                strokeWidth={0}
-              />
+              <Star key={i} className="text-gold-500 h-3.5 w-3.5 fill-current" strokeWidth={0} />
             );
           } else if (i === fullStars && hasHalfStar) {
             return (
               <div key={i} className="relative h-3.5 w-3.5">
                 <Star className="text-line-strong absolute inset-0 h-3.5 w-3.5" strokeWidth={1.5} />
                 <div className="absolute inset-0 overflow-hidden" style={{ width: "50%" }}>
-                  <StarHalf
-                    className="text-gold-500 h-3.5 w-3.5 fill-current"
-                    strokeWidth={0}
-                  />
+                  <StarHalf className="text-gold-500 h-3.5 w-3.5 fill-current" strokeWidth={0} />
                 </div>
               </div>
             );
           } else {
-            return (
-              <Star
-                key={i}
-                className="text-line-strong h-3.5 w-3.5"
-                strokeWidth={1.5}
-              />
-            );
+            return <Star key={i} className="text-line-strong h-3.5 w-3.5" strokeWidth={1.5} />;
           }
         })}
       </div>
-      {showScore && (
-        <span className="text-ink-soft text-[12px] font-bold">{score}</span>
-      )}
+      {showScore && <span className="text-ink-soft text-[12px] font-bold">{score}</span>}
     </div>
   );
 }
