@@ -1,5 +1,7 @@
+import { useEffect, useMemo, useState } from "react";
 import { Compass, Download, Heart, Settings } from "lucide-react";
 import { NavLink } from "react-router-dom";
+import type { DownloadSnapshot, DownloadStatus } from "@shared/contracts/download";
 import { useAppState } from "../AppStateProvider";
 import { GradientAvatar } from "@/components/melon/GradientAvatar";
 import { cn } from "@/lib/utils";
@@ -22,12 +24,6 @@ function MelonMark({ className }: { className?: string }) {
   );
 }
 
-const navItems = [
-  { to: "/home", label: "探索", icon: Compass, pill: undefined as string | undefined },
-  { to: "/tracking", label: "追番", icon: Heart, pill: "128" },
-  { to: "/cache", label: "缓存", icon: Download, pill: "3" }
-];
-
 function navClass({ isActive }: { isActive: boolean }): string {
   return cn(
     "relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition",
@@ -38,9 +34,48 @@ function navClass({ isActive }: { isActive: boolean }): string {
 }
 
 export function Sidebar() {
-  const { session } = useAppState();
+  const { collectionItems, session } = useAppState();
+  const [activeDownloadCount, setActiveDownloadCount] = useState(0);
   const nickname = session?.nickname ?? "melonbang";
   const username = session?.username ?? "guest";
+  const watchingCount = useMemo(
+    () => collectionItems.filter((item) => item.collection.status === "watching").length,
+    [collectionItems]
+  );
+  const navItems = useMemo(
+    () => [
+      { to: "/home", label: "探索", icon: Compass, pill: undefined as string | undefined },
+      { to: "/tracking", label: "追番", icon: Heart, pill: String(watchingCount) },
+      { to: "/cache", label: "缓存", icon: Download, pill: String(activeDownloadCount) }
+    ],
+    [activeDownloadCount, watchingCount]
+  );
+
+  useEffect(() => {
+    const bridge = window.melonbang?.download;
+    if (!bridge) {
+      return;
+    }
+
+    let cancelled = false;
+    const applySnapshot = (snapshot: DownloadSnapshot): void => {
+      if (cancelled) {
+        return;
+      }
+
+      setActiveDownloadCount(
+        snapshot.tasks.filter((task) => isActiveDownloadStatus(task.status)).length
+      );
+    };
+    const unsubscribe = bridge.onUpdate(applySnapshot);
+
+    void bridge.list().then(applySnapshot).catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
 
   return (
     <aside className="border-line flex min-h-0 flex-col gap-1 border-r bg-[linear-gradient(180deg,rgba(255,255,255,.75),rgba(255,255,255,.45))] px-3.5 py-4 dark:bg-[linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.01))]">
@@ -105,4 +140,8 @@ export function Sidebar() {
       </NavLink>
     </aside>
   );
+}
+
+function isActiveDownloadStatus(status: DownloadStatus): boolean {
+  return status === "metadata" || status === "downloading" || status === "ready";
 }

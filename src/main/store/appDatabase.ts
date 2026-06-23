@@ -95,6 +95,41 @@ export function getAppDatabase(): DatabaseSync {
       updated_at TEXT NOT NULL
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS download_sessions (
+      id TEXT PRIMARY KEY,
+      input_kind TEXT NOT NULL,
+      input_ref TEXT NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL,
+      progress REAL NOT NULL DEFAULT 0,
+      downloaded_bytes INTEGER NOT NULL DEFAULT 0,
+      total_bytes INTEGER,
+      download_speed_bytes_per_second INTEGER NOT NULL DEFAULT 0,
+      upload_speed_bytes_per_second INTEGER NOT NULL DEFAULT 0,
+      peer_count INTEGER NOT NULL DEFAULT 0,
+      eta_seconds INTEGER,
+      selected_file_id TEXT,
+      error_message TEXT,
+      preview_image_url TEXT,
+      preview_source_name TEXT,
+      preview_source_url TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS download_files (
+      id TEXT PRIMARY KEY,
+      download_id TEXT NOT NULL REFERENCES download_sessions(id) ON DELETE CASCADE,
+      path TEXT NOT NULL,
+      name TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      media_kind TEXT NOT NULL,
+      priority INTEGER NOT NULL DEFAULT 0,
+      progress REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT;
+
     CREATE UNIQUE INDEX IF NOT EXISTS mutation_queue_pending_key
       ON mutation_queue (mutation_key)
       WHERE state IN ('pending', 'retry');
@@ -110,6 +145,12 @@ export function getAppDatabase(): DatabaseSync {
 
     CREATE INDEX IF NOT EXISTS mutation_queue_state_created
       ON mutation_queue (state, created_at);
+
+    CREATE INDEX IF NOT EXISTS download_sessions_status_updated
+      ON download_sessions (status, updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS download_files_download_priority
+      ON download_files (download_id, priority DESC, id);
   `);
 
   ensureColumn(database, "subject_collections", "ep_status", "INTEGER NOT NULL DEFAULT 0");
@@ -126,6 +167,9 @@ export function getAppDatabase(): DatabaseSync {
   ensureColumn(database, "subject_cache", "topics_json", "TEXT");
   ensureColumn(database, "subject_cache", "schedule_json", "TEXT");
   ensureColumn(database, "subject_cache", "source_notes_json", "TEXT");
+  ensureColumn(database, "download_sessions", "preview_image_url", "TEXT");
+  ensureColumn(database, "download_sessions", "preview_source_name", "TEXT");
+  ensureColumn(database, "download_sessions", "preview_source_url", "TEXT");
   database
     .prepare(
       `
@@ -140,7 +184,7 @@ export function getAppDatabase(): DatabaseSync {
   return database;
 }
 
-function getAppDataDirectory(): string {
+export function getAppDataDirectory(): string {
   const override = process.env.MELONBANG_DATA_DIR?.trim();
   if (override) {
     return resolve(override);

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { BangumiBridge } from "../shared/contracts/bangumi";
+import type { DownloadBridge } from "../shared/contracts/download";
 import type { WindowControlsBridge } from "../shared/contracts/window";
 import type { MelonbangBridge } from "../shared/contracts/bridge";
 
@@ -34,6 +35,20 @@ const windowControls: WindowControlsBridge = {
   }
 };
 
-const api: MelonbangBridge = { bangumi, windowControls };
+const download: DownloadBridge = {
+  create: (input) => ipcRenderer.invoke("download:create", input),
+  list: () => ipcRenderer.invoke("download:list"),
+  pause: (downloadId) => ipcRenderer.invoke("download:pause", downloadId),
+  resume: (downloadId) => ipcRenderer.invoke("download:resume", downloadId),
+  remove: (downloadId) => ipcRenderer.invoke("download:remove", downloadId),
+  onUpdate: (callback) => {
+    const listener = (_event: unknown, snapshot: Parameters<typeof callback>[0]): void =>
+      callback(snapshot);
+    ipcRenderer.on("download:update", listener);
+    return () => ipcRenderer.removeListener("download:update", listener);
+  }
+};
+
+const api: MelonbangBridge = { bangumi, download, windowControls };
 
 contextBridge.exposeInMainWorld("melonbang", api);
