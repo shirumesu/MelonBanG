@@ -50,9 +50,9 @@ describe("appDatabase", () => {
       `
       )
       .all() as Array<{ name: string }>;
-    const sessionColumns = database
-      .prepare("PRAGMA table_info(download_sessions)")
-      .all() as Array<{ name: string }>;
+    const sessionColumns = database.prepare("PRAGMA table_info(download_sessions)").all() as Array<{
+      name: string;
+    }>;
     database.close();
 
     expect(tables.map((table) => table.name)).toEqual(["download_files", "download_sessions"]);

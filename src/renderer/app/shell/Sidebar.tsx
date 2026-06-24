@@ -69,7 +69,10 @@ export function Sidebar() {
     };
     const unsubscribe = bridge.onUpdate(applySnapshot);
 
-    void bridge.list().then(applySnapshot).catch(() => undefined);
+    void bridge
+      .list()
+      .then(applySnapshot)
+      .catch(() => undefined);
 
     return () => {
       cancelled = true;

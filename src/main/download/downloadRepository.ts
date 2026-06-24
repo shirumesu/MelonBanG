@@ -196,12 +196,13 @@ export class DownloadRepository {
       etaSeconds: patch.etaSeconds === undefined ? existing.etaSeconds : patch.etaSeconds,
       selectedFileId:
         patch.selectedFileId === undefined ? existing.selectedFileId : patch.selectedFileId,
-      errorMessage:
-        patch.errorMessage === undefined ? existing.errorMessage : patch.errorMessage,
+      errorMessage: patch.errorMessage === undefined ? existing.errorMessage : patch.errorMessage,
       previewImageUrl:
         patch.previewImageUrl === undefined ? existing.previewImageUrl : patch.previewImageUrl,
       previewSourceName:
-        patch.previewSourceName === undefined ? existing.previewSourceName : patch.previewSourceName,
+        patch.previewSourceName === undefined
+          ? existing.previewSourceName
+          : patch.previewSourceName,
       previewSourceUrl:
         patch.previewSourceUrl === undefined ? existing.previewSourceUrl : patch.previewSourceUrl,
       updatedAt: new Date().toISOString()

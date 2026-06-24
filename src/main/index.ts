@@ -2,6 +2,7 @@ import { app, BrowserWindow } from "electron";
 import { createMainWindow } from "./app/createMainWindow";
 import { registerBangumiIpc } from "./ipc/bangumi";
 import { registerDownloadIpc } from "./ipc/download";
+import { registerPlaybackIpc } from "./ipc/playback";
 import { bindWindowMaximizeEvents, registerWindowIpc } from "./ipc/window";
 
 let mainWindow: BrowserWindow | null = null;
@@ -9,6 +10,7 @@ let mainWindow: BrowserWindow | null = null;
 void app.whenReady().then(() => {
   registerBangumiIpc();
   registerDownloadIpc();
+  registerPlaybackIpc(() => mainWindow);
   registerWindowIpc();
   createAndStoreMainWindow();
 

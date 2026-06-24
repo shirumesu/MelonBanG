@@ -10,8 +10,12 @@ import {
   Play,
   Trash2
 } from "lucide-react";
-import { Link } from "react-router-dom";
-import type { DownloadSnapshot, DownloadStatus, DownloadTaskView } from "@shared/contracts/download";
+import { Link, useNavigate } from "react-router-dom";
+import type {
+  DownloadSnapshot,
+  DownloadStatus,
+  DownloadTaskView
+} from "@shared/contracts/download";
 import { IconButton, PageContent, Section, SectionHead, Topbar } from "@/components/melon/layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -114,8 +118,7 @@ function DownloadRow({
           </span>
           <span>剩余 {formatEta(task.etaSeconds)}</span>
           <span>
-            做种 ↑{formatMegabytesPerSecond(task.uploadSpeedBytesPerSecond)} 连接 ↓
-            {task.peerCount}
+            做种 ↑{formatMegabytesPerSecond(task.uploadSpeedBytesPerSecond)} 连接 ↓{task.peerCount}
           </span>
         </div>
         <PreviewSourceLine task={task} />
@@ -147,7 +150,12 @@ function QueueRow({
 }) {
   return (
     <div className={cn("flex items-center gap-4 px-[18px] py-4", !first && "border-line border-t")}>
-      <Cover index={coverIndex(task.id)} kanji={coverMark(task.title)} imageUrl={imageUrl} desaturate />
+      <Cover
+        index={coverIndex(task.id)}
+        kanji={coverMark(task.title)}
+        imageUrl={imageUrl}
+        desaturate
+      />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-[13.5px] font-bold">{formatTaskTitle(task)}</span>
@@ -164,7 +172,10 @@ function QueueRow({
         <PreviewSourceLine task={task} />
       </div>
       <div className="flex flex-none gap-2">
-        <IconButton title={task.status === "failed" ? "重试" : "继续"} onClick={() => onResume(task.id)}>
+        <IconButton
+          title={task.status === "failed" ? "重试" : "继续"}
+          onClick={() => onResume(task.id)}
+        >
           <Play />
         </IconButton>
         <IconButton title="删除" onClick={() => onRemove(task.id)}>
@@ -175,11 +186,21 @@ function QueueRow({
   );
 }
 
-function CompletedDownloadCard({ item }: { item: DownloadTaskView }) {
+function CompletedDownloadCard({
+  item,
+  onPlay
+}: {
+  item: DownloadTaskView;
+  onPlay: (downloadId: string) => void;
+}) {
   return (
     <div className="flex min-w-0 flex-col">
       <Link
         to="/player"
+        onClick={(event) => {
+          event.preventDefault();
+          onPlay(item.id);
+        }}
         className="group flex min-w-0 flex-col transition-transform duration-200 hover:-translate-y-0.5"
       >
         <div
@@ -239,7 +260,13 @@ function EmptyRow({ children }: { children: string }) {
   return <div className="text-ink-faint px-4 py-4 text-[12.5px] font-bold">{children}</div>;
 }
 
-function PreviewSourceLine({ task, compact = false }: { task: DownloadTaskView; compact?: boolean }) {
+function PreviewSourceLine({
+  task,
+  compact = false
+}: {
+  task: DownloadTaskView;
+  compact?: boolean;
+}) {
   if (!task.previewSourceName || !task.previewSourceUrl) {
     return null;
   }
@@ -252,7 +279,12 @@ function PreviewSourceLine({ task, compact = false }: { task: DownloadTaskView; 
       )}
     >
       {task.previewImageUrl ? "文件信息与预览图来自 " : "文件信息来自 "}
-      <a href={task.previewSourceUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+      <a
+        href={task.previewSourceUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="underline-offset-2 hover:underline"
+      >
         {task.previewSourceName}
       </a>
     </div>
@@ -260,6 +292,7 @@ function PreviewSourceLine({ task, compact = false }: { task: DownloadTaskView; 
 }
 
 export function CacheRoute() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState(0);
   const [snapshot, setSnapshot] = useState<DownloadSnapshot>(emptySnapshot);
   const [torrentValue, setTorrentValue] = useState("");
@@ -381,6 +414,22 @@ export function CacheRoute() {
       setSnapshot,
       setFormError
     );
+  }
+
+  async function playCompletedTask(downloadId: string): Promise<void> {
+    const bridge = window.melonbang?.playback;
+    if (!bridge) {
+      setFormError("播放桥接不可用，请重启应用。");
+      return;
+    }
+
+    setFormError(null);
+    try {
+      await bridge.startFromDownload({ downloadId });
+      void navigate("/player");
+    } catch (error) {
+      setFormError(toMessage(error));
+    }
   }
 
   return (
@@ -559,7 +608,11 @@ export function CacheRoute() {
           {completedTasks.length ? (
             <div className="grid [grid-template-columns:repeat(auto-fill,minmax(188px,1fr))] gap-4">
               {completedTasks.map((item) => (
-                <CompletedDownloadCard key={item.id} item={item} />
+                <CompletedDownloadCard
+                  key={item.id}
+                  item={item}
+                  onPlay={(downloadId) => void playCompletedTask(downloadId)}
+                />
               ))}
             </div>
           ) : (

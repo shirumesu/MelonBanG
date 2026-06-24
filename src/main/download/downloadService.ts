@@ -15,7 +15,7 @@ import {
   type PersistedFileInput
 } from "./downloadRepository";
 import {
-  TorrentClientAdapter,
+  type AddTorrentRuntimeOptions,
   type TorrentHandle,
   type TorrentMetadata,
   type TorrentRuntimeFile,
@@ -29,7 +29,9 @@ const progressPersistIntervalMs = 800;
 
 let serviceInstance: DownloadService | null = null;
 
-type TorrentClientLike = Pick<TorrentClientAdapter, "addTorrent">;
+type TorrentClientLike = {
+  addTorrent(options: AddTorrentRuntimeOptions): TorrentHandle | Promise<TorrentHandle>;
+};
 type PreviewClientLike = {
   getPreview(input: TorrentInput): Promise<DownloadPreviewMetadata | null>;
 };
@@ -46,7 +48,7 @@ export class DownloadService {
 
   constructor(
     private readonly repository = new DownloadRepository(),
-    private readonly torrentClient: TorrentClientLike = new TorrentClientAdapter(),
+    private readonly torrentClient: TorrentClientLike = createLazyTorrentClient(),
     private readonly previewClient: PreviewClientLike = new WhatsLinkClient()
   ) {
     this.repository.markInterruptedSessionsPaused();
@@ -74,7 +76,7 @@ export class DownloadService {
 
     this.emitSnapshot();
     void this.refreshPreview(task.id, validInput);
-    this.startSession({
+    void this.startSession({
       ...task,
       inputKind: validInput.kind,
       inputRef: serializeTorrentInput(validInput)
@@ -126,7 +128,7 @@ export class DownloadService {
       status: session.selectedFileId ? "downloading" : "metadata",
       errorMessage: null
     });
-    this.startSession(this.repository.getSession(downloadId) ?? session);
+    void this.startSession(this.repository.getSession(downloadId) ?? session);
     this.emitSnapshot();
     return updated;
   }
@@ -143,13 +145,13 @@ export class DownloadService {
     this.emitSnapshot();
   }
 
-  private startSession(session: PersistedDownloadSession): void {
+  private async startSession(session: PersistedDownloadSession): Promise<void> {
     try {
       const input = deserializeTorrentInput(session);
       const downloadPath = join(getDownloadRootDirectory(), session.id);
       mkdirSync(downloadPath, { recursive: true });
 
-      const handle = this.torrentClient.addTorrent({
+      const handleOrPromise = this.torrentClient.addTorrent({
         input,
         downloadPath,
         onMetadata: (metadata) => this.handleMetadata(session.id, metadata),
@@ -157,6 +159,7 @@ export class DownloadService {
         onDone: (stats, files) => this.handleDone(session.id, stats, files),
         onError: (error) => this.handleError(session.id, error)
       });
+      const handle = isPromiseLike(handleOrPromise) ? await handleOrPromise : handleOrPromise;
 
       this.activeHandles.set(session.id, handle);
     } catch (error) {
@@ -173,7 +176,9 @@ export class DownloadService {
 
     const now = new Date().toISOString();
     const selectedFileId =
-      metadata.selectedFileIndex === null ? null : createFileId(downloadId, metadata.selectedFileIndex);
+      metadata.selectedFileIndex === null
+        ? null
+        : createFileId(downloadId, metadata.selectedFileIndex);
     const nextStatus: DownloadStatus = selectedFileId
       ? session.status === "paused"
         ? "paused"
@@ -232,7 +237,13 @@ export class DownloadService {
     }
 
     this.lastProgressPersistedAt.set(downloadId, now);
-    this.persistRuntimeState(downloadId, stats.done ? "completed" : "downloading", stats, files, null);
+    this.persistRuntimeState(
+      downloadId,
+      stats.done ? "completed" : "downloading",
+      stats,
+      files,
+      null
+    );
   }
 
   private handleDone(
@@ -297,11 +308,10 @@ export class DownloadService {
           ? 0
           : stats.downloadSpeedBytesPerSecond,
       uploadSpeedBytesPerSecond:
-        nextStatus === "completed" || nextStatus === "paused"
-          ? 0
-          : stats.uploadSpeedBytesPerSecond,
+        nextStatus === "completed" || nextStatus === "paused" ? 0 : stats.uploadSpeedBytesPerSecond,
       peerCount: nextStatus === "completed" || nextStatus === "paused" ? 0 : stats.peerCount,
-      etaSeconds: nextStatus === "completed" || nextStatus === "paused" ? null : estimateEtaSeconds(stats),
+      etaSeconds:
+        nextStatus === "completed" || nextStatus === "paused" ? null : estimateEtaSeconds(stats),
       errorMessage
     });
     this.emitSnapshot();
@@ -437,6 +447,24 @@ function removeDownloadDirectory(downloadId: string): void {
   }
 
   rmSync(target, { recursive: true, force: true });
+}
+
+let lazyTorrentClientPromise: Promise<TorrentClientLike> | null = null;
+
+function createLazyTorrentClient(): TorrentClientLike {
+  return {
+    async addTorrent(options) {
+      lazyTorrentClientPromise ??= import("./torrentClient").then(
+        ({ TorrentClientAdapter }) => new TorrentClientAdapter()
+      );
+      const client = await lazyTorrentClientPromise;
+      return client.addTorrent(options);
+    }
+  };
+}
+
+function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
+  return typeof (value as Promise<T>).then === "function";
 }
 
 function toRendererSafeError(error: Error): string {

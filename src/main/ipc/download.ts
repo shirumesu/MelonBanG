@@ -32,7 +32,9 @@ export function registerDownloadIpc(): void {
     service.create(torrentInputSchema.parse(input))
   );
   handle("download:list", () => service.list());
-  handle("download:pause", (downloadId: string) => service.pause(downloadIdSchema.parse(downloadId)));
+  handle("download:pause", (downloadId: string) =>
+    service.pause(downloadIdSchema.parse(downloadId))
+  );
   handle("download:resume", (downloadId: string) =>
     service.resume(downloadIdSchema.parse(downloadId))
   );
