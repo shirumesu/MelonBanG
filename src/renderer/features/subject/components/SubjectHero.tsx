@@ -1,5 +1,4 @@
 import { ExternalLink, Film, ListChecks, Play } from "lucide-react";
-import { Link } from "react-router-dom";
 import type { CollectionStatus, SubjectDetail } from "@shared/contracts/bangumi";
 import { StarRow } from "@/components/melon/RatingStars";
 import { SeasonChip } from "@/components/melon/SeasonChip";
@@ -37,11 +36,13 @@ export function SubjectHero({
   subject,
   onOpenEpisodes,
   onOpenPv,
+  onContinuePlayback,
   onChangeStatus
 }: {
   subject: SubjectDetail;
   onOpenEpisodes: () => void;
   onOpenPv: () => void;
+  onContinuePlayback: () => void;
   onChangeStatus: (status: CollectionStatus) => void;
 }) {
   const title = subject.nameCn ?? subject.name;
@@ -157,11 +158,9 @@ export function SubjectHero({
         <div className="bg-line my-1.5 h-px" />
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button asChild>
-            <Link to="/player">
-              <Play className="size-[18px] fill-current" />
-              继续播放 {nextEpisode ? `EP${String(nextEpisode.sort).padStart(2, "0")}` : ""}
-            </Link>
+          <Button onClick={onContinuePlayback}>
+            <Play className="size-[18px] fill-current" />
+            继续播放 {nextEpisode ? `EP${String(nextEpisode.sort).padStart(2, "0")}` : ""}
           </Button>
           <IconButton title="选集" onClick={onOpenEpisodes}>
             <ListChecks />

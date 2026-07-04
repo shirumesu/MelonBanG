@@ -44,8 +44,8 @@ describe("PlaybackService", () => {
       {
         id: fileId,
         downloadId,
-        path: "sample.mkv",
-        name: "sample.mkv",
+        path: "sample.mp4",
+        name: "sample.mp4",
         sizeBytes: 1024,
         mediaKind: "video",
         priority: 1,
@@ -62,7 +62,7 @@ describe("PlaybackService", () => {
       selectedFileId: fileId
     });
     mkdirSync(join(getDownloadRootDirectory(), downloadId), { recursive: true });
-    writeFileSync(join(getDownloadRootDirectory(), downloadId, "sample.mkv"), "video");
+    writeFileSync(join(getDownloadRootDirectory(), downloadId, "sample.mp4"), "video");
 
     const service = new PlaybackService(repository, mediaServer);
     const session = await service.startFromDownload({ downloadId });
@@ -70,23 +70,23 @@ describe("PlaybackService", () => {
     expect(session).toMatchObject({
       downloadId,
       fileId,
-      title: "sample.mkv",
+      title: "sample.mp4",
       status: "ready",
       source: {
         kind: "file",
-        title: "sample.mkv",
-        mimeType: "video/x-matroska"
+        title: "sample.mp4",
+        mimeType: "video/mp4"
       },
       subtitles: [],
       danmaku: []
     });
     expect(session.source?.url).toMatch(/^http:\/\/127\.0\.0\.1\/media\//);
-    expect(session.source?.url).not.toContain("sample.mkv");
+    expect(session.source?.url).not.toContain("sample.mp4");
     expect(mediaServer.registered[0]).toMatchObject({
       sessionId: session.id,
-      title: "sample.mkv"
+      title: "sample.mp4"
     });
-    expect(mediaServer.registered[0]?.filePath.endsWith("sample.mkv")).toBe(true);
+    expect(mediaServer.registered[0]?.filePath.endsWith("sample.mp4")).toBe(true);
 
     const playing = service.updateProgress({
       sessionId: session.id,
@@ -104,6 +104,170 @@ describe("PlaybackService", () => {
     service.stop(session.id);
     expect(service.getSession()).toMatchObject({ status: "stopped" });
     expect(mediaServer.revoked).toEqual([session.id]);
+
+    getAppDatabase().close();
+  });
+
+  it("starts HEVC-marked downloads through a transient FFmpeg transcode URL", async () => {
+    const appRoot = mkdtempSync(join(tmpdir(), "melonbang-playback-transcode-"));
+    process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
+
+    vi.doMock("electron", () => ({
+      app: {
+        getAppPath: () => appRoot
+      }
+    }));
+
+    const { DownloadRepository } = await import("../main/download/downloadRepository");
+    const { getDownloadRootDirectory } = await import("../main/download/downloadService");
+    const { PlaybackService } = await import("../main/playback/playbackService");
+    const { getAppDatabase } = await import("../main/store/appDatabase");
+
+    const repository = new DownloadRepository();
+    const mediaServer = new FakeMediaServer();
+    const createdAt = "2026-06-23T00:00:00.000Z";
+    const downloadId = "33333333-3333-4333-8333-333333333333";
+    const fileId = `${downloadId}:0`;
+    const fileName = "[Group][Title][1080p HEVC].mp4";
+    repository.createSession({
+      id: downloadId,
+      inputKind: "magnet",
+      inputRef: "magnet:?xt=urn:btih:C5PPDMBT7OKFBO4A4MGUK3LLHSDP4BKG",
+      title: fileName,
+      status: "metadata",
+      createdAt,
+      updatedAt: createdAt
+    });
+    repository.replaceFiles(downloadId, [
+      {
+        id: fileId,
+        downloadId,
+        path: fileName,
+        name: fileName,
+        sizeBytes: 1024,
+        mediaKind: "video",
+        priority: 1,
+        progress: 1,
+        createdAt,
+        updatedAt: createdAt
+      }
+    ]);
+    repository.updateSession(downloadId, {
+      status: "completed",
+      progress: 1,
+      downloadedBytes: 1024,
+      totalBytes: 1024,
+      selectedFileId: fileId
+    });
+    mkdirSync(join(getDownloadRootDirectory(), downloadId), { recursive: true });
+    writeFileSync(join(getDownloadRootDirectory(), downloadId, fileName), "video");
+
+    const service = new PlaybackService(repository, mediaServer);
+    const session = await service.startFromDownload({ downloadId });
+
+    expect(session.source).toMatchObject({
+      kind: "hls",
+      url: `http://127.0.0.1/transcode/${session.id}/token/index.m3u8`,
+      mimeType: "application/vnd.apple.mpegurl",
+      title: fileName
+    });
+    expect(mediaServer.transcoded[0]).toMatchObject({
+      sessionId: session.id,
+      title: fileName
+    });
+    expect(mediaServer.registered).toEqual([]);
+
+    getAppDatabase().close();
+  });
+
+  it("binds a Bangumi episode to a downloaded file and persists playback progress", async () => {
+    const appRoot = mkdtempSync(join(tmpdir(), "melonbang-playback-binding-"));
+    process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
+
+    vi.doMock("electron", () => ({
+      app: {
+        getAppPath: () => appRoot
+      }
+    }));
+
+    const { DownloadRepository } = await import("../main/download/downloadRepository");
+    const { getDownloadRootDirectory } = await import("../main/download/downloadService");
+    const { PlaybackService } = await import("../main/playback/playbackService");
+    const { getAppDatabase } = await import("../main/store/appDatabase");
+
+    const repository = new DownloadRepository();
+    const mediaServer = new FakeMediaServer();
+    const createdAt = "2026-06-23T00:00:00.000Z";
+    const downloadId = "44444444-4444-4444-8444-444444444444";
+    const fileId = `${downloadId}:0`;
+    repository.createSession({
+      id: downloadId,
+      inputKind: "magnet",
+      inputRef: "magnet:?xt=urn:btih:C5PPDMBT7OKFBO4A4MGUK3LLHSDP4BKG",
+      title: "episode media",
+      status: "metadata",
+      createdAt,
+      updatedAt: createdAt
+    });
+    repository.replaceFiles(downloadId, [
+      {
+        id: fileId,
+        downloadId,
+        path: "episode-01.mp4",
+        name: "episode-01.mp4",
+        sizeBytes: 1024,
+        mediaKind: "video",
+        priority: 1,
+        progress: 1,
+        createdAt,
+        updatedAt: createdAt
+      }
+    ]);
+    repository.updateSession(downloadId, {
+      status: "completed",
+      selectedFileId: fileId
+    });
+    mkdirSync(join(getDownloadRootDirectory(), downloadId), { recursive: true });
+    writeFileSync(join(getDownloadRootDirectory(), downloadId, "episode-01.mp4"), "video");
+
+    const service = new PlaybackService(repository, mediaServer);
+    const binding = service.bindEpisodeMedia({
+      subjectId: 100,
+      episodeId: 200,
+      downloadId,
+      fileId
+    });
+    expect(binding).toMatchObject({
+      subjectId: 100,
+      episodeId: 200,
+      downloadId,
+      fileId,
+      available: true
+    });
+    expect(service.getEpisodeMediaBinding({ subjectId: 100, episodeId: 200 })).toMatchObject({
+      fileName: "episode-01.mp4"
+    });
+
+    const session = await service.startEpisode({ subjectId: 100, episodeId: 200 });
+    expect(session).toMatchObject({
+      subjectId: 100,
+      episodeId: 200,
+      fileId,
+      status: "ready"
+    });
+
+    service.updateProgress({
+      sessionId: session.id,
+      positionSeconds: 88,
+      durationSeconds: 120,
+      paused: false,
+      ended: false
+    });
+    expect(service.getEpisodeProgress({ subjectId: 100, episodeId: 200 })).toMatchObject({
+      positionSeconds: 88,
+      durationSeconds: 120,
+      completed: false
+    });
 
     getAppDatabase().close();
   });
@@ -193,6 +357,36 @@ describe("LocalMediaServer", () => {
     await server.dispose();
   });
 
+  it("registers transient FFmpeg transcode URLs without exposing source filenames", async () => {
+    const root = mkdtempSync(join(tmpdir(), "melonbang-local-transcode-"));
+    const filePath = join(root, "source-hevc.mp4");
+    writeFileSync(filePath, "video");
+
+    vi.doMock("electron", () => ({
+      app: {
+        getAppPath: () => root
+      }
+    }));
+
+    const { LocalMediaServer } = await import("../main/media/localMediaServer");
+    const server = new LocalMediaServer([root]);
+    const source = await server.registerTranscodedMediaFile({
+      sessionId: "session-1",
+      filePath,
+      title: "source-hevc.mp4"
+    });
+
+    expect(source).toMatchObject({
+      kind: "hls",
+      mimeType: "application/vnd.apple.mpegurl",
+      title: "source-hevc.mp4"
+    });
+    expect(source.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/transcode\/session-1\/[a-f0-9]+\/index\.m3u8$/);
+    expect(source.url).not.toContain("source-hevc.mp4");
+
+    await server.dispose();
+  });
+
   it("refuses to register files outside allowed roots", async () => {
     const root = mkdtempSync(join(tmpdir(), "melonbang-local-media-root-"));
     const outside = mkdtempSync(join(tmpdir(), "melonbang-local-media-outside-"));
@@ -222,6 +416,7 @@ describe("LocalMediaServer", () => {
 
 class FakeMediaServer {
   readonly registered: RegisterLocalMediaInput[] = [];
+  readonly transcoded: RegisterLocalMediaInput[] = [];
   readonly revoked: string[] = [];
 
   registerMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView> {
@@ -229,7 +424,17 @@ class FakeMediaServer {
     return Promise.resolve({
       kind: "file",
       url: `http://127.0.0.1/media/${input.sessionId}/token`,
-      mimeType: "video/x-matroska",
+      mimeType: "video/mp4",
+      title: input.title
+    });
+  }
+
+  registerTranscodedMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView> {
+    this.transcoded.push(input);
+    return Promise.resolve({
+      kind: "hls",
+      url: `http://127.0.0.1/transcode/${input.sessionId}/token/index.m3u8`,
+      mimeType: "application/vnd.apple.mpegurl",
       title: input.title
     });
   }

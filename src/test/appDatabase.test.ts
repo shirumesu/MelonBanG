@@ -60,4 +60,33 @@ describe("appDatabase", () => {
       expect.arrayContaining(["preview_image_url", "preview_source_name", "preview_source_url"])
     );
   });
+
+  it("creates playback binding and progress tables for episode-bound playback", async () => {
+    const appRoot = mkdtempSync(join(tmpdir(), "melonbang-app-root-"));
+
+    vi.doMock("electron", () => ({
+      app: {
+        getAppPath: () => appRoot
+      }
+    }));
+
+    const { getAppDatabase } = await import("../main/store/appDatabase");
+    const database = getAppDatabase();
+    const tables = database
+      .prepare(
+        `
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table' AND name IN ('media_bindings', 'playback_progress')
+        ORDER BY name
+      `
+      )
+      .all() as Array<{ name: string }>;
+    database.close();
+
+    expect(tables.map((table) => table.name)).toEqual([
+      "media_bindings",
+      "playback_progress"
+    ]);
+  });
 });

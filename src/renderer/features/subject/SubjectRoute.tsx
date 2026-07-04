@@ -8,6 +8,8 @@ import type {
   SubjectDetail,
   SubjectStaffCredit
 } from "@shared/contracts/bangumi";
+import type { DownloadFileView, DownloadSnapshot, DownloadTaskView } from "@shared/contracts/download";
+import type { MediaBindingView } from "@shared/contracts/playback";
 import { useAppState } from "@/app/AppStateProvider";
 import { SubjectHero } from "./components/SubjectHero";
 import { SubjectTabs } from "./components/SubjectTabs";
@@ -47,6 +49,7 @@ function SectionTitle({
 }
 
 type DetailDialog = "synopsis" | "characters" | "staff" | null;
+const emptyDownloadSnapshot: DownloadSnapshot = { tasks: [], files: [] };
 
 type CharacterCardModel = {
   id: number;
@@ -77,6 +80,11 @@ export function SubjectRoute() {
   const [epOpen, setEpOpen] = useState(false);
   const [pvOpen, setPvOpen] = useState(false);
   const [detailDialog, setDetailDialog] = useState<DetailDialog>(null);
+  const [selectedMediaEpisodeId, setSelectedMediaEpisodeId] = useState<number | null>(null);
+  const [downloadSnapshot, setDownloadSnapshot] = useState<DownloadSnapshot>(emptyDownloadSnapshot);
+  const [mediaBinding, setMediaBinding] = useState<MediaBindingView | null>(null);
+  const [selectedMediaKey, setSelectedMediaKey] = useState("");
+  const [mediaActionError, setMediaActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!subjectId) {
@@ -143,6 +151,76 @@ export function SubjectRoute() {
       ),
     [activeSubject?.episodes]
   );
+  const selectedMediaEpisode = useMemo(
+    () =>
+      activeSubject?.episodes.find((episode) => episode.episodeId === selectedMediaEpisodeId) ??
+      nextEpisode ??
+      activeSubject?.episodes[0] ??
+      null,
+    [activeSubject?.episodes, nextEpisode, selectedMediaEpisodeId]
+  );
+  const mediaOptions = useMemo(
+    () => buildMediaOptions(downloadSnapshot.tasks, downloadSnapshot.files),
+    [downloadSnapshot.files, downloadSnapshot.tasks]
+  );
+
+  useEffect(() => {
+    if (!epOpen) {
+      return;
+    }
+
+    let ignore = false;
+    const bridge = window.melonbang?.download;
+    if (!bridge) {
+      return;
+    }
+
+    void bridge
+      .list()
+      .then((snapshot) => {
+        if (!ignore) {
+          setDownloadSnapshot(snapshot);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      ignore = true;
+    };
+  }, [epOpen]);
+
+  useEffect(() => {
+    if (!selectedMediaEpisode) {
+      return;
+    }
+
+    let ignore = false;
+    const bridge = window.melonbang?.playback;
+    if (!bridge) {
+      return;
+    }
+
+    void bridge
+      .getEpisodeMediaBinding({
+        subjectId: selectedMediaEpisode.subjectId,
+        episodeId: selectedMediaEpisode.episodeId
+      })
+      .then((binding) => {
+        if (!ignore) {
+          setMediaBinding(binding);
+          setSelectedMediaKey(binding ? `${binding.downloadId}|${binding.fileId}` : "");
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setMediaBinding(null);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [selectedMediaEpisode]);
 
   async function applyCachedSubject(subjectId: number): Promise<void> {
     const cachedSubject = await getCachedSubject(subjectId).catch(() => null);
@@ -192,6 +270,102 @@ export function SubjectRoute() {
     void refreshSubjectFromRemote(subjectId);
   }
 
+  async function continuePlayback(): Promise<void> {
+    const episode = nextEpisode ?? activeSubject?.episodes[0] ?? null;
+    if (!episode) {
+      setEpOpen(true);
+      return;
+    }
+
+    const bridge = window.melonbang?.playback;
+    if (!bridge) {
+      setMediaActionError("播放桥接不可用，请重启应用。");
+      setEpOpen(true);
+      return;
+    }
+
+    try {
+      await bridge.startEpisode({
+        subjectId: episode.subjectId,
+        episodeId: episode.episodeId
+      });
+      void navigate("/player");
+    } catch {
+      setSelectedMediaEpisodeId(episode.episodeId);
+      setEpOpen(true);
+    }
+  }
+
+  async function bindSelectedEpisodeMedia(): Promise<void> {
+    if (!selectedMediaEpisode || !selectedMediaKey) {
+      return;
+    }
+
+    const [downloadId, fileId] = selectedMediaKey.split("|");
+    const bridge = window.melonbang?.playback;
+    if (!bridge) {
+      setMediaActionError("播放桥接不可用，请重启应用。");
+      return;
+    }
+
+    setMediaActionError(null);
+    try {
+      const binding = await bridge.bindEpisodeMedia({
+        subjectId: selectedMediaEpisode.subjectId,
+        episodeId: selectedMediaEpisode.episodeId,
+        downloadId,
+        fileId
+      });
+      setMediaBinding(binding);
+    } catch (error) {
+      setMediaActionError(toMessage(error, "媒体绑定失败。"));
+    }
+  }
+
+  async function playSelectedEpisode(): Promise<void> {
+    if (!selectedMediaEpisode) {
+      return;
+    }
+
+    const bridge = window.melonbang?.playback;
+    if (!bridge) {
+      setMediaActionError("播放桥接不可用，请重启应用。");
+      return;
+    }
+
+    setMediaActionError(null);
+    try {
+      await bridge.startEpisode({
+        subjectId: selectedMediaEpisode.subjectId,
+        episodeId: selectedMediaEpisode.episodeId
+      });
+      void navigate("/player");
+    } catch (error) {
+      setMediaActionError(toMessage(error, "章节播放失败。"));
+    }
+  }
+
+  async function clearSelectedEpisodeBinding(): Promise<void> {
+    if (!mediaBinding) {
+      return;
+    }
+
+    const bridge = window.melonbang?.playback;
+    if (!bridge) {
+      setMediaActionError("播放桥接不可用，请重启应用。");
+      return;
+    }
+
+    setMediaActionError(null);
+    try {
+      await bridge.clearEpisodeMediaBinding({ bindingId: mediaBinding.id });
+      setMediaBinding(null);
+      setSelectedMediaKey("");
+    } catch (error) {
+      setMediaActionError(toMessage(error, "绑定清除失败。"));
+    }
+  }
+
   if (!activeSubject) {
     return (
       <>
@@ -232,6 +406,7 @@ export function SubjectRoute() {
           subject={activeSubject}
           onOpenEpisodes={() => setEpOpen(true)}
           onOpenPv={() => setPvOpen(true)}
+          onContinuePlayback={() => void continuePlayback()}
           onChangeStatus={(status) => void changeStatus(status)}
         />
 
@@ -327,22 +502,95 @@ export function SubjectRoute() {
               <Badge variant="outline">
                 {nextEpisode ? `下一话 EP${nextEpisode.sort}` : "已看完"}
               </Badge>
-              <span className="text-ink-faint text-xs">点击章节可切换看过状态</span>
+              <span className="text-ink-faint text-xs">点击章节选择本地媒体或更新进度</span>
+            </div>
+            <div className="border-line bg-surface-2 mb-3.5 rounded-[14px] border p-3">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <Badge variant="outline">
+                  {selectedMediaEpisode
+                    ? `EP${selectedMediaEpisode.sort} · ${
+                        selectedMediaEpisode.nameCn ?? selectedMediaEpisode.name
+                      }`
+                    : "未选择章节"}
+                </Badge>
+                {mediaBinding ? (
+                  <Badge variant={mediaBinding.available ? "mint" : "outline"}>
+                    {mediaBinding.available ? "已绑定本地媒体" : "绑定文件不可用"}
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={selectedMediaKey}
+                  onChange={(event) => setSelectedMediaKey(event.target.value)}
+                  className="border-line bg-surface text-ink min-w-[260px] flex-1 rounded-full border px-3 py-2 text-[12px] font-semibold outline-none"
+                >
+                  <option value="">选择已完成缓存视频</option>
+                  {mediaOptions.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!selectedMediaEpisode || !selectedMediaKey}
+                  onClick={() => void bindSelectedEpisodeMedia()}
+                >
+                  绑定
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!selectedMediaEpisode || !mediaBinding?.available}
+                  onClick={() => void playSelectedEpisode()}
+                >
+                  <Play className="size-4 fill-current" />
+                  播放
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!selectedMediaEpisode}
+                  onClick={() => selectedMediaEpisode && void toggleEpisode(selectedMediaEpisode)}
+                >
+                  {selectedMediaEpisode?.status === "watched" ? "标为未看" : "标为看过"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!mediaBinding}
+                  onClick={() => void clearSelectedEpisodeBinding()}
+                >
+                  清除绑定
+                </Button>
+              </div>
+              {mediaActionError ? (
+                <div className="text-cherry-500 mt-2 text-[12px] font-bold">{mediaActionError}</div>
+              ) : null}
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(58px,1fr))] gap-[9px]">
               {activeSubject.episodes.map((episode) => (
                 <button
                   key={episode.episodeId}
                   type="button"
-                  onClick={() => void toggleEpisode(episode)}
+                  onClick={() => {
+                    setSelectedMediaEpisodeId(episode.episodeId);
+                    setMediaActionError(null);
+                  }}
                   className={cn(
                     "relative grid aspect-square place-items-center rounded-[11px] border text-[15px] font-extrabold transition",
+                    episode.episodeId === selectedMediaEpisode?.episodeId &&
+                      "text-on-accent border-transparent bg-[linear-gradient(135deg,var(--mint-400),var(--mint-300))] shadow-[0_6px_14px_rgba(34,179,136,.3)]",
                     episode.episodeId === nextEpisode?.episodeId &&
+                      episode.episodeId !== selectedMediaEpisode?.episodeId &&
                       "text-on-accent border-transparent bg-[linear-gradient(135deg,var(--mint-400),var(--mint-300))] shadow-[0_6px_14px_rgba(34,179,136,.3)]",
                     episode.status === "watched" &&
+                      episode.episodeId !== selectedMediaEpisode?.episodeId &&
                       episode.episodeId !== nextEpisode?.episodeId &&
                       "border-mint-200 bg-mint-50 text-mint-600",
                     episode.status !== "watched" &&
+                      episode.episodeId !== selectedMediaEpisode?.episodeId &&
                       episode.episodeId !== nextEpisode?.episodeId &&
                       "border-line bg-surface text-ink-soft hover:border-mint-300 hover:text-mint-600 hover:-translate-y-0.5"
                   )}
@@ -492,6 +740,33 @@ function splitSynopsis(summary: string | undefined): string[] {
     .split(/\n{2,}|\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+function buildMediaOptions(
+  tasks: DownloadTaskView[],
+  files: DownloadFileView[]
+): Array<{ key: string; label: string }> {
+  const completedTasks = new Map(
+    tasks.filter((task) => task.status === "completed").map((task) => [task.id, task])
+  );
+
+  return files
+    .filter((file) => file.mediaKind === "video" && completedTasks.has(file.downloadId))
+    .map((file) => {
+      const task = completedTasks.get(file.downloadId);
+      const priority = task?.selectedFileId === file.id ? "默认" : "视频";
+      return {
+        key: `${file.downloadId}|${file.id}`,
+        label: `${priority} · ${file.name || task?.title || file.id}`
+      };
+    });
+}
+
+function toMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    return error.message || fallback;
+  }
+  return fallback;
 }
 
 function previewSynopsis(paragraphs: string[], maxLength: number): string[] {

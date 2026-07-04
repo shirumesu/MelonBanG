@@ -130,6 +130,27 @@ export function getAppDatabase(): DatabaseSync {
       updated_at TEXT NOT NULL
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS media_bindings (
+      id TEXT PRIMARY KEY,
+      subject_id INTEGER NOT NULL,
+      episode_id INTEGER NOT NULL,
+      download_id TEXT NOT NULL,
+      file_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(subject_id, episode_id)
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS playback_progress (
+      subject_id INTEGER NOT NULL,
+      episode_id INTEGER NOT NULL,
+      position_seconds REAL NOT NULL DEFAULT 0,
+      duration_seconds REAL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(subject_id, episode_id)
+    ) STRICT;
+
     CREATE UNIQUE INDEX IF NOT EXISTS mutation_queue_pending_key
       ON mutation_queue (mutation_key)
       WHERE state IN ('pending', 'retry');
@@ -151,6 +172,9 @@ export function getAppDatabase(): DatabaseSync {
 
     CREATE INDEX IF NOT EXISTS download_files_download_priority
       ON download_files (download_id, priority DESC, id);
+
+    CREATE INDEX IF NOT EXISTS media_bindings_download_file
+      ON media_bindings (download_id, file_id);
   `);
 
   ensureColumn(database, "subject_collections", "ep_status", "INTEGER NOT NULL DEFAULT 0");

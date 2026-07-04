@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import type { ButtonHTMLAttributes, ReactNode, SyntheticEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ButtonHTMLAttributes, MouseEvent, ReactNode, SyntheticEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
@@ -12,7 +12,11 @@ import {
   SkipForward,
   Volume2
 } from "lucide-react";
-import type { PlaybackSessionView } from "@shared/contracts/playback";
+import type {
+  DanmakuItemView,
+  PlaybackSessionView,
+  SubtitleTrackView
+} from "@shared/contracts/playback";
 import {
   DANMAKU_COLORS,
   DANMAKU_MESSAGES,
@@ -30,8 +34,27 @@ import { cn } from "@/lib/utils";
 type RightPanel = "episodes" | "settings";
 type DanmakuArea = "quarter" | "half" | "full";
 type SendMode = "scroll" | "top" | "bottom";
+type OverlayDanmakuMessage = Pick<DanmakuItemView, "text" | "color" | "mode">;
 
 const colorChoices = ["#fff", "#ffd56b", "#ff9eb5", "#86c5ff", "#9be7c4", "#c8a8f0"];
+
+type HlsInstance = {
+  on(event: string, listener: (event: string, data: unknown) => void): void;
+  once(event: string, listener: (event: string, data: unknown) => void): void;
+  loadSource(url: string): void;
+  attachMedia(video: HTMLVideoElement): void;
+  destroy(): void;
+};
+
+type HlsConstructor = {
+  Events: {
+    ERROR: string;
+    MANIFEST_PARSED: string;
+    MEDIA_ATTACHED: string;
+  };
+  isSupported(): boolean;
+  new (): HlsInstance;
+};
 
 function PlayerIconButton({
   active,
@@ -173,6 +196,7 @@ function Segmented<T extends string>({
 
 export function PlayerRoute() {
   const navigate = useNavigate();
+  const playerAreaRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const lastProgressReportRef = useRef(0);
   const [session, setSession] = useState<PlaybackSessionView | null>(null);
@@ -183,12 +207,25 @@ export function PlayerRoute() {
   const [speedIndex, setSpeedIndex] = useState(2);
   const [selectedEpisode, setSelectedEpisode] = useState(7);
   const [danmakuText, setDanmakuText] = useState("");
+  const [localDanmaku, setLocalDanmaku] = useState<OverlayDanmakuMessage[]>([]);
   const [showDanmaku, setShowDanmaku] = useState(true);
   const [danmakuArea, setDanmakuArea] = useState<DanmakuArea>("half");
   const [sendMode, setSendMode] = useState<SendMode>("scroll");
   const [selectedColor, setSelectedColor] = useState(colorChoices[0]);
   const [blockedTypes, setBlockedTypes] = useState(new Set(["top", "bottom"]));
-  const sourceUrl = session?.source?.url;
+  const [selectedSubtitleId, setSelectedSubtitleId] = useState("auto");
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState<number | null>(null);
+  const [volume, setVolume] = useState(0.64);
+  const [danmakuOpacity, setDanmakuOpacity] = useState(80);
+  const [danmakuFontSize, setDanmakuFontSize] = useState(18);
+  const [danmakuSpeed, setDanmakuSpeed] = useState(6);
+  const [danmakuDensity, setDanmakuDensity] = useState(7);
+  const source = session?.source ?? null;
+  const sourceKind = source?.kind;
+  const sourceUrl = source?.url;
+  const subtitleTracks = useMemo(() => nativeSubtitleTracks(session), [session]);
+  const activeSubtitleId = resolveSubtitleId(subtitleTracks, selectedSubtitleId);
 
   useEffect(() => {
     const bridge = window.melonbang?.playback;
@@ -220,21 +257,165 @@ export function PlayerRoute() {
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !sourceUrl) {
+    if (!video || !sourceKind || !sourceUrl) {
       return;
     }
 
+    let cancelled = false;
+    let hls: HlsInstance | null = null;
     setPlaybackError(null);
     lastProgressReportRef.current = 0;
 
-    void video
-      .play()
-      .then(() => setPlaying(true))
-      .catch(() => setPlaying(false));
-  }, [sourceUrl]);
+    const play = (): void => {
+      if (cancelled) {
+        return;
+      }
+
+      void video
+        .play()
+        .then(() => setPlaying(true))
+        .catch((error: unknown) => {
+          if (!cancelled) {
+            setPlaying(false);
+            setPlaybackError(toPlaybackErrorMessage(video, error));
+          }
+        });
+    };
+
+    const playDirect = (): void => {
+      video.src = sourceUrl;
+      play();
+    };
+
+    if (sourceKind === "hls") {
+      void import("hls.js")
+        .then(({ default: Hls }) => {
+          if (cancelled) {
+            return;
+          }
+
+          const HlsRuntime = Hls as HlsConstructor;
+          if (!HlsRuntime.isSupported()) {
+            if (canPlayHlsNatively(video)) {
+              playDirect();
+              return;
+            }
+
+            setPlaying(false);
+            setPlaybackError("当前 Electron/Chromium 环境不支持 HLS 播放，HLS.js 也无法初始化。");
+            return;
+          }
+
+          hls = new HlsRuntime();
+          hls.once(HlsRuntime.Events.MEDIA_ATTACHED, () => {
+            if (!cancelled) {
+              hls?.loadSource(sourceUrl);
+            }
+          });
+          hls.once(HlsRuntime.Events.MANIFEST_PARSED, () => {
+            play();
+          });
+          hls.on(HlsRuntime.Events.ERROR, (_event, data) => {
+            if (cancelled) {
+              return;
+            }
+
+            const error = normalizeHlsError(data);
+            if (error.fatal) {
+              setPlaying(false);
+              setPlaybackError(error.message);
+            }
+          });
+          hls.attachMedia(video);
+        })
+        .catch((error: unknown) => {
+          if (!cancelled) {
+            if (canPlayHlsNatively(video)) {
+              playDirect();
+              return;
+            }
+
+            setPlaying(false);
+            setPlaybackError(toPlaybackErrorMessage(video, error));
+          }
+        });
+    } else {
+      playDirect();
+    }
+
+    return () => {
+      cancelled = true;
+      hls?.destroy();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [sourceKind, sourceUrl]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+
+    video.volume = volume;
+  }, [volume]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+
+    video.playbackRate = speedValue(SPEEDS[speedIndex]);
+  }, [speedIndex]);
+
+  useEffect(() => {
+    applySubtitleMode(videoRef.current, subtitleTracks, activeSubtitleId);
+  }, [activeSubtitleId, subtitleTracks]);
 
   function cycleSpeed(): void {
     setSpeedIndex((value) => (value + 1) % SPEEDS.length);
+  }
+
+  function cycleSubtitle(): void {
+    if (!subtitleTracks.length) {
+      setSelectedSubtitleId("off");
+      return;
+    }
+
+    setSelectedSubtitleId((current) => {
+      const options = ["off", ...subtitleTracks.map((track) => track.id)];
+      const currentIndex = Math.max(0, options.indexOf(resolveSubtitleId(subtitleTracks, current)));
+      return options[(currentIndex + 1) % options.length];
+    });
+  }
+
+  function seekFromPointer(event: MouseEvent<HTMLDivElement>): void {
+    const video = videoRef.current;
+    const activeDuration = duration ?? video?.duration ?? null;
+    if (!video || !activeDuration || !Number.isFinite(activeDuration)) {
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    video.currentTime = ratio * activeDuration;
+    setCurrentTime(video.currentTime);
+    reportVideoProgress(video);
+  }
+
+  function toggleFullscreen(): void {
+    const target = playerAreaRef.current;
+    if (!target) {
+      return;
+    }
+
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+
+    void target.requestFullscreen();
   }
 
   function toggleBlocked(type: string): void {
@@ -266,18 +447,44 @@ export function PlayerRoute() {
     }
   }
 
+  function sendDanmaku(): void {
+    const text = danmakuText.trim().slice(0, 28);
+    if (!text) {
+      return;
+    }
+
+    setLocalDanmaku((items) => [
+      ...items,
+      {
+        text,
+        mode: sendMode,
+        color: selectedColor
+      }
+    ]);
+    setDanmakuText("");
+  }
+
   function handleVideoProgress(event: SyntheticEvent<HTMLVideoElement>): void {
+    setCurrentTime(finiteOrZero(event.currentTarget.currentTime));
+    setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : null);
     reportVideoProgress(event.currentTarget);
   }
 
   function handleVideoLoadedMetadata(event: SyntheticEvent<HTMLVideoElement>): void {
     setPlaybackError(null);
+    setCurrentTime(finiteOrZero(event.currentTarget.currentTime));
+    setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : null);
+    applySubtitleMode(event.currentTarget, subtitleTracks, activeSubtitleId);
     reportVideoProgress(event.currentTarget);
   }
 
   function handleVideoError(event: SyntheticEvent<HTMLVideoElement>): void {
     const video = event.currentTarget;
     setPlaying(false);
+    if (source?.kind === "hls") {
+      setPlaybackError((message) => message ?? "HLS 转码流加载失败，播放器没有收到可用的视频片段。");
+      return;
+    }
     setPlaybackError(toPlaybackErrorMessage(video));
   }
 
@@ -309,15 +516,23 @@ export function PlayerRoute() {
       .catch(() => undefined);
   }
 
-  const source = session?.source ?? null;
+  const overlayDanmaku = getOverlayDanmaku(session, localDanmaku);
+  const visibleDanmaku = filterDanmaku(overlayDanmaku, blockedTypes, danmakuDensity);
+  const progressDuration = duration ?? session?.durationSeconds ?? null;
+  const progressPosition = currentTime || session?.positionSeconds || 0;
+  const progressRatio =
+    progressDuration && progressDuration > 0
+      ? Math.min(1, Math.max(0, progressPosition / progressDuration))
+      : 0;
   const displayedTitle = session?.title ?? NOW_PLAYING.title;
   const displayedEpisode = session ? "本地播放" : `${NOW_PLAYING.ep}「${NOW_PLAYING.epTitle}」`;
   const displayedSource = source
     ? `来源：本地缓存 · ${source.mimeType ?? "HTMLVideoElement"}`
     : NOW_PLAYING.source;
   const displayedTime = session
-    ? formatClock(session.positionSeconds, session.durationSeconds)
+    ? formatClock(progressPosition, progressDuration)
     : NOW_PLAYING.time;
+  const subtitleLabel = selectedSubtitleLabel(subtitleTracks, activeSubtitleId);
   const mainIcon = playing ? (
     <Pause className="size-8 fill-current" />
   ) : (
@@ -333,7 +548,10 @@ export function PlayerRoute() {
     <WindowFrame crumb="正在播放">
       <div className="grid h-full min-h-0 grid-cols-[1fr_344px] max-[1080px]:grid-cols-1">
         <section className="flex min-w-0 flex-col bg-[var(--player-bg)]">
-          <div className="relative min-h-0 flex-1 overflow-hidden bg-[radial-gradient(120%_100%_at_70%_20%,rgba(22,64,74,.6),var(--player-bg)_70%)]">
+          <div
+            ref={playerAreaRef}
+            className="relative min-h-0 flex-1 overflow-hidden bg-[radial-gradient(120%_100%_at_70%_20%,rgba(22,64,74,.6),var(--player-bg)_70%)]"
+          >
             <div
               className={cn(
                 "absolute inset-0 bg-[linear-gradient(135deg,var(--mint-600),var(--sky-500))] opacity-[.18]",
@@ -343,9 +561,8 @@ export function PlayerRoute() {
 
             {source ? (
               <video
-                key={source.url}
+                key={sourceUrl}
                 ref={videoRef}
-                src={source.url}
                 className="absolute inset-0 z-[1] size-full bg-black object-contain"
                 playsInline
                 onPlay={() => setPlaying(true)}
@@ -360,7 +577,18 @@ export function PlayerRoute() {
                 onSeeked={handleVideoProgress}
                 onEnded={handleVideoProgress}
                 onError={handleVideoError}
-              />
+              >
+                {nativeSubtitleTracks(session).map((track) => (
+                  <track
+                    key={track.id}
+                    kind="subtitles"
+                    src={track.url ?? undefined}
+                    srcLang={track.language ?? undefined}
+                    label={track.label}
+                    default={track.default}
+                  />
+                ))}
+              </video>
             ) : null}
 
             <div
@@ -368,19 +596,20 @@ export function PlayerRoute() {
                 "pointer-events-none absolute inset-0 z-[4] overflow-hidden transition-opacity",
                 danmakuEnabled && showDanmaku ? "opacity-100" : "opacity-0"
               )}
+              style={{ opacity: danmakuEnabled && showDanmaku ? danmakuOpacity / 100 : 0 }}
             >
-              {DANMAKU_MESSAGES.map((message, i) => (
+              {visibleDanmaku.map((message, i) => (
                 <span
-                  key={`${message}-${i}`}
+                  key={`${message.text}-${i}`}
                   className="absolute text-[18px] font-bold whitespace-nowrap text-white will-change-transform [text-shadow:0_1px_4px_rgba(0,0,0,.6)]"
                   style={{
-                    top: `${6 + ((i * 37) % 52)}%`,
-                    color: DANMAKU_COLORS[i % DANMAKU_COLORS.length],
-                    fontSize: `${15 + (i % 4) * 2}px`,
-                    animation: `danmaku-fly ${7 + (i % 5)}s linear ${i * 0.55}s infinite`
+                    top: `${getDanmakuTop(message.mode, i, danmakuArea)}%`,
+                    color: message.color ?? DANMAKU_COLORS[i % DANMAKU_COLORS.length],
+                    fontSize: `${danmakuFontSize + (i % 3)}px`,
+                    animation: `danmaku-fly ${danmakuDurationSeconds(danmakuSpeed, i)}s linear ${i * 0.55}s infinite`
                   }}
                 >
-                  {message}
+                  {message.text}
                 </span>
               ))}
             </div>
@@ -421,18 +650,32 @@ export function PlayerRoute() {
 
             {playbackError ? (
               <div className="absolute right-6 bottom-6 left-6 z-[9] rounded-xl border border-white/[0.18] bg-black/70 px-4 py-3 text-white shadow-[0_16px_36px_rgba(0,0,0,.35)] backdrop-blur-md">
-                <div className="text-sm font-extrabold">当前文件无法直接播放</div>
+                <div className="text-sm font-extrabold">
+                  {source?.kind === "hls" ? "转码播放失败" : "当前文件无法直接播放"}
+                </div>
                 <div className="mt-1 text-[12px] leading-5 text-white/75">{playbackError}</div>
               </div>
             ) : null}
           </div>
 
           <div className="border-t border-[var(--player-border)] bg-[var(--player-surface)] px-4 pt-2.5 pb-3.5 text-white">
-            <div className="mb-2.5 h-[5px] cursor-pointer rounded-full bg-white/20">
+            <div
+              className="mb-2.5 h-[5px] cursor-pointer rounded-full bg-white/20"
+              onClick={seekFromPointer}
+            >
               <div className="relative h-full rounded-full">
-                <div className="absolute top-0 bottom-0 left-0 w-[54%] rounded-full bg-white/[0.3]" />
-                <div className="absolute top-0 bottom-0 left-0 w-[42%] rounded-full bg-[linear-gradient(90deg,var(--mint-400),var(--mint-300))]" />
-                <div className="absolute top-1/2 left-[42%] size-[13px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,.4)]" />
+                <div
+                  className="absolute top-0 bottom-0 left-0 rounded-full bg-white/[0.3]"
+                  style={{ width: `${Math.max(progressRatio * 100, 0)}%` }}
+                />
+                <div
+                  className="absolute top-0 bottom-0 left-0 rounded-full bg-[linear-gradient(90deg,var(--mint-400),var(--mint-300))]"
+                  style={{ width: `${Math.max(progressRatio * 100, 0)}%` }}
+                />
+                <div
+                  className="absolute top-1/2 size-[13px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,.4)]"
+                  style={{ left: `${Math.max(progressRatio * 100, 0)}%` }}
+                />
               </div>
             </div>
 
@@ -448,7 +691,16 @@ export function PlayerRoute() {
                 <PlayerIconButton title="音量">
                   <Volume2 className="size-5" />
                 </PlayerIconButton>
-                <div className="relative h-1 w-[60px] flex-none rounded-full bg-white/[0.25] after:absolute after:inset-y-0 after:left-0 after:w-[64%] after:rounded-full after:bg-white" />
+                <input
+                  aria-label="音量"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={volume}
+                  onChange={(event) => setVolume(Number(event.target.value))}
+                  className="w-[60px] flex-none accent-white"
+                />
                 <span className="font-semibold whitespace-nowrap text-white/90 tabular-nums">
                   {displayedTime}
                 </span>
@@ -474,7 +726,7 @@ export function PlayerRoute() {
                     {Math.max(0, 28 - danmakuText.length)}
                   </span>
                 </div>
-                <Button size="sm">
+                <Button size="sm" onClick={sendDanmaku} disabled={!danmakuText.trim()}>
                   <Send className="size-4" />
                   发送
                 </Button>
@@ -482,9 +734,10 @@ export function PlayerRoute() {
 
               <div className="flex flex-none items-center gap-2.5">
                 <PlayerPop>1080P</PlayerPop>
+                <PlayerPop onClick={cycleSubtitle}>{subtitleLabel}</PlayerPop>
                 <PlayerPop onClick={() => setPanel("episodes")}>选集</PlayerPop>
                 <PlayerPop onClick={cycleSpeed}>{SPEEDS[speedIndex]}</PlayerPop>
-                <PlayerIconButton title="全屏">
+                <PlayerIconButton title="全屏" onClick={toggleFullscreen}>
                   <Expand className="size-[18px]" />
                 </PlayerIconButton>
               </div>
@@ -540,7 +793,14 @@ export function PlayerRoute() {
                   <Switch checked={showDanmaku} onCheckedChange={setShowDanmaku} />
                 </SettingRow>
                 <SettingRow title="弹幕透明度">
-                  <input type="range" min="10" max="100" defaultValue="80" className="w-[120px]" />
+                  <input
+                    type="range"
+                    min="10"
+                    max="100"
+                    value={danmakuOpacity}
+                    onChange={(event) => setDanmakuOpacity(Number(event.target.value))}
+                    className="w-[120px]"
+                  />
                 </SettingRow>
                 <SettingRow title="显示区域">
                   <Segmented<DanmakuArea>
@@ -554,14 +814,60 @@ export function PlayerRoute() {
                   />
                 </SettingRow>
                 <SettingRow title="字体大小">
-                  <input type="range" min="12" max="36" defaultValue="18" className="w-[120px]" />
+                  <input
+                    type="range"
+                    min="12"
+                    max="36"
+                    value={danmakuFontSize}
+                    onChange={(event) => setDanmakuFontSize(Number(event.target.value))}
+                    className="w-[120px]"
+                  />
                 </SettingRow>
                 <SettingRow title="弹幕速度">
-                  <input type="range" min="1" max="10" defaultValue="6" className="w-[120px]" />
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={danmakuSpeed}
+                    onChange={(event) => setDanmakuSpeed(Number(event.target.value))}
+                    className="w-[120px]"
+                  />
                 </SettingRow>
                 <SettingRow title="弹幕密度">
-                  <input type="range" min="1" max="10" defaultValue="7" className="w-[120px]" />
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={danmakuDensity}
+                    onChange={(event) => setDanmakuDensity(Number(event.target.value))}
+                    className="w-[120px]"
+                  />
                 </SettingRow>
+
+                <div className="bg-line my-[18px] h-px" />
+                <div className="text-ink-faint mb-2 text-xs font-bold">字幕</div>
+                <SettingRow title="字幕轨道">
+                  <Segmented<string>
+                    value={activeSubtitleId}
+                    onChange={setSelectedSubtitleId}
+                    options={[
+                      { value: "off", label: "关闭" },
+                      ...subtitleTracks.slice(0, 3).map((track) => ({
+                        value: track.id,
+                        label: shortLabel(track.label)
+                      }))
+                    ]}
+                  />
+                </SettingRow>
+                {(session?.subtitles ?? []).some((track) => track.errorMessage) ? (
+                  <div className="text-ink-faint text-[11px] leading-5">
+                    {(session?.subtitles ?? [])
+                      .filter((track) => track.errorMessage)
+                      .slice(0, 2)
+                      .map((track) => `${track.label}: ${track.errorMessage}`)
+                      .join(" / ")}
+                  </div>
+                ) : null}
 
                 <div className="bg-line my-[18px] h-px" />
                 <div className="text-ink-faint mb-2 text-xs font-bold">发送偏好</div>
@@ -632,6 +938,146 @@ export function PlayerRoute() {
       </div>
     </WindowFrame>
   );
+}
+
+function getOverlayDanmaku(
+  session: PlaybackSessionView | null,
+  localDanmaku: OverlayDanmakuMessage[]
+): OverlayDanmakuMessage[] {
+  const sessionDanmaku = session?.danmaku ?? [];
+  if (sessionDanmaku.length || localDanmaku.length) {
+    return [...sessionDanmaku, ...localDanmaku];
+  }
+
+  return DANMAKU_MESSAGES.map((text, index) => ({
+    text,
+    mode: "scroll",
+    color: DANMAKU_COLORS[index % DANMAKU_COLORS.length]
+  }));
+}
+
+function filterDanmaku(
+  messages: OverlayDanmakuMessage[],
+  blockedTypes: Set<string>,
+  density: number
+): OverlayDanmakuMessage[] {
+  const limit = Math.max(1, Math.round((density / 10) * 36));
+  return messages
+    .filter((message) => !blockedTypes.has(message.mode))
+    .filter((message) => !(blockedTypes.has("color") && message.color && message.color !== "#fff"))
+    .slice(0, limit);
+}
+
+function getDanmakuTop(
+  mode: DanmakuItemView["mode"],
+  index: number,
+  area: DanmakuArea
+): number {
+  const areaMax = area === "quarter" ? 24 : area === "half" ? 52 : 82;
+  if (mode === "top") {
+    return 8 + (index % 4) * 7;
+  }
+  if (mode === "bottom") {
+    return Math.max(8, areaMax - 12 - (index % 3) * 7);
+  }
+  return 6 + ((index * 37) % Math.max(12, areaMax - 10));
+}
+
+function danmakuDurationSeconds(speed: number, index: number): number {
+  return Math.max(3, 12 - speed + (index % 3));
+}
+
+function nativeSubtitleTracks(session: PlaybackSessionView | null): SubtitleTrackView[] {
+  return (session?.subtitles ?? []).filter(
+    (track) => track.renderMode === "native-vtt" && Boolean(track.url)
+  );
+}
+
+function applySubtitleMode(
+  video: HTMLVideoElement | null,
+  tracks: SubtitleTrackView[],
+  selectedSubtitleId: string
+): void {
+  if (!video) {
+    return;
+  }
+
+  const textTracks = Array.from(video.textTracks);
+  textTracks.forEach((track, index) => {
+    const sourceTrack = tracks[index];
+    track.mode =
+      sourceTrack && sourceTrack.id === selectedSubtitleId && selectedSubtitleId !== "off"
+        ? "showing"
+        : "disabled";
+  });
+}
+
+function selectedSubtitleLabel(tracks: SubtitleTrackView[], selectedSubtitleId: string): string {
+  if (!tracks.length) {
+    return "字幕";
+  }
+  if (selectedSubtitleId === "off") {
+    return "字幕关";
+  }
+  return shortLabel(tracks.find((track) => track.id === selectedSubtitleId)?.label ?? "字幕");
+}
+
+function resolveSubtitleId(tracks: SubtitleTrackView[], selectedSubtitleId: string): string {
+  if (!tracks.length || selectedSubtitleId === "off") {
+    return "off";
+  }
+  if (selectedSubtitleId !== "auto" && tracks.some((track) => track.id === selectedSubtitleId)) {
+    return selectedSubtitleId;
+  }
+  return tracks.find((track) => track.default)?.id ?? tracks[0].id;
+}
+
+function shortLabel(value: string): string {
+  return value.length > 8 ? `${value.slice(0, 8)}…` : value;
+}
+
+function speedValue(label: string): number {
+  const parsed = Number(label.replace("x", ""));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function canPlayHlsNatively(video: HTMLVideoElement): boolean {
+  return Boolean(
+    video.canPlayType("application/vnd.apple.mpegurl") ||
+      video.canPlayType("application/x-mpegURL")
+  );
+}
+
+function normalizeHlsError(data: unknown): { fatal: boolean; message: string } {
+  if (!data || typeof data !== "object") {
+    return {
+      fatal: true,
+      message: "HLS 转码流加载失败。"
+    };
+  }
+
+  const errorData = data as {
+    fatal?: boolean;
+    type?: string;
+    details?: string;
+    error?: { message?: string };
+    reason?: string;
+    response?: { code?: number; text?: string };
+  };
+  const details = [errorData.details, errorData.reason, errorData.error?.message]
+    .filter(Boolean)
+    .join("：");
+  const response =
+    errorData.response?.code || errorData.response?.text
+      ? `HTTP ${errorData.response.code ?? ""} ${errorData.response.text ?? ""}`.trim()
+      : null;
+
+  return {
+    fatal: Boolean(errorData.fatal),
+    message:
+      [details || errorData.type, response].filter(Boolean).join("；") ||
+      "HLS 转码流加载失败。"
+  };
 }
 
 function finiteOrZero(value: number): number {

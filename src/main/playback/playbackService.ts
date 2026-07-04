@@ -1,21 +1,30 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { extname, isAbsolute, relative, resolve } from "node:path";
 import type {
+  BindEpisodeMediaInput,
+  ClearEpisodeMediaBindingInput,
+  EpisodeMediaBindingInput,
+  MediaBindingView,
   PlaybackProgressInput,
+  PlaybackProgressSnapshot,
   PlaybackSessionView,
   PlaybackSourceView,
+  StartEpisodePlaybackInput,
   StartPlaybackFromDownloadInput
 } from "../../shared/contracts/playback";
 import { DownloadRepository } from "../download/downloadRepository";
 import { getDownloadRootDirectory } from "../download/downloadService";
 import { getLocalMediaServer, type RegisterLocalMediaInput } from "../media/localMediaServer";
+import { SubtitleService } from "../subtitle/subtitleService";
+import { PlaybackRepository } from "./playbackRepository";
 
 type PlaybackEventName = "session";
 
 type LocalMediaServerLike = {
   registerMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView>;
+  registerTranscodedMediaFile?(input: RegisterLocalMediaInput): Promise<PlaybackSourceView>;
   revokeSession(sessionId: string): void;
 };
 
@@ -32,7 +41,9 @@ export class PlaybackService {
 
   constructor(
     private readonly repository = new DownloadRepository(),
-    private readonly mediaServer: LocalMediaServerLike = getLocalMediaServer()
+    private readonly mediaServer: LocalMediaServerLike = getLocalMediaServer(),
+    private readonly subtitleService = new SubtitleService(mediaServer),
+    private readonly playbackRepository = new PlaybackRepository()
   ) {}
 
   onSession(callback: (session: PlaybackSessionView | null) => void): () => void {
@@ -43,6 +54,68 @@ export class PlaybackService {
 
   async startFromDownload(input: StartPlaybackFromDownloadInput): Promise<PlaybackSessionView> {
     const media = this.resolveDownloadMedia(input);
+    return this.startPlaybackSession(media, {
+      downloadId: input.downloadId,
+      subjectId: null,
+      episodeId: null
+    });
+  }
+
+  bindEpisodeMedia(input: BindEpisodeMediaInput): MediaBindingView {
+    const media = this.resolveDownloadMedia(input);
+    const now = new Date().toISOString();
+    return this.playbackRepository.saveMediaBinding({
+      id: randomUUID(),
+      subjectId: input.subjectId,
+      episodeId: input.episodeId,
+      downloadId: input.downloadId,
+      fileId: media.fileId,
+      createdAt: now,
+      updatedAt: now
+    });
+  }
+
+  getEpisodeMediaBinding(input: EpisodeMediaBindingInput): MediaBindingView | null {
+    return this.playbackRepository.getMediaBinding(input.subjectId, input.episodeId);
+  }
+
+  clearEpisodeMediaBinding(input: ClearEpisodeMediaBindingInput): void {
+    this.playbackRepository.clearMediaBinding(input.bindingId);
+  }
+
+  async startEpisode(input: StartEpisodePlaybackInput): Promise<PlaybackSessionView> {
+    const binding = this.playbackRepository.getMediaBinding(input.subjectId, input.episodeId);
+    if (!binding) {
+      throw new Error("当前章节还没有绑定本地媒体文件。");
+    }
+
+    const media = this.resolveDownloadMedia({
+      downloadId: binding.downloadId,
+      fileId: binding.fileId
+    });
+    return this.startPlaybackSession(media, {
+      downloadId: binding.downloadId,
+      subjectId: input.subjectId,
+      episodeId: input.episodeId
+    });
+  }
+
+  getEpisodeProgress(input: EpisodeMediaBindingInput): PlaybackProgressSnapshot | null {
+    return this.playbackRepository.getProgress(input.subjectId, input.episodeId);
+  }
+
+  private async startPlaybackSession(
+    media: {
+      path: string;
+      title: string;
+      fileId: string;
+    },
+    context: {
+      downloadId: string;
+      subjectId: number | null;
+      episodeId: number | null;
+    }
+  ): Promise<PlaybackSessionView> {
     if (this.session) {
       this.mediaServer.revokeSession(this.session.id);
     }
@@ -51,8 +124,10 @@ export class PlaybackService {
     const now = new Date().toISOString();
     this.session = {
       id: sessionId,
-      downloadId: input.downloadId,
+      downloadId: context.downloadId,
       fileId: media.fileId,
+      subjectId: context.subjectId,
+      episodeId: context.episodeId,
       title: media.title,
       status: "preparing",
       source: null,
@@ -67,14 +142,23 @@ export class PlaybackService {
     this.emitSession();
 
     try {
-      const source = await this.mediaServer.registerMediaFile({
+      const sourceInput = {
         sessionId,
         filePath: media.path,
         title: media.title
+      };
+      const source =
+        shouldTranscodeForWeb(media.path, media.title) && this.mediaServer.registerTranscodedMediaFile
+          ? await this.mediaServer.registerTranscodedMediaFile(sourceInput)
+          : await this.mediaServer.registerMediaFile(sourceInput);
+      const subtitles = await this.subtitleService.prepareSubtitles({
+        sessionId,
+        mediaPath: media.path
       });
       this.updateSession({
         status: "ready",
         source,
+        subtitles,
         errorMessage: null
       });
       return this.requireSession(sessionId);
@@ -105,7 +189,23 @@ export class PlaybackService {
         input.durationSeconds && input.durationSeconds > 0 ? input.durationSeconds : null
     });
 
-    return this.requireSession(input.sessionId);
+    const nextSession = this.requireSession(input.sessionId);
+    if (nextSession.subjectId !== null && nextSession.episodeId !== null) {
+      try {
+        this.playbackRepository.saveProgress({
+          subjectId: nextSession.subjectId,
+          episodeId: nextSession.episodeId,
+          positionSeconds: nextSession.positionSeconds,
+          durationSeconds: nextSession.durationSeconds,
+          completed: input.ended,
+          updatedAt: nextSession.updatedAt
+        });
+      } catch {
+        // Playback should continue even when local progress persistence is unavailable.
+      }
+    }
+
+    return nextSession;
   }
 
   stop(sessionId: string): void {
@@ -200,4 +300,13 @@ function toRendererSafeError(error: unknown): string {
   }
 
   return "播放请求失败。";
+}
+
+function shouldTranscodeForWeb(filePath: string, title: string): boolean {
+  const extension = extname(filePath).toLowerCase();
+  if (extension === ".mkv" || extension === ".avi" || extension === ".flv" || extension === ".wmv") {
+    return true;
+  }
+
+  return /\b(hevc|h\.?265|x265|10bit|hi10p|av1)\b/i.test(title);
 }
