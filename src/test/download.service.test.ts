@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -33,6 +33,10 @@ class FakePreviewClient {
   constructor(private readonly preview: DownloadPreviewMetadata | null = null) {}
 
   getPreview = vi.fn(() => Promise.resolve(this.preview));
+}
+
+class FakeThumbnailGenerator {
+  generate = vi.fn(() => Promise.resolve("data:image/jpeg;base64,dGh1bWJuYWls"));
 }
 
 describe("DownloadService", () => {
@@ -131,6 +135,52 @@ describe("DownloadService", () => {
       previewSourceName: "whatslink.info",
       previewSourceUrl: "https://whatslink.info/"
     });
+
+    getAppDatabase().close();
+  });
+
+  it("persists a local video thumbnail when a completed download has no remote cover", async () => {
+    const appRoot = mkdtempSync(join(tmpdir(), "melonbang-download-thumbnail-"));
+    process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
+
+    vi.doMock("electron", () => ({
+      app: {
+        getAppPath: () => appRoot
+      }
+    }));
+
+    const { getAppDatabase } = await import("../main/store/appDatabase");
+    const { DownloadRepository } = await import("../main/download/downloadRepository");
+    const { DownloadService, getDownloadRootDirectory } =
+      await import("../main/download/downloadService");
+    const repository = new DownloadRepository();
+    const torrentClient = new FakeTorrentClient();
+    const thumbnailGenerator = new FakeThumbnailGenerator();
+    const service = new DownloadService(
+      repository,
+      torrentClient,
+      new FakePreviewClient(),
+      thumbnailGenerator
+    );
+
+    const task = service.create({ kind: "magnet", uri: magnet });
+    const runtimeFile = file({ progress: 1 });
+    torrentClient.options?.onMetadata({
+      title: "Sample Anime 1080p",
+      files: [runtimeFile],
+      selectedFileIndex: 0,
+      stats: stats({ progress: 1, downloadedBytes: 1000 })
+    });
+    const mediaPath = join(getDownloadRootDirectory(), task.id, runtimeFile.path);
+    mkdirSync(join(getDownloadRootDirectory(), task.id), { recursive: true });
+    writeFileSync(mediaPath, "video");
+    torrentClient.options?.onDone(stats({ progress: 1, downloadedBytes: 1000 }), [runtimeFile]);
+    await nextTick();
+
+    expect(thumbnailGenerator.generate).toHaveBeenCalledWith(mediaPath);
+    expect(repository.requireTask(task.id).previewImageUrl).toBe(
+      "data:image/jpeg;base64,dGh1bWJuYWls"
+    );
 
     getAppDatabase().close();
   });

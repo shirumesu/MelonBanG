@@ -1,21 +1,23 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createReadStream, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import bundledFfmpegPath from "ffmpeg-static";
-import type { PlaybackSourceView } from "../../shared/contracts/playback";
+import type { PlaybackDeliveryMode, PlaybackSourceView } from "../../shared/contracts/playback";
 import { getDownloadRootDirectory } from "../download/downloadService";
 import { getAppDataDirectory } from "../store/appDatabase";
 
-type TranscodeState = {
+type HlsState = {
   directory: string;
   playlistPath: string;
-  process: ChildProcessWithoutNullStreams | null;
+  process: ChildProcess | null;
   stderr: string;
   failedMessage: string | null;
+  revoked: boolean;
 };
 
 type LocalMediaEntry = {
@@ -23,8 +25,9 @@ type LocalMediaEntry = {
   filePath: string;
   title: string;
   mimeType: string | null;
-  delivery: "direct" | "ffmpeg-transcode";
-  transcode?: TranscodeState;
+  delivery: PlaybackDeliveryMode;
+  timelineOffsetSeconds: number;
+  hls?: HlsState;
 };
 
 export type RegisterLocalMediaInput = {
@@ -32,10 +35,11 @@ export type RegisterLocalMediaInput = {
   filePath: string;
   title: string;
   mimeType?: string | null;
+  startSeconds?: number;
 };
 
 type LocalMediaRoute = {
-  kind: "media" | "transcode";
+  kind: "media" | "remux" | "transcode";
   entry: LocalMediaEntry;
   assetName: string | null;
 };
@@ -53,6 +57,7 @@ export function getLocalMediaServer(): LocalMediaServer {
 export class LocalMediaServer {
   private readonly allowedRoots: string[];
   private readonly entries = new Map<string, LocalMediaEntry>();
+  private readonly cleanupTasks = new Set<Promise<void>>();
   private server: Server | null = null;
   private origin: string | null = null;
 
@@ -71,11 +76,14 @@ export class LocalMediaServer {
       filePath,
       title: input.title,
       mimeType,
-      delivery: "direct"
+      delivery: "direct",
+      timelineOffsetSeconds: 0
     });
 
     return {
       kind: inferSourceKind(filePath, mimeType),
+      deliveryMode: "direct",
+      timelineOffsetSeconds: 0,
       url: `${this.requireOrigin()}/media/${encodeURIComponent(input.sessionId)}/${token}/${encodeURIComponent(
         basename(filePath)
       )}`,
@@ -85,30 +93,55 @@ export class LocalMediaServer {
   }
 
   async registerTranscodedMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView> {
+    return this.registerHlsMediaFile(input, "transcode");
+  }
+
+  async restartTranscodedMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView> {
+    this.revokeHlsStreams(input.sessionId);
+    return this.registerHlsMediaFile(input, "transcode");
+  }
+
+  async restartRemuxedMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView> {
+    this.revokeHlsStreams(input.sessionId);
+    return this.registerHlsMediaFile(input, "remux");
+  }
+
+  async registerRemuxedMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView> {
+    return this.registerHlsMediaFile(input, "remux");
+  }
+
+  private async registerHlsMediaFile(
+    input: RegisterLocalMediaInput,
+    deliveryMode: Exclude<PlaybackDeliveryMode, "direct">
+  ): Promise<PlaybackSourceView> {
     const filePath = this.resolveAllowedFile(input.filePath);
     await this.ensureListening();
 
     const token = randomBytes(24).toString("hex");
-    const directory = join(getAppDataDirectory(), "transcodes", input.sessionId, token);
+    const directory = join(getAppDataDirectory(), "playback-streams", input.sessionId, token);
     mkdirSync(directory, { recursive: true });
     this.entries.set(token, {
       sessionId: input.sessionId,
       filePath,
       title: input.title,
       mimeType: "application/vnd.apple.mpegurl",
-      delivery: "ffmpeg-transcode",
-      transcode: {
+      delivery: deliveryMode,
+      timelineOffsetSeconds: normalizeStartSeconds(input.startSeconds),
+      hls: {
         directory,
         playlistPath: join(directory, "index.m3u8"),
         process: null,
         stderr: "",
-        failedMessage: null
+        failedMessage: null,
+        revoked: false
       }
     });
 
     return {
       kind: "hls",
-      url: `${this.requireOrigin()}/transcode/${encodeURIComponent(input.sessionId)}/${token}/index.m3u8`,
+      deliveryMode,
+      timelineOffsetSeconds: normalizeStartSeconds(input.startSeconds),
+      url: `${this.requireOrigin()}/${deliveryMode}/${encodeURIComponent(input.sessionId)}/${token}/index.m3u8`,
       mimeType: "application/vnd.apple.mpegurl",
       title: input.title
     };
@@ -117,7 +150,16 @@ export class LocalMediaServer {
   revokeSession(sessionId: string): void {
     for (const [token, entry] of this.entries) {
       if (entry.sessionId === sessionId) {
-        this.stopTranscode(entry);
+        this.scheduleHlsCleanup(entry);
+        this.entries.delete(token);
+      }
+    }
+  }
+
+  private revokeHlsStreams(sessionId: string): void {
+    for (const [token, entry] of this.entries) {
+      if (entry.sessionId === sessionId && entry.hls) {
+        this.scheduleHlsCleanup(entry);
         this.entries.delete(token);
       }
     }
@@ -125,9 +167,10 @@ export class LocalMediaServer {
 
   async dispose(): Promise<void> {
     for (const entry of this.entries.values()) {
-      this.stopTranscode(entry);
+      this.scheduleHlsCleanup(entry);
     }
     this.entries.clear();
+    await Promise.allSettled(this.cleanupTasks);
     const server = this.server;
     this.server = null;
     this.origin = null;
@@ -189,8 +232,8 @@ export class LocalMediaServer {
       return;
     }
 
-    if (route.kind === "transcode") {
-      void this.handleTranscodeRequest(request, response, route).catch((error: unknown) => {
+    if (route.kind !== "media") {
+      void this.handleHlsRequest(request, response, route).catch((error: unknown) => {
         if (!response.headersSent) {
           response.writeHead(500, {
             "Access-Control-Allow-Origin": "*",
@@ -234,34 +277,34 @@ export class LocalMediaServer {
     createReadStream(route.entry.filePath, { start: range.start, end: range.end }).pipe(response);
   }
 
-  private async handleTranscodeRequest(
+  private async handleHlsRequest(
     request: IncomingMessage,
     response: ServerResponse,
     route: LocalMediaRoute
   ): Promise<void> {
-    const transcode = route.entry.transcode;
-    if (!transcode || !route.assetName) {
+    const hls = route.entry.hls;
+    if (!hls || !route.assetName) {
       response.writeHead(404).end();
       return;
     }
 
-    this.ensureTranscodeProcess(route.entry, transcode);
+    this.ensureHlsProcess(route.entry, hls);
 
-    const assetPath = join(transcode.directory, route.assetName);
-    const relativeAssetPath = relative(transcode.directory, assetPath);
+    const assetPath = join(hls.directory, route.assetName);
+    const relativeAssetPath = relative(hls.directory, assetPath);
     if (
       relativeAssetPath.length === 0 ||
       relativeAssetPath.startsWith("..") ||
       isAbsolute(relativeAssetPath) ||
-      !isAllowedTranscodeAsset(route.assetName)
+      !isAllowedHlsAsset(route.assetName)
     ) {
       response.writeHead(404).end();
       return;
     }
 
-    const available = await waitForFile(assetPath, () => transcode.failedMessage, 20_000);
+    const available = await waitForFile(assetPath, () => hls.failedMessage, 20_000);
     if (!available) {
-      const message = transcode.failedMessage ?? "等待 FFmpeg 生成播放切片超时。";
+      const message = hls.failedMessage ?? "等待 FFmpeg 生成播放切片超时。";
       throw new Error(message);
     }
 
@@ -270,7 +313,7 @@ export class LocalMediaServer {
       "Access-Control-Allow-Origin": "*",
       "Cache-Control": "no-store",
       "Content-Length": stat.size,
-      "Content-Type": inferTranscodeAssetMimeType(route.assetName)
+      "Content-Type": inferHlsAssetMimeType(route.assetName)
     });
 
     if (request.method === "HEAD") {
@@ -281,44 +324,71 @@ export class LocalMediaServer {
     createReadStream(assetPath).pipe(response);
   }
 
-  private ensureTranscodeProcess(entry: LocalMediaEntry, transcode: TranscodeState): void {
-    if (transcode.process || transcode.failedMessage) {
+  private ensureHlsProcess(entry: LocalMediaEntry, hls: HlsState): void {
+    if (hls.revoked || hls.process || hls.failedMessage) {
       return;
     }
 
-    const ffmpeg = spawn(getFfmpegPath(), createFfmpegTranscodeArgs(entry.filePath, transcode.directory), {
+    const args =
+      entry.delivery === "remux"
+        ? createFfmpegRemuxArgs(entry.filePath, hls.directory, entry.timelineOffsetSeconds)
+        : createFfmpegTranscodeArgs(entry.filePath, hls.directory, entry.timelineOffsetSeconds);
+    const ffmpeg = spawn(getFfmpegPath(), args, {
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"]
     });
 
-    transcode.process = ffmpeg;
+    hls.process = ffmpeg;
     ffmpeg.stderr.on("data", (chunk: Buffer) => {
-      if (transcode.stderr.length < 4000) {
-        transcode.stderr += chunk.toString("utf8");
+      if (hls.stderr.length < 4000) {
+        hls.stderr += chunk.toString("utf8");
       }
     });
     ffmpeg.stdout.resume();
     ffmpeg.once("error", (error) => {
-      transcode.failedMessage = error.message || "无法启动 FFmpeg 转码进程。";
+      hls.failedMessage = error.message || "无法启动 FFmpeg 媒体准备进程。";
     });
     ffmpeg.once("close", (code) => {
-      transcode.process = null;
+      hls.process = null;
       if (code) {
-        transcode.failedMessage = transcode.stderr || `FFmpeg 转码失败，退出码 ${code}。`;
+        hls.failedMessage = hls.stderr || `FFmpeg 媒体准备失败，退出码 ${code}。`;
       }
     });
   }
 
-  private stopTranscode(entry: LocalMediaEntry): void {
-    if (!entry.transcode) {
+  private scheduleHlsCleanup(entry: LocalMediaEntry): void {
+    const task = this.stopHls(entry).finally(() => this.cleanupTasks.delete(task));
+    this.cleanupTasks.add(task);
+  }
+
+  private async stopHls(entry: LocalMediaEntry): Promise<void> {
+    if (!entry.hls) {
       return;
     }
 
-    const process = entry.transcode.process;
-    if (process && !process.killed) {
+    const hls = entry.hls;
+    hls.revoked = true;
+    hls.failedMessage ??= "播放流已关闭。";
+    const process = hls.process;
+    hls.process = null;
+    if (process && process.exitCode === null) {
       process.kill("SIGTERM");
+      if (!(await waitForProcessExit(process, 1_500)) && process.exitCode === null) {
+        process.kill("SIGKILL");
+        await waitForProcessExit(process, 1_000);
+      }
     }
-    rmSync(entry.transcode.directory, { recursive: true, force: true });
+
+    try {
+      await rm(hls.directory, {
+        recursive: true,
+        force: true,
+        maxRetries: 8,
+        retryDelay: 125
+      });
+    } catch {
+      // Cleanup is best-effort. A later session or app shutdown can retry stale directories.
+    }
   }
 
   private findRoute(rawUrl: string | undefined): LocalMediaRoute | null {
@@ -328,7 +398,7 @@ export class LocalMediaServer {
 
     const url = new URL(rawUrl, "http://127.0.0.1");
     const [, kind, , token, assetName] = url.pathname.split("/");
-    if ((kind !== "media" && kind !== "transcode") || !token) {
+    if ((kind !== "media" && kind !== "remux" && kind !== "transcode") || !token) {
       return null;
     }
 
@@ -341,7 +411,7 @@ export class LocalMediaServer {
       return null;
     }
 
-    if (kind === "transcode" && entry.delivery !== "ffmpeg-transcode") {
+    if ((kind === "remux" || kind === "transcode") && entry.delivery !== kind) {
       return null;
     }
 
@@ -382,14 +452,52 @@ function getFfmpegPath(): string {
   return bundledFfmpegPath;
 }
 
-function createFfmpegTranscodeArgs(filePath: string, outputDirectory: string): string[] {
+function createFfmpegRemuxArgs(
+  filePath: string,
+  outputDirectory: string,
+  startSeconds: number
+): string[] {
   return [
     "-hide_banner",
     "-loglevel",
     "error",
     "-nostdin",
-    "-i",
-    filePath,
+    ...createFfmpegInputArgs(filePath, startSeconds),
+    "-map",
+    "0:v:0",
+    "-map",
+    "0:a:0?",
+    "-sn",
+    "-dn",
+    "-c",
+    "copy",
+    "-start_number",
+    "0",
+    "-hls_time",
+    "4",
+    "-hls_list_size",
+    "0",
+    "-hls_flags",
+    "independent_segments",
+    "-hls_segment_filename",
+    join(outputDirectory, "segment-%05d.ts"),
+    "-f",
+    "hls",
+    join(outputDirectory, "index.m3u8")
+  ];
+}
+
+function createFfmpegTranscodeArgs(
+  filePath: string,
+  outputDirectory: string,
+  startSeconds: number
+): string[] {
+  return [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-nostdin",
+    ...createFfmpegInputArgs(filePath, startSeconds),
     "-map",
     "0:v:0",
     "-map",
@@ -424,6 +532,18 @@ function createFfmpegTranscodeArgs(filePath: string, outputDirectory: string): s
   ];
 }
 
+function createFfmpegInputArgs(filePath: string, startSeconds: number): string[] {
+  if (startSeconds > 0) {
+    return ["-ss", startSeconds.toFixed(3), "-i", filePath];
+  }
+
+  return ["-i", filePath];
+}
+
+function normalizeStartSeconds(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
 async function waitForFile(
   filePath: string,
   getFailureMessage: () => string | null,
@@ -445,11 +565,29 @@ async function waitForFile(
   return existsSync(filePath);
 }
 
-function isAllowedTranscodeAsset(assetName: string): boolean {
+async function waitForProcessExit(process: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (process.exitCode !== null) {
+    return true;
+  }
+
+  return new Promise<boolean>((resolvePromise) => {
+    const timeout = setTimeout(() => {
+      process.off("close", handleClose);
+      resolvePromise(false);
+    }, timeoutMs);
+    const handleClose = (): void => {
+      clearTimeout(timeout);
+      resolvePromise(true);
+    };
+    process.once("close", handleClose);
+  });
+}
+
+function isAllowedHlsAsset(assetName: string): boolean {
   return assetName === "index.m3u8" || /^segment-\d{5}\.ts$/.test(assetName);
 }
 
-function inferTranscodeAssetMimeType(assetName: string): string {
+function inferHlsAssetMimeType(assetName: string): string {
   if (assetName.endsWith(".m3u8")) {
     return "application/vnd.apple.mpegurl";
   }

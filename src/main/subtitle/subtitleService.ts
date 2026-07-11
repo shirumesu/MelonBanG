@@ -1,11 +1,5 @@
 import { spawn } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  writeFileSync
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, parse } from "node:path";
 import bundledFfmpegPath from "ffmpeg-static";
 import type { SubtitleTrackView } from "../../shared/contracts/playback";
@@ -29,6 +23,17 @@ type SubtitleCandidate = {
   errorMessage: string | null;
 };
 
+type FontAttachmentCandidate = {
+  streamIndex: number;
+  fileName: string;
+  mimeType: string | null;
+};
+
+type EmbeddedMediaInspection = {
+  subtitles: SubtitleCandidate[];
+  fontAttachments: FontAttachmentCandidate[];
+};
+
 const subtitleExtensions = new Set([".vtt", ".srt", ".ass", ".ssa"]);
 
 export class SubtitleService {
@@ -38,14 +43,28 @@ export class SubtitleService {
     sessionId: string;
     mediaPath: string;
   }): Promise<SubtitleTrackView[]> {
+    const embedded = await inspectEmbeddedMedia(input.mediaPath);
     const candidates = [
       ...discoverExternalSubtitleCandidates(input.mediaPath),
-      ...(await discoverEmbeddedSubtitleCandidates(input.mediaPath))
+      ...embedded.subtitles
     ];
+    const embeddedFontUrls = embedded.subtitles.some(
+      (candidate) => candidate.format === "ass" || candidate.format === "ssa"
+    )
+      ? await this.prepareEmbeddedFonts(input.sessionId, input.mediaPath, embedded.fontAttachments)
+      : [];
     const tracks: SubtitleTrackView[] = [];
 
     for (const [index, candidate] of candidates.entries()) {
-      tracks.push(await this.prepareCandidate(input.sessionId, input.mediaPath, candidate, index));
+      tracks.push(
+        await this.prepareCandidate(
+          input.sessionId,
+          input.mediaPath,
+          candidate,
+          index,
+          candidate.source === "embedded" ? embeddedFontUrls : []
+        )
+      );
     }
 
     return tracks;
@@ -55,7 +74,8 @@ export class SubtitleService {
     sessionId: string,
     mediaPath: string,
     candidate: SubtitleCandidate,
-    index: number
+    index: number,
+    fontUrls: string[]
   ): Promise<SubtitleTrackView> {
     const baseTrack = createBaseTrack(candidate, index);
 
@@ -75,6 +95,22 @@ export class SubtitleService {
         throw new Error("字幕文件不存在。");
       }
 
+      if (candidate.format === "ass" || candidate.format === "ssa") {
+        const source = await this.mediaServer.registerMediaFile({
+          sessionId,
+          filePath: sourcePath,
+          title: `${candidate.label}.${candidate.format}`,
+          mimeType: "text/x-ssa"
+        });
+        return {
+          ...baseTrack,
+          renderMode: "ass",
+          url: source.url,
+          fontUrls,
+          errorMessage: null
+        };
+      }
+
       const vttPath =
         candidate.format === "vtt" ? sourcePath : convertSubtitleFileToVtt(sessionId, sourcePath);
       const source = await this.mediaServer.registerMediaFile({
@@ -88,10 +124,7 @@ export class SubtitleService {
         ...baseTrack,
         renderMode: "native-vtt",
         url: source.url,
-        errorMessage:
-          candidate.format === "ass" || candidate.format === "ssa"
-            ? "ASS/SSA 样式已降级为文本字幕。"
-            : null
+        errorMessage: null
       };
     } catch (error) {
       return {
@@ -101,6 +134,29 @@ export class SubtitleService {
         errorMessage: error instanceof Error ? error.message : "字幕准备失败。"
       };
     }
+  }
+
+  private async prepareEmbeddedFonts(
+    sessionId: string,
+    mediaPath: string,
+    attachments: FontAttachmentCandidate[]
+  ): Promise<string[]> {
+    const fontUrls: string[] = [];
+    for (const attachment of attachments) {
+      try {
+        const fontPath = await extractEmbeddedFont(sessionId, mediaPath, attachment);
+        const source = await this.mediaServer.registerMediaFile({
+          sessionId,
+          filePath: fontPath,
+          title: attachment.fileName,
+          mimeType: inferFontMimeType(fontPath)
+        });
+        fontUrls.push(source.url);
+      } catch {
+        // Missing fonts degrade the affected ASS track but should not hide other subtitle tracks.
+      }
+    }
+    return fontUrls;
   }
 }
 
@@ -116,7 +172,9 @@ function discoverExternalSubtitleCandidates(mediaPath: string): SubtitleCandidat
     .map((entry) => entry.name)
     .filter((name) => {
       const extension = extname(name).toLowerCase();
-      return subtitleExtensions.has(extension) && parse(name).name.toLowerCase().startsWith(mediaStem);
+      return (
+        subtitleExtensions.has(extension) && parse(name).name.toLowerCase().startsWith(mediaStem)
+      );
     })
     .sort((left, right) => left.localeCompare(right))
     .map((name) => {
@@ -137,36 +195,114 @@ function discoverExternalSubtitleCandidates(mediaPath: string): SubtitleCandidat
     });
 }
 
-async function discoverEmbeddedSubtitleCandidates(mediaPath: string): Promise<SubtitleCandidate[]> {
+async function inspectEmbeddedMedia(mediaPath: string): Promise<EmbeddedMediaInspection> {
   const result = await runFfmpeg(["-hide_banner", "-i", mediaPath]);
-  const output = `${result.stderr}\n${result.stdout}`;
-  const candidates: SubtitleCandidate[] = [];
-  const streamPattern = /Stream #0:(\d+)(?:\(([^)]+)\))?[^:]*: Subtitle: ([^,\r\n]+)([^\r\n]*)/g;
+  return parseFfmpegInspectionOutput(`${result.stderr}\n${result.stdout}`);
+}
 
-  for (const match of output.matchAll(streamPattern)) {
-    const streamIndex = Number(match[1]);
-    const language = match[2] ?? null;
-    const codec = match[3]?.trim().toLowerCase() ?? "unknown";
-    const title = extractStreamTitle(match[4] ?? "");
-    const format = subtitleFormatFromCodec(codec);
-    const supported = format !== "unknown";
-    candidates.push({
-      id: `embedded:${streamIndex}`,
-      filePath: null,
-      label: title ?? `${language ? language.toUpperCase() : "内嵌"} 字幕 ${candidates.length + 1}`,
-      language: language ? normalizeLanguage(language) : null,
-      source: "embedded",
-      format,
-      streamIndex,
-      codec,
-      supported,
-      errorMessage: supported
-        ? null
-        : `内嵌字幕编码 ${codec} 暂不支持 Web-native 渲染。`
-    });
+export function parseFfmpegInspectionOutput(output: string): EmbeddedMediaInspection {
+  const streams: Array<{
+    streamIndex: number;
+    language: string | null;
+    kind: "subtitle" | "attachment";
+    codec: string;
+    title: string | null;
+    fileName: string | null;
+    mimeType: string | null;
+  }> = [];
+  let current: (typeof streams)[number] | null = null;
+
+  const flush = (): void => {
+    if (current) {
+      streams.push(current);
+      current = null;
+    }
+  };
+
+  for (const line of output.split(/\r?\n/)) {
+    const subtitle = /Stream #\d+:(\d+)(?:\(([^)]+)\))?: Subtitle: ([^,\r\n]+)/i.exec(line);
+    const attachment = /Stream #\d+:(\d+): Attachment: ([^,\r\n]+)/i.exec(line);
+    if (subtitle) {
+      flush();
+      current = {
+        streamIndex: Number(subtitle[1]),
+        language: subtitle[2] ?? null,
+        kind: "subtitle",
+        codec: subtitle[3].trim().toLowerCase(),
+        title: null,
+        fileName: null,
+        mimeType: null
+      };
+      continue;
+    }
+    if (attachment) {
+      flush();
+      current = {
+        streamIndex: Number(attachment[1]),
+        language: null,
+        kind: "attachment",
+        codec: attachment[2].trim().toLowerCase(),
+        title: null,
+        fileName: null,
+        mimeType: null
+      };
+      continue;
+    }
+    if (!current) {
+      continue;
+    }
+
+    const metadata = /^\s*([A-Za-z0-9_-]+)\s*:\s*(.+?)\s*$/.exec(line);
+    if (!metadata) {
+      continue;
+    }
+    const key = metadata[1].toLowerCase();
+    const value = metadata[2].trim();
+    if (key === "title") {
+      current.title = value;
+    } else if (key === "filename") {
+      current.fileName = value;
+    } else if (key === "mimetype") {
+      current.mimeType = value;
+    }
   }
+  flush();
 
-  return candidates;
+  const subtitleStreams = streams.filter((stream) => stream.kind === "subtitle");
+  return {
+    subtitles: subtitleStreams.map((stream, index) => {
+      const format = subtitleFormatFromCodec(stream.codec);
+      const supported = format !== "unknown";
+      return {
+        id: `embedded:${stream.streamIndex}`,
+        filePath: null,
+        label:
+          stream.title ??
+          `${stream.language ? stream.language.toUpperCase() : "内嵌"} 字幕 ${index + 1}`,
+        language: stream.language ? normalizeLanguage(stream.language) : null,
+        source: "embedded" as const,
+        format,
+        streamIndex: stream.streamIndex,
+        codec: stream.codec,
+        supported,
+        errorMessage: supported ? null : `内嵌字幕编码 ${stream.codec} 暂不支持 Web-native 渲染。`
+      };
+    }),
+    fontAttachments: streams
+      .filter(
+        (stream) =>
+          stream.kind === "attachment" &&
+          (stream.codec.includes("ttf") || stream.codec.includes("otf"))
+      )
+      .map((stream) => ({
+        streamIndex: stream.streamIndex,
+        fileName: sanitizeAttachmentFileName(
+          stream.fileName ??
+            `font-${stream.streamIndex}.${stream.codec.includes("otf") ? "otf" : "ttf"}`
+        ),
+        mimeType: stream.mimeType
+      }))
+  };
 }
 
 function createBaseTrack(candidate: SubtitleCandidate, index: number): SubtitleTrackView {
@@ -217,6 +353,36 @@ async function extractEmbeddedSubtitle(
   return outputPath;
 }
 
+async function extractEmbeddedFont(
+  sessionId: string,
+  mediaPath: string,
+  attachment: FontAttachmentCandidate
+): Promise<string> {
+  const outputDirectory = join(getAppDataDirectory(), "subtitles", sessionId, "fonts");
+  mkdirSync(outputDirectory, { recursive: true });
+  const outputPath = join(outputDirectory, attachment.fileName);
+  const result = await runFfmpeg([
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-y",
+    `-dump_attachment:${attachment.streamIndex}`,
+    outputPath,
+    "-i",
+    mediaPath,
+    "-t",
+    "0",
+    "-f",
+    "null",
+    "-"
+  ]);
+
+  if (result.code !== 0 || !existsSync(outputPath)) {
+    throw new Error(result.stderr.trim() || "内嵌字幕字体抽取失败。");
+  }
+  return outputPath;
+}
+
 function convertSubtitleFileToVtt(sessionId: string, filePath: string): string {
   const outputDirectory = join(getAppDataDirectory(), "subtitles", sessionId);
   mkdirSync(outputDirectory, { recursive: true });
@@ -224,25 +390,30 @@ function convertSubtitleFileToVtt(sessionId: string, filePath: string): string {
   const content = readTextFile(filePath);
   const extension = extname(filePath).toLowerCase();
   const vtt =
-    extension === ".ass" || extension === ".ssa" ? convertAssToVtt(content) : convertSrtToVtt(content);
+    extension === ".ass" || extension === ".ssa"
+      ? convertAssToVtt(content)
+      : convertSrtToVtt(content);
   writeFileSync(outputPath, vtt, "utf8");
   return outputPath;
 }
 
 function convertSrtToVtt(content: string): string {
-  const normalized = content.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").trim();
+  const normalized = content
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n")
+    .trim();
   if (!normalized) {
     return "WEBVTT\n";
   }
 
-  return `WEBVTT\n\n${normalized.replace(
-    /(\d{2}:\d{2}:\d{2}),(\d{3})/g,
-    "$1.$2"
-  )}\n`;
+  return `WEBVTT\n\n${normalized.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2")}\n`;
 }
 
 function convertAssToVtt(content: string): string {
-  const lines = content.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
+  const lines = content
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
   const events: string[] = [];
   let fields: string[] = [];
   let inEvents = false;
@@ -290,7 +461,10 @@ function splitAssDialogue(raw: string, fieldCount: number): string[] {
   }
   return [
     ...values.slice(0, fieldCount - 1).map((value) => value.trim()),
-    values.slice(fieldCount - 1).join(",").trim()
+    values
+      .slice(fieldCount - 1)
+      .join(",")
+      .trim()
   ];
 }
 
@@ -350,11 +524,6 @@ function subtitleFormatFromCodec(codec: string): SubtitleTrackView["format"] {
   return "unknown";
 }
 
-function extractStreamTitle(raw: string): string | null {
-  const match = /title\s*:\s*([^\r\n]+)/i.exec(raw);
-  return match?.[1]?.trim() || null;
-}
-
 function inferLanguage(label: string): string | null {
   const lower = label.toLowerCase();
   if (/(^|[._ -])(zh|chs|cht|sc|tc|cn)([._ -]|$)/.test(lower)) {
@@ -367,6 +536,17 @@ function inferLanguage(label: string): string | null {
     return "en";
   }
   return null;
+}
+
+function sanitizeAttachmentFileName(value: string): string {
+  const sanitized = basename(value)
+    .replace(/[^\p{L}\p{N}._ -]+/gu, "_")
+    .trim();
+  return sanitized || "subtitle-font.ttf";
+}
+
+function inferFontMimeType(filePath: string): string {
+  return extname(filePath).toLowerCase() === ".otf" ? "font/otf" : "font/ttf";
 }
 
 function normalizeLanguage(value: string): string {

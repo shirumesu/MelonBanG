@@ -9,9 +9,12 @@ export type PlaybackStatus =
   | "failed";
 
 export type PlaybackSourceKind = "file" | "hls";
+export type PlaybackDeliveryMode = "direct" | "remux" | "transcode";
 
 export type PlaybackSourceView = {
   kind: PlaybackSourceKind;
+  deliveryMode: PlaybackDeliveryMode;
+  timelineOffsetSeconds: number;
   url: string;
   mimeType: string | null;
   title: string;
@@ -23,7 +26,7 @@ export type SubtitleTrackView = {
   language: string | null;
   source: "external" | "embedded";
   format: "vtt" | "srt" | "ass" | "ssa" | "unknown";
-  renderMode: "native-vtt" | "unsupported";
+  renderMode: "native-vtt" | "ass" | "unsupported";
   url: string | null;
   fontUrls: string[];
   default: boolean;
@@ -89,8 +92,14 @@ export type PlaybackProgressInput = {
   sessionId: string;
   positionSeconds: number;
   durationSeconds: number | null;
+  timelineOffsetSeconds: number;
   paused: boolean;
   ended: boolean;
+};
+
+export type SeekPlaybackInput = {
+  sessionId: string;
+  positionSeconds: number;
 };
 
 export type PlaybackSessionView = {
@@ -119,6 +128,7 @@ export interface PlaybackBridge {
   startEpisode(input: StartEpisodePlaybackInput): Promise<PlaybackSessionView>;
   getEpisodeProgress(input: EpisodeMediaBindingInput): Promise<PlaybackProgressSnapshot | null>;
   getSession(): Promise<PlaybackSessionView | null>;
+  seek(input: SeekPlaybackInput): Promise<PlaybackSessionView>;
   updateProgress(input: PlaybackProgressInput): Promise<PlaybackSessionView>;
   stop(sessionId: string): Promise<void>;
   onEvent(callback: (session: PlaybackSessionView | null) => void): () => void;

@@ -5,6 +5,7 @@ import type {
   ClearEpisodeMediaBindingInput,
   EpisodeMediaBindingInput,
   PlaybackProgressInput,
+  SeekPlaybackInput,
   StartEpisodePlaybackInput,
   StartPlaybackFromDownloadInput
 } from "../../shared/contracts/playback";
@@ -31,8 +32,13 @@ const progressSchema = z.object({
   sessionId: sessionIdSchema,
   positionSeconds: z.number().finite().nonnegative(),
   durationSeconds: z.number().finite().nonnegative().nullable(),
+  timelineOffsetSeconds: z.number().finite().nonnegative(),
   paused: z.boolean(),
   ended: z.boolean()
+});
+const seekSchema = z.object({
+  sessionId: sessionIdSchema,
+  positionSeconds: z.number().finite().nonnegative()
 });
 
 export function registerPlaybackIpc(getMainWindow: () => BrowserWindow | null): void {
@@ -64,6 +70,7 @@ export function registerPlaybackIpc(getMainWindow: () => BrowserWindow | null): 
     service.getEpisodeProgress(episodeBindingSchema.parse(input))
   );
   handle("playback:getSession", () => service.getSession());
+  handle("playback:seek", (input: SeekPlaybackInput) => service.seek(seekSchema.parse(input)));
   handle("playback:updateProgress", (input: PlaybackProgressInput) =>
     service.updateProgress(progressSchema.parse(input))
   );

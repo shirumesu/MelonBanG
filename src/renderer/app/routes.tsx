@@ -20,6 +20,11 @@ const ScheduleRoute = lazy(() =>
 const CacheRoute = lazy(() =>
   import("../features/cache/CacheRoute").then((module) => ({ default: module.CacheRoute }))
 );
+const SubjectCacheRoute = lazy(() =>
+  import("../features/sources/SubjectCacheRoute").then((module) => ({
+    default: module.SubjectCacheRoute
+  }))
+);
 const PlayerRoute = lazy(() =>
   import("../features/player/PlayerRoute").then((module) => ({ default: module.PlayerRoute }))
 );
@@ -58,6 +63,7 @@ export function AppRouter() {
         <Route path="/tracking" element={<TrackingRoute />} />
         <Route path="/search" element={deferRoute(<SearchRoute />)} />
         <Route path="/subject/:subjectId" element={deferRoute(<SubjectRoute />)} />
+        <Route path="/subject/:subjectId/cache" element={deferRoute(<SubjectCacheRoute />)} />
         <Route path="/schedule" element={deferRoute(<ScheduleRoute />)} />
         <Route path="/cache" element={deferRoute(<CacheRoute />)} />
       </Route>

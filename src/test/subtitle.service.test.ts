@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe("SubtitleService", () => {
-  it("prepares external SRT and ASS subtitles as WebVTT assets", async () => {
+  it("keeps external ASS styling while converting only SRT subtitles to WebVTT", async () => {
     const appRoot = mkdtempSync(join(tmpdir(), "melonbang-subtitles-"));
     process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
 
@@ -51,23 +51,49 @@ describe("SubtitleService", () => {
     const assTrack = tracks.find((track) => track.format === "ass");
     expect(srtTrack).toMatchObject({
       language: "zh",
-      renderMode: "native-vtt",
+      renderMode: "native-vtt"
     });
     expect(assTrack).toMatchObject({
       format: "ass",
-      renderMode: "native-vtt",
-      errorMessage: "ASS/SSA 样式已降级为文本字幕。"
+      renderMode: "ass",
+      errorMessage: null
     });
     expect(
       mediaServer.registered.some((input) =>
         readFileSync(input.filePath, "utf8").includes("WEBVTT")
       )
     ).toBe(true);
-    expect(
-      mediaServer.registered.some((input) =>
-        readFileSync(input.filePath, "utf8").includes("ASS\n字幕")
-      )
-    ).toBe(true);
+    const registeredAss = mediaServer.registered.find((input) => input.filePath.endsWith(".ass"));
+    expect(registeredAss).toMatchObject({ mimeType: "text/x-ssa" });
+    expect(readFileSync(registeredAss?.filePath ?? "", "utf8")).toContain("{\\pos(1,2)}ASS\\N字幕");
+  });
+
+  it("maps embedded ASS titles and font attachments from FFmpeg inspection output", async () => {
+    const { parseFfmpegInspectionOutput } = await import("../main/subtitle/subtitleService");
+    const inspection = parseFfmpegInspectionOutput(`
+      Stream #0:2(chi): Subtitle: ass (default)
+        Metadata:
+          title           : 简体
+      Stream #0:3(chi): Subtitle: ass
+        Metadata:
+          title           : 繁体
+      Stream #0:4: Attachment: ttf
+        Metadata:
+          filename        : Arial Unicode MS.ttf
+          mimetype        : application/x-truetype-font
+    `);
+
+    expect(inspection.subtitles).toMatchObject([
+      { id: "embedded:2", label: "简体", language: "zh", format: "ass" },
+      { id: "embedded:3", label: "繁体", language: "zh", format: "ass" }
+    ]);
+    expect(inspection.fontAttachments).toEqual([
+      {
+        streamIndex: 4,
+        fileName: "Arial Unicode MS.ttf",
+        mimeType: "application/x-truetype-font"
+      }
+    ]);
   });
 });
 

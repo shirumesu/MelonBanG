@@ -1,0 +1,8 @@
+{
+  "id": "dmhy",
+  "name": "动漫花园",
+  "origin": "https://share.dmhy.org",
+  "searchUrlTemplate": "https://share.dmhy.org/topics/rss/rss.xml?keyword={keyword}",
+  "resultKind": "magnet-enclosure",
+  "capabilities": ["http.get", "parse.rss"]
+}

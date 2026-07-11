@@ -10,5 +10,7 @@ describe("renderer CSP", () => {
     expect(content).toContain("connect-src 'self' https: http://127.0.0.1:*");
     expect(content).toContain("media-src 'self' blob: http://127.0.0.1:*");
     expect(content).toContain("worker-src 'self' blob:");
+    expect(content).toContain("script-src 'self' 'wasm-unsafe-eval'");
+    expect(content).not.toContain("script-src 'self' 'unsafe-eval'");
   });
 });

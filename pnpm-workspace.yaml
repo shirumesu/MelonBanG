@@ -4,6 +4,7 @@ allowBuilds:
   esbuild: true
   ffmpeg-static: true
   ip-set: true
+  lfa-ponyfill: false
   node-datachannel: true
   utf-8-validate: true
   utp-native: true

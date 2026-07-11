@@ -405,6 +405,7 @@ export function SubjectRoute() {
         <SubjectHero
           subject={activeSubject}
           onOpenEpisodes={() => setEpOpen(true)}
+          onOpenCache={() => void navigate(`/subject/${activeSubject.subjectId}/cache`)}
           onOpenPv={() => setPvOpen(true)}
           onContinuePlayback={() => void continuePlayback()}
           onChangeStatus={(status) => void changeStatus(status)}

@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
@@ -22,6 +22,7 @@ import {
   type TorrentRuntimeStats
 } from "./torrentClient";
 import { WhatsLinkClient, type DownloadPreviewMetadata } from "./whatsLinkClient";
+import { VideoThumbnailGenerator, type VideoThumbnailGeneratorLike } from "./videoThumbnail";
 
 type DownloadEventName = "snapshot";
 
@@ -45,11 +46,13 @@ export class DownloadService {
   private readonly events = new EventEmitter();
   private readonly activeHandles = new Map<string, TorrentHandle>();
   private readonly lastProgressPersistedAt = new Map<string, number>();
+  private readonly previewRefreshAttempted = new Set<string>();
 
   constructor(
     private readonly repository = new DownloadRepository(),
     private readonly torrentClient: TorrentClientLike = createLazyTorrentClient(),
-    private readonly previewClient: PreviewClientLike = new WhatsLinkClient()
+    private readonly previewClient: PreviewClientLike = new WhatsLinkClient(),
+    private readonly thumbnailGenerator: VideoThumbnailGeneratorLike = new VideoThumbnailGenerator()
   ) {
     this.repository.markInterruptedSessionsPaused();
   }
@@ -85,7 +88,16 @@ export class DownloadService {
   }
 
   list(): DownloadSnapshot {
-    return this.repository.listSnapshot();
+    const snapshot = this.repository.listSnapshot();
+    for (const task of snapshot.tasks) {
+      if (
+        (task.status === "completed" || task.status === "ready") &&
+        (!task.previewImageUrl || /^https?:\/\//i.test(task.previewImageUrl))
+      ) {
+        this.schedulePersistedPreviewRefresh(task.id);
+      }
+    }
+    return snapshot;
   }
 
   pause(downloadId: string): DownloadTaskView {
@@ -258,6 +270,7 @@ export class DownloadService {
 
     this.persistRuntimeState(downloadId, "completed", stats, files, null);
     this.activeHandles.delete(downloadId);
+    void this.ensureLocalPreview(downloadId);
   }
 
   private handleError(downloadId: string, error: Error): void {
@@ -331,6 +344,59 @@ export class DownloadService {
       previewSourceUrl: preview.sourceUrl
     });
     this.emitSnapshot();
+  }
+
+  private schedulePersistedPreviewRefresh(downloadId: string): void {
+    if (this.previewRefreshAttempted.has(downloadId)) {
+      return;
+    }
+    this.previewRefreshAttempted.add(downloadId);
+
+    const session = this.repository.getSession(downloadId);
+    if (!session) {
+      return;
+    }
+    void (async () => {
+      if (session.inputKind === "magnet") {
+        await this.refreshPreview(downloadId, deserializeTorrentInput(session));
+      }
+      await this.ensureLocalPreview(downloadId);
+    })();
+  }
+
+  private async ensureLocalPreview(downloadId: string): Promise<void> {
+    const session = this.repository.getSession(downloadId);
+    if (
+      !session ||
+      (session.status !== "completed" && session.status !== "ready") ||
+      isDurablePreviewImage(session.previewImageUrl)
+    ) {
+      return;
+    }
+
+    const selectedFile = this.repository
+      .listFiles(downloadId)
+      .find((file) => file.id === session.selectedFileId && file.mediaKind === "video");
+    if (!selectedFile) {
+      return;
+    }
+
+    const mediaPath = resolveDownloadFilePath(downloadId, selectedFile.path);
+    if (!existsSync(mediaPath)) {
+      return;
+    }
+
+    try {
+      const imageUrl = await this.thumbnailGenerator.generate(mediaPath);
+      const current = this.repository.getSession(downloadId);
+      if (!current || isDurablePreviewImage(current.previewImageUrl)) {
+        return;
+      }
+      this.repository.updateSession(downloadId, { previewImageUrl: imageUrl });
+      this.emitSnapshot();
+    } catch {
+      // A missing thumbnail must not change download completion or playback availability.
+    }
   }
 
   private emitSnapshot(): void {
@@ -447,6 +513,24 @@ function removeDownloadDirectory(downloadId: string): void {
   }
 
   rmSync(target, { recursive: true, force: true });
+}
+
+function resolveDownloadFilePath(downloadId: string, filePath: string): string {
+  const downloadRoot = resolve(getDownloadRootDirectory(), downloadId);
+  const target = resolve(downloadRoot, filePath);
+  const targetRelativeToRoot = relative(downloadRoot, target);
+  if (
+    targetRelativeToRoot.length === 0 ||
+    targetRelativeToRoot.startsWith("..") ||
+    isAbsolute(targetRelativeToRoot)
+  ) {
+    throw new Error("拒绝读取下载目录之外的媒体文件。");
+  }
+  return target;
+}
+
+function isDurablePreviewImage(value: string | null): boolean {
+  return Boolean(value?.startsWith("data:image/"));
 }
 
 let lazyTorrentClientPromise: Promise<TorrentClientLike> | null = null;

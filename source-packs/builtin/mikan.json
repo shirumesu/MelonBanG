@@ -1,0 +1,8 @@
+{
+  "id": "mikan",
+  "name": "蜜柑计划",
+  "origin": "https://mikanani.me",
+  "searchUrlTemplate": "https://mikanani.me/RSS/Search?searchstr={keyword}",
+  "resultKind": "torrent-enclosure",
+  "capabilities": ["http.get", "parse.rss"]
+}

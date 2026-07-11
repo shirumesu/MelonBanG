@@ -1,4 +1,4 @@
-import { ExternalLink, Film, ListChecks, Play } from "lucide-react";
+import { Download, ExternalLink, Film, ListChecks, Play } from "lucide-react";
 import type { CollectionStatus, SubjectDetail } from "@shared/contracts/bangumi";
 import { StarRow } from "@/components/melon/RatingStars";
 import { SeasonChip } from "@/components/melon/SeasonChip";
@@ -35,12 +35,14 @@ const STAT_LABELS: Record<CollectionStatus, string> = {
 export function SubjectHero({
   subject,
   onOpenEpisodes,
+  onOpenCache,
   onOpenPv,
   onContinuePlayback,
   onChangeStatus
 }: {
   subject: SubjectDetail;
   onOpenEpisodes: () => void;
+  onOpenCache: () => void;
   onOpenPv: () => void;
   onContinuePlayback: () => void;
   onChangeStatus: (status: CollectionStatus) => void;
@@ -164,6 +166,9 @@ export function SubjectHero({
           </Button>
           <IconButton title="选集" onClick={onOpenEpisodes}>
             <ListChecks />
+          </IconButton>
+          <IconButton title="搜索并缓存资源" onClick={onOpenCache}>
+            <Download />
           </IconButton>
           <IconButton title="查看 PV" onClick={onOpenPv}>
             <Film />

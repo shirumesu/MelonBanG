@@ -11,12 +11,14 @@ import type {
   PlaybackProgressSnapshot,
   PlaybackSessionView,
   PlaybackSourceView,
+  SeekPlaybackInput,
   StartEpisodePlaybackInput,
   StartPlaybackFromDownloadInput
 } from "../../shared/contracts/playback";
 import { DownloadRepository } from "../download/downloadRepository";
 import { getDownloadRootDirectory } from "../download/downloadService";
 import { getLocalMediaServer, type RegisterLocalMediaInput } from "../media/localMediaServer";
+import { MediaProbe, type MediaProbeLike, type MediaProbeResult } from "../media/mediaProbe";
 import { SubtitleService } from "../subtitle/subtitleService";
 import { PlaybackRepository } from "./playbackRepository";
 
@@ -24,7 +26,10 @@ type PlaybackEventName = "session";
 
 type LocalMediaServerLike = {
   registerMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView>;
-  registerTranscodedMediaFile?(input: RegisterLocalMediaInput): Promise<PlaybackSourceView>;
+  registerRemuxedMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView>;
+  registerTranscodedMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView>;
+  restartTranscodedMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView>;
+  restartRemuxedMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView>;
   revokeSession(sessionId: string): void;
 };
 
@@ -38,10 +43,13 @@ export function getPlaybackService(): PlaybackService {
 export class PlaybackService {
   private readonly events = new EventEmitter();
   private session: PlaybackSessionView | null = null;
+  private startQueue: Promise<void> = Promise.resolve();
+  private readonly pendingStarts = new Map<string, Promise<PlaybackSessionView>>();
 
   constructor(
     private readonly repository = new DownloadRepository(),
     private readonly mediaServer: LocalMediaServerLike = getLocalMediaServer(),
+    private readonly mediaProbe: MediaProbeLike = new MediaProbe(),
     private readonly subtitleService = new SubtitleService(mediaServer),
     private readonly playbackRepository = new PlaybackRepository()
   ) {}
@@ -54,7 +62,7 @@ export class PlaybackService {
 
   async startFromDownload(input: StartPlaybackFromDownloadInput): Promise<PlaybackSessionView> {
     const media = this.resolveDownloadMedia(input);
-    return this.startPlaybackSession(media, {
+    return this.enqueuePlaybackStart(media, {
       downloadId: input.downloadId,
       subjectId: null,
       episodeId: null
@@ -93,7 +101,7 @@ export class PlaybackService {
       downloadId: binding.downloadId,
       fileId: binding.fileId
     });
-    return this.startPlaybackSession(media, {
+    return this.enqueuePlaybackStart(media, {
       downloadId: binding.downloadId,
       subjectId: input.subjectId,
       episodeId: input.episodeId
@@ -102,6 +110,42 @@ export class PlaybackService {
 
   getEpisodeProgress(input: EpisodeMediaBindingInput): PlaybackProgressSnapshot | null {
     return this.playbackRepository.getProgress(input.subjectId, input.episodeId);
+  }
+
+  private enqueuePlaybackStart(
+    media: {
+      path: string;
+      title: string;
+      fileId: string;
+    },
+    context: {
+      downloadId: string;
+      subjectId: number | null;
+      episodeId: number | null;
+    }
+  ): Promise<PlaybackSessionView> {
+    const key = [
+      context.downloadId,
+      media.fileId,
+      context.subjectId ?? "cache",
+      context.episodeId ?? "cache"
+    ].join(":");
+    const pending = this.pendingStarts.get(key);
+    if (pending) {
+      return pending;
+    }
+
+    const start = this.startQueue.then(() => this.startPlaybackSession(media, context));
+    this.startQueue = start.then(
+      () => undefined,
+      () => undefined
+    );
+    this.pendingStarts.set(key, start);
+    void start.then(
+      () => this.pendingStarts.delete(key),
+      () => this.pendingStarts.delete(key)
+    );
+    return start;
   }
 
   private async startPlaybackSession(
@@ -147,10 +191,8 @@ export class PlaybackService {
         filePath: media.path,
         title: media.title
       };
-      const source =
-        shouldTranscodeForWeb(media.path, media.title) && this.mediaServer.registerTranscodedMediaFile
-          ? await this.mediaServer.registerTranscodedMediaFile(sourceInput)
-          : await this.mediaServer.registerMediaFile(sourceInput);
+      const mediaInfo = await this.probeMedia(media.path, media.title);
+      const source = await this.prepareSource(sourceInput, mediaInfo);
       const subtitles = await this.subtitleService.prepareSubtitles({
         sessionId,
         mediaPath: media.path
@@ -159,6 +201,7 @@ export class PlaybackService {
         status: "ready",
         source,
         subtitles,
+        durationSeconds: mediaInfo.durationSeconds,
         errorMessage: null
       });
       return this.requireSession(sessionId);
@@ -176,9 +219,51 @@ export class PlaybackService {
     return this.session;
   }
 
+  async seek(input: SeekPlaybackInput): Promise<PlaybackSessionView> {
+    const session = this.requireSession(input.sessionId);
+    if (session.status === "stopped" || session.status === "failed" || !session.source) {
+      throw new Error("当前播放会话无法跳转。");
+    }
+
+    if (session.source.deliveryMode === "direct") {
+      throw new Error("当前播放源应由播放器直接跳转。");
+    }
+
+    if (!session.downloadId || !session.fileId) {
+      throw new Error("当前播放源无法重新定位本地媒体文件。");
+    }
+
+    const positionSeconds = clampSeekPosition(input.positionSeconds, session.durationSeconds);
+    const media = this.resolveDownloadMedia({
+      downloadId: session.downloadId,
+      fileId: session.fileId
+    });
+    const restartInput = {
+      sessionId: session.id,
+      filePath: media.path,
+      title: media.title,
+      startSeconds: positionSeconds
+    };
+    const source =
+      session.source.deliveryMode === "remux"
+        ? await this.mediaServer.restartRemuxedMediaFile(restartInput)
+        : await this.mediaServer.restartTranscodedMediaFile(restartInput);
+    this.updateSession({
+      status: "ready",
+      source,
+      positionSeconds,
+      errorMessage: null
+    });
+    return this.requireSession(input.sessionId);
+  }
+
   updateProgress(input: PlaybackProgressInput): PlaybackSessionView {
     const session = this.requireSession(input.sessionId);
     if (session.status === "stopped" || session.status === "failed") {
+      return session;
+    }
+
+    if (!session.source || input.timelineOffsetSeconds !== session.source.timelineOffsetSeconds) {
       return session;
     }
 
@@ -186,7 +271,8 @@ export class PlaybackService {
       status: input.ended ? "ended" : input.paused ? "paused" : "playing",
       positionSeconds: Math.max(0, input.positionSeconds),
       durationSeconds:
-        input.durationSeconds && input.durationSeconds > 0 ? input.durationSeconds : null
+        session.durationSeconds ??
+        (input.durationSeconds && input.durationSeconds > 0 ? input.durationSeconds : null)
     });
 
     const nextSession = this.requireSession(input.sessionId);
@@ -212,6 +298,29 @@ export class PlaybackService {
     this.requireSession(sessionId);
     this.mediaServer.revokeSession(sessionId);
     this.updateSession({ status: "stopped" });
+  }
+
+  private async probeMedia(filePath: string, title: string): Promise<MediaProbeResult> {
+    try {
+      return await this.mediaProbe.probe(filePath);
+    } catch {
+      return fallbackMediaProbe(filePath, title);
+    }
+  }
+
+  private async prepareSource(
+    input: RegisterLocalMediaInput,
+    mediaInfo: MediaProbeResult
+  ): Promise<PlaybackSourceView> {
+    if (mediaInfo.deliveryMode === "remux") {
+      return this.mediaServer.registerRemuxedMediaFile(input);
+    }
+
+    if (mediaInfo.deliveryMode === "transcode") {
+      return this.mediaServer.registerTranscodedMediaFile(input);
+    }
+
+    return this.mediaServer.registerMediaFile(input);
   }
 
   private resolveDownloadMedia(input: StartPlaybackFromDownloadInput): {
@@ -302,11 +411,24 @@ function toRendererSafeError(error: unknown): string {
   return "播放请求失败。";
 }
 
-function shouldTranscodeForWeb(filePath: string, title: string): boolean {
+function fallbackMediaProbe(filePath: string, title: string): MediaProbeResult {
   const extension = extname(filePath).toLowerCase();
-  if (extension === ".mkv" || extension === ".avi" || extension === ".flv" || extension === ".wmv") {
-    return true;
+  const likelyNeedsTranscode =
+    [".mkv", ".avi", ".flv", ".wmv"].includes(extension) ||
+    /\b(hevc|h\.?265|x265|10bit|hi10p)\b/i.test(title);
+  return {
+    durationSeconds: null,
+    videoCodec: "unknown",
+    audioCodec: null,
+    deliveryMode: likelyNeedsTranscode ? "transcode" : "direct"
+  };
+}
+
+function clampSeekPosition(positionSeconds: number, durationSeconds: number | null): number {
+  const target = Math.max(0, positionSeconds);
+  if (!durationSeconds || durationSeconds <= 0) {
+    return target;
   }
 
-  return /\b(hevc|h\.?265|x265|10bit|hi10p|av1)\b/i.test(title);
+  return Math.min(target, Math.max(0, durationSeconds - 0.05));
 }
