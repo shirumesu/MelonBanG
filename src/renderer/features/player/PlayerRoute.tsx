@@ -1,37 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ButtonHTMLAttributes, MouseEvent, ReactNode, SyntheticEvent } from "react";
+import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  ChevronLeft,
-  Expand,
-  LoaderCircle,
-  MessageSquareText,
-  Pause,
-  Play,
-  Send,
-  SkipBack,
-  SkipForward,
-  Volume2
-} from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import type {
-  DanmakuItemView,
   PlaybackSessionView,
   SubtitleTrackView
 } from "@shared/contracts/playback";
-import {
-  DANMAKU_COLORS,
-  DANMAKU_MESSAGES,
-  NOW_PLAYING,
-  PLAYER_EPISODES,
-  SPEEDS,
-  type PlayerEpisode
-} from "@/data/player";
+import { NOW_PLAYING, PLAYER_EPISODES, type PlayerEpisode } from "@/data/player";
 import { WindowFrame } from "@/app/shell/WindowFrame";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { createAssSubtitleRenderer, type AssSubtitleRendererHandle } from "./assSubtitleRenderer";
+import {
+  createArtPlayerController,
+  type ArtPlayerController
+} from "./artPlayerController";
+import {
+  filterDanmakuItems,
+  toArtPlayerDanmuku,
+  toArtPlayerDanmakuMode
+} from "./danmaku";
 import {
   resolvePlaybackDuration,
   resolveSeekAction,
@@ -42,61 +31,10 @@ import {
 type RightPanel = "episodes" | "settings";
 type DanmakuArea = "quarter" | "half" | "full";
 type SendMode = "scroll" | "top" | "bottom";
-type OverlayDanmakuMessage = Pick<DanmakuItemView, "text" | "color" | "mode">;
 
 const colorChoices = ["#fff", "#ffd56b", "#ff9eb5", "#86c5ff", "#9be7c4", "#c8a8f0"];
 const sourceSubtitleCueTimes = new WeakMap<TextTrackCue, { startTime: number; endTime: number }>();
-
-type HlsInstance = {
-  on(event: string, listener: (event: string, data: unknown) => void): void;
-  once(event: string, listener: (event: string, data: unknown) => void): void;
-  loadSource(url: string): void;
-  attachMedia(video: HTMLVideoElement): void;
-  destroy(): void;
-};
-
-type HlsConstructor = {
-  Events: {
-    ERROR: string;
-    MANIFEST_PARSED: string;
-    MEDIA_ATTACHED: string;
-  };
-  isSupported(): boolean;
-  new (): HlsInstance;
-};
-
-function PlayerIconButton({
-  active,
-  className,
-  children,
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "grid flex-none place-items-center rounded-lg bg-transparent p-1 text-white/90 transition hover:text-white",
-        active && "text-mint-300",
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-}
-
-function PlayerPop({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-full bg-white/[0.15] px-2.5 py-1 text-xs font-bold whitespace-nowrap text-white transition hover:bg-white/[0.25]"
-    >
-      {children}
-    </button>
-  );
-}
+const sourceSubtitleTrackIds = new WeakMap<TextTrack, string>();
 
 function EpisodeItem({
   episode,
@@ -205,38 +143,38 @@ function Segmented<T extends string>({
 
 export function PlayerRoute() {
   const navigate = useNavigate();
-  const playerAreaRef = useRef<HTMLDivElement | null>(null);
+  const artContainerRef = useRef<HTMLDivElement | null>(null);
+  const controllerRef = useRef<ArtPlayerController | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const sessionRef = useRef<PlaybackSessionView | null>(null);
+  const timelineOffsetRef = useRef(0);
+  const nativeTracksRef = useRef<SubtitleTrackView[]>([]);
+  const activeSubtitleIdRef = useRef("off");
+  const seekRestartRef = useRef(false);
   const lastProgressReportRef = useRef(0);
   const shouldPlayRef = useRef(true);
-  const bufferingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [session, setSession] = useState<PlaybackSessionView | null>(null);
-  const [playing, setPlaying] = useState(true);
-  const [buffering, setBuffering] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [subtitleError, setSubtitleError] = useState<string | null>(null);
-  const [danmakuEnabled, setDanmakuEnabled] = useState(true);
+  const [danmakuError, setDanmakuError] = useState<string | null>(null);
   const [panel, setPanel] = useState<RightPanel>("episodes");
-  const [speedIndex, setSpeedIndex] = useState(2);
   const [selectedEpisode, setSelectedEpisode] = useState(7);
-  const [danmakuText, setDanmakuText] = useState("");
-  const [localDanmaku, setLocalDanmaku] = useState<OverlayDanmakuMessage[]>([]);
   const [showDanmaku, setShowDanmaku] = useState(true);
   const [danmakuArea, setDanmakuArea] = useState<DanmakuArea>("half");
   const [sendMode, setSendMode] = useState<SendMode>("scroll");
   const [selectedColor, setSelectedColor] = useState(colorChoices[0]);
   const [blockedTypes, setBlockedTypes] = useState(new Set(["top", "bottom"]));
   const [selectedSubtitleId, setSelectedSubtitleId] = useState("auto");
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState<number | null>(null);
-  const [volume, setVolume] = useState(0.64);
   const [danmakuOpacity, setDanmakuOpacity] = useState(80);
   const [danmakuFontSize, setDanmakuFontSize] = useState(18);
   const [danmakuSpeed, setDanmakuSpeed] = useState(6);
   const [danmakuDensity, setDanmakuDensity] = useState(7);
   const source = session?.source ?? null;
-  const sourceKind = source?.kind;
   const sourceUrl = source?.url;
+  const sourceKind = source?.kind;
+  const sourceDeliveryMode = source?.deliveryMode;
+  const sourceMimeType = source?.mimeType;
+  const sourceTitle = source?.title;
   const timelineOffsetSeconds = source?.timelineOffsetSeconds ?? 0;
   const subtitleTracks = useMemo(() => playableSubtitleTracks(session), [session]);
   const nativeTracks = useMemo(
@@ -249,24 +187,85 @@ export function PlayerRoute() {
   );
   const activeAssUrl = activeAssTrack?.url ?? null;
   const activeAssFontKey = activeAssTrack?.fontUrls.join("\n") ?? "";
+  const nativeTrackKey = nativeTracks
+    .map((track) => `${track.id}:${track.url}:${track.default}`)
+    .join("|");
+  const danmakuKey = (session?.danmaku ?? [])
+    .map((item) => `${item.timeSeconds}:${item.mode}:${item.color}:${item.text}`)
+    .join("|");
+  const blockedTypesKey = [...blockedTypes].sort().join("|");
+  useEffect(() => {
+    sessionRef.current = session;
+    timelineOffsetRef.current = timelineOffsetSeconds;
+    nativeTracksRef.current = nativeTracks;
+    activeSubtitleIdRef.current = activeSubtitleId;
+  }, [activeSubtitleId, nativeTracks, session, timelineOffsetSeconds]);
 
-  const beginBufferingDelay = useCallback((): void => {
-    if (bufferingTimerRef.current) {
-      return;
-    }
-    bufferingTimerRef.current = setTimeout(() => {
-      bufferingTimerRef.current = null;
-      setBuffering(true);
-    }, 1_000);
+  const reportVideoProgress = useCallback((video: HTMLVideoElement): void => {
+    const currentSession = sessionRef.current;
+    if (!currentSession) return;
+
+    const now = Date.now();
+    if (!video.ended && now - lastProgressReportRef.current < 1000) return;
+
+    lastProgressReportRef.current = now;
+    const bridge = window.melonbang?.playback;
+    if (!bridge) return;
+
+    void bridge
+      .updateProgress({
+        sessionId: currentSession.id,
+        positionSeconds: toSourceTime(
+          finiteOrZero(video.currentTime),
+          currentSession.source?.timelineOffsetSeconds ?? 0
+        ),
+        durationSeconds: resolvePlaybackDuration(currentSession.durationSeconds, video.duration),
+        timelineOffsetSeconds: currentSession.source?.timelineOffsetSeconds ?? 0,
+        paused: video.paused,
+        ended: video.ended
+      })
+      .then(setSession)
+      .catch(() => undefined);
   }, []);
 
-  const endBuffering = useCallback((): void => {
-    if (bufferingTimerRef.current) {
-      clearTimeout(bufferingTimerRef.current);
-      bufferingTimerRef.current = null;
-    }
-    setBuffering(false);
-  }, []);
+  const handleArtPlayerSeeking = useCallback(
+    (video: HTMLVideoElement): void => {
+      const currentSession = sessionRef.current;
+      const currentSource = currentSession?.source;
+      if (!currentSession || !currentSource || seekRestartRef.current) return;
+
+      const targetSeconds = toSourceTime(
+        finiteOrZero(video.currentTime),
+        currentSource.timelineOffsetSeconds
+      );
+      const action = resolveSeekAction({
+        deliveryMode: currentSource.deliveryMode,
+        targetSeconds,
+        timelineOffsetSeconds: currentSource.timelineOffsetSeconds,
+        seekableEndSeconds: getSeekableEndSeconds(video)
+      });
+      if (action.kind === "local") {
+        reportVideoProgress(video);
+        return;
+      }
+
+      const bridge = window.melonbang?.playback;
+      if (!bridge) return;
+      seekRestartRef.current = true;
+      shouldPlayRef.current = !video.paused;
+      setPlaybackError(null);
+      void bridge
+        .seek({ sessionId: currentSession.id, positionSeconds: action.sourceTimeSeconds })
+        .then(setSession)
+        .catch((error: unknown) => {
+          setPlaybackError(error instanceof Error ? error.message : "无法从目标位置重新准备视频。");
+        })
+        .finally(() => {
+          seekRestartRef.current = false;
+        });
+    },
+    [reportVideoProgress]
+  );
 
   useEffect(() => {
     const bridge = window.melonbang?.playback;
@@ -297,153 +296,147 @@ export function PlayerRoute() {
   }, []);
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !sourceKind || !sourceUrl) {
+    const container = artContainerRef.current;
+    if (
+      !container ||
+      !sourceUrl ||
+      !sourceKind ||
+      !sourceDeliveryMode ||
+      sourceTitle === undefined
+    ) {
       return;
     }
 
     let cancelled = false;
-    let hls: HlsInstance | null = null;
-    setPlaybackError(null);
     lastProgressReportRef.current = 0;
-    beginBufferingDelay();
-
-    const play = (): void => {
-      if (cancelled) {
-        return;
-      }
-
-      if (!shouldPlayRef.current) {
-        endBuffering();
-        return;
-      }
-
-      void video
-        .play()
-        .then(() => {
-          setPlaying(true);
-          endBuffering();
-        })
-        .catch((error: unknown) => {
-          if (!cancelled) {
-            setPlaying(false);
-            endBuffering();
+    try {
+      const controller = createArtPlayerController({
+        container,
+        source: {
+          url: sourceUrl,
+          kind: sourceKind,
+          deliveryMode: sourceDeliveryMode,
+          timelineOffsetSeconds,
+          mimeType: sourceMimeType ?? null,
+          title: sourceTitle
+        },
+        danmuku: toArtPlayerDanmuku(sessionRef.current?.danmaku ?? [], timelineOffsetRef.current),
+        volume: 0.64,
+        playbackRate: 1,
+        autoplay: shouldPlayRef.current,
+        callbacks: {
+          onPlay(video) {
+            if (cancelled) return;
+            shouldPlayRef.current = true;
+            reportVideoProgress(video);
+          },
+          onPause(video) {
+            if (cancelled) return;
+            reportVideoProgress(video);
+          },
+          onLoadedMetadata(video) {
+            if (cancelled) return;
+            setPlaybackError(null);
+            applySubtitleMode(
+              video,
+              activeSubtitleIdRef.current,
+              timelineOffsetRef.current
+            );
+            reportVideoProgress(video);
+          },
+          onProgress(video) {
+            if (cancelled) return;
+            reportVideoProgress(video);
+          },
+          onSeeking(video) {
+            if (cancelled) return;
+            handleArtPlayerSeeking(video);
+          },
+          onError(video, error) {
+            if (cancelled) return;
             setPlaybackError(toPlaybackErrorMessage(video, error));
           }
-        });
-    };
-
-    const playDirect = (): void => {
-      video.src = sourceUrl;
-      if (shouldPlayRef.current) {
-        play();
-      } else {
-        video.load();
-      }
-    };
-
-    if (sourceKind === "hls") {
-      void import("hls.js")
-        .then(({ default: Hls }) => {
-          if (cancelled) {
-            return;
-          }
-
-          const HlsRuntime = Hls as HlsConstructor;
-          if (!HlsRuntime.isSupported()) {
-            if (canPlayHlsNatively(video)) {
-              playDirect();
-              return;
-            }
-
-            setPlaying(false);
-            endBuffering();
-            setPlaybackError("当前 Electron/Chromium 环境不支持 HLS 播放，HLS.js 也无法初始化。");
-            return;
-          }
-
-          hls = new HlsRuntime();
-          hls.once(HlsRuntime.Events.MEDIA_ATTACHED, () => {
-            if (!cancelled) {
-              hls?.loadSource(sourceUrl);
-            }
-          });
-          hls.once(HlsRuntime.Events.MANIFEST_PARSED, () => {
-            if (shouldPlayRef.current) {
-              play();
-            } else {
-              endBuffering();
-            }
-          });
-          hls.on(HlsRuntime.Events.ERROR, (_event, data) => {
-            if (cancelled) {
-              return;
-            }
-
-            const error = normalizeHlsError(data);
-            if (error.fatal) {
-              setPlaying(false);
-              endBuffering();
-              setPlaybackError(error.message);
-            }
-          });
-          hls.attachMedia(video);
-        })
-        .catch((error: unknown) => {
-          if (!cancelled) {
-            if (canPlayHlsNatively(video)) {
-              playDirect();
-              return;
-            }
-
-            setPlaying(false);
-            endBuffering();
-            setPlaybackError(toPlaybackErrorMessage(video, error));
-          }
-        });
-    } else {
-      playDirect();
+        }
+      });
+      controllerRef.current = controller;
+      videoRef.current = controller.video;
+    } catch (error) {
+      queueMicrotask(() =>
+        setPlaybackError(error instanceof Error ? error.message : "ArtPlayer 初始化失败。")
+      );
     }
 
     return () => {
       cancelled = true;
-      endBuffering();
-      hls?.destroy();
-      video.removeAttribute("src");
-      video.load();
+      controllerRef.current?.destroy();
+      controllerRef.current = null;
+      videoRef.current = null;
     };
-  }, [beginBufferingDelay, endBuffering, sourceKind, sourceUrl]);
-
-  useEffect(
-    () => () => {
-      if (bufferingTimerRef.current) {
-        clearTimeout(bufferingTimerRef.current);
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) {
-      return;
-    }
-
-    video.volume = volume;
-  }, [volume]);
+  }, [
+    sourceDeliveryMode,
+    sourceKind,
+    sourceMimeType,
+    sourceTitle,
+    sourceUrl,
+    timelineOffsetSeconds,
+    handleArtPlayerSeeking,
+    reportVideoProgress
+  ]);
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) {
-      return;
-    }
-
-    video.playbackRate = speedValue(SPEEDS[speedIndex]);
-  }, [speedIndex]);
+    if (!video) return;
+    return syncNativeSubtitleTracks(video, nativeTracksRef.current, () =>
+      applySubtitleMode(video, activeSubtitleIdRef.current, timelineOffsetRef.current)
+    );
+  }, [nativeTrackKey, sourceUrl]);
 
   useEffect(() => {
-    applySubtitleMode(videoRef.current, nativeTracks, activeSubtitleId, timelineOffsetSeconds);
-  }, [activeSubtitleId, nativeTracks, timelineOffsetSeconds]);
+    applySubtitleMode(
+      videoRef.current,
+      activeSubtitleId,
+      timelineOffsetSeconds
+    );
+  }, [activeSubtitleId, nativeTrackKey, timelineOffsetSeconds]);
+
+  useEffect(() => {
+    const controller = controllerRef.current;
+    if (!controller) return;
+    const blocked = new Set(blockedTypesKey ? blockedTypesKey.split("|") : []);
+    const items = filterDanmakuItems(sessionRef.current?.danmaku ?? [], blocked, danmakuDensity);
+    void controller
+      .loadDanmaku(toArtPlayerDanmuku(items, timelineOffsetSeconds))
+      .then(() => setDanmakuError(null))
+      .catch(() => setDanmakuError("弹幕插件无法加载当前弹幕数据，视频播放不受影响。"));
+  }, [blockedTypesKey, danmakuDensity, danmakuKey, sourceUrl, timelineOffsetSeconds]);
+
+  useEffect(() => {
+    const controller = controllerRef.current;
+    if (!controller) return;
+    const modes = (["scroll", "top", "bottom"] as const)
+      .filter((mode) => !blockedTypes.has(mode))
+      .map(toArtPlayerDanmakuMode);
+    controller.configureDanmaku({
+      visible: showDanmaku,
+      opacity: danmakuOpacity / 100,
+      fontSize: danmakuFontSize,
+      speed: danmakuSpeed,
+      margin: danmakuMargin(danmakuArea),
+      modes,
+      mode: toArtPlayerDanmakuMode(sendMode),
+      color: selectedColor
+    });
+  }, [
+    blockedTypes,
+    danmakuArea,
+    danmakuFontSize,
+    danmakuOpacity,
+    danmakuSpeed,
+    selectedColor,
+    sendMode,
+    showDanmaku,
+    sourceUrl
+  ]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -481,86 +474,6 @@ export function PlayerRoute() {
     };
   }, [activeAssFontKey, activeAssUrl, sourceUrl, timelineOffsetSeconds]);
 
-  function cycleSpeed(): void {
-    setSpeedIndex((value) => (value + 1) % SPEEDS.length);
-  }
-
-  function cycleSubtitle(): void {
-    setSubtitleError(null);
-    if (!subtitleTracks.length) {
-      setSelectedSubtitleId("off");
-      return;
-    }
-
-    setSelectedSubtitleId((current) => {
-      const options = ["off", ...subtitleTracks.map((track) => track.id)];
-      const currentIndex = Math.max(0, options.indexOf(resolveSubtitleId(subtitleTracks, current)));
-      return options[(currentIndex + 1) % options.length];
-    });
-  }
-
-  function seekFromPointer(event: MouseEvent<HTMLDivElement>): void {
-    const video = videoRef.current;
-    const activeDuration = resolvePlaybackDuration(
-      session?.durationSeconds,
-      duration ?? video?.duration
-    );
-    if (!video || !activeDuration || !Number.isFinite(activeDuration)) {
-      return;
-    }
-
-    const rect = event.currentTarget.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    const targetSeconds = ratio * activeDuration;
-    const action = resolveSeekAction({
-      deliveryMode: source?.deliveryMode ?? "direct",
-      targetSeconds,
-      timelineOffsetSeconds,
-      seekableEndSeconds: getSeekableEndSeconds(video)
-    });
-
-    if (action.kind === "local") {
-      video.currentTime = action.localTimeSeconds;
-      setCurrentTime(targetSeconds);
-      reportVideoProgress(video);
-      return;
-    }
-
-    const bridge = window.melonbang?.playback;
-    if (!session || !bridge) {
-      return;
-    }
-
-    shouldPlayRef.current = !video.paused;
-    setCurrentTime(action.sourceTimeSeconds);
-    setPlaybackError(null);
-    beginBufferingDelay();
-    void bridge
-      .seek({
-        sessionId: session.id,
-        positionSeconds: action.sourceTimeSeconds
-      })
-      .then(setSession)
-      .catch((error: unknown) => {
-        endBuffering();
-        setPlaybackError(error instanceof Error ? error.message : "无法从目标位置重新准备视频。");
-      });
-  }
-
-  function toggleFullscreen(): void {
-    const target = playerAreaRef.current;
-    if (!target) {
-      return;
-    }
-
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-      return;
-    }
-
-    void target.requestFullscreen();
-  }
-
   function toggleBlocked(type: string): void {
     setBlockedTypes((current) => {
       const next = new Set(current);
@@ -573,137 +486,17 @@ export function PlayerRoute() {
     });
   }
 
-  function togglePlayback(): void {
-    const video = videoRef.current;
-    if (!video || !session?.source) {
-      setPlaying((value) => !value);
-      return;
-    }
-
-    if (video.paused) {
-      shouldPlayRef.current = true;
-      void video.play().catch((error: unknown) => {
-        setPlaying(false);
-        setPlaybackError(toPlaybackErrorMessage(video, error));
-      });
-    } else {
-      shouldPlayRef.current = false;
-      video.pause();
-    }
-  }
-
-  function sendDanmaku(): void {
-    const text = danmakuText.trim().slice(0, 28);
-    if (!text) {
-      return;
-    }
-
-    setLocalDanmaku((items) => [
-      ...items,
-      {
-        text,
-        mode: sendMode,
-        color: selectedColor
-      }
-    ]);
-    setDanmakuText("");
-  }
-
-  function handleVideoProgress(event: SyntheticEvent<HTMLVideoElement>): void {
-    setCurrentTime(
-      toSourceTime(finiteOrZero(event.currentTarget.currentTime), timelineOffsetSeconds)
-    );
-    setDuration(resolvePlaybackDuration(session?.durationSeconds, event.currentTarget.duration));
-    reportVideoProgress(event.currentTarget);
-  }
-
-  function handleVideoLoadedMetadata(event: SyntheticEvent<HTMLVideoElement>): void {
-    setPlaybackError(null);
-    setCurrentTime(
-      toSourceTime(finiteOrZero(event.currentTarget.currentTime), timelineOffsetSeconds)
-    );
-    setDuration(resolvePlaybackDuration(session?.durationSeconds, event.currentTarget.duration));
-    applySubtitleMode(event.currentTarget, nativeTracks, activeSubtitleId, timelineOffsetSeconds);
-    reportVideoProgress(event.currentTarget);
-  }
-
-  function handleVideoError(event: SyntheticEvent<HTMLVideoElement>): void {
-    const video = event.currentTarget;
-    setPlaying(false);
-    if (source?.kind === "hls") {
-      setPlaybackError(
-        (message) => message ?? "HLS 转码流加载失败，播放器没有收到可用的视频片段。"
-      );
-      return;
-    }
-    setPlaybackError(toPlaybackErrorMessage(video));
-  }
-
-  function reportVideoProgress(video: HTMLVideoElement): void {
-    if (!session) {
-      return;
-    }
-
-    const now = Date.now();
-    if (!video.ended && now - lastProgressReportRef.current < 1000) {
-      return;
-    }
-
-    lastProgressReportRef.current = now;
-    const bridge = window.melonbang?.playback;
-    if (!bridge) {
-      return;
-    }
-
-    void bridge
-      .updateProgress({
-        sessionId: session.id,
-        positionSeconds: toSourceTime(finiteOrZero(video.currentTime), timelineOffsetSeconds),
-        durationSeconds: resolvePlaybackDuration(session.durationSeconds, video.duration),
-        timelineOffsetSeconds,
-        paused: video.paused,
-        ended: video.ended
-      })
-      .then(setSession)
-      .catch(() => undefined);
-  }
-
-  const overlayDanmaku = getOverlayDanmaku(session, localDanmaku);
-  const visibleDanmaku = filterDanmaku(overlayDanmaku, blockedTypes, danmakuDensity);
-  const progressDuration = resolvePlaybackDuration(session?.durationSeconds, duration);
-  const progressPosition = currentTime || session?.positionSeconds || 0;
-  const progressRatio =
-    progressDuration && progressDuration > 0
-      ? Math.min(1, Math.max(0, progressPosition / progressDuration))
-      : 0;
   const displayedTitle = session?.title ?? NOW_PLAYING.title;
   const displayedEpisode = session ? "本地播放" : `${NOW_PLAYING.ep}「${NOW_PLAYING.epTitle}」`;
   const displayedSource = source
     ? `来源：本地缓存 · ${source.mimeType ?? "HTMLVideoElement"}`
     : NOW_PLAYING.source;
-  const displayedTime = session
-    ? formatClock(progressPosition, progressDuration)
-    : NOW_PLAYING.time;
-  const subtitleLabel = selectedSubtitleLabel(subtitleTracks, activeSubtitleId);
-  const mainIcon = playing ? (
-    <Pause className="size-8 fill-current" />
-  ) : (
-    <Play className="size-8 fill-current" />
-  );
-  const smallIcon = playing ? (
-    <Pause className="size-[18px] fill-current" />
-  ) : (
-    <Play className="size-[18px] fill-current" />
-  );
 
   return (
     <WindowFrame crumb="正在播放">
       <div className="grid h-full min-h-0 grid-cols-[1fr_344px] max-[1080px]:grid-cols-1">
-        <section className="flex min-w-0 flex-col bg-[var(--player-bg)]">
-          <div
-            ref={playerAreaRef}
-            className="relative min-h-0 flex-1 overflow-hidden bg-[radial-gradient(120%_100%_at_70%_20%,rgba(22,64,74,.6),var(--player-bg)_70%)]"
-          >
+        <section className="min-w-0 bg-[var(--player-bg)]">
+          <div className="relative h-full min-h-0 overflow-hidden bg-[radial-gradient(120%_100%_at_70%_20%,rgba(22,64,74,.6),var(--player-bg)_70%)]">
             <div
               className={cn(
                 "absolute inset-0 bg-[linear-gradient(135deg,var(--mint-600),var(--sky-500))] opacity-[.18]",
@@ -712,73 +505,8 @@ export function PlayerRoute() {
             />
 
             {source ? (
-              <video
-                key={sourceUrl}
-                ref={videoRef}
-                className="absolute inset-0 z-[1] size-full bg-black object-contain"
-                playsInline
-                onPlay={() => {
-                  shouldPlayRef.current = true;
-                  setPlaying(true);
-                  endBuffering();
-                }}
-                onPause={(event) => {
-                  setPlaying(false);
-                  handleVideoProgress(event);
-                }}
-                onWaiting={beginBufferingDelay}
-                onCanPlay={endBuffering}
-                onLoadedMetadata={handleVideoLoadedMetadata}
-                onProgress={handleVideoProgress}
-                onTimeUpdate={handleVideoProgress}
-                onSeeking={handleVideoProgress}
-                onSeeked={handleVideoProgress}
-                onEnded={handleVideoProgress}
-                onError={handleVideoError}
-              >
-                {nativeTracks.map((track) => (
-                  <track
-                    key={track.id}
-                    kind="subtitles"
-                    src={track.url ?? undefined}
-                    srcLang={track.language ?? undefined}
-                    label={track.label}
-                    default={track.default}
-                    onLoad={() =>
-                      applySubtitleMode(
-                        videoRef.current,
-                        nativeTracks,
-                        activeSubtitleId,
-                        timelineOffsetSeconds
-                      )
-                    }
-                  />
-                ))}
-              </video>
+              <div ref={artContainerRef} className="melon-artplayer absolute inset-0 z-[1] bg-black" />
             ) : null}
-
-            <div
-              className={cn(
-                "pointer-events-none absolute inset-0 z-[4] overflow-hidden transition-opacity",
-                danmakuEnabled && showDanmaku ? "opacity-100" : "opacity-0"
-              )}
-              style={{ opacity: danmakuEnabled && showDanmaku ? danmakuOpacity / 100 : 0 }}
-            >
-              {visibleDanmaku.map((message, i) => (
-                <span
-                  key={`${message.text}-${i}`}
-                  className="absolute text-[18px] font-bold whitespace-nowrap text-white will-change-transform [text-shadow:0_1px_4px_rgba(0,0,0,.6)]"
-                  style={{
-                    top: `${getDanmakuTop(message.mode, i, danmakuArea)}%`,
-                    color: message.color ?? DANMAKU_COLORS[i % DANMAKU_COLORS.length],
-                    fontSize: `${danmakuFontSize + (i % 3)}px`,
-                    animation: `danmaku-fly ${danmakuDurationSeconds(danmakuSpeed, i)}s linear ${i * 0.55}s infinite`
-                  }}
-                >
-                  {message.text}
-                </span>
-              ))}
-            </div>
 
             <div className="absolute top-0 right-0 left-0 z-10 flex items-center gap-3 bg-[linear-gradient(180deg,rgba(0,0,0,.4),transparent)] px-[18px] py-4 text-white">
               <button
@@ -798,132 +526,24 @@ export function PlayerRoute() {
               </span>
             </div>
 
-            <div
-              className={cn(
-                "absolute inset-0 z-[5] grid place-items-center transition",
-                (playing || buffering) && "pointer-events-none opacity-0"
-              )}
-            >
-              <button
-                type="button"
-                onClick={togglePlayback}
-                className="grid size-[78px] place-items-center rounded-full border border-white/[0.3] bg-white/[0.15] text-white backdrop-blur-md transition hover:scale-105 hover:bg-white/[0.25]"
-                aria-label={playing ? "暂停" : "播放"}
-              >
-                {mainIcon}
-              </button>
-            </div>
-
-            {buffering ? (
-              <div className="pointer-events-none absolute inset-0 z-[6] grid place-items-center">
-                <span className="grid size-14 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
-                  <LoaderCircle className="size-7 animate-spin" />
-                </span>
-              </div>
-            ) : null}
-
-            {playbackError || subtitleError ? (
-              <div className="absolute right-6 bottom-6 left-6 z-[9] rounded-xl border border-white/[0.18] bg-black/70 px-4 py-3 text-white shadow-[0_16px_36px_rgba(0,0,0,.35)] backdrop-blur-md">
+            {playbackError || subtitleError || danmakuError ? (
+              <div className="absolute right-6 bottom-20 left-6 z-20 rounded-xl border border-white/[0.18] bg-black/70 px-4 py-3 text-white shadow-[0_16px_36px_rgba(0,0,0,.35)] backdrop-blur-md">
                 <div className="text-sm font-extrabold">
                   {subtitleError
                     ? "字幕加载失败"
-                    : source?.deliveryMode === "remux"
-                      ? "重封装播放失败"
-                      : source?.kind === "hls"
-                        ? "转码播放失败"
-                        : "当前文件无法直接播放"}
+                    : danmakuError
+                      ? "弹幕加载失败"
+                      : source?.deliveryMode === "remux"
+                        ? "重封装播放失败"
+                        : source?.kind === "hls"
+                          ? "转码播放失败"
+                          : "当前文件无法直接播放"}
                 </div>
                 <div className="mt-1 text-[12px] leading-5 text-white/75">
-                  {subtitleError ?? playbackError}
+                  {subtitleError ?? danmakuError ?? playbackError}
                 </div>
               </div>
             ) : null}
-          </div>
-
-          <div className="border-t border-[var(--player-border)] bg-[var(--player-surface)] px-4 pt-2.5 pb-3.5 text-white">
-            <div
-              className="mb-2.5 h-[5px] cursor-pointer rounded-full bg-white/20"
-              onClick={seekFromPointer}
-            >
-              <div className="relative h-full rounded-full">
-                <div
-                  className="absolute top-0 bottom-0 left-0 rounded-full bg-white/[0.3]"
-                  style={{ width: `${Math.max(progressRatio * 100, 0)}%` }}
-                />
-                <div
-                  className="absolute top-0 bottom-0 left-0 rounded-full bg-[linear-gradient(90deg,var(--mint-400),var(--mint-300))]"
-                  style={{ width: `${Math.max(progressRatio * 100, 0)}%` }}
-                />
-                <div
-                  className="absolute top-1/2 size-[13px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,.4)]"
-                  style={{ left: `${Math.max(progressRatio * 100, 0)}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 text-sm">
-              <div className="flex flex-none items-center gap-2.5">
-                <PlayerIconButton onClick={togglePlayback}>{smallIcon}</PlayerIconButton>
-                <PlayerIconButton title="上一集">
-                  <SkipBack className="size-[18px] fill-current" />
-                </PlayerIconButton>
-                <PlayerIconButton title="下一集">
-                  <SkipForward className="size-[18px] fill-current" />
-                </PlayerIconButton>
-                <PlayerIconButton title="音量">
-                  <Volume2 className="size-5" />
-                </PlayerIconButton>
-                <input
-                  aria-label="音量"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={volume}
-                  onChange={(event) => setVolume(Number(event.target.value))}
-                  className="w-[60px] flex-none accent-white"
-                />
-                <span className="font-semibold whitespace-nowrap text-white/90 tabular-nums">
-                  {displayedTime}
-                </span>
-              </div>
-
-              <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-                <PlayerIconButton
-                  active={danmakuEnabled}
-                  title="弹幕开关"
-                  onClick={() => setDanmakuEnabled((value) => !value)}
-                  aria-pressed={danmakuEnabled}
-                >
-                  <MessageSquareText className="size-4" />
-                </PlayerIconButton>
-                <div className="flex max-w-[520px] flex-1 items-center gap-2 rounded-full border border-[var(--player-border)] bg-[var(--player-bg)] px-3.5 py-2 text-white">
-                  <input
-                    value={danmakuText}
-                    onChange={(event) => setDanmakuText(event.target.value)}
-                    placeholder="发个友善的弹幕，见证当下…"
-                    className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-[#6c7c85]"
-                  />
-                  <span className="text-[11px] text-[#6c7c85]">
-                    {Math.max(0, 28 - danmakuText.length)}
-                  </span>
-                </div>
-                <Button size="sm" onClick={sendDanmaku} disabled={!danmakuText.trim()}>
-                  <Send className="size-4" />
-                  发送
-                </Button>
-              </div>
-
-              <div className="flex flex-none items-center gap-2.5">
-                <PlayerPop>1080P</PlayerPop>
-                <PlayerPop onClick={cycleSubtitle}>{subtitleLabel}</PlayerPop>
-                <PlayerPop onClick={() => setPanel("episodes")}>选集</PlayerPop>
-                <PlayerPop onClick={cycleSpeed}>{SPEEDS[speedIndex]}</PlayerPop>
-                <PlayerIconButton title="全屏" onClick={toggleFullscreen}>
-                  <Expand className="size-[18px]" />
-                </PlayerIconButton>
-              </div>
-            </div>
           </div>
         </section>
 
@@ -1122,58 +742,43 @@ export function PlayerRoute() {
   );
 }
 
-function getOverlayDanmaku(
-  session: PlaybackSessionView | null,
-  localDanmaku: OverlayDanmakuMessage[]
-): OverlayDanmakuMessage[] {
-  const sessionDanmaku = session?.danmaku ?? [];
-  if (sessionDanmaku.length || localDanmaku.length) {
-    return [...sessionDanmaku, ...localDanmaku];
-  }
-
-  return DANMAKU_MESSAGES.map((text, index) => ({
-    text,
-    mode: "scroll",
-    color: DANMAKU_COLORS[index % DANMAKU_COLORS.length]
-  }));
-}
-
-function filterDanmaku(
-  messages: OverlayDanmakuMessage[],
-  blockedTypes: Set<string>,
-  density: number
-): OverlayDanmakuMessage[] {
-  const limit = Math.max(1, Math.round((density / 10) * 36));
-  return messages
-    .filter((message) => !blockedTypes.has(message.mode))
-    .filter((message) => !(blockedTypes.has("color") && message.color && message.color !== "#fff"))
-    .slice(0, limit);
-}
-
-function getDanmakuTop(mode: DanmakuItemView["mode"], index: number, area: DanmakuArea): number {
-  const areaMax = area === "quarter" ? 24 : area === "half" ? 52 : 82;
-  if (mode === "top") {
-    return 8 + (index % 4) * 7;
-  }
-  if (mode === "bottom") {
-    return Math.max(8, areaMax - 12 - (index % 3) * 7);
-  }
-  return 6 + ((index * 37) % Math.max(12, areaMax - 10));
-}
-
-function danmakuDurationSeconds(speed: number, index: number): number {
-  return Math.max(3, 12 - speed + (index % 3));
-}
-
 function playableSubtitleTracks(session: PlaybackSessionView | null): SubtitleTrackView[] {
   return (session?.subtitles ?? []).filter(
     (track) => track.renderMode !== "unsupported" && Boolean(track.url)
   );
 }
 
+function syncNativeSubtitleTracks(
+  video: HTMLVideoElement,
+  tracks: SubtitleTrackView[],
+  onLoad: () => void
+): () => void {
+  const elements = tracks.flatMap((track) => {
+    if (!track.url) return [];
+    const element = document.createElement("track");
+    element.dataset.melonbangSubtitle = track.id;
+    element.kind = "subtitles";
+    element.src = track.url;
+    element.label = track.label;
+    if (track.language) element.srclang = track.language;
+    element.default = track.default;
+    element.addEventListener("load", onLoad);
+    video.append(element);
+    sourceSubtitleTrackIds.set(element.track, track.id);
+    return [element];
+  });
+
+  onLoad();
+  return () => {
+    for (const element of elements) {
+      element.removeEventListener("load", onLoad);
+      element.remove();
+    }
+  };
+}
+
 function applySubtitleMode(
   video: HTMLVideoElement | null,
-  tracks: SubtitleTrackView[],
   selectedSubtitleId: string,
   timelineOffsetSeconds: number
 ): void {
@@ -1182,7 +787,7 @@ function applySubtitleMode(
   }
 
   const textTracks = Array.from(video.textTracks);
-  textTracks.forEach((track, index) => {
+  textTracks.forEach((track) => {
     for (const cue of Array.from(track.cues ?? [])) {
       const sourceTimes = sourceSubtitleCueTimes.get(cue) ?? {
         startTime: cue.startTime,
@@ -1192,22 +797,12 @@ function applySubtitleMode(
       cue.startTime = toLocalTime(sourceTimes.startTime, timelineOffsetSeconds);
       cue.endTime = toLocalTime(sourceTimes.endTime, timelineOffsetSeconds);
     }
-    const sourceTrack = tracks[index];
+    const sourceTrackId = sourceSubtitleTrackIds.get(track);
     track.mode =
-      sourceTrack && sourceTrack.id === selectedSubtitleId && selectedSubtitleId !== "off"
+      sourceTrackId === selectedSubtitleId && selectedSubtitleId !== "off"
         ? "showing"
         : "disabled";
   });
-}
-
-function selectedSubtitleLabel(tracks: SubtitleTrackView[], selectedSubtitleId: string): string {
-  if (!tracks.length) {
-    return "字幕";
-  }
-  if (selectedSubtitleId === "off") {
-    return "字幕关";
-  }
-  return shortLabel(tracks.find((track) => track.id === selectedSubtitleId)?.label ?? "字幕");
 }
 
 function resolveSubtitleId(tracks: SubtitleTrackView[], selectedSubtitleId: string): string {
@@ -1224,46 +819,12 @@ function shortLabel(value: string): string {
   return value.length > 8 ? `${value.slice(0, 8)}…` : value;
 }
 
-function speedValue(label: string): number {
-  const parsed = Number(label.replace("x", ""));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-}
-
-function canPlayHlsNatively(video: HTMLVideoElement): boolean {
-  return Boolean(
-    video.canPlayType("application/vnd.apple.mpegurl") || video.canPlayType("application/x-mpegURL")
-  );
-}
-
-function normalizeHlsError(data: unknown): { fatal: boolean; message: string } {
-  if (!data || typeof data !== "object") {
-    return {
-      fatal: true,
-      message: "HLS 转码流加载失败。"
-    };
-  }
-
-  const errorData = data as {
-    fatal?: boolean;
-    type?: string;
-    details?: string;
-    error?: { message?: string };
-    reason?: string;
-    response?: { code?: number; text?: string };
-  };
-  const details = [errorData.details, errorData.reason, errorData.error?.message]
-    .filter(Boolean)
-    .join("：");
-  const response =
-    errorData.response?.code || errorData.response?.text
-      ? `HTTP ${errorData.response.code ?? ""} ${errorData.response.text ?? ""}`.trim()
-      : null;
-
-  return {
-    fatal: Boolean(errorData.fatal),
-    message:
-      [details || errorData.type, response].filter(Boolean).join("；") || "HLS 转码流加载失败。"
-  };
+function danmakuMargin(
+  area: DanmakuArea
+): [number | `${number}%`, number | `${number}%`] {
+  if (area === "quarter") return [10, "75%"];
+  if (area === "half") return [10, "50%"];
+  return [10, "10%"];
 }
 
 function finiteOrZero(value: number): number {
@@ -1279,17 +840,6 @@ function getSeekableEndSeconds(video: HTMLVideoElement): number | null {
     }
   }
   return endSeconds;
-}
-
-function formatClock(positionSeconds: number, durationSeconds: number | null): string {
-  return `${formatTime(positionSeconds)} / ${durationSeconds ? formatTime(durationSeconds) : "--:--"}`;
-}
-
-function formatTime(totalSeconds: number): string {
-  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
-  const minutes = Math.floor(safeSeconds / 60);
-  const seconds = safeSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function toPlaybackErrorMessage(video: HTMLVideoElement, error?: unknown): string {

@@ -57,8 +57,6 @@
 
   /* player-specific */
   --player-bg: #0a0f14;
-  --player-surface: #16202b;
-  --player-border: #243340;
 
   /* shadcn semantic aliases (reference the DESIGN tokens above) */
   --background: var(--bg);
@@ -233,15 +231,6 @@
   }
   50% {
     opacity: 0.35;
-  }
-}
-
-@keyframes danmaku-fly {
-  from {
-    transform: translateX(100vw);
-  }
-  to {
-    transform: translateX(-60vw);
   }
 }
 
