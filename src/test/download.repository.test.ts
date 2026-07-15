@@ -30,6 +30,8 @@ describe("DownloadRepository", () => {
       inputRef: "magnet:?xt=urn:btih:C5PPDMBT7OKFBO4A4MGUK3LLHSDP4BKG",
       title: "sample 1080p",
       status: "metadata",
+      subjectId: 13,
+      episodeId: 501,
       createdAt,
       updatedAt: createdAt
     });
@@ -72,6 +74,8 @@ describe("DownloadRepository", () => {
           downloadSpeedBytesPerSecond: 256,
           peerCount: 2,
           selectedFileId: "download-1:0",
+          subjectId: 13,
+          episodeId: 501,
           errorMessage: null,
           previewImageUrl: "https://whatslink.info/image/example",
           previewSourceName: "whatslink.info",

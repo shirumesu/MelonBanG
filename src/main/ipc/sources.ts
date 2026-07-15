@@ -5,13 +5,20 @@ import { getSourceService } from "../sources/sourceService";
 
 const searchInputSchema = z.object({
   subjectId: z.number().int().positive(),
-  keyword: z.string().trim().min(1, "请输入搜索关键词。").max(120, "搜索关键词过长。")
+  episodeId: z.number().int().positive().optional(),
+  keyword: z.string().trim().min(1, "请输入搜索关键词。").max(120, "搜索关键词过长。"),
+  keywords: z
+    .array(z.string().trim().min(1, "搜索关键词不能为空。").max(120, "搜索关键词过长。"))
+    .max(4, "搜索关键词过多。")
+    .optional()
 });
 const enqueueInputSchema = z.object({ candidateId: z.string().uuid("资源编号无效。") });
 
 export function registerSourceIpc(): void {
   const service = getSourceService();
-  handle("source:search", (input: SourceSearchInput) => service.search(searchInputSchema.parse(input)));
+  handle("source:search", (input: SourceSearchInput) =>
+    service.search(searchInputSchema.parse(input))
+  );
   handle("source:enqueue", (input: SourceEnqueueInput) =>
     service.enqueue(enqueueInputSchema.parse(input))
   );

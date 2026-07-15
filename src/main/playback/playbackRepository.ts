@@ -1,7 +1,4 @@
-import type {
-  MediaBindingView,
-  PlaybackProgressSnapshot
-} from "../../shared/contracts/playback";
+import type { MediaBindingView, PlaybackProgressSnapshot } from "../../shared/contracts/playback";
 import { getAppDatabase } from "../store/appDatabase";
 
 type MediaBindingRow = {
@@ -47,6 +44,17 @@ export type SavePlaybackProgressInput = {
 
 export class PlaybackRepository {
   saveMediaBinding(input: SaveMediaBindingInput): MediaBindingView {
+    getAppDatabase()
+      .prepare(
+        `
+        DELETE FROM media_bindings
+        WHERE download_id = ?
+          AND file_id = ?
+          AND (subject_id != ? OR episode_id != ?)
+      `
+      )
+      .run(input.downloadId, input.fileId, input.subjectId, input.episodeId);
+
     getAppDatabase()
       .prepare(
         `
@@ -101,6 +109,49 @@ export class PlaybackRepository {
       .get(subjectId, episodeId) as MediaBindingRow | undefined;
 
     return row ? toMediaBindingView(row) : null;
+  }
+
+  getMediaBindingForMedia(downloadId: string, fileId: string): MediaBindingView | null {
+    const row = getAppDatabase()
+      .prepare(
+        `
+        SELECT
+          media_bindings.*,
+          download_files.name AS file_name,
+          download_sessions.title AS download_title,
+          download_sessions.status AS download_status
+        FROM media_bindings
+        LEFT JOIN download_files ON download_files.id = media_bindings.file_id
+        LEFT JOIN download_sessions ON download_sessions.id = media_bindings.download_id
+        WHERE media_bindings.download_id = ? AND media_bindings.file_id = ?
+        ORDER BY media_bindings.updated_at DESC
+        LIMIT 1
+      `
+      )
+      .get(downloadId, fileId) as MediaBindingRow | undefined;
+
+    return row ? toMediaBindingView(row) : null;
+  }
+
+  listMediaBindings(subjectId: number): MediaBindingView[] {
+    const rows = getAppDatabase()
+      .prepare(
+        `
+        SELECT
+          media_bindings.*,
+          download_files.name AS file_name,
+          download_sessions.title AS download_title,
+          download_sessions.status AS download_status
+        FROM media_bindings
+        LEFT JOIN download_files ON download_files.id = media_bindings.file_id
+        LEFT JOIN download_sessions ON download_sessions.id = media_bindings.download_id
+        WHERE media_bindings.subject_id = ?
+        ORDER BY media_bindings.episode_id
+      `
+      )
+      .all(subjectId) as MediaBindingRow[];
+
+    return rows.map(toMediaBindingView);
   }
 
   getMediaBindingById(bindingId: string): MediaBindingView | null {
@@ -187,7 +238,9 @@ function toMediaBindingView(row: MediaBindingRow): MediaBindingView {
     fileId: row.file_id,
     fileName: row.file_name,
     downloadTitle: row.download_title,
-    available: Boolean(row.file_name && row.download_status && row.download_status !== "removed"),
+    available: Boolean(
+      row.file_name && (row.download_status === "ready" || row.download_status === "completed")
+    ),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

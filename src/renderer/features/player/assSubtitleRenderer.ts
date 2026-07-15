@@ -29,7 +29,7 @@ export async function createAssSubtitleRenderer(input: {
     queryFonts: false,
     prescaleHeightLimit: 1080
   });
-  renderer._canvas.style.zIndex = "2";
+  renderer._canvas.style.zIndex = "20";
   await renderer.ready;
   await renderer.resize(true);
   return renderer;

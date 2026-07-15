@@ -34,6 +34,8 @@ export type DownloadFileView = {
 
 export type DownloadTaskView = {
   id: string;
+  subjectId: number | null;
+  episodeId: number | null;
   title: string;
   status: DownloadStatus;
   progress: number;
@@ -50,6 +52,11 @@ export type DownloadTaskView = {
   previewSourceUrl: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type DownloadEpisodeContext = {
+  subjectId: number;
+  episodeId: number;
 };
 
 export type DownloadSnapshot = {

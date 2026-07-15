@@ -4,6 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlaybackSourceView } from "../shared/contracts/playback";
+import type {
+  DandanplayEpisodeSearchInput,
+  DandanplayEpisodeSearchResult,
+  DandanplayLoadInput,
+  DandanplayLoadResult
+} from "../main/danmaku/dandanplayClient";
 import type { RegisterLocalMediaInput } from "../main/media/localMediaServer";
 import type { MediaProbeLike, MediaProbeResult } from "../main/media/mediaProbe";
 import bundledFfmpegPath from "ffmpeg-static";
@@ -67,6 +73,43 @@ describe("PlaybackService", () => {
     mkdirSync(join(getDownloadRootDirectory(), downloadId), { recursive: true });
     writeFileSync(join(getDownloadRootDirectory(), downloadId, "sample.mp4"), "video");
 
+    let danmakuShouldFail = false;
+    const loadForFile = vi.fn<(input: DandanplayLoadInput) => Promise<DandanplayLoadResult>>(() => {
+      if (danmakuShouldFail) {
+        return Promise.reject(new Error("弹弹play暂时不可用。"));
+      }
+      return Promise.resolve({
+        provider: "dandanplay" as const,
+        episodeId: 120001,
+        animeTitle: "Sample Anime",
+        episodeTitle: "Episode 1",
+        items: [{ timeSeconds: 12.5, text: "测试弹幕", mode: "scroll" as const, color: "#ffffff" }]
+      });
+    });
+    const searchEpisodes = vi.fn<
+      (input: DandanplayEpisodeSearchInput) => Promise<DandanplayEpisodeSearchResult[]>
+    >(() =>
+      Promise.resolve([
+        {
+          animeId: 9002,
+          animeTitle: "Manual Anime",
+          type: "tvseries",
+          typeDescription: "TV动画",
+          episodeId: 130002,
+          episodeTitle: "Episode 2"
+        }
+      ])
+    );
+    const loadForEpisode = vi.fn<(episodeId: number) => Promise<DandanplayLoadResult>>(() =>
+      Promise.resolve({
+        provider: "dandanplay",
+        episodeId: 130002,
+        animeTitle: null,
+        episodeTitle: null,
+        items: [{ timeSeconds: 24, text: "手动弹幕", mode: "scroll" as const, color: "#ffffff" }]
+      })
+    );
+    const danmakuLoader = { loadForFile, searchEpisodes, loadForEpisode };
     const service = new PlaybackService(
       repository,
       mediaServer,
@@ -75,7 +118,10 @@ describe("PlaybackService", () => {
         videoCodec: "h264",
         audioCodec: "aac",
         deliveryMode: "direct"
-      })
+      }),
+      undefined,
+      undefined,
+      danmakuLoader
     );
     const [session, duplicateSession] = await Promise.all([
       service.startFromDownload({ downloadId }),
@@ -104,6 +150,97 @@ describe("PlaybackService", () => {
       title: "sample.mp4"
     });
     expect(mediaServer.registered[0]?.filePath.endsWith("sample.mp4")).toBe(true);
+
+    const withDanmaku = await service.loadDanmaku(session.id);
+    expect(loadForFile).toHaveBeenCalledTimes(1);
+    expect(loadForFile.mock.calls[0]?.[0].filePath).toMatch(/sample\.mp4$/);
+    expect(loadForFile.mock.calls[0]?.[0].videoDurationSeconds).toBeNull();
+    expect(withDanmaku).toMatchObject({
+      status: "ready",
+      danmaku: [{ timeSeconds: 12.5, text: "测试弹幕", mode: "scroll", color: "#ffffff" }]
+    });
+    expect(withDanmaku.danmakuSources.find((source) => source.id === "dandanplay")).toMatchObject({
+      enabled: true,
+      status: "ready",
+      count: 1,
+      errorMessage: null
+    });
+    expect(withDanmaku.danmakuSources.find((source) => source.id === "bilibili")).toMatchObject({
+      status: "error",
+      count: 0
+    });
+    expect(withDanmaku.danmakuSources.find((source) => source.id === "bahamut")).toMatchObject({
+      status: "error",
+      count: 0
+    });
+
+    const candidates = await service.searchDanmakuEpisodes({
+      sessionId: session.id,
+      anime: "Manual Anime"
+    });
+    expect(searchEpisodes).toHaveBeenCalledWith({ anime: "Manual Anime" });
+    expect(candidates).toEqual([
+      {
+        animeId: 9002,
+        animeTitle: "Manual Anime",
+        type: "tvseries",
+        typeDescription: "TV动画",
+        episodeId: 130002,
+        episodeTitle: "Episode 2"
+      }
+    ]);
+    expect(service.getSession()?.danmaku).toEqual(withDanmaku.danmaku);
+
+    const manuallySelected = await service.selectDanmakuEpisode({
+      sessionId: session.id,
+      episodeId: 130002
+    });
+    expect(loadForEpisode).toHaveBeenCalledWith(130002);
+    expect(manuallySelected).toMatchObject({
+      danmaku: [{ timeSeconds: 24, text: "手动弹幕", mode: "scroll", color: "#ffffff" }]
+    });
+    expect(
+      manuallySelected.danmakuSources.find((source) => source.id === "dandanplay")
+    ).toMatchObject({
+      status: "ready",
+      count: 1
+    });
+
+    const disabled = await service.setDanmakuSourceEnabled({
+      sessionId: session.id,
+      providerId: "dandanplay",
+      enabled: false
+    });
+    expect(disabled.danmaku).toEqual([]);
+    expect(disabled.danmakuSources[0]).toMatchObject({
+      id: "dandanplay",
+      enabled: false,
+      count: 1
+    });
+
+    const reenabled = await service.setDanmakuSourceEnabled({
+      sessionId: session.id,
+      providerId: "dandanplay",
+      enabled: true
+    });
+    expect(reenabled.danmaku).toEqual([
+      { timeSeconds: 24, text: "手动弹幕", mode: "scroll", color: "#ffffff" }
+    ]);
+
+    danmakuShouldFail = true;
+    const afterDanmakuFailure = await service.loadDanmaku(session.id);
+    expect(afterDanmakuFailure).toMatchObject({
+      status: "ready",
+      danmaku: []
+    });
+    expect(
+      afterDanmakuFailure.danmakuSources.find((source) => source.id === "dandanplay")
+    ).toMatchObject({
+      status: "error",
+      count: 0,
+      errorMessage: "弹弹play暂时不可用。"
+    });
+    expect(afterDanmakuFailure.source).toEqual(session.source);
 
     const playing = service.updateProgress({
       sessionId: session.id,
@@ -421,6 +558,165 @@ describe("PlaybackService", () => {
     getAppDatabase().close();
   });
 
+  it("materializes a playable binding from a completed contextual download", async () => {
+    const appRoot = mkdtempSync(join(tmpdir(), "melonbang-playback-contextual-"));
+    process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
+
+    vi.doMock("electron", () => ({
+      app: {
+        getAppPath: () => appRoot
+      }
+    }));
+
+    const { DownloadRepository } = await import("../main/download/downloadRepository");
+    const { getDownloadRootDirectory } = await import("../main/download/downloadService");
+    const { PlaybackService } = await import("../main/playback/playbackService");
+    const { getAppDatabase } = await import("../main/store/appDatabase");
+
+    const repository = new DownloadRepository();
+    const createdAt = "2026-07-15T00:00:00.000Z";
+    const downloadId = "55555555-5555-4555-8555-555555555555";
+    const fileId = `${downloadId}:0`;
+    repository.createSession({
+      id: downloadId,
+      inputKind: "magnet",
+      inputRef: "magnet:?xt=urn:btih:C5PPDMBT7OKFBO4A4MGUK3LLHSDP4BKG",
+      title: "contextual episode",
+      status: "metadata",
+      subjectId: 100,
+      episodeId: 200,
+      createdAt,
+      updatedAt: createdAt
+    });
+    repository.replaceFiles(downloadId, [
+      {
+        id: fileId,
+        downloadId,
+        path: "episode-02.mp4",
+        name: "episode-02.mp4",
+        sizeBytes: 1024,
+        mediaKind: "video",
+        priority: 1,
+        progress: 1,
+        createdAt,
+        updatedAt: createdAt
+      }
+    ]);
+    repository.updateSession(downloadId, {
+      status: "completed",
+      selectedFileId: fileId
+    });
+    mkdirSync(join(getDownloadRootDirectory(), downloadId), { recursive: true });
+    writeFileSync(join(getDownloadRootDirectory(), downloadId, "episode-02.mp4"), "video");
+
+    const service = new PlaybackService(repository, new FakeMediaServer());
+    const session = await service.startEpisode({ subjectId: 100, episodeId: 200 });
+
+    expect(session).toMatchObject({
+      downloadId,
+      fileId,
+      subjectId: 100,
+      episodeId: 200,
+      status: "ready"
+    });
+    expect(service.listEpisodeMediaBindings(100)).toEqual([
+      expect.objectContaining({
+        subjectId: 100,
+        episodeId: 200,
+        downloadId,
+        fileId,
+        available: true
+      })
+    ]);
+
+    getAppDatabase().close();
+  });
+
+  it("binds an active unbound download session without restarting playback", async () => {
+    const appRoot = mkdtempSync(join(tmpdir(), "melonbang-playback-session-binding-"));
+    process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
+
+    vi.doMock("electron", () => ({
+      app: {
+        getAppPath: () => appRoot
+      }
+    }));
+
+    const { DownloadRepository } = await import("../main/download/downloadRepository");
+    const { getDownloadRootDirectory } = await import("../main/download/downloadService");
+    const { PlaybackService } = await import("../main/playback/playbackService");
+    const { getAppDatabase } = await import("../main/store/appDatabase");
+
+    const repository = new DownloadRepository();
+    const mediaServer = new FakeMediaServer();
+    const createdAt = "2026-07-15T00:00:00.000Z";
+    const downloadId = "66666666-6666-4666-8666-666666666666";
+    const fileId = `${downloadId}:0`;
+    repository.createSession({
+      id: downloadId,
+      inputKind: "magnet",
+      inputRef: "magnet:?xt=urn:btih:C5PPDMBT7OKFBO4A4MGUK3LLHSDP4BKG",
+      title: "unbound episode",
+      status: "metadata",
+      createdAt,
+      updatedAt: createdAt
+    });
+    repository.replaceFiles(downloadId, [
+      {
+        id: fileId,
+        downloadId,
+        path: "unbound.mp4",
+        name: "unbound.mp4",
+        sizeBytes: 1024,
+        mediaKind: "video",
+        priority: 1,
+        progress: 1,
+        createdAt,
+        updatedAt: createdAt
+      }
+    ]);
+    repository.updateSession(downloadId, {
+      status: "completed",
+      selectedFileId: fileId
+    });
+    mkdirSync(join(getDownloadRootDirectory(), downloadId), { recursive: true });
+    writeFileSync(join(getDownloadRootDirectory(), downloadId, "unbound.mp4"), "video");
+
+    const service = new PlaybackService(repository, mediaServer);
+    const session = await service.startFromDownload({ downloadId });
+    const source = session.source;
+    const bound = service.bindSessionEpisode({
+      sessionId: session.id,
+      subjectId: 300,
+      episodeId: 301
+    });
+
+    expect(bound).toMatchObject({
+      id: session.id,
+      downloadId,
+      fileId,
+      subjectId: 300,
+      episodeId: 301,
+      source
+    });
+    expect(mediaServer.registered).toHaveLength(1);
+    expect(service.getEpisodeMediaBinding({ subjectId: 300, episodeId: 301 })).toMatchObject({
+      downloadId,
+      fileId,
+      available: true
+    });
+
+    const reopened = await service.startFromDownload({ downloadId });
+    expect(reopened).toMatchObject({
+      downloadId,
+      fileId,
+      subjectId: 300,
+      episodeId: 301
+    });
+
+    getAppDatabase().close();
+  });
+
   it("rejects playback when the completed download file is missing", async () => {
     const appRoot = mkdtempSync(join(tmpdir(), "melonbang-playback-missing-"));
     process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
@@ -556,7 +852,7 @@ describe("LocalMediaServer", () => {
         "-i",
         "color=c=black:s=320x180:r=24",
         "-t",
-        "3",
+        "6",
         "-an",
         "-c:v",
         "libx264",
@@ -591,14 +887,14 @@ describe("LocalMediaServer", () => {
     expect((await fetch(initial.url)).status).toBe(404);
     const response = await fetch(restarted.url);
     const playlist = await response.text();
-    const segmentDuration = [...playlist.matchAll(/#EXTINF:([\d.]+)/g)].reduce(
-      (total, match) => total + Number(match[1]),
-      0
+    const segmentDurations = [...playlist.matchAll(/#EXTINF:([\d.]+)/g)].map((match) =>
+      Number(match[1])
     );
     expect(response.status).toBe(200);
     expect(restarted.timelineOffsetSeconds).toBe(1.5);
-    expect(segmentDuration).toBeGreaterThan(1);
-    expect(segmentDuration).toBeLessThan(2);
+    expect(playlist).toContain("#EXT-X-PLAYLIST-TYPE:EVENT");
+    expect(segmentDurations.length).toBeGreaterThanOrEqual(2);
+    expect(Math.max(...segmentDurations)).toBeLessThan(2.1);
 
     await server.dispose();
   });
@@ -650,7 +946,9 @@ describe("LocalMediaServer", () => {
 
     expect(response.status).toBe(200);
     expect(source.deliveryMode).toBe("remux");
-    expect(await response.text()).toContain("#EXT-X-ENDLIST");
+    const playlist = await response.text();
+    expect(playlist).toContain("#EXT-X-PLAYLIST-TYPE:EVENT");
+    expect(playlist).toContain("#EXT-X-ENDLIST");
 
     await server.dispose();
   });

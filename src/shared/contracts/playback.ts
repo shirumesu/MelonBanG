@@ -40,6 +40,51 @@ export type DanmakuItemView = {
   color: string | null;
 };
 
+export type DanmakuSourceId = "dandanplay" | "bilibili" | "bahamut";
+
+export type DanmakuSourceStatus = "idle" | "loading" | "ready" | "error";
+
+export type DanmakuSourceView = {
+  id: DanmakuSourceId;
+  label: string;
+  enabled: boolean;
+  status: DanmakuSourceStatus;
+  count: number;
+  matchLabel: string | null;
+  errorMessage: string | null;
+};
+
+export type DanmakuEpisodeSearchInput = {
+  sessionId: string;
+  anime: string;
+};
+
+export type DanmakuEpisodeSearchResult = {
+  animeId: number;
+  animeTitle: string;
+  type: string;
+  typeDescription: string | null;
+  episodeId: number;
+  episodeTitle: string;
+};
+
+export type SelectDanmakuEpisodeInput = {
+  sessionId: string;
+  episodeId: number;
+};
+
+export type LoadDanmakuSourceInput = {
+  sessionId: string;
+  providerId: Exclude<DanmakuSourceId, "dandanplay">;
+  locator: string;
+};
+
+export type SetDanmakuSourceEnabledInput = {
+  sessionId: string;
+  providerId: DanmakuSourceId;
+  enabled: boolean;
+};
+
 export type StartPlaybackFromDownloadInput = {
   downloadId: string;
   fileId?: string;
@@ -50,6 +95,12 @@ export type BindEpisodeMediaInput = {
   episodeId: number;
   downloadId: string;
   fileId?: string;
+};
+
+export type BindSessionEpisodeInput = {
+  sessionId: string;
+  subjectId: number;
+  episodeId: number;
 };
 
 export type EpisodeMediaBindingInput = {
@@ -113,6 +164,7 @@ export type PlaybackSessionView = {
   source: PlaybackSourceView | null;
   subtitles: SubtitleTrackView[];
   danmaku: DanmakuItemView[];
+  danmakuSources: DanmakuSourceView[];
   positionSeconds: number;
   durationSeconds: number | null;
   errorMessage: string | null;
@@ -123,11 +175,18 @@ export type PlaybackSessionView = {
 export interface PlaybackBridge {
   startFromDownload(input: StartPlaybackFromDownloadInput): Promise<PlaybackSessionView>;
   bindEpisodeMedia(input: BindEpisodeMediaInput): Promise<MediaBindingView>;
+  bindSessionEpisode(input: BindSessionEpisodeInput): Promise<PlaybackSessionView>;
   getEpisodeMediaBinding(input: EpisodeMediaBindingInput): Promise<MediaBindingView | null>;
+  listEpisodeMediaBindings(subjectId: number): Promise<MediaBindingView[]>;
   clearEpisodeMediaBinding(input: ClearEpisodeMediaBindingInput): Promise<void>;
   startEpisode(input: StartEpisodePlaybackInput): Promise<PlaybackSessionView>;
   getEpisodeProgress(input: EpisodeMediaBindingInput): Promise<PlaybackProgressSnapshot | null>;
   getSession(): Promise<PlaybackSessionView | null>;
+  loadDanmaku(sessionId: string): Promise<PlaybackSessionView>;
+  searchDanmakuEpisodes(input: DanmakuEpisodeSearchInput): Promise<DanmakuEpisodeSearchResult[]>;
+  selectDanmakuEpisode(input: SelectDanmakuEpisodeInput): Promise<PlaybackSessionView>;
+  loadDanmakuSource(input: LoadDanmakuSourceInput): Promise<PlaybackSessionView>;
+  setDanmakuSourceEnabled(input: SetDanmakuSourceEnabledInput): Promise<PlaybackSessionView>;
   seek(input: SeekPlaybackInput): Promise<PlaybackSessionView>;
   updateProgress(input: PlaybackProgressInput): Promise<PlaybackSessionView>;
   stop(sessionId: string): Promise<void>;

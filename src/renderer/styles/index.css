@@ -273,3 +273,52 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: var(--shadow-sm);
   border: none;
 }
+
+.melon-artplayer .artplayer-plugin-danmuku .apd-toggle,
+.melon-artplayer .artplayer-plugin-danmuku .apd-config,
+.melon-artplayer .artplayer-plugin-danmuku .apd-style {
+  display: none;
+}
+
+.melon-artplayer .art-controls-center .apd-emitter {
+  width: clamp(340px, 42vw, 560px);
+  margin: 0 12px 10px;
+}
+
+.melon-artplayer .artplayer-plugin-danmuku .apd-input {
+  padding-inline: 14px;
+}
+
+.melon-artplayer .art-notice {
+  display: none !important;
+}
+
+.melon-artplayer {
+  container-type: inline-size;
+}
+
+.melon-artplayer .art-danmuku > div {
+  font-family: var(
+    --melon-danmaku-font-family,
+    SimHei,
+    "Microsoft JhengHei",
+    Arial,
+    Helvetica,
+    sans-serif
+  ) !important;
+  font-size: var(--melon-danmaku-font-size, clamp(12px, 2.6205cqw, 64px)) !important;
+  font-weight: var(--melon-danmaku-font-weight, 700) !important;
+  line-height: 1.125 !important;
+  text-shadow: var(
+    --melon-danmaku-text-shadow,
+    rgb(0, 0, 0) 1px 0 1px,
+    rgb(0, 0, 0) 0 1px 1px,
+    rgb(0, 0, 0) 0 -1px 1px,
+    rgb(0, 0, 0) -1px 0 1px
+  ) !important;
+}
+
+.melon-artplayer .art-fullscreen .art-controls-center .apd-emitter,
+.melon-artplayer .art-fullscreen-web .art-controls-center .apd-emitter {
+  width: clamp(420px, 52vw, 720px);
+}

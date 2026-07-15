@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { DownloadTaskView, TorrentInput } from "../../shared/contracts/download";
+import type {
+  DownloadEpisodeContext,
+  DownloadTaskView,
+  TorrentInput
+} from "../../shared/contracts/download";
 import type {
   SourceCandidateView,
   SourceEnqueueInput,
@@ -23,13 +27,27 @@ export type BuiltInSourcePack = {
 };
 
 export type SourceDownloadService = {
-  create(input: TorrentInput): DownloadTaskView | Promise<DownloadTaskView>;
+  create(
+    input: TorrentInput,
+    context?: DownloadEpisodeContext
+  ): DownloadTaskView | Promise<DownloadTaskView>;
 };
 
 type CandidateRef = {
   candidate: SourceCandidateView;
   downloadRef: string;
+  episodeContext: DownloadEpisodeContext | null;
   expiresAt: number;
+};
+
+type NormalizedSourceItem = {
+  candidate: Omit<SourceCandidateView, "candidateId">;
+  downloadRef: string;
+};
+
+type CachedProviderQuery = {
+  expiresAt: number;
+  result: Promise<NormalizedSourceItem[]>;
 };
 
 type SourceServiceOptions = {
@@ -42,7 +60,9 @@ type SourceServiceOptions = {
 const rssBodyLimitBytes = 6 * 1024 * 1024;
 const torrentBodyLimitBytes = 5 * 1024 * 1024;
 const candidateTtlMs = 10 * 60 * 1000;
-const requestTimeoutMs = 15_000;
+const queryCacheTtlMs = 2 * 60 * 1000;
+const requestTimeoutMs = 8_000;
+const maxAdditionalKeywords = 4;
 const allowedCapabilities = new Set(["http.get", "parse.rss"]);
 const sourcePackSchema = z.object({
   id: z.string(),
@@ -66,6 +86,7 @@ export class SourceService {
   private readonly downloadService: SourceDownloadService;
   private readonly now: () => Date;
   private readonly candidates = new Map<string, CandidateRef>();
+  private readonly queryCache = new Map<string, CachedProviderQuery>();
 
   constructor(options: SourceServiceOptions = {}) {
     const packs: unknown[] = options.packs ?? [mikanPack, dmhyPack];
@@ -76,19 +97,25 @@ export class SourceService {
   }
 
   async search(input: SourceSearchInput): Promise<SourceSearchResult> {
-    const keyword = input.keyword.trim();
+    const keywords = normalizeSearchKeywords(input.keyword, input.keywords);
     if (!Number.isSafeInteger(input.subjectId) || input.subjectId <= 0) {
       throw new Error("条目编号无效。");
     }
-    if (!keyword || keyword.length > 120) {
-      throw new Error("搜索关键词长度应为 1 到 120 个字符。");
+    if (
+      input.episodeId !== undefined &&
+      (!Number.isSafeInteger(input.episodeId) || input.episodeId <= 0)
+    ) {
+      throw new Error("章节编号无效。");
     }
-
     this.removeExpiredCandidates();
+    this.removeExpiredQueries();
     const providerResults = await Promise.all(
       this.packs.map(async (pack) => {
         try {
-          const candidates = await this.searchProvider(pack, keyword);
+          const candidates = await this.searchProvider(pack, keywords, {
+            subjectId: input.subjectId,
+            episodeId: input.episodeId ?? null
+          });
           return {
             candidates,
             diagnostic: {
@@ -128,7 +155,10 @@ export class SourceService {
     }
 
     if (stored.candidate.downloadKind === "magnet") {
-      const task = await this.downloadService.create({ kind: "magnet", uri: stored.downloadRef });
+      const task = await this.downloadService.create(
+        { kind: "magnet", uri: stored.downloadRef },
+        stored.episodeContext ?? undefined
+      );
       this.candidates.delete(input.candidateId);
       return task;
     }
@@ -151,19 +181,85 @@ export class SourceService {
       throw new Error(bytes.byteLength === 0 ? "种子文件内容为空。" : "种子文件超过允许大小。");
     }
 
-    const task = await this.downloadService.create({
-      kind: "torrentFile",
-      name: `${sanitizeFileName(stored.candidate.title)}.torrent`,
-      bytes
-    });
+    const task = await this.downloadService.create(
+      {
+        kind: "torrentFile",
+        name: `${sanitizeFileName(stored.candidate.title)}.torrent`,
+        bytes
+      },
+      stored.episodeContext ?? undefined
+    );
     this.candidates.delete(input.candidateId);
     return task;
   }
 
   private async searchProvider(
     pack: BuiltInSourcePack,
-    keyword: string
+    keywords: string[],
+    context: { subjectId: number; episodeId: number | null }
   ): Promise<SourceCandidateView[]> {
+    const settled = await Promise.allSettled(
+      keywords.map((keyword) => this.searchProviderKeyword(pack, keyword))
+    );
+    const successful = settled.flatMap((entry) =>
+      entry.status === "fulfilled" ? [entry.value] : []
+    );
+    if (successful.length === 0) {
+      throw settled.find((entry) => entry.status === "rejected")?.reason ?? new Error("搜索失败。");
+    }
+
+    const uniqueItems = new Map<string, NormalizedSourceItem>();
+    for (const items of successful) {
+      for (const item of items) {
+        if (!uniqueItems.has(item.candidate.providerItemId)) {
+          uniqueItems.set(item.candidate.providerItemId, item);
+        }
+      }
+    }
+
+    return [...uniqueItems.values()].map((normalized) => {
+      const candidateId = randomUUID();
+      const candidate: SourceCandidateView = { candidateId, ...normalized.candidate };
+      this.candidates.set(candidateId, {
+        candidate,
+        downloadRef: normalized.downloadRef,
+        episodeContext:
+          context.episodeId === null
+            ? null
+            : { subjectId: context.subjectId, episodeId: context.episodeId },
+        expiresAt: this.now().getTime() + candidateTtlMs
+      });
+      return candidate;
+    });
+  }
+
+  private searchProviderKeyword(
+    pack: BuiltInSourcePack,
+    keyword: string
+  ): Promise<NormalizedSourceItem[]> {
+    const cacheKey = `${pack.id}\u0000${normalizeKeywordKey(keyword)}`;
+    const cached = this.queryCache.get(cacheKey);
+    if (cached && cached.expiresAt > this.now().getTime()) {
+      return cached.result;
+    }
+
+    const result = this.fetchProviderKeyword(pack, keyword);
+    this.queryCache.set(cacheKey, {
+      expiresAt: this.now().getTime() + queryCacheTtlMs,
+      result
+    });
+    void result.catch(() => {
+      if (this.queryCache.get(cacheKey)?.result === result) {
+        this.queryCache.delete(cacheKey);
+      }
+    });
+    return result;
+  }
+
+  private async fetchProviderKeyword(
+    pack: BuiltInSourcePack,
+    keyword: string
+  ): Promise<NormalizedSourceItem[]> {
     const searchUrl = requireAllowedUrl(
       pack.searchUrlTemplate.replace("{keyword}", encodeURIComponent(keyword)),
       pack
@@ -183,17 +279,7 @@ export class SourceService {
 
     return parseRssItems(xml).flatMap((item) => {
       const normalized = normalizeItem(pack, item);
-      if (!normalized) {
-        return [];
-      }
-      const candidateId = randomUUID();
-      const candidate: SourceCandidateView = { candidateId, ...normalized.candidate };
-      this.candidates.set(candidateId, {
-        candidate,
-        downloadRef: normalized.downloadRef,
-        expiresAt: this.now().getTime() + candidateTtlMs
-      });
-      return [candidate];
+      return normalized ? [normalized] : [];
     });
   }
 
@@ -225,6 +311,43 @@ export class SourceService {
       }
     }
   }
+
+  private removeExpiredQueries(): void {
+    const now = this.now().getTime();
+    for (const [cacheKey, query] of this.queryCache) {
+      if (query.expiresAt <= now) {
+        this.queryCache.delete(cacheKey);
+      }
+    }
+  }
+}
+
+function normalizeSearchKeywords(primary: string, additional: string[] | undefined): string[] {
+  if (additional && additional.length > maxAdditionalKeywords) {
+    throw new Error("搜索关键词过多。");
+  }
+
+  const keywords: string[] = [];
+  const seen = new Set<string>();
+  for (const value of [primary, ...(additional ?? [])]) {
+    if (typeof value !== "string") {
+      throw new Error("搜索关键词无效。");
+    }
+    const keyword = value.trim();
+    if (!keyword || keyword.length > 120) {
+      throw new Error("搜索关键词长度应为 1 到 120 个字符。");
+    }
+    const key = normalizeKeywordKey(keyword);
+    if (!seen.has(key)) {
+      seen.add(key);
+      keywords.push(keyword);
+    }
+  }
+  return keywords;
+}
+
+function normalizeKeywordKey(value: string): string {
+  return value.normalize("NFKC").toLowerCase();
 }
 
 function validatePack(input: unknown): BuiltInSourcePack {
@@ -300,7 +423,10 @@ function normalizeDetailUrl(value: string, pack: BuiltInSourcePack): string | nu
   try {
     const url = new URL(value);
     const origin = new URL(pack.origin);
-    if (url.hostname !== origin.hostname || (url.protocol !== "https:" && url.protocol !== "http:")) {
+    if (
+      url.hostname !== origin.hostname ||
+      (url.protocol !== "https:" && url.protocol !== "http:")
+    ) {
       return null;
     }
     url.protocol = "https:";

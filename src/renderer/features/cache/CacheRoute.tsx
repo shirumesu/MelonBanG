@@ -191,7 +191,7 @@ function CompletedDownloadCard({
   onPlay
 }: {
   item: DownloadTaskView;
-  onPlay: (downloadId: string) => void;
+  onPlay: (item: DownloadTaskView) => void;
 }) {
   return (
     <div className="flex min-w-0 flex-col">
@@ -199,7 +199,7 @@ function CompletedDownloadCard({
         to="/player"
         onClick={(event) => {
           event.preventDefault();
-          onPlay(item.id);
+          onPlay(item);
         }}
         className="group flex min-w-0 flex-col transition-transform duration-200 hover:-translate-y-0.5"
       >
@@ -416,7 +416,7 @@ export function CacheRoute() {
     );
   }
 
-  async function playCompletedTask(downloadId: string): Promise<void> {
+  async function playCompletedTask(task: DownloadTaskView): Promise<void> {
     const bridge = window.melonbang?.playback;
     if (!bridge) {
       setFormError("播放桥接不可用，请重启应用。");
@@ -425,7 +425,14 @@ export function CacheRoute() {
 
     setFormError(null);
     try {
-      await bridge.startFromDownload({ downloadId });
+      if (task.subjectId !== null && task.episodeId !== null) {
+        await bridge.startEpisode({
+          subjectId: task.subjectId,
+          episodeId: task.episodeId
+        });
+      } else {
+        await bridge.startFromDownload({ downloadId: task.id });
+      }
       void navigate("/player");
     } catch (error) {
       setFormError(toMessage(error));
@@ -611,7 +618,7 @@ export function CacheRoute() {
                 <CompletedDownloadCard
                   key={item.id}
                   item={item}
-                  onPlay={(downloadId) => void playCompletedTask(downloadId)}
+                  onPlay={(task) => void playCompletedTask(task)}
                 />
               ))}
             </div>

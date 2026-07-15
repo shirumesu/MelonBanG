@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
+  DownloadEpisodeContext,
   DownloadSnapshot,
   DownloadStatus,
   DownloadTaskView,
@@ -63,8 +64,9 @@ export class DownloadService {
     return () => this.events.off("snapshot", listener);
   }
 
-  create(input: TorrentInput): DownloadTaskView {
+  create(input: TorrentInput, context?: DownloadEpisodeContext): DownloadTaskView {
     const validInput = validateTorrentInput(input);
+    const validContext = validateDownloadEpisodeContext(context);
     const id = randomUUID();
     const now = new Date().toISOString();
     const task = this.repository.createSession({
@@ -73,6 +75,8 @@ export class DownloadService {
       inputRef: serializeTorrentInput(validInput),
       title: inferInitialTitle(validInput),
       status: "metadata",
+      subjectId: validContext?.subjectId ?? null,
+      episodeId: validContext?.episodeId ?? null,
       createdAt: now,
       updatedAt: now
     });
@@ -402,6 +406,23 @@ export class DownloadService {
   private emitSnapshot(): void {
     this.events.emit("snapshot" satisfies DownloadEventName);
   }
+}
+
+function validateDownloadEpisodeContext(
+  context: DownloadEpisodeContext | undefined
+): DownloadEpisodeContext | null {
+  if (!context) {
+    return null;
+  }
+  if (
+    !Number.isSafeInteger(context.subjectId) ||
+    context.subjectId <= 0 ||
+    !Number.isSafeInteger(context.episodeId) ||
+    context.episodeId <= 0
+  ) {
+    throw new Error("下载章节上下文无效。");
+  }
+  return context;
 }
 
 export function getDownloadRootDirectory(): string {

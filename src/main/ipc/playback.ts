@@ -2,10 +2,15 @@ import { BrowserWindow, ipcMain } from "electron";
 import { z } from "zod";
 import type {
   BindEpisodeMediaInput,
+  BindSessionEpisodeInput,
   ClearEpisodeMediaBindingInput,
+  DanmakuEpisodeSearchInput,
   EpisodeMediaBindingInput,
+  LoadDanmakuSourceInput,
   PlaybackProgressInput,
   SeekPlaybackInput,
+  SetDanmakuSourceEnabledInput,
+  SelectDanmakuEpisodeInput,
   StartEpisodePlaybackInput,
   StartPlaybackFromDownloadInput
 } from "../../shared/contracts/playback";
@@ -25,6 +30,9 @@ const bindEpisodeMediaSchema = episodeBindingSchema.extend({
   downloadId: downloadIdSchema,
   fileId: z.string().optional()
 });
+const bindSessionEpisodeSchema = episodeBindingSchema.extend({
+  sessionId: sessionIdSchema
+});
 const clearEpisodeMediaBindingSchema = z.object({
   bindingId: z.string().uuid()
 });
@@ -39,6 +47,24 @@ const progressSchema = z.object({
 const seekSchema = z.object({
   sessionId: sessionIdSchema,
   positionSeconds: z.number().finite().nonnegative()
+});
+const searchDanmakuEpisodesSchema = z.object({
+  sessionId: sessionIdSchema,
+  anime: z.string().trim().min(1).max(120)
+});
+const selectDanmakuEpisodeSchema = z.object({
+  sessionId: sessionIdSchema,
+  episodeId: z.number().int().positive()
+});
+const loadDanmakuSourceSchema = z.object({
+  sessionId: sessionIdSchema,
+  providerId: z.enum(["bilibili", "bahamut"]),
+  locator: z.string().trim().min(1).max(240)
+});
+const setDanmakuSourceEnabledSchema = z.object({
+  sessionId: sessionIdSchema,
+  providerId: z.enum(["dandanplay", "bilibili", "bahamut"]),
+  enabled: z.boolean()
 });
 
 export function registerPlaybackIpc(getMainWindow: () => BrowserWindow | null): void {
@@ -57,8 +83,14 @@ export function registerPlaybackIpc(getMainWindow: () => BrowserWindow | null): 
   handle("playback:bindEpisodeMedia", (input: BindEpisodeMediaInput) =>
     service.bindEpisodeMedia(bindEpisodeMediaSchema.parse(input))
   );
+  handle("playback:bindSessionEpisode", (input: BindSessionEpisodeInput) =>
+    service.bindSessionEpisode(bindSessionEpisodeSchema.parse(input))
+  );
   handle("playback:getEpisodeMediaBinding", (input: EpisodeMediaBindingInput) =>
     service.getEpisodeMediaBinding(episodeBindingSchema.parse(input))
+  );
+  handle("playback:listEpisodeMediaBindings", (subjectId: number) =>
+    service.listEpisodeMediaBindings(z.number().int().positive().parse(subjectId))
   );
   handle("playback:clearEpisodeMediaBinding", (input: ClearEpisodeMediaBindingInput) =>
     service.clearEpisodeMediaBinding(clearEpisodeMediaBindingSchema.parse(input))
@@ -70,6 +102,21 @@ export function registerPlaybackIpc(getMainWindow: () => BrowserWindow | null): 
     service.getEpisodeProgress(episodeBindingSchema.parse(input))
   );
   handle("playback:getSession", () => service.getSession());
+  handle("playback:loadDanmaku", (sessionId: string) =>
+    service.loadDanmaku(sessionIdSchema.parse(sessionId))
+  );
+  handle("playback:searchDanmakuEpisodes", (input: DanmakuEpisodeSearchInput) =>
+    service.searchDanmakuEpisodes(searchDanmakuEpisodesSchema.parse(input))
+  );
+  handle("playback:selectDanmakuEpisode", (input: SelectDanmakuEpisodeInput) =>
+    service.selectDanmakuEpisode(selectDanmakuEpisodeSchema.parse(input))
+  );
+  handle("playback:loadDanmakuSource", (input: LoadDanmakuSourceInput) =>
+    service.loadDanmakuSource(loadDanmakuSourceSchema.parse(input))
+  );
+  handle("playback:setDanmakuSourceEnabled", (input: SetDanmakuSourceEnabledInput) =>
+    service.setDanmakuSourceEnabled(setDanmakuSourceEnabledSchema.parse(input))
+  );
   handle("playback:seek", (input: SeekPlaybackInput) => service.seek(seekSchema.parse(input)));
   handle("playback:updateProgress", (input: PlaybackProgressInput) =>
     service.updateProgress(progressSchema.parse(input))

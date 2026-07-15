@@ -97,6 +97,8 @@ export function getAppDatabase(): DatabaseSync {
 
     CREATE TABLE IF NOT EXISTS download_sessions (
       id TEXT PRIMARY KEY,
+      subject_id INTEGER,
+      episode_id INTEGER,
       input_kind TEXT NOT NULL,
       input_ref TEXT NOT NULL,
       title TEXT NOT NULL,
@@ -194,6 +196,12 @@ export function getAppDatabase(): DatabaseSync {
   ensureColumn(database, "download_sessions", "preview_image_url", "TEXT");
   ensureColumn(database, "download_sessions", "preview_source_name", "TEXT");
   ensureColumn(database, "download_sessions", "preview_source_url", "TEXT");
+  ensureColumn(database, "download_sessions", "subject_id", "INTEGER");
+  ensureColumn(database, "download_sessions", "episode_id", "INTEGER");
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS download_sessions_episode_context
+      ON download_sessions (subject_id, episode_id, created_at DESC);
+  `);
   database
     .prepare(
       `

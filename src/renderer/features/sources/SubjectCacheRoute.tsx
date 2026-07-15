@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft,
   Download,
@@ -17,15 +17,30 @@ import { IconButton, PageContent, Topbar } from "@/components/melon/layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SourceResultFilterBar } from "./SourceResultFilterBar";
+import {
+  buildSourceFilterOptions,
+  emptySourceCandidateFilters,
+  formatSourceEpisode,
+  matchesSourceCandidateFilters,
+  parseSourceCandidateTitle,
+  sourceSubtitleLanguageLabels,
+  type FilterableSourceCandidate,
+  type SourceCandidateFilters,
+  type SourceCandidateMetadata
+} from "./sourceCandidateMetadata";
+import { buildSubjectSourceKeywords } from "./sourceSearchKeywords";
 
 const resultPageSize = 60;
 
 export function SubjectCacheRoute() {
   const navigate = useNavigate();
   const { subjectId } = useParams();
+  const [searchParams] = useSearchParams();
   const { getCachedSubject, getSubject } = useAppState();
   const parsedSubjectId = Number(subjectId);
   const invalidSubjectId = !Number.isSafeInteger(parsedSubjectId) || parsedSubjectId <= 0;
+  const requestedEpisodeId = Number(searchParams.get("episodeId"));
   const [subject, setSubject] = useState<SubjectDetail | null>(null);
   const [keyword, setKeyword] = useState("");
   const [result, setResult] = useState<SourceSearchResult | null>(null);
@@ -35,6 +50,10 @@ export function SubjectCacheRoute() {
   const [enqueuingIds, setEnqueuingIds] = useState<Set<string>>(() => new Set());
   const [enqueuedIds, setEnqueuedIds] = useState<Set<string>>(() => new Set());
   const [visibleResultCount, setVisibleResultCount] = useState(resultPageSize);
+  const [filters, setFilters] = useState<SourceCandidateFilters>(() => ({
+    ...emptySourceCandidateFilters
+  }));
+  const [includeUnknown, setIncludeUnknown] = useState(false);
 
   useEffect(() => {
     if (invalidSubjectId) {
@@ -49,12 +68,12 @@ export function SubjectCacheRoute() {
         if (active && cached) {
           hasCachedSubject = true;
           setSubject(cached);
-          setKeyword(cached.nameCn ?? cached.name);
+          setKeyword(buildEpisodeSearchKeyword(cached, requestedEpisodeId));
         }
         const fresh = await getSubject(parsedSubjectId);
         if (active) {
           setSubject(fresh);
-          setKeyword((current) => current || fresh.nameCn || fresh.name);
+          setKeyword((current) => current || buildEpisodeSearchKeyword(fresh, requestedEpisodeId));
           setLoadError(null);
         }
       } catch (error) {
@@ -67,12 +86,16 @@ export function SubjectCacheRoute() {
     return () => {
       active = false;
     };
-  }, [getCachedSubject, getSubject, invalidSubjectId, parsedSubjectId]);
+  }, [getCachedSubject, getSubject, invalidSubjectId, parsedSubjectId, requestedEpisodeId]);
 
   const title = subject?.nameCn ?? subject?.name ?? "资源缓存";
   const visibleLoadError = invalidSubjectId ? "条目编号无效。" : loadError;
+  const contextualEpisode = subject?.episodes.find(
+    (episode) => episode.episodeId === requestedEpisodeId
+  );
   const resultCount = result?.candidates.length ?? 0;
-  const hasProviderError = result?.providers.some((provider) => provider.status === "error") ?? false;
+  const hasProviderError =
+    result?.providers.some((provider) => provider.status === "error") ?? false;
   const sortedCandidates = useMemo(
     () =>
       result
@@ -82,6 +105,28 @@ export function SubjectCacheRoute() {
         : [],
     [result]
   );
+  const parsedCandidates = useMemo<Array<FilterableSourceCandidate<SourceCandidateView>>>(
+    () =>
+      sortedCandidates.map((candidate) => ({
+        value: candidate,
+        providerId: candidate.providerId,
+        providerName: candidate.providerName,
+        metadata: parseSourceCandidateTitle(candidate.title)
+      })),
+    [sortedCandidates]
+  );
+  const filterOptions = useMemo(
+    () => buildSourceFilterOptions(parsedCandidates),
+    [parsedCandidates]
+  );
+  const filteredCandidates = useMemo(
+    () =>
+      parsedCandidates.filter((candidate) =>
+        matchesSourceCandidateFilters(candidate, filters, includeUnknown)
+      ),
+    [filters, includeUnknown, parsedCandidates]
+  );
+  const filteredResultCount = filteredCandidates.length;
 
   async function runSearch(): Promise<void> {
     const value = keyword.trim();
@@ -92,7 +137,28 @@ export function SubjectCacheRoute() {
     setLoading(true);
     setSearchError(null);
     try {
-      setResult(await window.melonbang.source.search({ subjectId: parsedSubjectId, keyword: value }));
+      const searchKeywords = subject
+        ? buildSubjectSourceKeywords(subject, contextualEpisode?.sort, value)
+        : [value];
+      const nextResult = await window.melonbang.source.search({
+        subjectId: parsedSubjectId,
+        episodeId: contextualEpisode?.episodeId,
+        keyword: searchKeywords[0] ?? value,
+        keywords: searchKeywords.slice(1)
+      });
+      setResult(nextResult);
+      const requestedEpisode = contextualEpisode?.sort ?? null;
+      const hasRequestedEpisode =
+        requestedEpisode !== null &&
+        nextResult.candidates.some((candidate) => {
+          const range = parseSourceCandidateTitle(candidate.title).episodeRange;
+          return range && requestedEpisode >= range.start && requestedEpisode <= range.end;
+        });
+      setFilters({
+        ...emptySourceCandidateFilters,
+        episode: hasRequestedEpisode ? requestedEpisode : null
+      });
+      setIncludeUnknown(false);
       setEnqueuedIds(new Set());
       setVisibleResultCount(resultPageSize);
     } catch (error) {
@@ -123,9 +189,16 @@ export function SubjectCacheRoute() {
     <>
       <Topbar
         title="资源缓存"
-        subtitle={subject ? `为「${title}」查找可下载资源` : "加载条目信息中…"}
+        subtitle={
+          subject
+            ? `为「${title}」${contextualEpisode ? `EP${contextualEpisode.sort} ` : ""}查找可下载资源`
+            : "加载条目信息中…"
+        }
         leading={
-          <IconButton onClick={() => void navigate(`/subject/${parsedSubjectId || ""}`)} title="返回条目">
+          <IconButton
+            onClick={() => void navigate(`/subject/${parsedSubjectId || ""}`)}
+            title="返回条目"
+          >
             <ChevronLeft />
           </IconButton>
         }
@@ -147,7 +220,12 @@ export function SubjectCacheRoute() {
                 <Download className="size-5" />
               </div>
               <div>
-                <h1 className="text-lg font-extrabold">搜索发布资源</h1>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-lg font-extrabold">搜索发布资源</h1>
+                  {contextualEpisode ? (
+                    <Badge variant="mint">绑定 EP{contextualEpisode.sort}</Badge>
+                  ) : null}
+                </div>
                 <p className="text-ink-faint mt-1 text-[12.5px] leading-relaxed font-semibold">
                   仅在你点击搜索时访问蜜柑计划与动漫花园 RSS，不会后台抓取或自动下载。
                 </p>
@@ -165,14 +243,18 @@ export function SubjectCacheRoute() {
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
                 placeholder="番剧名称，也可以加集数或字幕组"
-              disabled={Boolean(visibleLoadError)}
+                disabled={Boolean(visibleLoadError) || !subject}
               />
               <Button
                 type="submit"
-                disabled={loading || Boolean(visibleLoadError)}
+                disabled={loading || Boolean(visibleLoadError) || !subject}
                 className="min-w-28"
               >
-                {loading ? <LoaderCircle className="size-4 animate-spin" /> : <Search className="size-4" />}
+                {loading ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <Search className="size-4" />
+                )}
                 {loading ? "搜索中" : "搜索"}
               </Button>
             </form>
@@ -187,17 +269,36 @@ export function SubjectCacheRoute() {
         </section>
 
         {result ? (
-          <section className="mt-5">
+          <SourceResultFilterBar
+            filters={filters}
+            options={filterOptions}
+            includeUnknown={includeUnknown}
+            filteredCount={filteredResultCount}
+            totalCount={resultCount}
+            onFiltersChange={(nextFilters) => {
+              setFilters(nextFilters);
+              setVisibleResultCount(resultPageSize);
+            }}
+            onIncludeUnknownChange={(nextIncludeUnknown) => {
+              setIncludeUnknown(nextIncludeUnknown);
+              setVisibleResultCount(resultPageSize);
+            }}
+          />
+        ) : null}
+
+        {result ? (
+          <section className="mt-4">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <h2 className="text-[17px] font-extrabold">搜索结果</h2>
-              <Badge variant="mint">{resultCount} 个资源</Badge>
+              <Badge variant="mint">{filteredResultCount} 个资源</Badge>
               {result.providers.map((provider) => (
                 <Badge
                   key={provider.providerId}
                   variant={provider.status === "ok" ? "outline" : "cherry"}
                   title={provider.message}
                 >
-                  {provider.providerName} · {provider.status === "ok" ? provider.resultCount : "异常"}
+                  {provider.providerName} ·{" "}
+                  {provider.status === "ok" ? provider.resultCount : "异常"}
                 </Badge>
               ))}
             </div>
@@ -208,67 +309,96 @@ export function SubjectCacheRoute() {
               </div>
             ) : null}
 
-            {sortedCandidates.length > 0 ? (
+            {filteredCandidates.length > 0 ? (
               <div className="grid gap-2.5">
-                {sortedCandidates.slice(0, visibleResultCount).map((candidate) => {
-                  const enqueuing = enqueuingIds.has(candidate.candidateId);
-                  const enqueued = enqueuedIds.has(candidate.candidateId);
-                  return (
-                    <article
-                      key={candidate.candidateId}
-                      className="border-line bg-surface hover:border-mint-200 flex items-center gap-4 rounded-[16px] border px-4 py-3.5 shadow-[var(--shadow-xs)] transition max-sm:items-start"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                          <Badge variant={candidate.providerId === "mikan" ? "mint" : "sky"}>
-                            {candidate.providerName}
-                          </Badge>
-                          <span className="text-ink-faint text-[11.5px] font-semibold">
-                            {formatDate(candidate.publishedAt)}
-                            {candidate.sizeBytes ? ` · ${formatBytes(candidate.sizeBytes)}` : ""}
-                          </span>
-                        </div>
-                        <a
-                          href={candidate.detailUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-ink hover:text-mint-600 line-clamp-2 text-sm leading-relaxed font-bold transition"
-                        >
-                          {candidate.title}
-                          <ExternalLink className="ml-1 inline size-3.5" />
-                        </a>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant={enqueued ? "soft" : "default"}
-                        disabled={enqueuing || enqueued}
-                        onClick={() => void enqueue(candidate)}
+                {filteredCandidates
+                  .slice(0, visibleResultCount)
+                  .map(({ value: candidate, metadata }) => {
+                    const enqueuing = enqueuingIds.has(candidate.candidateId);
+                    const enqueued = enqueuedIds.has(candidate.candidateId);
+                    return (
+                      <article
+                        key={candidate.candidateId}
+                        className="border-line bg-surface hover:border-mint-200 flex items-center gap-4 rounded-[16px] border px-4 py-3.5 shadow-[var(--shadow-xs)] transition max-sm:items-start"
                       >
-                        {enqueuing ? (
-                          <LoaderCircle className="size-4 animate-spin" />
-                        ) : enqueued ? (
-                          <ShieldCheck className="size-4" />
-                        ) : (
-                          <Download className="size-4" />
-                        )}
-                        {enqueuing ? "加入中" : enqueued ? "已加入" : "缓存"}
-                      </Button>
-                    </article>
-                  );
-                })}
-                {visibleResultCount < sortedCandidates.length ? (
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                            <Badge variant={candidate.providerId === "mikan" ? "mint" : "sky"}>
+                              {candidate.providerName}
+                            </Badge>
+                            {metadata.releaseGroup ? (
+                              <Badge
+                                variant="grape"
+                                className="max-w-48 truncate"
+                                title={metadata.releaseGroup}
+                              >
+                                {metadata.releaseGroup}
+                              </Badge>
+                            ) : null}
+                            {metadata.episodeRange ? (
+                              <Badge variant="gold">
+                                {formatSourceEpisode(metadata.episodeRange)}
+                              </Badge>
+                            ) : null}
+                            {metadata.resolution ? (
+                              <Badge variant="outline">{metadata.resolution}</Badge>
+                            ) : null}
+                            <Badge
+                              variant={
+                                metadata.subtitleLanguages.includes("unknown") ? "outline" : "sky"
+                              }
+                            >
+                              {formatSourceSubtitle(metadata)}
+                            </Badge>
+                            <span className="text-ink-faint text-[11.5px] font-semibold">
+                              {formatDate(candidate.publishedAt)}
+                              {candidate.sizeBytes ? ` · ${formatBytes(candidate.sizeBytes)}` : ""}
+                            </span>
+                          </div>
+                          <a
+                            href={candidate.detailUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-ink hover:text-mint-600 line-clamp-2 text-sm leading-relaxed font-bold transition"
+                          >
+                            {candidate.title}
+                            <ExternalLink className="ml-1 inline size-3.5" />
+                          </a>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant={enqueued ? "soft" : "default"}
+                          disabled={enqueuing || enqueued}
+                          onClick={() => void enqueue(candidate)}
+                        >
+                          {enqueuing ? (
+                            <LoaderCircle className="size-4 animate-spin" />
+                          ) : enqueued ? (
+                            <ShieldCheck className="size-4" />
+                          ) : (
+                            <Download className="size-4" />
+                          )}
+                          {enqueuing ? "加入中" : enqueued ? "已加入" : "缓存"}
+                        </Button>
+                      </article>
+                    );
+                  })}
+                {visibleResultCount < filteredCandidates.length ? (
                   <Button
                     variant="outline"
                     className="mx-auto mt-1"
                     onClick={() => setVisibleResultCount((count) => count + resultPageSize)}
                   >
-                    再显示 {Math.min(resultPageSize, sortedCandidates.length - visibleResultCount)} 条
+                    再显示{" "}
+                    {Math.min(resultPageSize, filteredCandidates.length - visibleResultCount)} 条
                   </Button>
                 ) : null}
               </div>
             ) : (
               <div className="border-line bg-surface text-ink-faint rounded-[16px] border px-5 py-10 text-center text-sm font-semibold">
-                没有找到匹配资源，可以尝试日文原名、集数或字幕组关键词。
+                {resultCount > 0
+                  ? "没有符合当前筛选的资源，可以调整条件或勾选「包含未知」。"
+                  : "没有找到匹配资源，可以尝试日文原名、集数或字幕组关键词。"}
               </div>
             )}
           </section>
@@ -281,6 +411,24 @@ export function SubjectCacheRoute() {
       </PageContent>
     </>
   );
+}
+
+function buildEpisodeSearchKeyword(subject: SubjectDetail, requestedEpisodeId: number): string {
+  const title = subject.nameCn ?? subject.name;
+  const episode = subject.episodes.find((candidate) => candidate.episodeId === requestedEpisodeId);
+  if (!episode) {
+    return title;
+  }
+  return `${title} ${String(episode.sort).padStart(2, "0")}`;
+}
+
+function formatSourceSubtitle(metadata: SourceCandidateMetadata): string {
+  const languages = metadata.subtitleLanguages.map(
+    (language) => sourceSubtitleLanguageLabels[language]
+  );
+  return metadata.subtitleKind
+    ? `${languages.join(" / ")} · ${metadata.subtitleKind}`
+    : languages.join(" / ");
 }
 
 function formatBytes(bytes: number): string {

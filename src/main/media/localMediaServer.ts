@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -43,6 +43,9 @@ type LocalMediaRoute = {
   entry: LocalMediaEntry;
   assetName: string | null;
 };
+
+const HLS_STARTUP_SEGMENT_COUNT = 2;
+const TRANSCODE_SEGMENT_SECONDS = 2;
 
 let localMediaServerInstance: LocalMediaServer | null = null;
 
@@ -120,22 +123,25 @@ export class LocalMediaServer {
     const token = randomBytes(24).toString("hex");
     const directory = join(getAppDataDirectory(), "playback-streams", input.sessionId, token);
     mkdirSync(directory, { recursive: true });
-    this.entries.set(token, {
+    const hls: HlsState = {
+      directory,
+      playlistPath: join(directory, "index.m3u8"),
+      process: null,
+      stderr: "",
+      failedMessage: null,
+      revoked: false
+    };
+    const entry: LocalMediaEntry = {
       sessionId: input.sessionId,
       filePath,
       title: input.title,
       mimeType: "application/vnd.apple.mpegurl",
       delivery: deliveryMode,
       timelineOffsetSeconds: normalizeStartSeconds(input.startSeconds),
-      hls: {
-        directory,
-        playlistPath: join(directory, "index.m3u8"),
-        process: null,
-        stderr: "",
-        failedMessage: null,
-        revoked: false
-      }
-    });
+      hls
+    };
+    this.entries.set(token, entry);
+    this.ensureHlsProcess(entry, hls);
 
     return {
       kind: "hls",
@@ -302,7 +308,15 @@ export class LocalMediaServer {
       return;
     }
 
-    const available = await waitForFile(assetPath, () => hls.failedMessage, 20_000);
+    const available =
+      route.assetName === "index.m3u8"
+        ? await waitForHlsStartupBuffer(
+            assetPath,
+            () => hls.failedMessage,
+            20_000,
+            HLS_STARTUP_SEGMENT_COUNT
+          )
+        : await waitForFile(assetPath, () => hls.failedMessage, 20_000);
     if (!available) {
       const message = hls.failedMessage ?? "等待 FFmpeg 生成播放切片超时。";
       throw new Error(message);
@@ -479,6 +493,8 @@ function createFfmpegRemuxArgs(
     "0",
     "-hls_flags",
     "independent_segments",
+    "-hls_playlist_type",
+    "event",
     "-hls_segment_filename",
     join(outputDirectory, "segment-%05d.ts"),
     "-f",
@@ -507,11 +523,13 @@ function createFfmpegTranscodeArgs(
     "-c:v",
     "libx264",
     "-preset",
-    "veryfast",
+    "superfast",
     "-tune",
     "zerolatency",
     "-pix_fmt",
     "yuv420p",
+    "-force_key_frames",
+    `expr:gte(t,n_forced*${TRANSCODE_SEGMENT_SECONDS})`,
     "-c:a",
     "aac",
     "-b:a",
@@ -519,11 +537,13 @@ function createFfmpegTranscodeArgs(
     "-start_number",
     "0",
     "-hls_time",
-    "4",
+    String(TRANSCODE_SEGMENT_SECONDS),
     "-hls_list_size",
     "0",
     "-hls_flags",
-    "independent_segments",
+    "independent_segments+temp_file",
+    "-hls_playlist_type",
+    "event",
     "-hls_segment_filename",
     join(outputDirectory, "segment-%05d.ts"),
     "-f",
@@ -563,6 +583,42 @@ async function waitForFile(
   }
 
   return existsSync(filePath);
+}
+
+async function waitForHlsStartupBuffer(
+  playlistPath: string,
+  getFailureMessage: () => string | null,
+  timeoutMs: number,
+  segmentCount: number
+): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (hasHlsStartupBuffer(playlistPath, segmentCount)) {
+      return true;
+    }
+
+    if (getFailureMessage()) {
+      return false;
+    }
+
+    await delay(100);
+  }
+
+  return hasHlsStartupBuffer(playlistPath, segmentCount);
+}
+
+function hasHlsStartupBuffer(playlistPath: string, segmentCount: number): boolean {
+  if (!existsSync(playlistPath)) {
+    return false;
+  }
+
+  try {
+    const playlist = readFileSync(playlistPath, "utf8");
+    const completedSegments = playlist.match(/^#EXTINF:/gm)?.length ?? 0;
+    return completedSegments >= segmentCount || playlist.includes("#EXT-X-ENDLIST");
+  } catch {
+    return false;
+  }
 }
 
 async function waitForProcessExit(process: ChildProcess, timeoutMs: number): Promise<boolean> {

@@ -65,6 +65,18 @@ function DialogTitle({
   return <DialogPrimitive.Title className={cn("text-base font-extrabold", className)} {...props} />;
 }
 
+function DialogDescription({
+  className,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>) {
+  return (
+    <DialogPrimitive.Description
+      className={cn("text-ink-faint text-[12px] font-medium", className)}
+      {...props}
+    />
+  );
+}
+
 function DialogBody({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn("p-[22px]", className)} {...props} />;
 }
@@ -78,5 +90,6 @@ export {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogBody
 };

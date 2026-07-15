@@ -2,7 +2,9 @@ import type { DownloadTaskView } from "./download";
 
 export type SourceSearchInput = {
   subjectId: number;
+  episodeId?: number;
   keyword: string;
+  keywords?: string[];
 };
 
 export type SourceCandidateView = {

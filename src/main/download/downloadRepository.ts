@@ -8,6 +8,8 @@ import { getAppDatabase } from "../store/appDatabase";
 
 type DownloadSessionRow = {
   id: string;
+  subject_id: number | null;
+  episode_id: number | null;
   input_kind: string;
   input_ref: string;
   title: string;
@@ -48,6 +50,8 @@ export type PersistedDownloadSession = DownloadTaskView & {
 
 export type NewDownloadSession = {
   id: string;
+  subjectId?: number | null;
+  episodeId?: number | null;
   inputKind: PersistedDownloadSession["inputKind"];
   inputRef: string;
   title: string;
@@ -93,6 +97,8 @@ export class DownloadRepository {
         `
         INSERT INTO download_sessions (
           id,
+          subject_id,
+          episode_id,
           input_kind,
           input_ref,
           title,
@@ -100,11 +106,13 @@ export class DownloadRepository {
           created_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
       )
       .run(
         input.id,
+        input.subjectId ?? null,
+        input.episodeId ?? null,
         input.inputKind,
         input.inputRef,
         input.title,
@@ -369,6 +377,8 @@ function toPersistedSession(row: DownloadSessionRow): PersistedDownloadSession {
 function toTaskView(row: DownloadSessionRow): DownloadTaskView {
   return {
     id: row.id,
+    subjectId: row.subject_id,
+    episodeId: row.episode_id,
     title: row.title,
     status: row.status,
     progress: row.progress,

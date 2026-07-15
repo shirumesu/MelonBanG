@@ -4,25 +4,67 @@ import { existsSync } from "node:fs";
 import { extname, isAbsolute, relative, resolve } from "node:path";
 import type {
   BindEpisodeMediaInput,
+  BindSessionEpisodeInput,
   ClearEpisodeMediaBindingInput,
+  DanmakuEpisodeSearchInput,
+  DanmakuEpisodeSearchResult,
+  DanmakuSourceId,
+  DanmakuSourceView,
   EpisodeMediaBindingInput,
+  LoadDanmakuSourceInput,
   MediaBindingView,
   PlaybackProgressInput,
   PlaybackProgressSnapshot,
   PlaybackSessionView,
   PlaybackSourceView,
   SeekPlaybackInput,
+  SetDanmakuSourceEnabledInput,
+  SelectDanmakuEpisodeInput,
   StartEpisodePlaybackInput,
   StartPlaybackFromDownloadInput
 } from "../../shared/contracts/playback";
+import { getDandanplayConfig } from "../config/dandanplay";
+import { BahamutDanmakuClient } from "../danmaku/bahamutDanmakuClient";
+import {
+  BilibiliDanmakuClient,
+  type AutomaticDanmakuInput,
+  type DirectDanmakuLoadResult
+} from "../danmaku/bilibiliDanmakuClient";
+import {
+  DandanplayClient,
+  type DandanplayLoadInput,
+  type DandanplayLoadResult
+} from "../danmaku/dandanplayClient";
 import { DownloadRepository } from "../download/downloadRepository";
 import { getDownloadRootDirectory } from "../download/downloadService";
 import { getLocalMediaServer, type RegisterLocalMediaInput } from "../media/localMediaServer";
 import { MediaProbe, type MediaProbeLike, type MediaProbeResult } from "../media/mediaProbe";
 import { SubtitleService } from "../subtitle/subtitleService";
+import { getBangumiService } from "../services/serviceFactory";
 import { PlaybackRepository } from "./playbackRepository";
 
 type PlaybackEventName = "session";
+
+export type DanmakuLoaderLike = {
+  loadForFile(input: DandanplayLoadInput): Promise<DandanplayLoadResult>;
+  searchEpisodes(input: { anime: string }): Promise<DanmakuEpisodeSearchResult[]>;
+  loadForEpisode(episodeId: number): Promise<DandanplayLoadResult>;
+};
+
+export type DirectDanmakuLoaderLike = {
+  loadAutomatic(input: AutomaticDanmakuInput): Promise<DirectDanmakuLoadResult>;
+  loadByLocator(locator: string): Promise<DirectDanmakuLoadResult>;
+};
+
+export type DanmakuContextResolverLike = {
+  resolve(subjectId: number, episodeId: number): Promise<AutomaticDanmakuInput>;
+};
+
+const danmakuSourceDefinitions: Array<{ id: DanmakuSourceId; label: string }> = [
+  { id: "dandanplay", label: "弹弹play" },
+  { id: "bilibili", label: "Bilibili" },
+  { id: "bahamut", label: "巴哈姆特动画疯" }
+];
 
 type LocalMediaServerLike = {
   registerMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView>;
@@ -45,13 +87,24 @@ export class PlaybackService {
   private session: PlaybackSessionView | null = null;
   private startQueue: Promise<void> = Promise.resolve();
   private readonly pendingStarts = new Map<string, Promise<PlaybackSessionView>>();
+  private readonly danmakuItemsBySource = new Map<
+    DanmakuSourceId,
+    PlaybackSessionView["danmaku"]
+  >();
+  private readonly danmakuSourceEnabled = new Map<DanmakuSourceId, boolean>(
+    danmakuSourceDefinitions.map(({ id }) => [id, true])
+  );
 
   constructor(
     private readonly repository = new DownloadRepository(),
     private readonly mediaServer: LocalMediaServerLike = getLocalMediaServer(),
     private readonly mediaProbe: MediaProbeLike = new MediaProbe(),
     private readonly subtitleService = new SubtitleService(mediaServer),
-    private readonly playbackRepository = new PlaybackRepository()
+    private readonly playbackRepository = new PlaybackRepository(),
+    private readonly danmakuLoader?: DanmakuLoaderLike,
+    private readonly bilibiliDanmakuLoader: DirectDanmakuLoaderLike = new BilibiliDanmakuClient(),
+    private readonly bahamutDanmakuLoader: DirectDanmakuLoaderLike = new BahamutDanmakuClient(),
+    private readonly danmakuContextResolver: DanmakuContextResolverLike = createDanmakuContextResolver()
   ) {}
 
   onSession(callback: (session: PlaybackSessionView | null) => void): () => void {
@@ -62,10 +115,11 @@ export class PlaybackService {
 
   async startFromDownload(input: StartPlaybackFromDownloadInput): Promise<PlaybackSessionView> {
     const media = this.resolveDownloadMedia(input);
+    const binding = this.playbackRepository.getMediaBindingForMedia(input.downloadId, media.fileId);
     return this.enqueuePlaybackStart(media, {
       downloadId: input.downloadId,
-      subjectId: null,
-      episodeId: null
+      subjectId: binding?.subjectId ?? null,
+      episodeId: binding?.episodeId ?? null
     });
   }
 
@@ -87,14 +141,49 @@ export class PlaybackService {
     return this.playbackRepository.getMediaBinding(input.subjectId, input.episodeId);
   }
 
+  listEpisodeMediaBindings(subjectId: number): MediaBindingView[] {
+    return this.playbackRepository.listMediaBindings(subjectId);
+  }
+
+  bindSessionEpisode(input: BindSessionEpisodeInput): PlaybackSessionView {
+    const session = this.requireSession(input.sessionId);
+    if (
+      session.status === "stopped" ||
+      session.status === "failed" ||
+      !session.source ||
+      !session.downloadId ||
+      !session.fileId
+    ) {
+      throw new Error("当前播放会话没有可关联的本地媒体。");
+    }
+
+    this.bindEpisodeMedia({
+      subjectId: input.subjectId,
+      episodeId: input.episodeId,
+      downloadId: session.downloadId,
+      fileId: session.fileId
+    });
+    this.resetDanmakuSources();
+    this.updateSession({
+      subjectId: input.subjectId,
+      episodeId: input.episodeId,
+      danmaku: [],
+      danmakuSources: this.createDanmakuSourceViews()
+    });
+    void this.loadDanmaku(session.id).catch(() => undefined);
+    return this.requireSession(input.sessionId);
+  }
+
   clearEpisodeMediaBinding(input: ClearEpisodeMediaBindingInput): void {
     this.playbackRepository.clearMediaBinding(input.bindingId);
   }
 
   async startEpisode(input: StartEpisodePlaybackInput): Promise<PlaybackSessionView> {
-    const binding = this.playbackRepository.getMediaBinding(input.subjectId, input.episodeId);
+    const binding =
+      this.playbackRepository.getMediaBinding(input.subjectId, input.episodeId) ??
+      this.materializeContextualBinding(input);
     if (!binding) {
-      throw new Error("当前章节还没有绑定本地媒体文件。");
+      throw new Error("当前章节还没有下载完成或绑定本地媒体文件。");
     }
 
     const media = this.resolveDownloadMedia({
@@ -105,6 +194,28 @@ export class PlaybackService {
       downloadId: binding.downloadId,
       subjectId: input.subjectId,
       episodeId: input.episodeId
+    });
+  }
+
+  private materializeContextualBinding(input: StartEpisodePlaybackInput): MediaBindingView | null {
+    const task = this.repository
+      .listTasks()
+      .find(
+        (candidate) =>
+          candidate.subjectId === input.subjectId &&
+          candidate.episodeId === input.episodeId &&
+          (candidate.status === "completed" || candidate.status === "ready") &&
+          candidate.selectedFileId
+      );
+    if (!task?.selectedFileId) {
+      return null;
+    }
+
+    return this.bindEpisodeMedia({
+      subjectId: input.subjectId,
+      episodeId: input.episodeId,
+      downloadId: task.id,
+      fileId: task.selectedFileId
     });
   }
 
@@ -166,6 +277,7 @@ export class PlaybackService {
 
     const sessionId = randomUUID();
     const now = new Date().toISOString();
+    this.resetDanmakuSources();
     this.session = {
       id: sessionId,
       downloadId: context.downloadId,
@@ -177,6 +289,7 @@ export class PlaybackService {
       source: null,
       subtitles: [],
       danmaku: [],
+      danmakuSources: this.createDanmakuSourceViews(),
       positionSeconds: 0,
       durationSeconds: null,
       errorMessage: null,
@@ -192,11 +305,13 @@ export class PlaybackService {
         title: media.title
       };
       const mediaInfo = await this.probeMedia(media.path, media.title);
-      const source = await this.prepareSource(sourceInput, mediaInfo);
-      const subtitles = await this.subtitleService.prepareSubtitles({
-        sessionId,
-        mediaPath: media.path
-      });
+      const [source, subtitles] = await Promise.all([
+        this.prepareSource(sourceInput, mediaInfo),
+        this.subtitleService.prepareSubtitles({
+          sessionId,
+          mediaPath: media.path
+        })
+      ]);
       this.updateSession({
         status: "ready",
         source,
@@ -217,6 +332,224 @@ export class PlaybackService {
 
   getSession(): PlaybackSessionView | null {
     return this.session;
+  }
+
+  async loadDanmaku(sessionId: string): Promise<PlaybackSessionView> {
+    const session = this.requireSession(sessionId);
+    if (session.status === "stopped" || session.status === "failed" || !session.source) {
+      throw new Error("当前播放会话无法加载弹幕。");
+    }
+    const media =
+      session.downloadId && session.fileId
+        ? this.resolveDownloadMedia({ downloadId: session.downloadId, fileId: session.fileId })
+        : null;
+    const enabledSources = session.danmakuSources
+      .filter((source) => source.enabled)
+      .map((source) => source.id);
+    const context = enabledSources.some((providerId) => providerId !== "dandanplay")
+      ? this.resolveAutomaticDanmakuContext(session)
+      : null;
+    await Promise.allSettled(
+      enabledSources.map((providerId) =>
+        this.loadDanmakuSourceAutomatically(sessionId, providerId, media, context)
+      )
+    );
+    return this.requireSession(sessionId);
+  }
+
+  async searchDanmakuEpisodes(
+    input: DanmakuEpisodeSearchInput
+  ): Promise<DanmakuEpisodeSearchResult[]> {
+    this.requirePlayableSession(input.sessionId);
+    const loader = this.danmakuLoader ?? createConfiguredDanmakuLoader();
+    return loader.searchEpisodes({ anime: input.anime });
+  }
+
+  async selectDanmakuEpisode(input: SelectDanmakuEpisodeInput): Promise<PlaybackSessionView> {
+    this.requirePlayableSession(input.sessionId);
+    this.setDanmakuSourceState(input.sessionId, "dandanplay", {
+      status: "loading",
+      errorMessage: null
+    });
+    const loader = this.danmakuLoader ?? createConfiguredDanmakuLoader();
+    try {
+      const result = await loader.loadForEpisode(input.episodeId);
+      return this.applyDanmakuSourceResult(input.sessionId, "dandanplay", {
+        items: result.items,
+        matchLabel:
+          [result.animeTitle, result.episodeTitle].filter(Boolean).join(" · ") ||
+          `弹弹play剧集 ${input.episodeId}`
+      });
+    } catch (error) {
+      this.setDanmakuSourceFailure(input.sessionId, "dandanplay", error);
+      throw error;
+    }
+  }
+
+  async loadDanmakuSource(input: LoadDanmakuSourceInput): Promise<PlaybackSessionView> {
+    this.requirePlayableSession(input.sessionId);
+    this.setDanmakuSourceState(input.sessionId, input.providerId, {
+      status: "loading",
+      errorMessage: null
+    });
+    const loader =
+      input.providerId === "bilibili" ? this.bilibiliDanmakuLoader : this.bahamutDanmakuLoader;
+    try {
+      const result = await loader.loadByLocator(input.locator);
+      return this.applyDanmakuSourceResult(input.sessionId, input.providerId, result);
+    } catch (error) {
+      this.setDanmakuSourceFailure(input.sessionId, input.providerId, error);
+      throw error;
+    }
+  }
+
+  async setDanmakuSourceEnabled(input: SetDanmakuSourceEnabledInput): Promise<PlaybackSessionView> {
+    const session = this.requirePlayableSession(input.sessionId);
+    this.danmakuSourceEnabled.set(input.providerId, input.enabled);
+    this.setDanmakuSourceState(input.sessionId, input.providerId, { enabled: input.enabled });
+    if (
+      input.enabled &&
+      !this.danmakuItemsBySource.has(input.providerId) &&
+      session.danmakuSources.find((source) => source.id === input.providerId)?.status !== "loading"
+    ) {
+      const media =
+        session.downloadId && session.fileId
+          ? this.resolveDownloadMedia({ downloadId: session.downloadId, fileId: session.fileId })
+          : null;
+      await this.loadDanmakuSourceAutomatically(
+        input.sessionId,
+        input.providerId,
+        media,
+        input.providerId === "dandanplay" ? null : this.resolveAutomaticDanmakuContext(session)
+      );
+    }
+    return this.requireSession(input.sessionId);
+  }
+
+  private async loadDanmakuSourceAutomatically(
+    sessionId: string,
+    providerId: DanmakuSourceId,
+    media: { path: string } | null,
+    context: Promise<AutomaticDanmakuInput> | null
+  ): Promise<void> {
+    this.setDanmakuSourceState(sessionId, providerId, {
+      status: "loading",
+      errorMessage: null
+    });
+    try {
+      if (providerId === "dandanplay") {
+        if (!media) throw new Error("当前播放会话没有可用于弹弹play匹配的本地媒体。");
+        const loader = this.danmakuLoader ?? createConfiguredDanmakuLoader();
+        const session = this.requireSession(sessionId);
+        const result = await loader.loadForFile({
+          filePath: media.path,
+          videoDurationSeconds: session.durationSeconds
+        });
+        this.applyDanmakuSourceResult(sessionId, providerId, {
+          items: result.items,
+          matchLabel:
+            [result.animeTitle, result.episodeTitle].filter(Boolean).join(" · ") ||
+            `弹弹play剧集 ${result.episodeId}`
+        });
+        return;
+      }
+
+      if (!context) throw new Error("当前播放会话没有可用于自动匹配的章节信息。");
+      const resolvedContext = await context;
+      const loader =
+        providerId === "bilibili" ? this.bilibiliDanmakuLoader : this.bahamutDanmakuLoader;
+      const result = await loader.loadAutomatic(resolvedContext);
+      this.applyDanmakuSourceResult(sessionId, providerId, result);
+    } catch (error) {
+      this.setDanmakuSourceFailure(sessionId, providerId, error);
+    }
+  }
+
+  private applyDanmakuSourceResult(
+    sessionId: string,
+    providerId: DanmakuSourceId,
+    result: { items: PlaybackSessionView["danmaku"]; matchLabel: string }
+  ): PlaybackSessionView {
+    this.requireSession(sessionId);
+    this.danmakuItemsBySource.set(providerId, result.items);
+    this.setDanmakuSourceState(sessionId, providerId, {
+      status: "ready",
+      count: result.items.length,
+      matchLabel: result.matchLabel,
+      errorMessage: null
+    });
+    return this.requireSession(sessionId);
+  }
+
+  private setDanmakuSourceFailure(
+    sessionId: string,
+    providerId: DanmakuSourceId,
+    error: unknown
+  ): void {
+    this.requireSession(sessionId);
+    this.danmakuItemsBySource.delete(providerId);
+    this.setDanmakuSourceState(sessionId, providerId, {
+      status: "error",
+      count: 0,
+      matchLabel: null,
+      errorMessage: toDanmakuError(error, providerId)
+    });
+  }
+
+  private setDanmakuSourceState(
+    sessionId: string,
+    providerId: DanmakuSourceId,
+    patch: Partial<DanmakuSourceView>
+  ): void {
+    const session = this.requireSession(sessionId);
+    const danmakuSources = session.danmakuSources.map((source) =>
+      source.id === providerId ? { ...source, ...patch, id: source.id } : source
+    );
+    this.updateSession({
+      danmakuSources,
+      danmaku: this.combineEnabledDanmaku(danmakuSources)
+    });
+  }
+
+  private combineEnabledDanmaku(sources: DanmakuSourceView[]): PlaybackSessionView["danmaku"] {
+    const seen = new Set<string>();
+    return sources
+      .filter((source) => source.enabled)
+      .flatMap((source) => this.danmakuItemsBySource.get(source.id) ?? [])
+      .filter((item) => {
+        const key = `${Math.round(item.timeSeconds * 1000)}\u0000${item.mode}\u0000${item.color}\u0000${item.text}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((left, right) => left.timeSeconds - right.timeSeconds);
+  }
+
+  private createDanmakuSourceViews(): DanmakuSourceView[] {
+    return danmakuSourceDefinitions.map(({ id, label }) => ({
+      id,
+      label,
+      enabled: this.danmakuSourceEnabled.get(id) ?? true,
+      status: "idle",
+      count: 0,
+      matchLabel: null,
+      errorMessage: null
+    }));
+  }
+
+  private resetDanmakuSources(): void {
+    this.danmakuItemsBySource.clear();
+  }
+
+  private resolveAutomaticDanmakuContext(
+    session: PlaybackSessionView
+  ): Promise<AutomaticDanmakuInput> {
+    if (!session.subjectId || !session.episodeId) {
+      return Promise.reject(
+        new Error("当前视频未关联 Bangumi 章节，请手动输入该弹幕源的剧集编号。")
+      );
+    }
+    return this.danmakuContextResolver.resolve(session.subjectId, session.episodeId);
   }
 
   async seek(input: SeekPlaybackInput): Promise<PlaybackSessionView> {
@@ -372,6 +705,14 @@ export class PlaybackService {
     return this.session;
   }
 
+  private requirePlayableSession(sessionId: string): PlaybackSessionView {
+    const session = this.requireSession(sessionId);
+    if (session.status === "stopped" || session.status === "failed" || !session.source) {
+      throw new Error("当前播放会话无法加载弹幕。");
+    }
+    return session;
+  }
+
   private updateSession(
     patch: Partial<
       Pick<
@@ -380,6 +721,9 @@ export class PlaybackService {
         | "source"
         | "subtitles"
         | "danmaku"
+        | "danmakuSources"
+        | "subjectId"
+        | "episodeId"
         | "positionSeconds"
         | "durationSeconds"
         | "errorMessage"
@@ -401,6 +745,46 @@ export class PlaybackService {
   private emitSession(): void {
     this.events.emit("session" satisfies PlaybackEventName);
   }
+}
+
+function createConfiguredDanmakuLoader(): DanmakuLoaderLike {
+  const config = getDandanplayConfig();
+  if (!config) {
+    throw new Error(
+      "弹弹play未配置。请设置 DANDANPLAY_APP_ID 和 DANDANPLAY_APP_SECRET，或在开发环境创建 temp/dandanplay.json。"
+    );
+  }
+  return new DandanplayClient(config);
+}
+
+function toDanmakuError(error: unknown, providerId: DanmakuSourceId): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  const label = danmakuSourceDefinitions.find((source) => source.id === providerId)?.label;
+  return `${label ?? "弹幕源"}加载失败，视频播放不受影响。`;
+}
+
+function createDanmakuContextResolver(): DanmakuContextResolverLike {
+  return {
+    async resolve(subjectId, episodeId) {
+      const service = getBangumiService();
+      const subject =
+        (await service.getCachedSubject(subjectId).catch(() => null)) ??
+        (await service.getSubject(subjectId));
+      const episode = subject.episodes.find((candidate) => candidate.episodeId === episodeId);
+      if (!episode) {
+        throw new Error("当前 Bangumi 章节信息不完整，请手动输入弹幕源剧集编号。");
+      }
+      const animeTitles = [subject.nameCn, subject.name].filter((title): title is string =>
+        Boolean(title?.trim())
+      );
+      if (animeTitles.length === 0) {
+        throw new Error("当前番剧缺少可用于自动匹配的标题，请手动输入弹幕源剧集编号。");
+      }
+      return { animeTitles, episodeNumber: episode.sort };
+    }
+  };
 }
 
 function toRendererSafeError(error: unknown): string {
