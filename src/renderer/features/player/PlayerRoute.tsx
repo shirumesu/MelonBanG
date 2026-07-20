@@ -28,6 +28,10 @@ import { cn } from "@/lib/utils";
 import { createAssSubtitleRenderer, type AssSubtitleRendererHandle } from "./assSubtitleRenderer";
 import { createArtPlayerController, type ArtPlayerController } from "./artPlayerController";
 import {
+  createRemoteSeekCoordinator,
+  type RemoteSeekCoordinator
+} from "./remoteSeekCoordinator";
+import {
   bilibiliDanmakuDefaults,
   bilibiliDanmakuFontOptions,
   bilibiliDanmakuSpeedOptions,
@@ -278,7 +282,7 @@ export function PlayerRoute() {
   const subtitleTracksRef = useRef<SubtitleTrackView[]>([]);
   const nativeTracksRef = useRef<SubtitleTrackView[]>([]);
   const activeSubtitleIdRef = useRef("off");
-  const seekRestartRef = useRef(false);
+  const remoteSeekCoordinatorRef = useRef<RemoteSeekCoordinator | null>(null);
   const lastProgressReportRef = useRef(0);
   const shouldPlayRef = useRef(true);
   const requestedDanmakuSessionIdsRef = useRef(new Set<string>());
@@ -320,6 +324,17 @@ export function PlayerRoute() {
     bilibiliDanmakuDefaults.scaleWithPlayer
   );
   const [danmakuSpeedSync, setDanmakuSpeedSync] = useState(bilibiliDanmakuDefaults.speedSync);
+  const applySession = useCallback((nextSession: PlaybackSessionView | null): void => {
+    if (
+      nextSession &&
+      remoteSeekCoordinatorRef.current &&
+      !remoteSeekCoordinatorRef.current.shouldAcceptSession(nextSession)
+    ) {
+      return;
+    }
+    sessionRef.current = nextSession;
+    setSession(nextSession);
+  }, []);
   const danmakuPresentation = useMemo(
     () =>
       resolveBilibiliDanmakuPresentation({
@@ -374,7 +389,10 @@ export function PlayerRoute() {
     .map((track) => `${track.id}:${track.url}:${track.default}`)
     .join("|");
   const danmakuKey = (session?.danmaku ?? [])
-    .map((item) => `${item.timeSeconds}:${item.mode}:${item.color}:${item.text}`)
+    .map(
+      (item) =>
+        `${item.sourceId ?? "unknown"}:${item.timeSeconds}:${item.mode}:${item.color}:${item.text}`
+    )
     .join("|");
   const blockedTypesKey = [...blockedTypes].sort().join("|");
   const danmakuSources = session?.danmakuSources ?? [];
@@ -426,6 +444,30 @@ export function PlayerRoute() {
     activeSubtitleIdRef.current = activeSubtitleId;
   }, [activeSubtitleId, nativeTracks, session, subtitleTracks, timelineOffsetSeconds]);
 
+  useEffect(() => {
+    const bridge = window.melonbang?.playback;
+    if (!bridge) return;
+
+    const coordinator = createRemoteSeekCoordinator({
+      seek: (input) => bridge.seek(input),
+      onSession: applySession,
+      onError(error) {
+        setPlaybackError(error instanceof Error ? error.message : "无法从目标位置重新准备视频。");
+      },
+      onPlaybackIntent(shouldPlay) {
+        shouldPlayRef.current = shouldPlay;
+      }
+    });
+    remoteSeekCoordinatorRef.current = coordinator;
+
+    return () => {
+      coordinator.dispose();
+      if (remoteSeekCoordinatorRef.current === coordinator) {
+        remoteSeekCoordinatorRef.current = null;
+      }
+    };
+  }, [applySession]);
+
   const reportVideoProgress = useCallback((video: HTMLVideoElement): void => {
     const currentSession = sessionRef.current;
     if (!currentSession) return;
@@ -437,6 +479,8 @@ export function PlayerRoute() {
     const bridge = window.melonbang?.playback;
     if (!bridge) return;
 
+    const reportedSessionId = currentSession.id;
+    const reportedSourceUrl = currentSession.source?.url ?? null;
     void bridge
       .updateProgress({
         sessionId: currentSession.id,
@@ -449,34 +493,38 @@ export function PlayerRoute() {
         paused: video.paused,
         ended: video.ended
       })
-      .then(setSession)
+      .then((nextSession) => {
+        const latestSession = sessionRef.current;
+        if (
+          latestSession?.id === reportedSessionId &&
+          (latestSession.source?.url ?? null) === reportedSourceUrl
+        ) {
+          applySession(nextSession);
+        }
+      })
       .catch(() => undefined);
-  }, []);
+  }, [applySession]);
 
   const requestRemoteSeek = useCallback((positionSeconds: number, shouldPlay: boolean): void => {
     const currentSession = sessionRef.current;
-    const bridge = window.melonbang?.playback;
-    if (!currentSession || !bridge || seekRestartRef.current) return;
+    const coordinator = remoteSeekCoordinatorRef.current;
+    if (!currentSession || !coordinator) return;
 
-    seekRestartRef.current = true;
-    shouldPlayRef.current = shouldPlay;
     setPlaybackError(null);
-    void bridge
-      .seek({ sessionId: currentSession.id, positionSeconds })
-      .then(setSession)
-      .catch((error: unknown) => {
-        setPlaybackError(error instanceof Error ? error.message : "无法从目标位置重新准备视频。");
-      })
-      .finally(() => {
-        seekRestartRef.current = false;
-      });
+    void coordinator.request({
+      sessionId: currentSession.id,
+      positionSeconds,
+      shouldPlay
+    });
   }, []);
 
   const handleArtPlayerSeeking = useCallback(
     (video: HTMLVideoElement): void => {
       const currentSession = sessionRef.current;
       const currentSource = currentSession?.source;
-      if (!currentSession || !currentSource || seekRestartRef.current) return;
+      if (!currentSession || !currentSource || remoteSeekCoordinatorRef.current?.isSeeking()) {
+        return;
+      }
 
       const targetSeconds = toSourceTime(
         finiteOrZero(video.currentTime),
@@ -506,8 +554,12 @@ export function PlayerRoute() {
 
     let cancelled = false;
     const unsubscribe = bridge.onEvent((nextSession) => {
-      if (!cancelled) {
-        setSession(nextSession);
+      if (
+        !cancelled &&
+        (!nextSession ||
+          (remoteSeekCoordinatorRef.current?.shouldAcceptSession(nextSession) ?? true))
+      ) {
+        applySession(nextSession);
       }
     });
 
@@ -515,7 +567,7 @@ export function PlayerRoute() {
       .getSession()
       .then((nextSession) => {
         if (!cancelled) {
-          setSession(nextSession);
+          applySession(nextSession);
         }
       })
       .catch(() => undefined);
@@ -524,7 +576,7 @@ export function PlayerRoute() {
       cancelled = true;
       unsubscribe();
     };
-  }, []);
+  }, [applySession]);
 
   useEffect(() => {
     const bridge = window.melonbang?.download;
@@ -618,14 +670,14 @@ export function PlayerRoute() {
       .loadDanmaku(sessionId)
       .then((nextSession) => {
         if (sessionRef.current?.id !== sessionId) return;
-        setSession(nextSession);
+        applySession(nextSession);
       })
       .catch((error: unknown) => {
         setDanmakuError(
           error instanceof Error ? error.message : "弹幕加载失败，视频播放不受影响。"
         );
       });
-  }, [session?.id, session?.source]);
+  }, [applySession, session?.id, session?.source]);
 
   useEffect(() => {
     const container = artContainerRef.current;
@@ -690,6 +742,10 @@ export function PlayerRoute() {
             if (cancelled) return;
             setSelectedSubtitleId(subtitleId);
           },
+          onDanmakuToggle() {
+            if (cancelled) return;
+            setShowDanmaku((visible) => !visible);
+          },
           onError(video, error) {
             if (cancelled) return;
             const message = toPlaybackErrorMessage(video, error, sourceDeliveryMode);
@@ -727,8 +783,8 @@ export function PlayerRoute() {
   ]);
 
   useEffect(() => {
-    controllerRef.current?.updateSubtitles(subtitleTracks, activeSubtitleId);
-  }, [activeSubtitleId, nativeTrackKey, subtitleTracks]);
+    controllerRef.current?.updateSubtitles(subtitleTracksRef.current, activeSubtitleId);
+  }, [activeSubtitleId, nativeTrackKey, sourceUrl]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -878,7 +934,7 @@ export function PlayerRoute() {
     setEpisodePanelError(null);
     shouldPlayRef.current = true;
     try {
-      setSession(
+      applySession(
         await bridge.startEpisode({
           subjectId: episode.subjectId,
           episodeId: episode.episodeId
@@ -1085,7 +1141,7 @@ export function PlayerRoute() {
                             providerId: sourceView.id,
                             enabled
                           })
-                          .then(setSession)
+                          .then(applySession)
                           .catch((reason: unknown) =>
                             setDanmakuError(toMessage(reason, "无法更新弹幕源开关。"))
                           );
@@ -1138,8 +1194,8 @@ export function PlayerRoute() {
                 <SettingRow title="弹幕字号">
                   <RangeSetting
                     label="弹幕字号"
-                    min={40}
-                    max={160}
+                    min={50}
+                    max={150}
                     step={5}
                     value={danmakuFontScale}
                     valueLabel={`${danmakuFontScale}%`}
@@ -1311,7 +1367,7 @@ export function PlayerRoute() {
         session={session}
         onOpenChange={setEpisodeBindingDialogOpen}
         onSession={(nextSession) => {
-          setSession(nextSession);
+          applySession(nextSession);
           setEpisodePanelError(null);
         }}
       />
@@ -1326,7 +1382,7 @@ export function PlayerRoute() {
         }
         onOpenChange={(open) => setActiveDanmakuDialog(open ? "dandanplay" : null)}
         onSession={(nextSession) => {
-          setSession(nextSession);
+          applySession(nextSession);
           setDanmakuError(null);
         }}
       />
@@ -1337,7 +1393,7 @@ export function PlayerRoute() {
         sessionId={session?.id ?? null}
         onOpenChange={(open) => setActiveDanmakuDialog(open ? "bilibili" : null)}
         onSession={(nextSession) => {
-          setSession(nextSession);
+          applySession(nextSession);
           setDanmakuError(null);
         }}
       />
@@ -1348,7 +1404,7 @@ export function PlayerRoute() {
         sessionId={session?.id ?? null}
         onOpenChange={(open) => setActiveDanmakuDialog(open ? "bahamut" : null)}
         onSession={(nextSession) => {
-          setSession(nextSession);
+          applySession(nextSession);
           setDanmakuError(null);
         }}
       />

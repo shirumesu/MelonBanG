@@ -28,7 +28,7 @@ export type BilibiliDanmakuSettings = {
 export const bilibiliDanmakuDefaults: BilibiliDanmakuSettings = {
   opacityPercent: 80,
   area: "half",
-  fontScalePercent: 100,
+  fontScalePercent: 85,
   speed: "normal",
   density: "normal",
   font: "simhei",
@@ -106,7 +106,7 @@ const textShadows: Record<BilibiliDanmakuBorder, string> = {
 export function resolveBilibiliDanmakuPresentation(
   settings: BilibiliDanmakuSettings
 ): BilibiliDanmakuPresentation {
-  const fontScale = clamp(settings.fontScalePercent, 40, 160) / 100;
+  const fontScale = toVisualFontScale(settings.fontScalePercent);
   return {
     opacity: clamp(settings.opacityPercent, 10, 100) / 100,
     fontFamily: fontFamilies[settings.font],
@@ -117,10 +117,20 @@ export function resolveBilibiliDanmakuPresentation(
     textShadow: textShadows[settings.border],
     speedSeconds: speedSeconds[settings.speed],
     margin: resolveMargin(settings.area),
-    densityThreshold: settings.density === "more" ? 9 : 10,
+    densityThreshold:
+      settings.density === "normal" ? 6 : settings.density === "more" ? 8 : 10,
     antiOverlap: settings.density === "normal",
     synchronousPlayback: settings.speedSync
   };
+}
+
+function toVisualFontScale(labeledPercent: number): number {
+  const percent = clamp(labeledPercent, 50, 150);
+  const legacyPercent =
+    percent <= 85
+      ? 40 + ((percent - 50) * 60) / 35
+      : 100 + ((percent - 85) * 60) / 65;
+  return legacyPercent / 100;
 }
 
 function resolveMargin(area: BilibiliDanmakuArea): [number | `${number}%`, number | `${number}%`] {

@@ -42,6 +42,7 @@ describe("BilibiliDanmakuClient", () => {
           }
         })
       )
+      .mockResolvedValueOnce(fingerprintResponse())
       .mockResolvedValueOnce(new Response("not available", { status: 404 }))
       .mockResolvedValueOnce(
         binaryResponse(
@@ -61,12 +62,13 @@ describe("BilibiliDanmakuClient", () => {
       episodeNumber: 40
     });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(5);
+    expect(fetchImpl).toHaveBeenCalledTimes(6);
     expect(requestUrl(fetchImpl.mock.calls[0]?.[0])).toContain("search_type=media_bangumi");
     expect(requestUrl(fetchImpl.mock.calls[0]?.[0])).toContain(
       "keyword=%E5%85%83%E7%A5%96%EF%BC%81BanG+Dream+Chan"
     );
     expect(fetchImpl.mock.calls.slice(2).map(([url]) => requestUrl(url))).toEqual([
+      "https://api.bilibili.com/x/frontend/finger/spi",
       "https://comment.bilibili.com/700040.xml",
       "https://api.bilibili.com/x/v2/dm/web/seg.so?type=1&oid=700040&segment_index=1",
       "https://api.bilibili.com/x/v2/dm/web/seg.so?type=1&oid=700040&segment_index=2"
@@ -99,7 +101,16 @@ describe("BilibiliDanmakuClient", () => {
           }
         })
       )
-      .mockResolvedValueOnce(xmlResponse(createXmlComments(299)));
+      .mockResolvedValueOnce(fingerprintResponse())
+      .mockResolvedValueOnce(xmlResponse(createXmlComments(299)))
+      .mockResolvedValueOnce(
+        binaryResponse(
+          encodeSegment([
+            { progress: 0, mode: 1, color: 0xffffff, content: "弹幕 1 & 测试" },
+            { progress: 42_000, mode: 5, color: 0xff0000, content: "分段接口独有弹幕" }
+          ])
+        )
+      );
     const client = new BilibiliDanmakuClient({ fetchImpl });
 
     const result = await client.loadByLocator("https://www.bilibili.com/video/BV1ManualTest?p=2");
@@ -108,8 +119,14 @@ describe("BilibiliDanmakuClient", () => {
       "https://api.bilibili.com/x/web-interface/view?bvid=BV1ManualTest"
     );
     expect(result.matchLabel).toBe("手动视频 · P2 第二话");
-    expect(requestUrl(fetchImpl.mock.calls[1]?.[0])).toBe("https://comment.bilibili.com/1002.xml");
-    expect(result.items).toHaveLength(299);
+    expect(requestUrl(fetchImpl.mock.calls[1]?.[0])).toBe(
+      "https://api.bilibili.com/x/frontend/finger/spi"
+    );
+    expect(requestUrl(fetchImpl.mock.calls[2]?.[0])).toBe("https://comment.bilibili.com/1002.xml");
+    expect(requestUrl(fetchImpl.mock.calls[3]?.[0])).toBe(
+      "https://api.bilibili.com/x/v2/dm/web/seg.so?type=1&oid=1002&segment_index=1"
+    );
+    expect(result.items).toHaveLength(300);
     expect(result.items[0]).toEqual({
       timeSeconds: 0,
       text: "弹幕 1 & 测试",
@@ -172,9 +189,11 @@ describe("BilibiliDanmakuClient", () => {
           }
         })
       )
+      .mockResolvedValueOnce(fingerprintResponse())
       .mockResolvedValueOnce(
         xmlResponse('<i><d p="8.5,1,25,16777215,0,0,hash,1">附加章节弹幕</d></i>')
-      );
+      )
+      .mockResolvedValueOnce(new Response("segment unavailable", { status: 503 }));
     const client = new BilibiliDanmakuClient({ fetchImpl });
 
     const result = await client.loadByLocator("ep4390855");
@@ -196,6 +215,14 @@ function jsonResponse(value: unknown): Response {
   return new Response(JSON.stringify(value), {
     status: 200,
     headers: { "content-type": "application/json" }
+  });
+}
+
+function fingerprintResponse(): Response {
+  return jsonResponse({
+    code: 0,
+    data: { b_3: "test-buvid-3", b_4: "test-buvid-4" },
+    message: "ok"
   });
 }
 

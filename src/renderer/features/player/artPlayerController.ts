@@ -16,6 +16,7 @@ export type ArtPlayerVideoCallbacks = {
   onSeeking(video: HTMLVideoElement): void;
   onSeekRequest(positionSeconds: number, shouldPlay: boolean): void;
   onSubtitleSelect(subtitleId: string): void;
+  onDanmakuToggle(): void;
   onError(video: HTMLVideoElement, error?: unknown): void;
 };
 
@@ -60,6 +61,7 @@ export function createArtPlayerController(
   input: CreateArtPlayerControllerInput
 ): ArtPlayerController {
   let hls: Hls | null = null;
+  let activeDanmakuIds = new Set<string>();
 
   const art = new Artplayer({
     container: input.container,
@@ -95,7 +97,8 @@ export function createArtPlayerController(
         visible: true,
         antiOverlap: true,
         synchronousPlayback: false,
-        fontSize: 25
+        fontSize: 25,
+        beforeVisible: (danmu) => activeDanmakuIds.has(readDanmakuId(danmu))
       })
     ],
     customType: {
@@ -132,14 +135,29 @@ export function createArtPlayerController(
 
   const video = art.video;
   let disposeTimeline = () => undefined;
+  let disposeStatusNotice = () => undefined;
   try {
+    const statusNotice = createPlayerStatusNotice(input.container);
+    let previousMuted = video.muted;
+    let previousDanmakuVisible: boolean | null = null;
+    const handleVolumeChange = (): void => {
+      if (video.muted === previousMuted) return;
+      previousMuted = video.muted;
+      statusNotice.show(video.muted ? "静音" : "关闭静音");
+    };
+    video.addEventListener("volumechange", handleVolumeChange);
+    disposeStatusNotice = () => {
+      video.removeEventListener("volumechange", handleVolumeChange);
+      statusNotice.destroy();
+    };
+
     disposeTimeline = installSourceTimeline(
       art,
       video,
       input.source,
       input.durationSeconds,
       (positionSeconds) => {
-        input.callbacks.onSeekRequest(positionSeconds, !video.paused);
+        input.callbacks.onSeekRequest(positionSeconds, video.ended || !video.paused);
       }
     );
     art.playbackRate = input.playbackRate;
@@ -152,17 +170,26 @@ export function createArtPlayerController(
     art.on("video:seeked", () => input.callbacks.onProgress(video));
     art.on("video:ended", () => input.callbacks.onProgress(video));
     art.on("video:error", (error) => input.callbacks.onError(video, error));
+    const disposeShortcuts = installPlayerShortcuts(art, () => input.callbacks.onDanmakuToggle());
 
     const danmaku = art.plugins.artplayerPluginDanmuku as DanmakuPlugin;
     let danmakuLoadVersion = 0;
     let danmakuLoadTask = Promise.resolve();
-    let danmakuLayoutKey = "";
+    const loadedDanmakuIds = new Set<string>();
 
     return {
       art,
       video,
       configureDanmaku(configuration) {
+        if (
+          previousDanmakuVisible !== null &&
+          previousDanmakuVisible !== configuration.visible
+        ) {
+          statusNotice.show(configuration.visible ? "开启弹幕" : "关闭弹幕");
+        }
+        previousDanmakuVisible = configuration.visible;
         input.container.style.setProperty("--melon-danmaku-font-family", configuration.fontFamily);
+        input.container.style.setProperty("--melon-danmaku-opacity", String(configuration.opacity));
         input.container.style.setProperty(
           "--melon-danmaku-font-weight",
           String(configuration.fontWeight)
@@ -180,18 +207,6 @@ export function createArtPlayerController(
           mode: configuration.mode,
           color: configuration.color
         });
-        const nextLayoutKey = JSON.stringify([
-          configuration.fontSizeCss,
-          configuration.speed,
-          configuration.margin,
-          configuration.antiOverlap,
-          configuration.synchronousPlayback,
-          configuration.modes
-        ]);
-        if (danmakuLayoutKey && danmakuLayoutKey !== nextLayoutKey) {
-          danmaku.reset();
-        }
-        danmakuLayoutKey = nextLayoutKey;
         if (configuration.visible) {
           danmaku.show();
         } else {
@@ -200,13 +215,27 @@ export function createArtPlayerController(
       },
       loadDanmaku(items) {
         const version = ++danmakuLoadVersion;
+        const previousActiveIds = activeDanmakuIds;
+        activeDanmakuIds = new Set(items.map(readDanmakuId));
+        hideInactiveDanmaku(input.container, activeDanmakuIds);
         danmakuLoadTask = danmakuLoadTask
           .catch(() => undefined)
           .then(async () => {
             if (version !== danmakuLoadVersion) return;
-            await danmaku.load();
+            const newItems = items.filter((item) => !loadedDanmakuIds.has(readDanmakuId(item)));
+            if (newItems.length > 0) {
+              await danmaku.load(newItems);
+              for (const item of newItems) loadedDanmakuIds.add(readDanmakuId(item));
+            }
             if (version !== danmakuLoadVersion) return;
-            await danmaku.load(items);
+            const replayItems = createCurrentScreenDanmaku(
+              items,
+              previousActiveIds,
+              art.currentTime,
+              danmaku.option.speed ?? 5
+            );
+            for (const item of replayItems) activeDanmakuIds.add(readDanmakuId(item));
+            if (replayItems.length > 0) await danmaku.load(replayItems);
           });
         return danmakuLoadTask;
       },
@@ -218,6 +247,8 @@ export function createArtPlayerController(
         );
       },
       destroy() {
+        disposeStatusNotice();
+        disposeShortcuts();
         disposeTimeline();
         destroyHls(hls);
         hls = null;
@@ -225,12 +256,112 @@ export function createArtPlayerController(
       }
     };
   } catch (error) {
+    disposeStatusNotice();
     disposeTimeline();
     destroyHls(hls);
     hls = null;
     art.destroy(false);
     throw error;
   }
+}
+
+function createPlayerStatusNotice(container: HTMLElement): {
+  show(message: string): void;
+  destroy(): void;
+} {
+  const notice = document.createElement("div");
+  notice.className = "melon-player-status-notice";
+  notice.setAttribute("role", "status");
+  notice.setAttribute("aria-live", "polite");
+  container.append(notice);
+  let hideTimer: ReturnType<typeof setTimeout> | null = null;
+
+  return {
+    show(message) {
+      if (hideTimer) clearTimeout(hideTimer);
+      notice.textContent = message;
+      notice.dataset.visible = "true";
+      hideTimer = setTimeout(() => {
+        delete notice.dataset.visible;
+        hideTimer = null;
+      }, 1_200);
+    },
+    destroy() {
+      if (hideTimer) clearTimeout(hideTimer);
+      notice.remove();
+    }
+  };
+}
+
+function installPlayerShortcuts(art: Artplayer, onDanmakuToggle: () => void): () => void {
+  const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.ctrlKey || event.metaKey || event.altKey || isEditableTarget(event.target)) return;
+
+    let handled = true;
+    if (event.code === "KeyF" && !event.repeat) {
+      if (art.fullscreen || art.fullscreenWeb) {
+        art.fullscreen = false;
+        art.fullscreenWeb = false;
+      } else {
+        art.fullscreen = true;
+      }
+    } else if (event.code === "KeyD" && !event.repeat) {
+      onDanmakuToggle();
+    } else if (event.code === "KeyM" && !event.repeat) {
+      art.muted = !art.muted;
+    } else if (event.code === "ArrowUp") {
+      art.volume = Number((art.volume + 0.1).toFixed(2));
+    } else if (event.code === "ArrowDown") {
+      art.volume = Number((art.volume - 0.1).toFixed(2));
+    } else {
+      handled = false;
+    }
+
+    if (!handled) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+
+  document.addEventListener("keydown", onKeyDown, true);
+  return () => document.removeEventListener("keydown", onKeyDown, true);
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+  );
+}
+
+function readDanmakuId(danmu: Danmu): string {
+  return String((danmu as Danmu & { id?: string }).id ?? "");
+}
+
+function hideInactiveDanmaku(container: HTMLElement, activeIds: ReadonlySet<string>): void {
+  for (const node of container.querySelectorAll<HTMLElement>(".art-danmuku > [data-id]")) {
+    if (!activeIds.has(node.dataset.id ?? "")) node.style.visibility = "hidden";
+  }
+}
+
+function createCurrentScreenDanmaku(
+  items: Danmu[],
+  previousActiveIds: ReadonlySet<string>,
+  currentTime: number,
+  durationSeconds: number
+): Danmu[] {
+  if (!Number.isFinite(currentTime) || currentTime <= 0) return [];
+  const startTime = Math.max(0, currentTime - Math.max(1, durationSeconds));
+  return items
+    .filter((item) => {
+      const id = readDanmakuId(item);
+      const time = item.time ?? 0;
+      return !previousActiveIds.has(id) && time >= startTime && time < currentTime - 0.1;
+    })
+    .map((item, index) => ({
+      ...item,
+      id: `${readDanmakuId(item)}:replay:${currentTime}:${index}`,
+      time: currentTime + Math.min(0.08, index * 0.002)
+    }));
 }
 
 function destroyHls(instance: Hls | null): void {

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -96,6 +96,37 @@ describe("DownloadService", () => {
 
     expect(torrentClient.resume).toHaveBeenCalledTimes(1);
     expect(repository.requireTask(task.id).status).toBe("downloading");
+
+    getAppDatabase().close();
+  });
+
+  it("removes the persisted task and its complete download directory together", async () => {
+    const appRoot = mkdtempSync(join(tmpdir(), "melonbang-download-remove-"));
+    process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
+
+    vi.doMock("electron", () => ({
+      app: {
+        getAppPath: () => appRoot
+      }
+    }));
+
+    const { getAppDatabase } = await import("../main/store/appDatabase");
+    const { DownloadRepository } = await import("../main/download/downloadRepository");
+    const { DownloadService, getDownloadRootDirectory } =
+      await import("../main/download/downloadService");
+    const repository = new DownloadRepository();
+    const torrentClient = new FakeTorrentClient();
+    const service = new DownloadService(repository, torrentClient, new FakePreviewClient());
+    const task = service.create({ kind: "magnet", uri: magnet });
+    const downloadDirectory = join(getDownloadRootDirectory(), task.id);
+    mkdirSync(downloadDirectory, { recursive: true });
+    writeFileSync(join(downloadDirectory, "completed-video.mkv"), "video");
+
+    await service.remove(task.id);
+
+    expect(torrentClient.remove).toHaveBeenCalledTimes(1);
+    expect(repository.getSession(task.id)).toBeNull();
+    expect(existsSync(downloadDirectory)).toBe(false);
 
     getAppDatabase().close();
   });

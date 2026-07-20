@@ -293,11 +293,38 @@ input[type="range"]::-moz-range-thumb {
   display: none !important;
 }
 
+.melon-player-status-notice {
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 30;
+  translate: -50% -50%;
+  border-radius: 3px;
+  background: rgb(0 0 0 / 82%);
+  color: white;
+  padding: 6px 9px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0;
+  transform: scale(0.96);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.melon-player-status-notice[data-visible="true"] {
+  opacity: 1;
+  transform: scale(1);
+}
+
 .melon-artplayer {
   container-type: inline-size;
 }
 
 .melon-artplayer .art-danmuku > div {
+  opacity: var(--melon-danmaku-opacity, 0.8) !important;
   font-family: var(
     --melon-danmaku-font-family,
     SimHei,

@@ -224,7 +224,13 @@ describe("PlaybackService", () => {
       enabled: true
     });
     expect(reenabled.danmaku).toEqual([
-      { timeSeconds: 24, text: "手动弹幕", mode: "scroll", color: "#ffffff" }
+      {
+        timeSeconds: 24,
+        text: "手动弹幕",
+        mode: "scroll",
+        color: "#ffffff",
+        sourceId: "dandanplay"
+      }
     ]);
 
     danmakuShouldFail = true;
@@ -356,6 +362,17 @@ describe("PlaybackService", () => {
     expect(mediaServer.restarted).toHaveLength(1);
     expect(mediaServer.restarted[0]).toMatchObject({ startSeconds: 80 });
 
+    const seekedNearEnd = await service.seek({
+      sessionId: session.id,
+      positionSeconds: session.durationSeconds
+    });
+    expect(seekedNearEnd.positionSeconds).toBe(88.09);
+    expect(mediaServer.restarted.at(-1)).toMatchObject({ startSeconds: 88.09 });
+
+    const seekedBack = await service.seek({ sessionId: session.id, positionSeconds: 40 });
+    expect(seekedBack.positionSeconds).toBe(40);
+    expect(mediaServer.restarted.at(-1)).toMatchObject({ startSeconds: 40 });
+
     const afterStaleProgress = service.updateProgress({
       sessionId: session.id,
       positionSeconds: 42,
@@ -364,7 +381,7 @@ describe("PlaybackService", () => {
       paused: true,
       ended: false
     });
-    expect(afterStaleProgress.positionSeconds).toBe(80);
+    expect(afterStaleProgress.positionSeconds).toBe(40);
 
     getAppDatabase().close();
   });

@@ -515,7 +515,12 @@ export class PlaybackService {
     const seen = new Set<string>();
     return sources
       .filter((source) => source.enabled)
-      .flatMap((source) => this.danmakuItemsBySource.get(source.id) ?? [])
+      .flatMap((source) =>
+        (this.danmakuItemsBySource.get(source.id) ?? []).map((item) => ({
+          ...item,
+          sourceId: source.id
+        }))
+      )
       .filter((item) => {
         const key = `${Math.round(item.timeSeconds * 1000)}\u0000${item.mode}\u0000${item.color}\u0000${item.text}`;
         if (seen.has(key)) return false;
@@ -808,11 +813,13 @@ function fallbackMediaProbe(filePath: string, title: string): MediaProbeResult {
   };
 }
 
+const HLS_SEEK_TAIL_SECONDS = 2;
+
 function clampSeekPosition(positionSeconds: number, durationSeconds: number | null): number {
   const target = Math.max(0, positionSeconds);
   if (!durationSeconds || durationSeconds <= 0) {
     return target;
   }
 
-  return Math.min(target, Math.max(0, durationSeconds - 0.05));
+  return Math.min(target, Math.max(0, durationSeconds - HLS_SEEK_TAIL_SECONDS));
 }

@@ -20,14 +20,15 @@ export function toArtPlayerDanmuku(
       return [];
     }
 
-    return [
-      {
-        text,
-        time,
-        mode: modeMap[item.mode],
-        color: item.color ?? "#ffffff"
-      }
-    ];
+    const color = item.color ?? "#ffffff";
+    const danmu: Danmu & { id: string } = {
+      id: `${item.sourceId ?? "unknown"}:${Math.round(item.timeSeconds * 1000)}:${item.mode}:${color}:${text}`,
+      text,
+      time,
+      mode: modeMap[item.mode],
+      color
+    };
+    return [danmu];
   });
 }
 

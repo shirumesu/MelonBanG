@@ -38,6 +38,7 @@ export type DanmakuItemView = {
   text: string;
   mode: "scroll" | "top" | "bottom";
   color: string | null;
+  sourceId?: DanmakuSourceId;
 };
 
 export type DanmakuSourceId = "dandanplay" | "bilibili" | "bahamut";

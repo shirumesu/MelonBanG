@@ -84,6 +84,17 @@ const videoResponseSchema = z.object({
     .optional()
 });
 
+const fingerprintResponseSchema = z.object({
+  code: z.number().int(),
+  data: z
+    .object({
+      b_3: z.string(),
+      b_4: z.string()
+    })
+    .nullable()
+    .optional()
+});
+
 export type AutomaticDanmakuInput = {
   animeTitles: string[];
   episodeNumber: number;
@@ -103,6 +114,7 @@ type BilibiliDanmakuClientOptions = {
 
 export class BilibiliDanmakuClient {
   private readonly fetchImpl: typeof fetch;
+  private anonymousCookiePromise: Promise<string | null> | null = null;
 
   constructor(private readonly options: BilibiliDanmakuClientOptions = {}) {
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -247,23 +259,38 @@ export class BilibiliDanmakuClient {
     durationSeconds: number,
     refererLocator: string
   ): Promise<DanmakuItemView[]> {
-    try {
-      const response = await this.request(`https://comment.bilibili.com/${cid}.xml`, {
-        headers: {
-          Accept: "text/xml,application/xml;q=0.9,*/*;q=0.8",
-          Referer: toBilibiliReferer(refererLocator)
-        }
-      });
-      return decodeDanmakuXml(await response.text());
-    } catch {
-      return this.loadSegments(cid, durationSeconds, refererLocator);
+    const anonymousCookie = await this.getAnonymousCookie();
+    const [xmlResult, segmentResult] = await Promise.allSettled([
+      this.loadXmlComments(cid, refererLocator),
+      this.loadSegments(cid, durationSeconds, refererLocator, anonymousCookie)
+    ]);
+    const xmlItems = xmlResult.status === "fulfilled" ? xmlResult.value : [];
+    const segmentItems = segmentResult.status === "fulfilled" ? segmentResult.value : [];
+    const items = mergeDanmakuItems(xmlItems, segmentItems);
+    if (items.length > 0 || xmlResult.status === "fulfilled" || segmentResult.status === "fulfilled") {
+      return items;
     }
+    throw new Error("Bilibili弹幕请求暂时不可用。");
+  }
+
+  private async loadXmlComments(
+    cid: number,
+    refererLocator: string
+  ): Promise<DanmakuItemView[]> {
+    const response = await this.request(`https://comment.bilibili.com/${cid}.xml`, {
+      headers: {
+        Accept: "text/xml,application/xml;q=0.9,*/*;q=0.8",
+        Referer: toBilibiliReferer(refererLocator)
+      }
+    });
+    return decodeDanmakuXml(await response.text());
   }
 
   private async loadSegments(
     cid: number,
     durationSeconds: number,
-    refererLocator: string
+    refererLocator: string,
+    anonymousCookie: string | null
   ): Promise<DanmakuItemView[]> {
     const segmentCount = Math.max(1, Math.ceil(durationSeconds / SEGMENT_SECONDS));
     const segments = Array.from({ length: segmentCount }, (_, index) => index + 1);
@@ -271,22 +298,55 @@ export class BilibiliDanmakuClient {
 
     for (let offset = 0; offset < segments.length; offset += SEGMENT_CONCURRENCY) {
       const batch = segments.slice(offset, offset + SEGMENT_CONCURRENCY);
-      const decoded = await Promise.all(
+      const decoded = await Promise.allSettled(
         batch.map(async (segmentIndex) => {
           const url = new URL(`${BILIBILI_API_ORIGIN}/x/v2/dm/web/seg.so`);
           url.searchParams.set("type", "1");
           url.searchParams.set("oid", String(cid));
           url.searchParams.set("segment_index", String(segmentIndex));
           const response = await this.request(url.toString(), {
-            headers: { Referer: toBilibiliReferer(refererLocator) }
+            headers: {
+              Accept: "application/octet-stream,application/protobuf;q=0.9,*/*;q=0.8",
+              ...(anonymousCookie ? { Cookie: anonymousCookie } : {}),
+              Origin: "https://www.bilibili.com",
+              Referer: toBilibiliReferer(refererLocator)
+            }
           });
           return decodeDanmakuSegment(new Uint8Array(await response.arrayBuffer()));
         })
       );
-      items.push(...decoded.flat());
+      items.push(
+        ...decoded.flatMap((result) => (result.status === "fulfilled" ? result.value : []))
+      );
     }
 
+    if (items.length === 0) {
+      throw new Error("Bilibili分段弹幕请求暂时不可用。");
+    }
     return items.sort((left, right) => left.timeSeconds - right.timeSeconds);
+  }
+
+  private getAnonymousCookie(): Promise<string | null> {
+    this.anonymousCookiePromise ??= this.loadAnonymousCookie();
+    return this.anonymousCookiePromise;
+  }
+
+  private async loadAnonymousCookie(): Promise<string | null> {
+    try {
+      const response = parseJson(
+        fingerprintResponseSchema,
+        await this.requestJson(`${BILIBILI_API_ORIGIN}/x/frontend/finger/spi`),
+        "匿名标识"
+      );
+      if (response.code !== 0 || !response.data?.b_3 || !response.data.b_4) return null;
+      return [
+        `buvid3=${response.data.b_3}`,
+        `buvid4=${response.data.b_4}`,
+        `b_nut=${Math.floor(Date.now() / 1000)}`
+      ].join("; ");
+    } catch {
+      return null;
+    }
   }
 
   private async requestJson(url: string): Promise<unknown> {
@@ -306,7 +366,9 @@ export class BilibiliDanmakuClient {
         headers: {
           "User-Agent":
             this.options.userAgent ??
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 melonbang",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+              "(KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
           Referer: "https://www.bilibili.com/",
           ...init.headers
         },
@@ -337,6 +399,19 @@ function decodeDanmakuSegment(bytes: Uint8Array): DanmakuItemView[] {
     }
   }
   return items;
+}
+
+function mergeDanmakuItems(...groups: DanmakuItemView[][]): DanmakuItemView[] {
+  const seen = new Set<string>();
+  return groups
+    .flat()
+    .filter((item) => {
+      const key = `${Math.round(item.timeSeconds * 1000)}\u0000${item.mode}\u0000${item.color}\u0000${item.text}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => left.timeSeconds - right.timeSeconds);
 }
 
 function decodeDanmakuXml(xml: string): DanmakuItemView[] {

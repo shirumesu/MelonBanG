@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from "react";
 import {
   ArrowDownToLine,
   CheckCircle2,
@@ -6,11 +6,13 @@ import {
   Clock3,
   Folder,
   FolderOpen,
+  Info,
   Pause,
   Play,
   Trash2
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import type {
   DownloadSnapshot,
   DownloadStatus,
@@ -188,13 +190,18 @@ function QueueRow({
 
 function CompletedDownloadCard({
   item,
-  onPlay
+  onPlay,
+  onContextMenu
 }: {
   item: DownloadTaskView;
   onPlay: (item: DownloadTaskView) => void;
+  onContextMenu: (event: MouseEvent<HTMLDivElement>, item: DownloadTaskView) => void;
 }) {
   return (
-    <div className="flex min-w-0 flex-col">
+    <div
+      className="flex min-w-0 flex-col"
+      onContextMenu={(event) => onContextMenu(event, item)}
+    >
       <Link
         to="/player"
         onClick={(event) => {
@@ -256,6 +263,101 @@ function CompletedDownloadCard({
   );
 }
 
+type CacheContextMenuState = {
+  item: DownloadTaskView;
+  x: number;
+  y: number;
+};
+
+function CacheContextMenu({
+  state,
+  onClose,
+  onPlay,
+  onDetails,
+  onRemove
+}: {
+  state: CacheContextMenuState;
+  onClose: () => void;
+  onPlay: (item: DownloadTaskView) => void;
+  onDetails: (item: DownloadTaskView) => void;
+  onRemove: (item: DownloadTaskView) => void;
+}) {
+  useEffect(() => {
+    const closeFromPointer = (event: PointerEvent): void => {
+      if (!(event.target instanceof Element) || !event.target.closest("[data-cache-menu]")) {
+        onClose();
+      }
+    };
+    const closeFromKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("pointerdown", closeFromPointer);
+    window.addEventListener("keydown", closeFromKey);
+    window.addEventListener("blur", onClose);
+    window.addEventListener("resize", onClose);
+    return () => {
+      window.removeEventListener("pointerdown", closeFromPointer);
+      window.removeEventListener("keydown", closeFromKey);
+      window.removeEventListener("blur", onClose);
+      window.removeEventListener("resize", onClose);
+    };
+  }, [onClose]);
+
+  const run = (action: (item: DownloadTaskView) => void): void => {
+    onClose();
+    action(state.item);
+  };
+
+  return (
+    <div
+      data-cache-menu
+      role="menu"
+      aria-label="缓存操作"
+      className="border-line bg-surface fixed z-50 w-[168px] rounded-[12px] border p-1.5 shadow-[var(--shadow-lg)]"
+      style={{ left: state.x, top: state.y }}
+    >
+      <CacheContextMenuItem icon={Play} label="播放" onClick={() => run(onPlay)} />
+      <CacheContextMenuItem icon={Info} label="番剧详细" onClick={() => run(onDetails)} />
+      <div className="bg-line my-1 h-px" />
+      <CacheContextMenuItem
+        icon={Trash2}
+        label="删除"
+        destructive
+        onClick={() => run(onRemove)}
+      />
+    </div>
+  );
+}
+
+function CacheContextMenuItem({
+  icon: Icon,
+  label,
+  destructive = false,
+  onClick
+}: {
+  icon: typeof Play;
+  label: string;
+  destructive?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-[8px] px-2.5 py-2 text-left text-[12.5px] font-bold transition",
+        destructive
+          ? "text-cherry-500 hover:bg-cherry-500/10"
+          : "text-ink hover:bg-mint-500/10 hover:text-mint-600"
+      )}
+    >
+      <Icon className="size-4" />
+      {label}
+    </button>
+  );
+}
+
 function EmptyRow({ children }: { children: string }) {
   return <div className="text-ink-faint px-4 py-4 text-[12.5px] font-bold">{children}</div>;
 }
@@ -300,6 +402,7 @@ export function CacheRoute() {
     window.melonbang?.download ? null : "下载桥接不可用，请重启应用。"
   );
   const [submitting, setSubmitting] = useState(false);
+  const [contextMenu, setContextMenu] = useState<CacheContextMenuState | null>(null);
 
   useEffect(() => {
     const bridge = window.melonbang?.download;
@@ -437,6 +540,28 @@ export function CacheRoute() {
     } catch (error) {
       setFormError(toMessage(error));
     }
+  }
+
+  function openCompletedTaskMenu(
+    event: MouseEvent<HTMLDivElement>,
+    item: DownloadTaskView
+  ): void {
+    event.preventDefault();
+    const width = 168;
+    const height = 132;
+    setContextMenu({
+      item,
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8))
+    });
+  }
+
+  function openCompletedTaskDetails(task: DownloadTaskView): void {
+    if (task.subjectId === null) {
+      toast.warning("未绑定具体番剧");
+      return;
+    }
+    void navigate(`/subject/${task.subjectId}`);
   }
 
   return (
@@ -619,6 +744,7 @@ export function CacheRoute() {
                   key={item.id}
                   item={item}
                   onPlay={(task) => void playCompletedTask(task)}
+                  onContextMenu={openCompletedTaskMenu}
                 />
               ))}
             </div>
@@ -629,6 +755,15 @@ export function CacheRoute() {
           )}
         </Section>
       </PageContent>
+      {contextMenu ? (
+        <CacheContextMenu
+          state={contextMenu}
+          onClose={() => setContextMenu(null)}
+          onPlay={(task) => void playCompletedTask(task)}
+          onDetails={openCompletedTaskDetails}
+          onRemove={(task) => void removeTask(task.id)}
+        />
+      ) : null}
     </>
   );
 }
