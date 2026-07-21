@@ -483,100 +483,7 @@ describe("PlaybackService", () => {
     getAppDatabase().close();
   });
 
-  it("binds a Bangumi episode to a downloaded file and persists playback progress", async () => {
-    const appRoot = mkdtempSync(join(tmpdir(), "melonbang-playback-binding-"));
-    process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
-
-    vi.doMock("electron", () => ({
-      app: {
-        getAppPath: () => appRoot
-      }
-    }));
-
-    const { DownloadRepository } = await import("../main/download/downloadRepository");
-    const { getDownloadRootDirectory } = await import("../main/download/downloadService");
-    const { PlaybackService } = await import("../main/playback/playbackService");
-    const { getAppDatabase } = await import("../main/store/appDatabase");
-
-    const repository = new DownloadRepository();
-    const mediaServer = new FakeMediaServer();
-    const createdAt = "2026-06-23T00:00:00.000Z";
-    const downloadId = "44444444-4444-4444-8444-444444444444";
-    const fileId = `${downloadId}:0`;
-    repository.createSession({
-      id: downloadId,
-      inputKind: "magnet",
-      inputRef: "magnet:?xt=urn:btih:C5PPDMBT7OKFBO4A4MGUK3LLHSDP4BKG",
-      title: "episode media",
-      status: "metadata",
-      createdAt,
-      updatedAt: createdAt
-    });
-    repository.replaceFiles(downloadId, [
-      {
-        id: fileId,
-        downloadId,
-        path: "episode-01.mp4",
-        name: "episode-01.mp4",
-        sizeBytes: 1024,
-        mediaKind: "video",
-        priority: 1,
-        progress: 1,
-        createdAt,
-        updatedAt: createdAt
-      }
-    ]);
-    repository.updateSession(downloadId, {
-      status: "completed",
-      selectedFileId: fileId
-    });
-    mkdirSync(join(getDownloadRootDirectory(), downloadId), { recursive: true });
-    writeFileSync(join(getDownloadRootDirectory(), downloadId, "episode-01.mp4"), "video");
-
-    const service = new PlaybackService(repository, mediaServer);
-    const binding = service.bindEpisodeMedia({
-      subjectId: 100,
-      episodeId: 200,
-      downloadId,
-      fileId
-    });
-    expect(binding).toMatchObject({
-      subjectId: 100,
-      episodeId: 200,
-      downloadId,
-      fileId,
-      available: true
-    });
-    expect(service.getEpisodeMediaBinding({ subjectId: 100, episodeId: 200 })).toMatchObject({
-      fileName: "episode-01.mp4"
-    });
-
-    const session = await service.startEpisode({ subjectId: 100, episodeId: 200 });
-    expect(session).toMatchObject({
-      subjectId: 100,
-      episodeId: 200,
-      fileId,
-      status: "ready"
-    });
-
-    service.updateProgress({
-      sessionId: session.id,
-      positionSeconds: 88,
-      durationSeconds: 120,
-      timelineOffsetSeconds: 0,
-      paused: false,
-      ended: false
-    });
-    expect(service.getEpisodeProgress({ subjectId: 100, episodeId: 200 })).toMatchObject({
-      positionSeconds: 88,
-      durationSeconds: 120,
-      completed: false
-    });
-
-    getAppDatabase().close();
-  });
-
-  it("materializes a playable binding from a completed contextual download", async () => {
+  it("uses persisted download context when opening or starting an episode", async () => {
     const appRoot = mkdtempSync(join(tmpdir(), "melonbang-playback-contextual-"));
     process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
 
@@ -628,6 +535,14 @@ describe("PlaybackService", () => {
     writeFileSync(join(getDownloadRootDirectory(), downloadId, "episode-02.mp4"), "video");
 
     const service = new PlaybackService(repository, new FakeMediaServer());
+    const reopened = await service.startFromDownload({ downloadId });
+    expect(reopened).toMatchObject({
+      downloadId,
+      fileId,
+      subjectId: 100,
+      episodeId: 200,
+      status: "ready"
+    });
     const session = await service.startEpisode({ subjectId: 100, episodeId: 200 });
 
     expect(session).toMatchObject({
@@ -637,101 +552,19 @@ describe("PlaybackService", () => {
       episodeId: 200,
       status: "ready"
     });
-    expect(service.listEpisodeMediaBindings(100)).toEqual([
-      expect.objectContaining({
-        subjectId: 100,
-        episodeId: 200,
-        downloadId,
-        fileId,
-        available: true
-      })
-    ]);
-
-    getAppDatabase().close();
-  });
-
-  it("binds an active unbound download session without restarting playback", async () => {
-    const appRoot = mkdtempSync(join(tmpdir(), "melonbang-playback-session-binding-"));
-    process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
-
-    vi.doMock("electron", () => ({
-      app: {
-        getAppPath: () => appRoot
-      }
-    }));
-
-    const { DownloadRepository } = await import("../main/download/downloadRepository");
-    const { getDownloadRootDirectory } = await import("../main/download/downloadService");
-    const { PlaybackService } = await import("../main/playback/playbackService");
-    const { getAppDatabase } = await import("../main/store/appDatabase");
-
-    const repository = new DownloadRepository();
-    const mediaServer = new FakeMediaServer();
-    const createdAt = "2026-07-15T00:00:00.000Z";
-    const downloadId = "66666666-6666-4666-8666-666666666666";
-    const fileId = `${downloadId}:0`;
-    repository.createSession({
-      id: downloadId,
-      inputKind: "magnet",
-      inputRef: "magnet:?xt=urn:btih:C5PPDMBT7OKFBO4A4MGUK3LLHSDP4BKG",
-      title: "unbound episode",
-      status: "metadata",
-      createdAt,
-      updatedAt: createdAt
-    });
-    repository.replaceFiles(downloadId, [
-      {
-        id: fileId,
-        downloadId,
-        path: "unbound.mp4",
-        name: "unbound.mp4",
-        sizeBytes: 1024,
-        mediaKind: "video",
-        priority: 1,
-        progress: 1,
-        createdAt,
-        updatedAt: createdAt
-      }
-    ]);
-    repository.updateSession(downloadId, {
-      status: "completed",
-      selectedFileId: fileId
-    });
-    mkdirSync(join(getDownloadRootDirectory(), downloadId), { recursive: true });
-    writeFileSync(join(getDownloadRootDirectory(), downloadId, "unbound.mp4"), "video");
-
-    const service = new PlaybackService(repository, mediaServer);
-    const session = await service.startFromDownload({ downloadId });
-    const source = session.source;
-    const bound = service.bindSessionEpisode({
+    service.updateProgress({
       sessionId: session.id,
-      subjectId: 300,
-      episodeId: 301
+      positionSeconds: 88,
+      durationSeconds: 120,
+      timelineOffsetSeconds: 0,
+      paused: false,
+      ended: false
     });
-
-    expect(bound).toMatchObject({
-      id: session.id,
-      downloadId,
-      fileId,
-      subjectId: 300,
-      episodeId: 301,
-      source
+    expect(service.getEpisodeProgress({ subjectId: 100, episodeId: 200 })).toMatchObject({
+      positionSeconds: 88,
+      durationSeconds: 120,
+      completed: false
     });
-    expect(mediaServer.registered).toHaveLength(1);
-    expect(service.getEpisodeMediaBinding({ subjectId: 300, episodeId: 301 })).toMatchObject({
-      downloadId,
-      fileId,
-      available: true
-    });
-
-    const reopened = await service.startFromDownload({ downloadId });
-    expect(reopened).toMatchObject({
-      downloadId,
-      fileId,
-      subjectId: 300,
-      episodeId: 301
-    });
-
     getAppDatabase().close();
   });
 
@@ -803,11 +636,12 @@ describe("PlaybackService", () => {
 
     const repository = new DownloadRepository();
     const downloadId = "88888888-8888-4888-8888-888888888888";
-    const fileId = seedCompletedDownload(
+    seedCompletedDownload(
       repository,
       getDownloadRootDirectory(),
       downloadId,
-      "episode.mkv"
+      "episode.mkv",
+      { subjectId: 100, episodeId: 200 }
     );
 
     const service = new PlaybackService(
@@ -820,7 +654,6 @@ describe("PlaybackService", () => {
         deliveryMode: "transcode"
       })
     );
-    service.bindEpisodeMedia({ subjectId: 100, episodeId: 200, downloadId, fileId });
     const session = await service.startEpisode({ subjectId: 100, episodeId: 200 });
 
     const seekedToEnd = await service.seek({ sessionId: session.id, positionSeconds: 90.09 });
@@ -1252,7 +1085,8 @@ function seedCompletedDownload(
   repository: DownloadRepository,
   downloadRoot: string,
   downloadId: string,
-  fileName: string
+  fileName: string,
+  context?: { subjectId: number; episodeId: number }
 ): string {
   const createdAt = "2026-07-21T00:00:00.000Z";
   const fileId = `${downloadId}:0`;
@@ -1262,6 +1096,8 @@ function seedCompletedDownload(
     inputRef: "magnet:?xt=urn:btih:C5PPDMBT7OKFBO4A4MGUK3LLHSDP4BKG",
     title: fileName,
     status: "metadata",
+    subjectId: context?.subjectId,
+    episodeId: context?.episodeId,
     createdAt,
     updatedAt: createdAt
   });

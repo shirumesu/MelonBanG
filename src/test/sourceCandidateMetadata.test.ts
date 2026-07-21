@@ -3,6 +3,7 @@ import {
   buildSourceFilterOptions,
   matchesSourceCandidateFilters,
   parseSourceCandidateTitle,
+  resolveCandidateEpisodeId,
   type FilterableSourceCandidate,
   type SourceCandidateFilters
 } from "../renderer/features/sources/sourceCandidateMetadata";
@@ -56,6 +57,47 @@ describe("parseSourceCandidateTitle", () => {
       subtitleLanguages: ["unknown"],
       subtitleKind: null
     });
+  });
+});
+
+describe("resolveCandidateEpisodeId", () => {
+  const episodes = [
+    { episodeId: 501, sort: 1 },
+    { episodeId: 502, sort: 2 }
+  ];
+
+  it("uses explicit episode context and otherwise resolves a single-episode release", () => {
+    expect(
+      resolveCandidateEpisodeId(
+        parseSourceCandidateTitle("[Lilith-Raws] Example Anime - 02 [1080p]"),
+        episodes,
+        501
+      )
+    ).toBe(501);
+    expect(
+      resolveCandidateEpisodeId(
+        parseSourceCandidateTitle("[Lilith-Raws] Example Anime - 02 [1080p]"),
+        episodes,
+        null
+      )
+    ).toBe(502);
+  });
+
+  it("does not guess when a release spans multiple episodes or has no exact episode", () => {
+    expect(
+      resolveCandidateEpisodeId(
+        parseSourceCandidateTitle("Example Anime [01-02]"),
+        episodes,
+        null
+      )
+    ).toBeNull();
+    expect(
+      resolveCandidateEpisodeId(
+        parseSourceCandidateTitle("Example Anime - 03"),
+        episodes,
+        null
+      )
+    ).toBeNull();
   });
 });
 

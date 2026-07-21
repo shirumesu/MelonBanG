@@ -24,6 +24,7 @@ import {
   formatSourceEpisode,
   matchesSourceCandidateFilters,
   parseSourceCandidateTitle,
+  resolveCandidateEpisodeId,
   sourceSubtitleLanguageLabels,
   type FilterableSourceCandidate,
   type SourceCandidateFilters,
@@ -172,7 +173,17 @@ export function SubjectCacheRoute() {
     setEnqueuingIds((current) => new Set(current).add(candidate.candidateId));
     setSearchError(null);
     try {
-      await window.melonbang.source.enqueue({ candidateId: candidate.candidateId });
+      const episodeId = subject
+        ? resolveCandidateEpisodeId(
+            parseSourceCandidateTitle(candidate.title),
+            subject.episodes,
+            contextualEpisode?.episodeId ?? null
+          )
+        : null;
+      await window.melonbang.source.enqueue({
+        candidateId: candidate.candidateId,
+        ...(episodeId === null ? {} : { episodeId })
+      });
       setEnqueuedIds((current) => new Set(current).add(candidate.candidateId));
     } catch (error) {
       setSearchError(toMessage(error, "加入缓存失败。"));
@@ -223,7 +234,7 @@ export function SubjectCacheRoute() {
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-lg font-extrabold">搜索发布资源</h1>
                   {contextualEpisode ? (
-                    <Badge variant="mint">绑定 EP{contextualEpisode.sort}</Badge>
+                    <Badge variant="mint">EP{contextualEpisode.sort}</Badge>
                   ) : null}
                 </div>
                 <p className="text-ink-faint mt-1 text-[12.5px] leading-relaxed font-semibold">

@@ -132,17 +132,6 @@ export function getAppDatabase(): DatabaseSync {
       updated_at TEXT NOT NULL
     ) STRICT;
 
-    CREATE TABLE IF NOT EXISTS media_bindings (
-      id TEXT PRIMARY KEY,
-      subject_id INTEGER NOT NULL,
-      episode_id INTEGER NOT NULL,
-      download_id TEXT NOT NULL,
-      file_id TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      UNIQUE(subject_id, episode_id)
-    ) STRICT;
-
     CREATE TABLE IF NOT EXISTS playback_progress (
       subject_id INTEGER NOT NULL,
       episode_id INTEGER NOT NULL,
@@ -175,8 +164,6 @@ export function getAppDatabase(): DatabaseSync {
     CREATE INDEX IF NOT EXISTS download_files_download_priority
       ON download_files (download_id, priority DESC, id);
 
-    CREATE INDEX IF NOT EXISTS media_bindings_download_file
-      ON media_bindings (download_id, file_id);
   `);
 
   ensureColumn(database, "subject_collections", "ep_status", "INTEGER NOT NULL DEFAULT 0");
@@ -198,6 +185,7 @@ export function getAppDatabase(): DatabaseSync {
   ensureColumn(database, "download_sessions", "preview_source_url", "TEXT");
   ensureColumn(database, "download_sessions", "subject_id", "INTEGER");
   ensureColumn(database, "download_sessions", "episode_id", "INTEGER");
+  migrateLegacyMediaBindings(database);
   database.exec(`
     CREATE INDEX IF NOT EXISTS download_sessions_episode_context
       ON download_sessions (subject_id, episode_id, created_at DESC);
@@ -214,6 +202,58 @@ export function getAppDatabase(): DatabaseSync {
 
   databaseInstance = database;
   return database;
+}
+
+function migrateLegacyMediaBindings(database: DatabaseSync): void {
+  const legacyTable = database
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'media_bindings'")
+    .get();
+  if (!legacyTable) {
+    return;
+  }
+
+  database.exec(`
+    UPDATE download_sessions
+    SET
+      subject_id = COALESCE(
+        subject_id,
+        (
+          SELECT media_bindings.subject_id
+          FROM media_bindings
+          WHERE media_bindings.download_id = download_sessions.id
+          ORDER BY media_bindings.updated_at DESC
+          LIMIT 1
+        )
+      ),
+      episode_id = COALESCE(
+        episode_id,
+        (
+          SELECT media_bindings.episode_id
+          FROM media_bindings
+          WHERE media_bindings.download_id = download_sessions.id
+          ORDER BY media_bindings.updated_at DESC
+          LIMIT 1
+        )
+      ),
+      selected_file_id = COALESCE(
+        (
+          SELECT media_bindings.file_id
+          FROM media_bindings
+          WHERE media_bindings.download_id = download_sessions.id
+          ORDER BY media_bindings.updated_at DESC
+          LIMIT 1
+        ),
+        selected_file_id
+      )
+    WHERE EXISTS (
+      SELECT 1
+      FROM media_bindings
+      WHERE media_bindings.download_id = download_sessions.id
+    )
+      AND (download_sessions.subject_id IS NULL OR download_sessions.episode_id IS NULL);
+
+    DROP TABLE media_bindings;
+  `);
 }
 
 export function getAppDataDirectory(): string {

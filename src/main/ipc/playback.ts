@@ -1,17 +1,13 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { z } from "zod";
 import type {
-  BindEpisodeMediaInput,
-  BindSessionEpisodeInput,
-  ClearEpisodeMediaBindingInput,
   DanmakuEpisodeSearchInput,
-  EpisodeMediaBindingInput,
+  EpisodePlaybackInput,
   LoadDanmakuSourceInput,
   PlaybackProgressInput,
   SeekPlaybackInput,
   SetDanmakuSourceEnabledInput,
   SelectDanmakuEpisodeInput,
-  StartEpisodePlaybackInput,
   StartPlaybackFromDownloadInput
 } from "../../shared/contracts/playback";
 import { getPlaybackService } from "../playback/playbackService";
@@ -22,19 +18,9 @@ const startFromDownloadSchema = z.object({
   downloadId: downloadIdSchema,
   fileId: z.string().optional()
 });
-const episodeBindingSchema = z.object({
+const episodePlaybackSchema = z.object({
   subjectId: z.number().int().positive(),
   episodeId: z.number().int().positive()
-});
-const bindEpisodeMediaSchema = episodeBindingSchema.extend({
-  downloadId: downloadIdSchema,
-  fileId: z.string().optional()
-});
-const bindSessionEpisodeSchema = episodeBindingSchema.extend({
-  sessionId: sessionIdSchema
-});
-const clearEpisodeMediaBindingSchema = z.object({
-  bindingId: z.string().uuid()
 });
 const progressSchema = z.object({
   sessionId: sessionIdSchema,
@@ -80,26 +66,11 @@ export function registerPlaybackIpc(getMainWindow: () => BrowserWindow | null): 
   handle("playback:startFromDownload", (input: StartPlaybackFromDownloadInput) =>
     service.startFromDownload(startFromDownloadSchema.parse(input))
   );
-  handle("playback:bindEpisodeMedia", (input: BindEpisodeMediaInput) =>
-    service.bindEpisodeMedia(bindEpisodeMediaSchema.parse(input))
+  handle("playback:startEpisode", (input: EpisodePlaybackInput) =>
+    service.startEpisode(episodePlaybackSchema.parse(input))
   );
-  handle("playback:bindSessionEpisode", (input: BindSessionEpisodeInput) =>
-    service.bindSessionEpisode(bindSessionEpisodeSchema.parse(input))
-  );
-  handle("playback:getEpisodeMediaBinding", (input: EpisodeMediaBindingInput) =>
-    service.getEpisodeMediaBinding(episodeBindingSchema.parse(input))
-  );
-  handle("playback:listEpisodeMediaBindings", (subjectId: number) =>
-    service.listEpisodeMediaBindings(z.number().int().positive().parse(subjectId))
-  );
-  handle("playback:clearEpisodeMediaBinding", (input: ClearEpisodeMediaBindingInput) =>
-    service.clearEpisodeMediaBinding(clearEpisodeMediaBindingSchema.parse(input))
-  );
-  handle("playback:startEpisode", (input: StartEpisodePlaybackInput) =>
-    service.startEpisode(episodeBindingSchema.parse(input))
-  );
-  handle("playback:getEpisodeProgress", (input: EpisodeMediaBindingInput) =>
-    service.getEpisodeProgress(episodeBindingSchema.parse(input))
+  handle("playback:getEpisodeProgress", (input: EpisodePlaybackInput) =>
+    service.getEpisodeProgress(episodePlaybackSchema.parse(input))
   );
   handle("playback:getSession", () => service.getSession());
   handle("playback:loadDanmaku", (sessionId: string) =>

@@ -1,18 +1,5 @@
-import type { MediaBindingView, PlaybackProgressSnapshot } from "../../shared/contracts/playback";
+import type { PlaybackProgressSnapshot } from "../../shared/contracts/playback";
 import { getAppDatabase } from "../store/appDatabase";
-
-type MediaBindingRow = {
-  id: string;
-  subject_id: number;
-  episode_id: number;
-  download_id: string;
-  file_id: string;
-  file_name: string | null;
-  download_title: string | null;
-  download_status: string | null;
-  created_at: string;
-  updated_at: string;
-};
 
 type PlaybackProgressRow = {
   subject_id: number;
@@ -21,16 +8,6 @@ type PlaybackProgressRow = {
   duration_seconds: number | null;
   completed: number;
   updated_at: string;
-};
-
-export type SaveMediaBindingInput = {
-  id: string;
-  subjectId: number;
-  episodeId: number;
-  downloadId: string;
-  fileId: string;
-  createdAt: string;
-  updatedAt: string;
 };
 
 export type SavePlaybackProgressInput = {
@@ -43,141 +20,6 @@ export type SavePlaybackProgressInput = {
 };
 
 export class PlaybackRepository {
-  saveMediaBinding(input: SaveMediaBindingInput): MediaBindingView {
-    getAppDatabase()
-      .prepare(
-        `
-        DELETE FROM media_bindings
-        WHERE download_id = ?
-          AND file_id = ?
-          AND (subject_id != ? OR episode_id != ?)
-      `
-      )
-      .run(input.downloadId, input.fileId, input.subjectId, input.episodeId);
-
-    getAppDatabase()
-      .prepare(
-        `
-        INSERT INTO media_bindings (
-          id,
-          subject_id,
-          episode_id,
-          download_id,
-          file_id,
-          created_at,
-          updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(subject_id, episode_id) DO UPDATE SET
-          download_id = excluded.download_id,
-          file_id = excluded.file_id,
-          updated_at = excluded.updated_at
-      `
-      )
-      .run(
-        input.id,
-        input.subjectId,
-        input.episodeId,
-        input.downloadId,
-        input.fileId,
-        input.createdAt,
-        input.updatedAt
-      );
-
-    const binding = this.getMediaBinding(input.subjectId, input.episodeId);
-    if (!binding) {
-      throw new Error("媒体绑定保存失败。");
-    }
-    return binding;
-  }
-
-  getMediaBinding(subjectId: number, episodeId: number): MediaBindingView | null {
-    const row = getAppDatabase()
-      .prepare(
-        `
-        SELECT
-          media_bindings.*,
-          download_files.name AS file_name,
-          download_sessions.title AS download_title,
-          download_sessions.status AS download_status
-        FROM media_bindings
-        LEFT JOIN download_files ON download_files.id = media_bindings.file_id
-        LEFT JOIN download_sessions ON download_sessions.id = media_bindings.download_id
-        WHERE media_bindings.subject_id = ? AND media_bindings.episode_id = ?
-      `
-      )
-      .get(subjectId, episodeId) as MediaBindingRow | undefined;
-
-    return row ? toMediaBindingView(row) : null;
-  }
-
-  getMediaBindingForMedia(downloadId: string, fileId: string): MediaBindingView | null {
-    const row = getAppDatabase()
-      .prepare(
-        `
-        SELECT
-          media_bindings.*,
-          download_files.name AS file_name,
-          download_sessions.title AS download_title,
-          download_sessions.status AS download_status
-        FROM media_bindings
-        LEFT JOIN download_files ON download_files.id = media_bindings.file_id
-        LEFT JOIN download_sessions ON download_sessions.id = media_bindings.download_id
-        WHERE media_bindings.download_id = ? AND media_bindings.file_id = ?
-        ORDER BY media_bindings.updated_at DESC
-        LIMIT 1
-      `
-      )
-      .get(downloadId, fileId) as MediaBindingRow | undefined;
-
-    return row ? toMediaBindingView(row) : null;
-  }
-
-  listMediaBindings(subjectId: number): MediaBindingView[] {
-    const rows = getAppDatabase()
-      .prepare(
-        `
-        SELECT
-          media_bindings.*,
-          download_files.name AS file_name,
-          download_sessions.title AS download_title,
-          download_sessions.status AS download_status
-        FROM media_bindings
-        LEFT JOIN download_files ON download_files.id = media_bindings.file_id
-        LEFT JOIN download_sessions ON download_sessions.id = media_bindings.download_id
-        WHERE media_bindings.subject_id = ?
-        ORDER BY media_bindings.episode_id
-      `
-      )
-      .all(subjectId) as MediaBindingRow[];
-
-    return rows.map(toMediaBindingView);
-  }
-
-  getMediaBindingById(bindingId: string): MediaBindingView | null {
-    const row = getAppDatabase()
-      .prepare(
-        `
-        SELECT
-          media_bindings.*,
-          download_files.name AS file_name,
-          download_sessions.title AS download_title,
-          download_sessions.status AS download_status
-        FROM media_bindings
-        LEFT JOIN download_files ON download_files.id = media_bindings.file_id
-        LEFT JOIN download_sessions ON download_sessions.id = media_bindings.download_id
-        WHERE media_bindings.id = ?
-      `
-      )
-      .get(bindingId) as MediaBindingRow | undefined;
-
-    return row ? toMediaBindingView(row) : null;
-  }
-
-  clearMediaBinding(bindingId: string): void {
-    getAppDatabase().prepare("DELETE FROM media_bindings WHERE id = ?").run(bindingId);
-  }
-
   saveProgress(input: SavePlaybackProgressInput): PlaybackProgressSnapshot {
     getAppDatabase()
       .prepare(
@@ -227,23 +69,6 @@ export class PlaybackRepository {
 
     return row ? toPlaybackProgressSnapshot(row) : null;
   }
-}
-
-function toMediaBindingView(row: MediaBindingRow): MediaBindingView {
-  return {
-    id: row.id,
-    subjectId: row.subject_id,
-    episodeId: row.episode_id,
-    downloadId: row.download_id,
-    fileId: row.file_id,
-    fileName: row.file_name,
-    downloadTitle: row.download_title,
-    available: Boolean(
-      row.file_name && (row.download_status === "ready" || row.download_status === "completed")
-    ),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
 }
 
 function toPlaybackProgressSnapshot(row: PlaybackProgressRow): PlaybackProgressSnapshot {

@@ -12,7 +12,10 @@ const searchInputSchema = z.object({
     .max(4, "搜索关键词过多。")
     .optional()
 });
-const enqueueInputSchema = z.object({ candidateId: z.string().uuid("资源编号无效。") });
+const enqueueInputSchema = z.object({
+  candidateId: z.string().uuid("资源编号无效。"),
+  episodeId: z.number().int().positive("章节编号无效。").optional()
+});
 
 export function registerSourceIpc(): void {
   const service = getSourceService();

@@ -35,6 +35,7 @@ export type SourceSearchResult = {
 
 export type SourceEnqueueInput = {
   candidateId: string;
+  episodeId?: number;
 };
 
 export interface SourceBridge {

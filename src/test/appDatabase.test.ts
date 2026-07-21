@@ -61,7 +61,7 @@ describe("appDatabase", () => {
     );
   });
 
-  it("creates playback binding and progress tables for episode-bound playback", async () => {
+  it("migrates legacy media bindings into download episode context", async () => {
     const appRoot = mkdtempSync(join(tmpdir(), "melonbang-app-root-"));
 
     vi.doMock("electron", () => ({
@@ -70,23 +70,89 @@ describe("appDatabase", () => {
       }
     }));
 
-    const { getAppDatabase } = await import("../main/store/appDatabase");
-    const database = getAppDatabase();
-    const tables = database
-      .prepare(
-        `
-        SELECT name
-        FROM sqlite_master
-        WHERE type = 'table' AND name IN ('media_bindings', 'playback_progress')
-        ORDER BY name
-      `
-      )
-      .all() as Array<{ name: string }>;
+    const firstModule = await import("../main/store/appDatabase");
+    const database = firstModule.getAppDatabase();
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS media_bindings (
+        id TEXT PRIMARY KEY,
+        subject_id INTEGER NOT NULL,
+        episode_id INTEGER NOT NULL,
+        download_id TEXT NOT NULL,
+        file_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(subject_id, episode_id)
+      ) STRICT;
+    `);
+    database
+      .prepare(`
+        INSERT INTO download_sessions (
+          id, input_kind, input_ref, title, status, selected_file_id, created_at, updated_at
+        ) VALUES (?, 'magnet', ?, ?, 'completed', ?, ?, ?)
+      `)
+      .run(
+        "download-1",
+        "magnet:?xt=urn:btih:C5PPDMBT7OKFBO4A4MGUK3LLHSDP4BKG",
+        "Episode 1",
+        "download-1:old",
+        "2026-07-21T00:00:00.000Z",
+        "2026-07-21T00:00:00.000Z"
+      );
+    database
+      .prepare(`
+        INSERT INTO download_files (
+          id, download_id, path, name, size_bytes, media_kind, priority, progress, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 1024, 'video', 1, 1, ?, ?)
+      `)
+      .run(
+        "download-1:0",
+        "download-1",
+        "episode-1.mkv",
+        "episode-1.mkv",
+        "2026-07-21T00:00:00.000Z",
+        "2026-07-21T00:00:00.000Z"
+      );
+    database
+      .prepare(`
+        INSERT INTO media_bindings (
+          id, subject_id, episode_id, download_id, file_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        "binding-1",
+        100,
+        501,
+        "download-1",
+        "download-1:0",
+        "2026-07-21T00:00:00.000Z",
+        "2026-07-21T00:00:00.000Z"
+      );
     database.close();
 
-    expect(tables.map((table) => table.name)).toEqual([
-      "media_bindings",
-      "playback_progress"
-    ]);
+    vi.resetModules();
+    const secondModule = await import("../main/store/appDatabase");
+    const migrated = secondModule.getAppDatabase();
+    const session = migrated
+      .prepare("SELECT subject_id, episode_id, selected_file_id FROM download_sessions WHERE id = ?")
+      .get("download-1") as {
+      subject_id: number | null;
+      episode_id: number | null;
+      selected_file_id: string | null;
+    };
+    const legacyTable = migrated
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'media_bindings'")
+      .get();
+    const progressTable = migrated
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'playback_progress'")
+      .get() as { name: string };
+    migrated.close();
+
+    expect(session).toEqual({
+      subject_id: 100,
+      episode_id: 501,
+      selected_file_id: "download-1:0"
+    });
+    expect(legacyTable).toBeUndefined();
+    expect(progressTable.name).toBe("playback_progress");
   });
 });

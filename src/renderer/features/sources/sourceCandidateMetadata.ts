@@ -80,6 +80,24 @@ export function parseSourceCandidateTitle(title: string): SourceCandidateMetadat
   };
 }
 
+export function resolveCandidateEpisodeId(
+  metadata: SourceCandidateMetadata,
+  episodes: ReadonlyArray<{ episodeId: number; sort: number }>,
+  contextualEpisodeId: number | null
+): number | null {
+  if (contextualEpisodeId !== null) {
+    return episodes.some((episode) => episode.episodeId === contextualEpisodeId)
+      ? contextualEpisodeId
+      : null;
+  }
+
+  const range = metadata.episodeRange;
+  if (!range || range.start !== range.end) {
+    return null;
+  }
+  return episodes.find((episode) => episode.sort === range.start)?.episodeId ?? null;
+}
+
 export function matchesSourceCandidateFilters<T>(
   candidate: FilterableSourceCandidate<T>,
   filters: SourceCandidateFilters,

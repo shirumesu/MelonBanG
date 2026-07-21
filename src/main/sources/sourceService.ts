@@ -36,6 +36,7 @@ export type SourceDownloadService = {
 type CandidateRef = {
   candidate: SourceCandidateView;
   downloadRef: string;
+  subjectId: number;
   episodeContext: DownloadEpisodeContext | null;
   expiresAt: number;
 };
@@ -153,11 +154,21 @@ export class SourceService {
     if (!stored) {
       throw new Error("资源已过期，请重新搜索。");
     }
+    if (
+      input.episodeId !== undefined &&
+      (!Number.isSafeInteger(input.episodeId) || input.episodeId <= 0)
+    ) {
+      throw new Error("章节编号无效。");
+    }
+    const episodeContext =
+      input.episodeId === undefined
+        ? stored.episodeContext
+        : { subjectId: stored.subjectId, episodeId: input.episodeId };
 
     if (stored.candidate.downloadKind === "magnet") {
       const task = await this.downloadService.create(
         { kind: "magnet", uri: stored.downloadRef },
-        stored.episodeContext ?? undefined
+        episodeContext ?? undefined
       );
       this.candidates.delete(input.candidateId);
       return task;
@@ -187,7 +198,7 @@ export class SourceService {
         name: `${sanitizeFileName(stored.candidate.title)}.torrent`,
         bytes
       },
-      stored.episodeContext ?? undefined
+      episodeContext ?? undefined
     );
     this.candidates.delete(input.candidateId);
     return task;
@@ -223,6 +234,7 @@ export class SourceService {
       this.candidates.set(candidateId, {
         candidate,
         downloadRef: normalized.downloadRef,
+        subjectId: context.subjectId,
         episodeContext:
           context.episodeId === null
             ? null

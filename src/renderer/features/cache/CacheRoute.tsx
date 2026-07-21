@@ -558,7 +558,7 @@ export function CacheRoute() {
 
   function openCompletedTaskDetails(task: DownloadTaskView): void {
     if (task.subjectId === null) {
-      toast.warning("未绑定具体番剧");
+      toast.warning("无法确认所属番剧");
       return;
     }
     void navigate(`/subject/${task.subjectId}`);

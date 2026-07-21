@@ -91,44 +91,9 @@ export type StartPlaybackFromDownloadInput = {
   fileId?: string;
 };
 
-export type BindEpisodeMediaInput = {
+export type EpisodePlaybackInput = {
   subjectId: number;
   episodeId: number;
-  downloadId: string;
-  fileId?: string;
-};
-
-export type BindSessionEpisodeInput = {
-  sessionId: string;
-  subjectId: number;
-  episodeId: number;
-};
-
-export type EpisodeMediaBindingInput = {
-  subjectId: number;
-  episodeId: number;
-};
-
-export type ClearEpisodeMediaBindingInput = {
-  bindingId: string;
-};
-
-export type StartEpisodePlaybackInput = {
-  subjectId: number;
-  episodeId: number;
-};
-
-export type MediaBindingView = {
-  id: string;
-  subjectId: number;
-  episodeId: number;
-  downloadId: string;
-  fileId: string;
-  fileName: string | null;
-  downloadTitle: string | null;
-  available: boolean;
-  createdAt: string;
-  updatedAt: string;
 };
 
 export type PlaybackProgressSnapshot = {
@@ -175,13 +140,8 @@ export type PlaybackSessionView = {
 
 export interface PlaybackBridge {
   startFromDownload(input: StartPlaybackFromDownloadInput): Promise<PlaybackSessionView>;
-  bindEpisodeMedia(input: BindEpisodeMediaInput): Promise<MediaBindingView>;
-  bindSessionEpisode(input: BindSessionEpisodeInput): Promise<PlaybackSessionView>;
-  getEpisodeMediaBinding(input: EpisodeMediaBindingInput): Promise<MediaBindingView | null>;
-  listEpisodeMediaBindings(subjectId: number): Promise<MediaBindingView[]>;
-  clearEpisodeMediaBinding(input: ClearEpisodeMediaBindingInput): Promise<void>;
-  startEpisode(input: StartEpisodePlaybackInput): Promise<PlaybackSessionView>;
-  getEpisodeProgress(input: EpisodeMediaBindingInput): Promise<PlaybackProgressSnapshot | null>;
+  startEpisode(input: EpisodePlaybackInput): Promise<PlaybackSessionView>;
+  getEpisodeProgress(input: EpisodePlaybackInput): Promise<PlaybackProgressSnapshot | null>;
   getSession(): Promise<PlaybackSessionView | null>;
   loadDanmaku(sessionId: string): Promise<PlaybackSessionView>;
   searchDanmakuEpisodes(input: DanmakuEpisodeSearchInput): Promise<DanmakuEpisodeSearchResult[]>;

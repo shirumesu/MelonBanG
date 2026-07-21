@@ -8,8 +8,7 @@ import type {
   SubjectDetail,
   SubjectStaffCredit
 } from "@shared/contracts/bangumi";
-import type { DownloadFileView, DownloadSnapshot, DownloadTaskView } from "@shared/contracts/download";
-import type { MediaBindingView } from "@shared/contracts/playback";
+import type { DownloadSnapshot } from "@shared/contracts/download";
 import { useAppState } from "@/app/AppStateProvider";
 import { SubjectHero } from "./components/SubjectHero";
 import { SubjectTabs } from "./components/SubjectTabs";
@@ -82,8 +81,6 @@ export function SubjectRoute() {
   const [detailDialog, setDetailDialog] = useState<DetailDialog>(null);
   const [selectedMediaEpisodeId, setSelectedMediaEpisodeId] = useState<number | null>(null);
   const [downloadSnapshot, setDownloadSnapshot] = useState<DownloadSnapshot>(emptyDownloadSnapshot);
-  const [mediaBinding, setMediaBinding] = useState<MediaBindingView | null>(null);
-  const [selectedMediaKey, setSelectedMediaKey] = useState("");
   const [mediaActionError, setMediaActionError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -159,10 +156,21 @@ export function SubjectRoute() {
       null,
     [activeSubject?.episodes, nextEpisode, selectedMediaEpisodeId]
   );
-  const mediaOptions = useMemo(
-    () => buildMediaOptions(downloadSnapshot.tasks, downloadSnapshot.files),
-    [downloadSnapshot.files, downloadSnapshot.tasks]
+  const selectedEpisodeDownload = useMemo(
+    () =>
+      selectedMediaEpisode
+        ? (downloadSnapshot.tasks.find(
+            (task) =>
+              task.subjectId === selectedMediaEpisode.subjectId &&
+              task.episodeId === selectedMediaEpisode.episodeId &&
+              task.status !== "failed" &&
+              task.status !== "removed"
+          ) ?? null)
+        : null,
+    [downloadSnapshot.tasks, selectedMediaEpisode]
   );
+  const selectedEpisodeCached =
+    selectedEpisodeDownload?.status === "completed" || selectedEpisodeDownload?.status === "ready";
 
   useEffect(() => {
     if (!epOpen) {
@@ -175,6 +183,11 @@ export function SubjectRoute() {
       return;
     }
 
+    const unsubscribe = bridge.onUpdate((snapshot) => {
+      if (!ignore) {
+        setDownloadSnapshot(snapshot);
+      }
+    });
     void bridge
       .list()
       .then((snapshot) => {
@@ -186,41 +199,9 @@ export function SubjectRoute() {
 
     return () => {
       ignore = true;
+      unsubscribe();
     };
   }, [epOpen]);
-
-  useEffect(() => {
-    if (!selectedMediaEpisode) {
-      return;
-    }
-
-    let ignore = false;
-    const bridge = window.melonbang?.playback;
-    if (!bridge) {
-      return;
-    }
-
-    void bridge
-      .getEpisodeMediaBinding({
-        subjectId: selectedMediaEpisode.subjectId,
-        episodeId: selectedMediaEpisode.episodeId
-      })
-      .then((binding) => {
-        if (!ignore) {
-          setMediaBinding(binding);
-          setSelectedMediaKey(binding ? `${binding.downloadId}|${binding.fileId}` : "");
-        }
-      })
-      .catch(() => {
-        if (!ignore) {
-          setMediaBinding(null);
-        }
-      });
-
-    return () => {
-      ignore = true;
-    };
-  }, [selectedMediaEpisode]);
 
   async function applyCachedSubject(subjectId: number): Promise<void> {
     const cachedSubject = await getCachedSubject(subjectId).catch(() => null);
@@ -296,32 +277,6 @@ export function SubjectRoute() {
     }
   }
 
-  async function bindSelectedEpisodeMedia(): Promise<void> {
-    if (!selectedMediaEpisode || !selectedMediaKey) {
-      return;
-    }
-
-    const [downloadId, fileId] = selectedMediaKey.split("|");
-    const bridge = window.melonbang?.playback;
-    if (!bridge) {
-      setMediaActionError("播放桥接不可用，请重启应用。");
-      return;
-    }
-
-    setMediaActionError(null);
-    try {
-      const binding = await bridge.bindEpisodeMedia({
-        subjectId: selectedMediaEpisode.subjectId,
-        episodeId: selectedMediaEpisode.episodeId,
-        downloadId,
-        fileId
-      });
-      setMediaBinding(binding);
-    } catch (error) {
-      setMediaActionError(toMessage(error, "媒体绑定失败。"));
-    }
-  }
-
   async function playSelectedEpisode(): Promise<void> {
     if (!selectedMediaEpisode) {
       return;
@@ -342,27 +297,6 @@ export function SubjectRoute() {
       void navigate("/player");
     } catch (error) {
       setMediaActionError(toMessage(error, "章节播放失败。"));
-    }
-  }
-
-  async function clearSelectedEpisodeBinding(): Promise<void> {
-    if (!mediaBinding) {
-      return;
-    }
-
-    const bridge = window.melonbang?.playback;
-    if (!bridge) {
-      setMediaActionError("播放桥接不可用，请重启应用。");
-      return;
-    }
-
-    setMediaActionError(null);
-    try {
-      await bridge.clearEpisodeMediaBinding({ bindingId: mediaBinding.id });
-      setMediaBinding(null);
-      setSelectedMediaKey("");
-    } catch (error) {
-      setMediaActionError(toMessage(error, "绑定清除失败。"));
     }
   }
 
@@ -405,7 +339,11 @@ export function SubjectRoute() {
         <SubjectHero
           subject={activeSubject}
           onOpenEpisodes={() => setEpOpen(true)}
-          onOpenCache={() => void navigate(`/subject/${activeSubject.subjectId}/cache`)}
+          onOpenCache={() => {
+            const episode = selectedMediaEpisode ?? nextEpisode;
+            const suffix = episode ? `?episodeId=${episode.episodeId}` : "";
+            void navigate(`/subject/${activeSubject.subjectId}/cache${suffix}`);
+          }}
           onOpenPv={() => setPvOpen(true)}
           onContinuePlayback={() => void continuePlayback()}
           onChangeStatus={(status) => void changeStatus(status)}
@@ -503,7 +441,7 @@ export function SubjectRoute() {
               <Badge variant="outline">
                 {nextEpisode ? `下一话 EP${nextEpisode.sort}` : "已看完"}
               </Badge>
-              <span className="text-ink-faint text-xs">点击章节选择本地媒体或更新进度</span>
+              <span className="text-ink-faint text-xs">点击章节播放、缓存资源或更新进度</span>
             </div>
             <div className="border-line bg-surface-2 mb-3.5 rounded-[14px] border p-3">
               <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -514,40 +452,34 @@ export function SubjectRoute() {
                       }`
                     : "未选择章节"}
                 </Badge>
-                {mediaBinding ? (
-                  <Badge variant={mediaBinding.available ? "mint" : "outline"}>
-                    {mediaBinding.available ? "已绑定本地媒体" : "绑定文件不可用"}
+                {selectedEpisodeDownload ? (
+                  <Badge variant={selectedEpisodeCached ? "mint" : "outline"}>
+                    {selectedEpisodeCached ? "已缓存" : "下载中"}
                   </Badge>
                 ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={selectedMediaKey}
-                  onChange={(event) => setSelectedMediaKey(event.target.value)}
-                  className="border-line bg-surface text-ink min-w-[260px] flex-1 rounded-full border px-3 py-2 text-[12px] font-semibold outline-none"
-                >
-                  <option value="">选择已完成缓存视频</option>
-                  {mediaOptions.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
                 <Button
                   size="sm"
-                  variant="outline"
-                  disabled={!selectedMediaEpisode || !selectedMediaKey}
-                  onClick={() => void bindSelectedEpisodeMedia()}
-                >
-                  绑定
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={!selectedMediaEpisode || !mediaBinding?.available}
+                  disabled={!selectedMediaEpisode || !selectedEpisodeCached}
                   onClick={() => void playSelectedEpisode()}
                 >
                   <Play className="size-4 fill-current" />
                   播放
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!selectedMediaEpisode}
+                  onClick={() => {
+                    if (!selectedMediaEpisode) return;
+                    setEpOpen(false);
+                    void navigate(
+                      `/subject/${selectedMediaEpisode.subjectId}/cache?episodeId=${selectedMediaEpisode.episodeId}`
+                    );
+                  }}
+                >
+                  {selectedEpisodeDownload ? "查找其他资源" : "搜索缓存"}
                 </Button>
                 <Button
                   size="sm"
@@ -556,14 +488,6 @@ export function SubjectRoute() {
                   onClick={() => selectedMediaEpisode && void toggleEpisode(selectedMediaEpisode)}
                 >
                   {selectedMediaEpisode?.status === "watched" ? "标为未看" : "标为看过"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={!mediaBinding}
-                  onClick={() => void clearSelectedEpisodeBinding()}
-                >
-                  清除绑定
                 </Button>
               </div>
               {mediaActionError ? (
@@ -741,26 +665,6 @@ function splitSynopsis(summary: string | undefined): string[] {
     .split(/\n{2,}|\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-}
-
-function buildMediaOptions(
-  tasks: DownloadTaskView[],
-  files: DownloadFileView[]
-): Array<{ key: string; label: string }> {
-  const completedTasks = new Map(
-    tasks.filter((task) => task.status === "completed").map((task) => [task.id, task])
-  );
-
-  return files
-    .filter((file) => file.mediaKind === "video" && completedTasks.has(file.downloadId))
-    .map((file) => {
-      const task = completedTasks.get(file.downloadId);
-      const priority = task?.selectedFileId === file.id ? "默认" : "视频";
-      return {
-        key: `${file.downloadId}|${file.id}`,
-        label: `${priority} · ${file.name || task?.title || file.id}`
-      };
-    });
 }
 
 function toMessage(error: unknown, fallback: string): string {

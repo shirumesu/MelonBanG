@@ -53,13 +53,6 @@ const download: DownloadBridge = {
 
 const playback: PlaybackBridge = {
   startFromDownload: (input) => ipcRenderer.invoke("playback:startFromDownload", input),
-  bindEpisodeMedia: (input) => ipcRenderer.invoke("playback:bindEpisodeMedia", input),
-  bindSessionEpisode: (input) => ipcRenderer.invoke("playback:bindSessionEpisode", input),
-  getEpisodeMediaBinding: (input) => ipcRenderer.invoke("playback:getEpisodeMediaBinding", input),
-  listEpisodeMediaBindings: (subjectId) =>
-    ipcRenderer.invoke("playback:listEpisodeMediaBindings", subjectId),
-  clearEpisodeMediaBinding: (input) =>
-    ipcRenderer.invoke("playback:clearEpisodeMediaBinding", input),
   startEpisode: (input) => ipcRenderer.invoke("playback:startEpisode", input),
   getEpisodeProgress: (input) => ipcRenderer.invoke("playback:getEpisodeProgress", input),
   getSession: () => ipcRenderer.invoke("playback:getSession"),

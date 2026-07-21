@@ -253,7 +253,6 @@ describe("SourceService", () => {
     );
     const result = await service.search({
       subjectId: 13,
-      episodeId: 501,
       keyword: "葬送的芙莉莲 01"
     });
     const mikan = result.candidates.find((candidate) => candidate.providerId === "mikan");
@@ -261,7 +260,7 @@ describe("SourceService", () => {
     await expect(
       service.enqueue({ candidateId: "https://evil.example/file.torrent" })
     ).rejects.toThrow("资源已过期，请重新搜索。");
-    await service.enqueue({ candidateId: mikan!.candidateId });
+    await service.enqueue({ candidateId: mikan!.candidateId, episodeId: 501 });
 
     expect(create).toHaveBeenCalledTimes(1);
     expect(create).toHaveBeenCalledWith(

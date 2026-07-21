@@ -4,7 +4,6 @@ import { useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
   ChevronRight,
-  Link2,
   LoaderCircle,
   PanelRightClose,
   PanelRightOpen
@@ -14,14 +13,12 @@ import type { DownloadSnapshot, DownloadTaskView } from "@shared/contracts/downl
 import type {
   DanmakuSourceId,
   DanmakuSourceView,
-  MediaBindingView,
   PlaybackDeliveryMode,
   PlaybackSessionView,
   SubtitleTrackView
 } from "@shared/contracts/playback";
 import { WindowFrame } from "@/app/shell/WindowFrame";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -44,7 +41,6 @@ import {
 } from "./bilibiliDanmakuPresentation";
 import { DanmakuSearchDialog } from "./DanmakuSearchDialog";
 import { DirectDanmakuSourceDialog } from "./DirectDanmakuSourceDialog";
-import { EpisodeBindingDialog } from "./EpisodeBindingDialog";
 import { filterDanmakuItems, toArtPlayerDanmuku, toArtPlayerDanmakuMode } from "./danmaku";
 import {
   resolvePlaybackDuration,
@@ -291,11 +287,9 @@ export function PlayerRoute() {
   const [subtitleError, setSubtitleError] = useState<string | null>(null);
   const [danmakuError, setDanmakuError] = useState<string | null>(null);
   const [activeDanmakuDialog, setActiveDanmakuDialog] = useState<DanmakuSourceId | null>(null);
-  const [episodeBindingDialogOpen, setEpisodeBindingDialogOpen] = useState(false);
   const [panel, setPanel] = useState<RightPanel>("episodes");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [subject, setSubject] = useState<SubjectDetail | null>(null);
-  const [mediaBindings, setMediaBindings] = useState<MediaBindingView[]>([]);
   const [downloadSnapshot, setDownloadSnapshot] = useState<DownloadSnapshot>(emptyDownloadSnapshot);
   const [episodePanelError, setEpisodePanelError] = useState<string | null>(null);
   const [switchingEpisodeId, setSwitchingEpisodeId] = useState<number | null>(null);
@@ -405,9 +399,6 @@ export function PlayerRoute() {
       return [];
     }
 
-    const bindingsByEpisode = new Map(
-      mediaBindings.map((binding) => [binding.episodeId, binding] as const)
-    );
     const downloadsByEpisode = new Map<number, DownloadTaskView>();
     for (const task of downloadSnapshot.tasks) {
       if (
@@ -423,9 +414,6 @@ export function PlayerRoute() {
       if (episode.episodeId === session?.episodeId) {
         return { episode, mediaState: "current" };
       }
-      if (bindingsByEpisode.get(episode.episodeId)?.available) {
-        return { episode, mediaState: "cached" };
-      }
       const download = downloadsByEpisode.get(episode.episodeId);
       if (download?.status === "completed" || download?.status === "ready") {
         return { episode, mediaState: "cached" };
@@ -435,7 +423,7 @@ export function PlayerRoute() {
       }
       return { episode, mediaState: "missing" };
     });
-  }, [downloadSnapshot.tasks, mediaBindings, session?.episodeId, session?.subjectId, subject]);
+  }, [downloadSnapshot.tasks, session?.episodeId, session?.subjectId, subject]);
   useEffect(() => {
     sessionRef.current = session;
     timelineOffsetRef.current = timelineOffsetSeconds;
@@ -612,11 +600,9 @@ export function PlayerRoute() {
 
   useEffect(() => {
     const subjectId = session?.subjectId;
-    const playbackBridge = window.melonbang?.playback;
     const bangumiBridge = window.melonbang?.bangumi;
-    if (!subjectId || !playbackBridge || !bangumiBridge) {
+    if (!subjectId || !bangumiBridge) {
       setSubject(null);
-      setMediaBindings([]);
       setEpisodePanelError(null);
       return;
     }
@@ -624,15 +610,10 @@ export function PlayerRoute() {
     let cancelled = false;
     let hasSubject = false;
     setSubject((current) => (current?.subjectId === subjectId ? current : null));
-    setMediaBindings([]);
     setEpisodePanelError(null);
 
-    void Promise.all([
-      bangumiBridge.getCachedSubject(subjectId).catch(() => null),
-      playbackBridge.listEpisodeMediaBindings(subjectId).catch(() => [])
-    ]).then(([cachedSubject, bindings]) => {
+    void bangumiBridge.getCachedSubject(subjectId).catch(() => null).then((cachedSubject) => {
       if (cancelled) return;
-      setMediaBindings(bindings);
       if (cachedSubject) {
         hasSubject = true;
         setSubject(cachedSubject);
@@ -1100,17 +1081,8 @@ export function PlayerRoute() {
                     当前条目没有可显示的正片章节。
                   </div>
                 ) : session ? (
-                  <div className="border-line bg-surface-2 flex flex-col items-center gap-3 rounded-[16px] border px-4 py-8 text-center">
-                    <div>
-                      <div className="text-sm font-extrabold">当前视频未关联章节</div>
-                      <p className="text-ink-faint mt-1 text-[11.5px] leading-5 font-semibold">
-                        外部下载或手动导入的视频不会自动猜测章节。
-                      </p>
-                    </div>
-                    <Button size="sm" onClick={() => setEpisodeBindingDialogOpen(true)}>
-                      <Link2 data-icon="inline-start" />
-                      搜索并关联
-                    </Button>
+                  <div className="border-line bg-surface-2 text-ink-faint rounded-[16px] border px-4 py-8 text-center text-sm font-semibold">
+                    当前缓存没有可确认的剧集上下文。
                   </div>
                 ) : (
                   <div className="border-line bg-surface-2 text-ink-faint rounded-[16px] border px-4 py-8 text-center text-sm font-semibold">
@@ -1369,15 +1341,6 @@ export function PlayerRoute() {
           </div>
         </aside>
       </div>
-      <EpisodeBindingDialog
-        open={episodeBindingDialogOpen}
-        session={session}
-        onOpenChange={setEpisodeBindingDialogOpen}
-        onSession={(nextSession) => {
-          applySession(nextSession);
-          setEpisodePanelError(null);
-        }}
-      />
       <DanmakuSearchDialog
         open={activeDanmakuDialog === "dandanplay"}
         sessionId={session?.id ?? null}

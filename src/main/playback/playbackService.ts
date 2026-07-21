@@ -3,16 +3,12 @@ import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { extname, isAbsolute, relative, resolve } from "node:path";
 import type {
-  BindEpisodeMediaInput,
-  BindSessionEpisodeInput,
-  ClearEpisodeMediaBindingInput,
   DanmakuEpisodeSearchInput,
   DanmakuEpisodeSearchResult,
   DanmakuSourceId,
   DanmakuSourceView,
-  EpisodeMediaBindingInput,
+  EpisodePlaybackInput,
   LoadDanmakuSourceInput,
-  MediaBindingView,
   PlaybackProgressInput,
   PlaybackProgressSnapshot,
   PlaybackSessionView,
@@ -20,7 +16,6 @@ import type {
   SeekPlaybackInput,
   SetDanmakuSourceEnabledInput,
   SelectDanmakuEpisodeInput,
-  StartEpisodePlaybackInput,
   StartPlaybackFromDownloadInput
 } from "../../shared/contracts/playback";
 import { getDandanplayConfig } from "../config/dandanplay";
@@ -116,89 +111,16 @@ export class PlaybackService {
 
   async startFromDownload(input: StartPlaybackFromDownloadInput): Promise<PlaybackSessionView> {
     const media = this.resolveDownloadMedia(input);
-    const binding = this.playbackRepository.getMediaBindingForMedia(input.downloadId, media.fileId);
+    const task = this.repository.requireTask(input.downloadId);
+    const hasEpisodeContext = task.subjectId !== null && task.episodeId !== null;
     return this.enqueuePlaybackStart(media, {
       downloadId: input.downloadId,
-      subjectId: binding?.subjectId ?? null,
-      episodeId: binding?.episodeId ?? null
+      subjectId: hasEpisodeContext ? task.subjectId : null,
+      episodeId: hasEpisodeContext ? task.episodeId : null
     });
   }
 
-  bindEpisodeMedia(input: BindEpisodeMediaInput): MediaBindingView {
-    const media = this.resolveDownloadMedia(input);
-    const now = new Date().toISOString();
-    return this.playbackRepository.saveMediaBinding({
-      id: randomUUID(),
-      subjectId: input.subjectId,
-      episodeId: input.episodeId,
-      downloadId: input.downloadId,
-      fileId: media.fileId,
-      createdAt: now,
-      updatedAt: now
-    });
-  }
-
-  getEpisodeMediaBinding(input: EpisodeMediaBindingInput): MediaBindingView | null {
-    return this.playbackRepository.getMediaBinding(input.subjectId, input.episodeId);
-  }
-
-  listEpisodeMediaBindings(subjectId: number): MediaBindingView[] {
-    return this.playbackRepository.listMediaBindings(subjectId);
-  }
-
-  bindSessionEpisode(input: BindSessionEpisodeInput): PlaybackSessionView {
-    const session = this.requireSession(input.sessionId);
-    if (
-      session.status === "stopped" ||
-      session.status === "failed" ||
-      !session.source ||
-      !session.downloadId ||
-      !session.fileId
-    ) {
-      throw new Error("当前播放会话没有可关联的本地媒体。");
-    }
-
-    this.bindEpisodeMedia({
-      subjectId: input.subjectId,
-      episodeId: input.episodeId,
-      downloadId: session.downloadId,
-      fileId: session.fileId
-    });
-    this.resetDanmakuSources();
-    this.updateSession({
-      subjectId: input.subjectId,
-      episodeId: input.episodeId,
-      danmaku: [],
-      danmakuSources: this.createDanmakuSourceViews()
-    });
-    void this.loadDanmaku(session.id).catch(() => undefined);
-    return this.requireSession(input.sessionId);
-  }
-
-  clearEpisodeMediaBinding(input: ClearEpisodeMediaBindingInput): void {
-    this.playbackRepository.clearMediaBinding(input.bindingId);
-  }
-
-  async startEpisode(input: StartEpisodePlaybackInput): Promise<PlaybackSessionView> {
-    const binding =
-      this.playbackRepository.getMediaBinding(input.subjectId, input.episodeId) ??
-      this.materializeContextualBinding(input);
-    if (!binding) {
-      throw new Error("当前章节还没有下载完成或绑定本地媒体文件。");
-    }
-
-    const media = this.resolveDownloadMedia({
-      downloadId: binding.downloadId,
-      fileId: binding.fileId
-    });
-    return this.enqueuePlaybackStart(media, {
-      downloadId: binding.downloadId,
-      subjectId: input.subjectId,
-      episodeId: input.episodeId
-    });
-  }
-
-  private materializeContextualBinding(input: StartEpisodePlaybackInput): MediaBindingView | null {
+  async startEpisode(input: EpisodePlaybackInput): Promise<PlaybackSessionView> {
     const task = this.repository
       .listTasks()
       .find(
@@ -209,18 +131,21 @@ export class PlaybackService {
           candidate.selectedFileId
       );
     if (!task?.selectedFileId) {
-      return null;
+      throw new Error("当前章节还没有下载完成的本地媒体文件。");
     }
 
-    return this.bindEpisodeMedia({
-      subjectId: input.subjectId,
-      episodeId: input.episodeId,
+    const media = this.resolveDownloadMedia({
       downloadId: task.id,
       fileId: task.selectedFileId
     });
+    return this.enqueuePlaybackStart(media, {
+      downloadId: task.id,
+      subjectId: input.subjectId,
+      episodeId: input.episodeId
+    });
   }
 
-  getEpisodeProgress(input: EpisodeMediaBindingInput): PlaybackProgressSnapshot | null {
+  getEpisodeProgress(input: EpisodePlaybackInput): PlaybackProgressSnapshot | null {
     return this.playbackRepository.getProgress(input.subjectId, input.episodeId);
   }
 
