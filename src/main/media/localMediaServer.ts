@@ -45,6 +45,8 @@ type LocalMediaRoute = {
 };
 
 const HLS_STARTUP_SEGMENT_COUNT = 2;
+const HLS_STARTUP_TIMEOUT_MS = 20_000;
+const HLS_MIN_PLAYABLE_SECONDS = 0.01;
 const TRANSCODE_SEGMENT_SECONDS = 2;
 
 let localMediaServerInstance: LocalMediaServer | null = null;
@@ -100,13 +102,11 @@ export class LocalMediaServer {
   }
 
   async restartTranscodedMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView> {
-    this.revokeHlsStreams(input.sessionId);
-    return this.registerHlsMediaFile(input, "transcode");
+    return this.restartHlsMediaFile(input, "transcode");
   }
 
   async restartRemuxedMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView> {
-    this.revokeHlsStreams(input.sessionId);
-    return this.registerHlsMediaFile(input, "remux");
+    return this.restartHlsMediaFile(input, "remux");
   }
 
   async registerRemuxedMediaFile(input: RegisterLocalMediaInput): Promise<PlaybackSourceView> {
@@ -117,6 +117,65 @@ export class LocalMediaServer {
     input: RegisterLocalMediaInput,
     deliveryMode: Exclude<PlaybackDeliveryMode, "direct">
   ): Promise<PlaybackSourceView> {
+    const { source } = await this.createHlsStream(input, deliveryMode);
+    return source;
+  }
+
+  /**
+   * Restarts a prepared HLS stream at a new position. The replacement source
+   * is returned immediately so the player can swap and show its buffering
+   * state; the previous streams are only retired in the background once the
+   * replacement actually holds playable content, so they never 404 under the
+   * still-mounted player and they survive a failed replacement.
+   */
+  private async restartHlsMediaFile(
+    input: RegisterLocalMediaInput,
+    deliveryMode: Exclude<PlaybackDeliveryMode, "direct">
+  ): Promise<PlaybackSourceView> {
+    const staleTokens = [...this.entries]
+      .filter(([, entry]) => entry.sessionId === input.sessionId && entry.hls)
+      .map(([token]) => token);
+
+    const { source, hls } = await this.createHlsStream(input, deliveryMode);
+    void this.retireStaleStreamsWhenReady(hls, staleTokens);
+    return source;
+  }
+
+  private async retireStaleStreamsWhenReady(
+    hls: HlsState,
+    staleTokens: string[]
+  ): Promise<void> {
+    const ready = await waitForHlsStartupBuffer(
+      hls.playlistPath,
+      () => hls.failedMessage,
+      HLS_STARTUP_TIMEOUT_MS,
+      HLS_STARTUP_SEGMENT_COUNT
+    );
+    if (!ready) {
+      // Keep the previous streams; the failed replacement surfaces its own
+      // error through playlist requests and is cleaned up by the next
+      // restart or session revoke.
+      return;
+    }
+
+    for (const token of staleTokens) {
+      this.revokeToken(token);
+    }
+  }
+
+  private revokeToken(token: string): void {
+    const entry = this.entries.get(token);
+    if (!entry) {
+      return;
+    }
+    this.entries.delete(token);
+    this.scheduleHlsCleanup(entry);
+  }
+
+  private async createHlsStream(
+    input: RegisterLocalMediaInput,
+    deliveryMode: Exclude<PlaybackDeliveryMode, "direct">
+  ): Promise<{ source: PlaybackSourceView; token: string; hls: HlsState }> {
     const filePath = this.resolveAllowedFile(input.filePath);
     await this.ensureListening();
 
@@ -144,27 +203,22 @@ export class LocalMediaServer {
     this.ensureHlsProcess(entry, hls);
 
     return {
-      kind: "hls",
-      deliveryMode,
-      timelineOffsetSeconds: normalizeStartSeconds(input.startSeconds),
-      url: `${this.requireOrigin()}/${deliveryMode}/${encodeURIComponent(input.sessionId)}/${token}/index.m3u8`,
-      mimeType: "application/vnd.apple.mpegurl",
-      title: input.title
+      source: {
+        kind: "hls",
+        deliveryMode,
+        timelineOffsetSeconds: normalizeStartSeconds(input.startSeconds),
+        url: `${this.requireOrigin()}/${deliveryMode}/${encodeURIComponent(input.sessionId)}/${token}/index.m3u8`,
+        mimeType: "application/vnd.apple.mpegurl",
+        title: input.title
+      },
+      token,
+      hls
     };
   }
 
   revokeSession(sessionId: string): void {
     for (const [token, entry] of this.entries) {
       if (entry.sessionId === sessionId) {
-        this.scheduleHlsCleanup(entry);
-        this.entries.delete(token);
-      }
-    }
-  }
-
-  private revokeHlsStreams(sessionId: string): void {
-    for (const [token, entry] of this.entries) {
-      if (entry.sessionId === sessionId && entry.hls) {
         this.scheduleHlsCleanup(entry);
         this.entries.delete(token);
       }
@@ -313,10 +367,10 @@ export class LocalMediaServer {
         ? await waitForHlsStartupBuffer(
             assetPath,
             () => hls.failedMessage,
-            20_000,
+            HLS_STARTUP_TIMEOUT_MS,
             HLS_STARTUP_SEGMENT_COUNT
           )
-        : await waitForFile(assetPath, () => hls.failedMessage, 20_000);
+        : await waitForFile(assetPath, () => hls.failedMessage, HLS_STARTUP_TIMEOUT_MS);
     if (!available) {
       const message = hls.failedMessage ?? "等待 FFmpeg 生成播放切片超时。";
       throw new Error(message);
@@ -366,6 +420,12 @@ export class LocalMediaServer {
       hls.process = null;
       if (code) {
         hls.failedMessage = hls.stderr || `FFmpeg 媒体准备失败，退出码 ${code}。`;
+        return;
+      }
+      if (!hls.revoked && readHlsPlayableSeconds(hls.playlistPath) < HLS_MIN_PLAYABLE_SECONDS) {
+        // FFmpeg exits successfully with a zero-duration playlist when the
+        // start position lies at or beyond the end of the actual streams.
+        hls.failedMessage = "FFmpeg 没有在目标位置产出可播放的内容。";
       }
     });
   }
@@ -615,9 +675,34 @@ function hasHlsStartupBuffer(playlistPath: string, segmentCount: number): boolea
   try {
     const playlist = readFileSync(playlistPath, "utf8");
     const completedSegments = playlist.match(/^#EXTINF:/gm)?.length ?? 0;
-    return completedSegments >= segmentCount || playlist.includes("#EXT-X-ENDLIST");
+    if (completedSegments >= segmentCount) {
+      return true;
+    }
+    // A finished playlist counts as a startup buffer only when it actually
+    // holds playable content; FFmpeg writes a zero-duration playlist when the
+    // start position lies beyond the end of the streams.
+    return (
+      playlist.includes("#EXT-X-ENDLIST") &&
+      parseHlsPlayableSeconds(playlist) >= HLS_MIN_PLAYABLE_SECONDS
+    );
   } catch {
     return false;
+  }
+}
+
+function parseHlsPlayableSeconds(playlist: string): number {
+  let totalSeconds = 0;
+  for (const match of playlist.matchAll(/^#EXTINF:([\d.]+)/gm)) {
+    totalSeconds += Number(match[1]);
+  }
+  return totalSeconds;
+}
+
+function readHlsPlayableSeconds(playlistPath: string): number {
+  try {
+    return parseHlsPlayableSeconds(readFileSync(playlistPath, "utf8"));
+  } catch {
+    return 0;
   }
 }
 

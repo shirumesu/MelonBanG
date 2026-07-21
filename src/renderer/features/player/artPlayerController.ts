@@ -6,7 +6,7 @@ import artplayerPluginDanmuku, {
   type Result as DanmakuPlugin
 } from "artplayer-plugin-danmuku";
 import type { PlaybackSourceView, SubtitleTrackView } from "@shared/contracts/playback";
-import { installSourceTimeline } from "./artPlayerTimeline";
+import { installSourceTimeline, type SourceTimelineHandle } from "./artPlayerTimeline";
 
 export type ArtPlayerVideoCallbacks = {
   onPlay(video: HTMLVideoElement): void;
@@ -54,6 +54,7 @@ type CreateArtPlayerControllerInput = {
   volume: number;
   playbackRate: number;
   autoplay: boolean;
+  isRemoteSeekPending?: () => boolean;
   callbacks: ArtPlayerVideoCallbacks;
 };
 
@@ -119,7 +120,12 @@ export function createArtPlayerController(
         hls = new Hls({
           startPosition: 0,
           lowLatencyMode: false,
-          liveSyncDuration: Math.max(1, input.durationSeconds ?? 24 * 60 * 60)
+          liveSyncDuration: Math.max(1, input.durationSeconds ?? 24 * 60 * 60),
+          // The local media server holds playlist/segment responses for up to
+          // 20s while FFmpeg warms up; hls.js defaults would time out first.
+          manifestLoadPolicy: createLocalHlsLoadPolicy(1),
+          playlistLoadPolicy: createLocalHlsLoadPolicy(2),
+          fragLoadPolicy: createLocalHlsLoadPolicy(6)
         });
         currentArt.hls = hls;
         hls.loadSource(url);
@@ -134,7 +140,7 @@ export function createArtPlayerController(
   });
 
   const video = art.video;
-  let disposeTimeline = () => undefined;
+  let timeline: SourceTimelineHandle = { dispose: () => undefined, seekBy: () => false };
   let disposeStatusNotice = () => undefined;
   try {
     const statusNotice = createPlayerStatusNotice(input.container);
@@ -151,14 +157,15 @@ export function createArtPlayerController(
       statusNotice.destroy();
     };
 
-    disposeTimeline = installSourceTimeline(
+    timeline = installSourceTimeline(
       art,
       video,
       input.source,
       input.durationSeconds,
       (positionSeconds) => {
         input.callbacks.onSeekRequest(positionSeconds, video.ended || !video.paused);
-      }
+      },
+      input.isRemoteSeekPending
     );
     art.playbackRate = input.playbackRate;
     art.on("video:play", () => input.callbacks.onPlay(video));
@@ -170,7 +177,11 @@ export function createArtPlayerController(
     art.on("video:seeked", () => input.callbacks.onProgress(video));
     art.on("video:ended", () => input.callbacks.onProgress(video));
     art.on("video:error", (error) => input.callbacks.onError(video, error));
-    const disposeShortcuts = installPlayerShortcuts(art, () => input.callbacks.onDanmakuToggle());
+    const disposeShortcuts = installPlayerShortcuts(
+      art,
+      () => input.callbacks.onDanmakuToggle(),
+      (deltaSeconds) => timeline.seekBy(deltaSeconds)
+    );
 
     const danmaku = art.plugins.artplayerPluginDanmuku as DanmakuPlugin;
     let danmakuLoadVersion = 0;
@@ -249,7 +260,7 @@ export function createArtPlayerController(
       destroy() {
         disposeStatusNotice();
         disposeShortcuts();
-        disposeTimeline();
+        timeline.dispose();
         destroyHls(hls);
         hls = null;
         art.destroy(false);
@@ -257,7 +268,7 @@ export function createArtPlayerController(
     };
   } catch (error) {
     disposeStatusNotice();
-    disposeTimeline();
+    timeline.dispose();
     destroyHls(hls);
     hls = null;
     art.destroy(false);
@@ -293,7 +304,11 @@ function createPlayerStatusNotice(container: HTMLElement): {
   };
 }
 
-function installPlayerShortcuts(art: Artplayer, onDanmakuToggle: () => void): () => void {
+function installPlayerShortcuts(
+  art: Artplayer,
+  onDanmakuToggle: () => void,
+  seekBy: (deltaSeconds: number) => boolean
+): () => void {
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.ctrlKey || event.metaKey || event.altKey || isEditableTarget(event.target)) return;
 
@@ -313,6 +328,10 @@ function installPlayerShortcuts(art: Artplayer, onDanmakuToggle: () => void): ()
       art.volume = Number((art.volume + 0.1).toFixed(2));
     } else if (event.code === "ArrowDown") {
       art.volume = Number((art.volume - 0.1).toFixed(2));
+    } else if (event.code === "ArrowLeft") {
+      handled = seekBy(-5);
+    } else if (event.code === "ArrowRight") {
+      handled = seekBy(5);
     } else {
       handled = false;
     }
@@ -366,6 +385,17 @@ function createCurrentScreenDanmaku(
 
 function destroyHls(instance: Hls | null): void {
   instance?.destroy();
+}
+
+function createLocalHlsLoadPolicy(errorMaxNumRetry: number) {
+  return {
+    default: {
+      maxTimeToFirstByteMs: 30_000,
+      maxLoadTimeMs: 45_000,
+      timeoutRetry: { maxNumRetry: 2, retryDelayMs: 0, maxRetryDelayMs: 0 },
+      errorRetry: { maxNumRetry: errorMaxNumRetry, retryDelayMs: 1_000, maxRetryDelayMs: 8_000 }
+    }
+  };
 }
 
 function createSubtitleSetting(

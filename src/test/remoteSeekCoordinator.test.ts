@@ -67,6 +67,20 @@ describe("remote seek coordinator", () => {
     expect(requestedPositions).toEqual([700, 400]);
     expect(applied).toEqual([createSession(400)]);
   });
+
+  it("accepts the session produced by a tail-clamped seek target", () => {
+    const coordinator = createRemoteSeekCoordinator({
+      seek: () => new Promise<PlaybackSessionView>(() => undefined),
+      onSession: vi.fn(),
+      onError: vi.fn(),
+      onPlaybackIntent: vi.fn()
+    });
+
+    void coordinator.request({ sessionId: "session-1", positionSeconds: 999, shouldPlay: true });
+
+    expect(coordinator.shouldAcceptSession(createSession(995))).toBe(true);
+    expect(coordinator.shouldAcceptSession(createSession(700))).toBe(false);
+  });
 });
 
 function createSession(timelineOffsetSeconds: number): PlaybackSessionView {

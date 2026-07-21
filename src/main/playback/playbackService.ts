@@ -24,6 +24,7 @@ import type {
   StartPlaybackFromDownloadInput
 } from "../../shared/contracts/playback";
 import { getDandanplayConfig } from "../config/dandanplay";
+import { clampSeekTarget, HLS_SEEK_TAIL_SECONDS } from "../../shared/playerTiming";
 import { BahamutDanmakuClient } from "../danmaku/bahamutDanmakuClient";
 import {
   BilibiliDanmakuClient,
@@ -571,7 +572,7 @@ export class PlaybackService {
       throw new Error("当前播放源无法重新定位本地媒体文件。");
     }
 
-    const positionSeconds = clampSeekPosition(input.positionSeconds, session.durationSeconds);
+    const positionSeconds = clampSeekTarget(input.positionSeconds, session.durationSeconds);
     const media = this.resolveDownloadMedia({
       downloadId: session.downloadId,
       fileId: session.fileId
@@ -605,23 +606,38 @@ export class PlaybackService {
       return session;
     }
 
+    // Prepared HLS media elements only see the already-generated part of the
+    // stream, so their reported duration is a growing partial value; adopt the
+    // media element duration for direct playback only.
+    const reportedDuration =
+      session.source.deliveryMode === "direct" &&
+      input.durationSeconds &&
+      input.durationSeconds > 0
+        ? input.durationSeconds
+        : null;
     this.updateSession({
       status: input.ended ? "ended" : input.paused ? "paused" : "playing",
       positionSeconds: Math.max(0, input.positionSeconds),
-      durationSeconds:
-        session.durationSeconds ??
-        (input.durationSeconds && input.durationSeconds > 0 ? input.durationSeconds : null)
+      durationSeconds: session.durationSeconds ?? reportedDuration
     });
 
     const nextSession = this.requireSession(input.sessionId);
     if (nextSession.subjectId !== null && nextSession.episodeId !== null) {
+      // A stream restarted right at the clamped tail ends within seconds even
+      // when the user merely dragged the progress bar to the end; that ending
+      // should not mark the episode as watched.
+      const tailOnlyStream =
+        session.source.timelineOffsetSeconds > 0 &&
+        nextSession.durationSeconds !== null &&
+        nextSession.durationSeconds - session.source.timelineOffsetSeconds <=
+          HLS_SEEK_TAIL_SECONDS + 0.25;
       try {
         this.playbackRepository.saveProgress({
           subjectId: nextSession.subjectId,
           episodeId: nextSession.episodeId,
           positionSeconds: nextSession.positionSeconds,
           durationSeconds: nextSession.durationSeconds,
-          completed: input.ended,
+          completed: input.ended && !tailOnlyStream,
           updatedAt: nextSession.updatedAt
         });
       } catch {
@@ -811,15 +827,4 @@ function fallbackMediaProbe(filePath: string, title: string): MediaProbeResult {
     audioCodec: null,
     deliveryMode: likelyNeedsTranscode ? "transcode" : "direct"
   };
-}
-
-const HLS_SEEK_TAIL_SECONDS = 2;
-
-function clampSeekPosition(positionSeconds: number, durationSeconds: number | null): number {
-  const target = Math.max(0, positionSeconds);
-  if (!durationSeconds || durationSeconds <= 0) {
-    return target;
-  }
-
-  return Math.min(target, Math.max(0, durationSeconds - HLS_SEEK_TAIL_SECONDS));
 }

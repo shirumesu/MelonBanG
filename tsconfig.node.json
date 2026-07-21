@@ -12,7 +12,10 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["node", "electron"]
+    "types": ["node", "electron"],
+    "paths": {
+      "@shared/*": ["./src/shared/*"]
+    }
   },
   "include": [
     "electron.vite.config.ts",

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  clampSeekTarget,
+  HLS_SEEK_TAIL_SECONDS,
   resolvePlaybackDuration,
   resolveSeekAction,
   toLocalTime,
@@ -42,6 +44,25 @@ describe("player timing", () => {
         seekableEndSeconds: 10
       })
     ).toEqual({ kind: "local", localTimeSeconds: 5 });
+  });
+
+  it("restarts a prepared HLS stream when the absolute target is before the stream offset", () => {
+    expect(
+      resolveSeekAction({
+        deliveryMode: "transcode",
+        targetSeconds: 40,
+        timelineOffsetSeconds: 80,
+        seekableEndSeconds: 10
+      })
+    ).toEqual({ kind: "restart", sourceTimeSeconds: 40 });
+  });
+
+  it("pulls seek targets back from the end so restarts keep playable content", () => {
+    expect(clampSeekTarget(1200, null)).toBe(1200);
+    expect(clampSeekTarget(-3, 1000)).toBe(0);
+    expect(clampSeekTarget(400, 1000)).toBe(400);
+    expect(clampSeekTarget(1000, 1000)).toBe(1000 - HLS_SEEK_TAIL_SECONDS);
+    expect(clampSeekTarget(2, 3)).toBe(0);
   });
 
   it("maps local HLS time back to the absolute source timeline", () => {

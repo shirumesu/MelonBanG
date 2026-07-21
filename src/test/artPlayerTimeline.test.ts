@@ -53,6 +53,62 @@ describe("ArtPlayer source timeline", () => {
     expect(requestSeek).toHaveBeenCalledWith(800);
   });
 
+  it("requests a restart when the target lies before the current stream offset", () => {
+    const art = createArtPlayer();
+    const video = createVideo({ currentTime: 5, seekableEnd: 20, bufferedEnd: 15 });
+    const requestSeek = vi.fn();
+
+    installSourceTimeline(art, video, transcodedSource, 1_200, requestSeek);
+    art.clickProgress(40 / 1_200);
+
+    expect(requestSeek).toHaveBeenCalledOnce();
+    expect(requestSeek).toHaveBeenCalledWith(40);
+    expect(video.currentTime).toBe(5);
+  });
+
+  it("routes drags to the coordinator and pins the target while a restart is pending", () => {
+    const art = createArtPlayer();
+    const video = createVideo({ currentTime: 5, seekableEnd: 20, bufferedEnd: 15 });
+    let pending = false;
+    const requestSeek = vi.fn<(positionSeconds: number) => void>(() => {
+      pending = true;
+    });
+
+    installSourceTimeline(art, video, transcodedSource, 1_200, requestSeek, () => pending);
+    art.clickProgress(800 / 1_200);
+    expect(requestSeek).toHaveBeenCalledWith(800);
+
+    art.fire("video:timeupdate");
+    expect(art.bars.at(-2)).toEqual(["played", 800 / 1_200]);
+
+    art.clickProgress(110 / 1_200);
+    expect(requestSeek).toHaveBeenCalledTimes(2);
+    expect(requestSeek.mock.lastCall?.[0]).toBeCloseTo(110, 6);
+    expect(video.currentTime).toBe(5);
+
+    pending = false;
+    art.fire("video:timeupdate");
+    expect(art.bars.at(-2)).toEqual(["played", 105 / 1_200]);
+  });
+
+  it("steps along the source timeline for keyboard seeks", () => {
+    const art = createArtPlayer();
+    const video = createVideo({ currentTime: 5, seekableEnd: 20, bufferedEnd: 15 });
+    const requestSeek = vi.fn();
+
+    const timeline = installSourceTimeline(art, video, transcodedSource, 1_200, requestSeek);
+    expect(timeline.seekBy(5)).toBe(true);
+    expect(video.currentTime).toBe(10);
+    expect(requestSeek).not.toHaveBeenCalled();
+
+    expect(timeline.seekBy(-30)).toBe(true);
+    expect(requestSeek).toHaveBeenCalledOnce();
+    expect(requestSeek).toHaveBeenCalledWith(80);
+
+    const detached = installSourceTimeline(art, video, transcodedSource, null, vi.fn());
+    expect(detached.seekBy(5)).toBe(false);
+  });
+
   it("previews a progress drag and seeks once when the pointer is released", () => {
     const art = createArtPlayer();
     const video = createVideo({ currentTime: 5, seekableEnd: 20, bufferedEnd: 15 });

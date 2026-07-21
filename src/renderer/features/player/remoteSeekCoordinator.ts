@@ -2,6 +2,7 @@ import type {
   PlaybackSessionView,
   SeekPlaybackInput
 } from "@shared/contracts/playback";
+import { clampSeekTarget } from "@shared/playerTiming";
 
 export type RemoteSeekRequest = SeekPlaybackInput & {
   shouldPlay: boolean;
@@ -81,12 +82,6 @@ export function createRemoteSeekCoordinator(
 
 function matchesSeekTarget(session: PlaybackSessionView, requestedPositionSeconds: number): boolean {
   const actualPosition = session.source?.timelineOffsetSeconds ?? session.positionSeconds;
-  if (Math.abs(actualPosition - requestedPositionSeconds) <= 0.25) return true;
-
-  const duration = session.durationSeconds;
-  return Boolean(
-    duration &&
-      requestedPositionSeconds >= duration - 0.25 &&
-      actualPosition >= Math.max(0, duration - 2.25)
-  );
+  const expectedPosition = clampSeekTarget(requestedPositionSeconds, session.durationSeconds);
+  return Math.abs(actualPosition - expectedPosition) <= 0.25;
 }

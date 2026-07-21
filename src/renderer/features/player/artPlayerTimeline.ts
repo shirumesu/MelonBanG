@@ -1,4 +1,5 @@
 import type { PlaybackSourceView } from "@shared/contracts/playback";
+import { resolveSeekAction } from "@shared/playerTiming";
 
 type TimelineTextTarget = {
   textContent: string | null;
@@ -56,24 +57,38 @@ const timelineEvents = [
   "video:ended"
 ];
 
+export type SourceTimelineHandle = {
+  dispose(): void;
+  seekBy(deltaSeconds: number): boolean;
+};
+
 export function installSourceTimeline(
   player: ArtPlayerTimelineTarget,
   media: MediaTimelineSource,
   source: PlaybackSourceView,
   durationSeconds: number | null,
-  onSeekRequest: (positionSeconds: number) => void
-): () => void {
+  onSeekRequest: (positionSeconds: number) => void,
+  isRemoteSeekPending: () => boolean = () => false
+): SourceTimelineHandle {
   const sourceDuration = positiveFinite(durationSeconds);
   if (!sourceDuration) {
-    return () => undefined;
+    return { dispose: () => undefined, seekBy: () => false };
   }
 
   const offsetSeconds = Math.max(0, source.timelineOffsetSeconds);
   const progress = player.template.$progress;
   let activePointerId: number | null = null;
   let dragPositionSeconds: number | null = null;
+  let remoteSeekTargetSeconds: number | null = null;
   let pointerCaptured = false;
   let ignoreClickUntil = 0;
+
+  const pinnedRemoteSeconds = (): number | null => {
+    if (remoteSeekTargetSeconds !== null && !isRemoteSeekPending()) {
+      remoteSeekTargetSeconds = null;
+    }
+    return remoteSeekTargetSeconds;
+  };
 
   const renderCurrentPosition = (positionSeconds: number) => {
     player.emit("setBar", "played", positionSeconds / sourceDuration);
@@ -86,7 +101,9 @@ export function installSourceTimeline(
 
   const updateTimeline = () => {
     const currentSeconds = clamp(
-      dragPositionSeconds ?? offsetSeconds + finiteOrZero(media.currentTime),
+      dragPositionSeconds ??
+        pinnedRemoteSeconds() ??
+        offsetSeconds + finiteOrZero(media.currentTime),
       0,
       sourceDuration
     );
@@ -109,10 +126,36 @@ export function installSourceTimeline(
     }
   };
 
+  const seekToSource = (positionSeconds: number) => {
+    const sourcePosition = clamp(positionSeconds, 0, sourceDuration);
+    if (source.deliveryMode !== "direct" && isRemoteSeekPending()) {
+      remoteSeekTargetSeconds = sourcePosition;
+      onSeekRequest(sourcePosition);
+      updateTimeline();
+      return;
+    }
+
+    const action = resolveSeekAction({
+      deliveryMode: source.deliveryMode,
+      targetSeconds: sourcePosition,
+      timelineOffsetSeconds: offsetSeconds,
+      seekableEndSeconds: getSeekableEndSeconds(media)
+    });
+    if (action.kind === "local") {
+      remoteSeekTargetSeconds = null;
+      media.currentTime = action.localTimeSeconds;
+      updateTimeline();
+      return;
+    }
+    remoteSeekTargetSeconds = action.sourceTimeSeconds;
+    onSeekRequest(action.sourceTimeSeconds);
+    updateTimeline();
+  };
+
   const seekToClientX = (clientX: number) => {
     const target = sourcePositionAt(clientX);
     if (!target) return;
-    seekToSourcePosition(media, source, target.positionSeconds, sourceDuration, onSeekRequest);
+    seekToSource(target.positionSeconds);
   };
 
   const stopNativeProgressDrag = (event: Event) => {
@@ -190,7 +233,7 @@ export function installSourceTimeline(
     pointerCaptured = false;
     if (commit && target) {
       ignoreClickUntil = Date.now() + 250;
-      seekToSourcePosition(media, source, target.positionSeconds, sourceDuration, onSeekRequest);
+      seekToSource(target.positionSeconds);
     } else {
       updateTimeline();
     }
@@ -209,44 +252,37 @@ export function installSourceTimeline(
   progress.addEventListener("mousemove", handleProgressHover);
   updateTimeline();
 
-  return () => {
-    timelineEvents.forEach((event) => player.off(event, updateTimeline));
-    progress.removeEventListener("pointerdown", handlePointerDown, true);
-    progress.removeEventListener("pointermove", handlePointerMove, true);
-    progress.removeEventListener("pointerup", handlePointerUp, true);
-    progress.removeEventListener("pointercancel", handlePointerCancel, true);
-    progress.removeEventListener("mousedown", stopNativeProgressDrag, true);
-    progress.removeEventListener("click", handleProgressClick, true);
-    progress.removeEventListener("mousemove", handleProgressHover);
+  return {
+    dispose() {
+      timelineEvents.forEach((event) => player.off(event, updateTimeline));
+      progress.removeEventListener("pointerdown", handlePointerDown, true);
+      progress.removeEventListener("pointermove", handlePointerMove, true);
+      progress.removeEventListener("pointerup", handlePointerUp, true);
+      progress.removeEventListener("pointercancel", handlePointerCancel, true);
+      progress.removeEventListener("mousedown", stopNativeProgressDrag, true);
+      progress.removeEventListener("click", handleProgressClick, true);
+      progress.removeEventListener("mousemove", handleProgressHover);
+    },
+    seekBy(deltaSeconds) {
+      const baseSeconds =
+        dragPositionSeconds ??
+        pinnedRemoteSeconds() ??
+        offsetSeconds + finiteOrZero(media.currentTime);
+      seekToSource(baseSeconds + deltaSeconds);
+      return true;
+    }
   };
 }
 
-function seekToSourcePosition(
-  media: MediaTimelineSource,
-  source: PlaybackSourceView,
-  positionSeconds: number,
-  sourceDuration: number,
-  onSeekRequest: (positionSeconds: number) => void
-): void {
-  const sourcePosition = clamp(positionSeconds, 0, sourceDuration);
-  const localPosition = Math.max(0, sourcePosition - Math.max(0, source.timelineOffsetSeconds));
-  if (source.deliveryMode === "direct" || isSeekable(media, localPosition)) {
-    media.currentTime = localPosition;
-    return;
-  }
-  onSeekRequest(sourcePosition);
-}
-
-function isSeekable(media: MediaTimelineSource, localPosition: number): boolean {
+function getSeekableEndSeconds(media: MediaTimelineSource): number | null {
+  let endSeconds: number | null = null;
   for (let index = 0; index < media.seekable.length; index += 1) {
-    if (
-      localPosition >= Math.max(0, media.seekable.start(index) - 0.25) &&
-      localPosition <= media.seekable.end(index) + 0.25
-    ) {
-      return true;
+    const candidate = media.seekable.end(index);
+    if (Number.isFinite(candidate)) {
+      endSeconds = endSeconds === null ? candidate : Math.max(endSeconds, candidate);
     }
   }
-  return false;
+  return endSeconds;
 }
 
 function getBufferedEnd(media: MediaTimelineSource): number {

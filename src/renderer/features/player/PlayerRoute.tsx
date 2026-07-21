@@ -518,6 +518,11 @@ export function PlayerRoute() {
     });
   }, []);
 
+  const isRemoteSeekPending = useCallback(
+    (): boolean => remoteSeekCoordinatorRef.current?.isSeeking() ?? false,
+    []
+  );
+
   const handleArtPlayerSeeking = useCallback(
     (video: HTMLVideoElement): void => {
       const currentSession = sessionRef.current;
@@ -710,6 +715,7 @@ export function PlayerRoute() {
         volume: 0.64,
         playbackRate: 1,
         autoplay: shouldPlayRef.current,
+        isRemoteSeekPending,
         callbacks: {
           onPlay(video) {
             if (cancelled) return;
@@ -778,6 +784,7 @@ export function PlayerRoute() {
     sourceDurationSeconds,
     timelineOffsetSeconds,
     handleArtPlayerSeeking,
+    isRemoteSeekPending,
     reportVideoProgress,
     requestRemoteSeek
   ]);

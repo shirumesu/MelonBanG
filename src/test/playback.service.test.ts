@@ -11,6 +11,7 @@ import type {
   DandanplayLoadResult
 } from "../main/danmaku/dandanplayClient";
 import type { RegisterLocalMediaInput } from "../main/media/localMediaServer";
+import type { DownloadRepository } from "../main/download/downloadRepository";
 import type { MediaProbeLike, MediaProbeResult } from "../main/media/mediaProbe";
 import bundledFfmpegPath from "ffmpeg-static";
 
@@ -366,8 +367,8 @@ describe("PlaybackService", () => {
       sessionId: session.id,
       positionSeconds: session.durationSeconds
     });
-    expect(seekedNearEnd.positionSeconds).toBe(88.09);
-    expect(mediaServer.restarted.at(-1)).toMatchObject({ startSeconds: 88.09 });
+    expect(seekedNearEnd.positionSeconds).toBe(85.09);
+    expect(mediaServer.restarted.at(-1)).toMatchObject({ startSeconds: 85.09 });
 
     const seekedBack = await service.seek({ sessionId: session.id, positionSeconds: 40 });
     expect(seekedBack.positionSeconds).toBe(40);
@@ -734,6 +735,124 @@ describe("PlaybackService", () => {
     getAppDatabase().close();
   });
 
+  it("ignores partial media element durations for prepared HLS sessions", async () => {
+    const appRoot = mkdtempSync(join(tmpdir(), "melonbang-playback-hls-duration-"));
+    process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
+
+    vi.doMock("electron", () => ({
+      app: {
+        getAppPath: () => appRoot
+      }
+    }));
+
+    const { DownloadRepository } = await import("../main/download/downloadRepository");
+    const { getDownloadRootDirectory } = await import("../main/download/downloadService");
+    const { PlaybackService } = await import("../main/playback/playbackService");
+    const { getAppDatabase } = await import("../main/store/appDatabase");
+
+    const repository = new DownloadRepository();
+    const downloadId = "77777777-7777-4777-8777-777777777777";
+    const fileId = seedCompletedDownload(
+      repository,
+      getDownloadRootDirectory(),
+      downloadId,
+      "episode.mkv"
+    );
+
+    const service = new PlaybackService(
+      repository,
+      new FakeMediaServer(),
+      new FakeMediaProbe({
+        durationSeconds: null,
+        videoCodec: "hevc",
+        audioCodec: "aac",
+        deliveryMode: "transcode"
+      })
+    );
+    const session = await service.startFromDownload({ downloadId });
+    expect(session.fileId).toBe(fileId);
+    expect(session.durationSeconds).toBeNull();
+
+    const progressed = service.updateProgress({
+      sessionId: session.id,
+      positionSeconds: 30,
+      durationSeconds: 42,
+      timelineOffsetSeconds: 0,
+      paused: false,
+      ended: false
+    });
+    expect(progressed.durationSeconds).toBeNull();
+
+    getAppDatabase().close();
+  });
+
+  it("does not mark an episode watched when a tail-clamped restart ends immediately", async () => {
+    const appRoot = mkdtempSync(join(tmpdir(), "melonbang-playback-tail-complete-"));
+    process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
+
+    vi.doMock("electron", () => ({
+      app: {
+        getAppPath: () => appRoot
+      }
+    }));
+
+    const { DownloadRepository } = await import("../main/download/downloadRepository");
+    const { getDownloadRootDirectory } = await import("../main/download/downloadService");
+    const { PlaybackService } = await import("../main/playback/playbackService");
+    const { getAppDatabase } = await import("../main/store/appDatabase");
+
+    const repository = new DownloadRepository();
+    const downloadId = "88888888-8888-4888-8888-888888888888";
+    const fileId = seedCompletedDownload(
+      repository,
+      getDownloadRootDirectory(),
+      downloadId,
+      "episode.mkv"
+    );
+
+    const service = new PlaybackService(
+      repository,
+      new FakeMediaServer(),
+      new FakeMediaProbe({
+        durationSeconds: 90.09,
+        videoCodec: "hevc",
+        audioCodec: "aac",
+        deliveryMode: "transcode"
+      })
+    );
+    service.bindEpisodeMedia({ subjectId: 100, episodeId: 200, downloadId, fileId });
+    const session = await service.startEpisode({ subjectId: 100, episodeId: 200 });
+
+    const seekedToEnd = await service.seek({ sessionId: session.id, positionSeconds: 90.09 });
+    expect(seekedToEnd.source?.timelineOffsetSeconds).toBe(85.09);
+    service.updateProgress({
+      sessionId: session.id,
+      positionSeconds: 90.09,
+      durationSeconds: 90.09,
+      timelineOffsetSeconds: 85.09,
+      paused: false,
+      ended: true
+    });
+    expect(service.getEpisodeProgress({ subjectId: 100, episodeId: 200 })).toMatchObject({
+      completed: false
+    });
+
+    await service.seek({ sessionId: session.id, positionSeconds: 40 });
+    service.updateProgress({
+      sessionId: session.id,
+      positionSeconds: 90.09,
+      durationSeconds: 90.09,
+      timelineOffsetSeconds: 40,
+      paused: false,
+      ended: true
+    });
+    expect(service.getEpisodeProgress({ subjectId: 100, episodeId: 200 })).toMatchObject({
+      completed: true
+    });
+
+    getAppDatabase().close();
+  });
+
   it("rejects playback when the completed download file is missing", async () => {
     const appRoot = mkdtempSync(join(tmpdir(), "melonbang-playback-missing-"));
     process.env.MELONBANG_DATA_DIR = join(appRoot, "data");
@@ -901,7 +1020,6 @@ describe("LocalMediaServer", () => {
       startSeconds: 1.5
     });
 
-    expect((await fetch(initial.url)).status).toBe(404);
     const response = await fetch(restarted.url);
     const playlist = await response.text();
     const segmentDurations = [...playlist.matchAll(/#EXTINF:([\d.]+)/g)].map((match) =>
@@ -912,6 +1030,72 @@ describe("LocalMediaServer", () => {
     expect(playlist).toContain("#EXT-X-PLAYLIST-TYPE:EVENT");
     expect(segmentDurations.length).toBeGreaterThanOrEqual(2);
     expect(Math.max(...segmentDurations)).toBeLessThan(2.1);
+
+    // The previous stream is retired in the background once the replacement
+    // holds playable content.
+    await expect
+      .poll(async () => (await fetch(initial.url)).status, { timeout: 10_000 })
+      .toBe(404);
+
+    await server.dispose();
+  });
+
+  it("keeps the previous stream serving when a restart yields no playable content", async () => {
+    if (!bundledFfmpegPath) {
+      throw new Error("FFmpeg fixture generation is unavailable on this platform.");
+    }
+
+    const root = mkdtempSync(join(tmpdir(), "melonbang-local-empty-tail-"));
+    const filePath = join(root, "source.mp4");
+    const fixture = spawnSync(
+      bundledFfmpegPath,
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=320x180:r=24",
+        "-t",
+        "6",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        filePath
+      ],
+      { windowsHide: true }
+    );
+    expect(fixture.status).toBe(0);
+
+    vi.doMock("electron", () => ({
+      app: {
+        getAppPath: () => root
+      }
+    }));
+
+    const { LocalMediaServer } = await import("../main/media/localMediaServer");
+    const server = new LocalMediaServer([root]);
+    const initial = await server.registerTranscodedMediaFile({
+      sessionId: "session-empty-tail",
+      filePath,
+      title: "source.mp4"
+    });
+    expect((await fetch(initial.url)).status).toBe(200);
+
+    const restarted = await server.restartTranscodedMediaFile({
+      sessionId: "session-empty-tail",
+      filePath,
+      title: "source.mp4",
+      startSeconds: 100
+    });
+    const failedResponse = await fetch(restarted.url);
+    expect(failedResponse.status).toBe(500);
+    expect(await failedResponse.text()).toContain("没有在目标位置产出可播放的内容");
+
+    expect((await fetch(initial.url)).status).toBe(200);
 
     await server.dispose();
   });
@@ -1062,4 +1246,44 @@ class FakeMediaProbe implements MediaProbeLike {
   probe(): Promise<MediaProbeResult> {
     return Promise.resolve(this.result);
   }
+}
+
+function seedCompletedDownload(
+  repository: DownloadRepository,
+  downloadRoot: string,
+  downloadId: string,
+  fileName: string
+): string {
+  const createdAt = "2026-07-21T00:00:00.000Z";
+  const fileId = `${downloadId}:0`;
+  repository.createSession({
+    id: downloadId,
+    inputKind: "magnet",
+    inputRef: "magnet:?xt=urn:btih:C5PPDMBT7OKFBO4A4MGUK3LLHSDP4BKG",
+    title: fileName,
+    status: "metadata",
+    createdAt,
+    updatedAt: createdAt
+  });
+  repository.replaceFiles(downloadId, [
+    {
+      id: fileId,
+      downloadId,
+      path: fileName,
+      name: fileName,
+      sizeBytes: 1024,
+      mediaKind: "video",
+      priority: 1,
+      progress: 1,
+      createdAt,
+      updatedAt: createdAt
+    }
+  ]);
+  repository.updateSession(downloadId, {
+    status: "completed",
+    selectedFileId: fileId
+  });
+  mkdirSync(join(downloadRoot, downloadId), { recursive: true });
+  writeFileSync(join(downloadRoot, downloadId, fileName), "video");
+  return fileId;
 }
