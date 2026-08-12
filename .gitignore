@@ -1,5 +1,4 @@
-# Gei spec system - internal agent state, keep runnable tests visible
-spec
+# Local-only development and generated files
 DESIGN/
 node_modules/
 out/
