@@ -1,0 +1,47 @@
+name: melonbang
+description: "Melonbang native desktop anime client."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
+  file_selector: ^1.1.0
+  window_manager: ^0.5.2
+  path_provider: ^2.1.6
+  path: ^1.9.1
+  shared_preferences: ^2.5.5
+  url_launcher: ^6.3.2
+  http: ^1.6.0
+  xml: ^7.0.1
+  crypto: ^3.0.7
+  sqflite_common_ffi: ^2.4.2+1
+  libtorrent_flutter: ^2.0.0
+  ffi: ^2.2.0
+
+dependency_overrides:
+  libtorrent_flutter:
+    path: vendor/libtorrent_flutter
+  media_kit_video:
+    path: vendor/media_kit_video
+
+dev_dependencies:
+  integration_test:
+    sdk: flutter
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+
+  uses-material-design: true
