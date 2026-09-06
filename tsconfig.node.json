@@ -21,6 +21,7 @@
     "electron.vite.config.ts",
     "eslint.config.js",
     "src/main/**/*.ts",
+    "src/native/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
     "src/test/**/*.ts",

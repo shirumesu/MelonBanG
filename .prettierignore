@@ -9,3 +9,8 @@ spec/*.md
 spec/docs/
 spec/memory/
 pnpm-lock.yaml
+build/
+desktop/build/
+desktop/.dart_tool/
+desktop/vendor/
+desktop/windows/flutter/ephemeral/

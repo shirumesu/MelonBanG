@@ -62,6 +62,12 @@ function createUnconfiguredBangumiService(): BangumiBridge {
     getTrendingCurrent() {
       return melonApi.getTrendingCurrent();
     },
+    getCachedTrendingCurrent() {
+      return Promise.resolve([]);
+    },
+    getCachedTodaySchedule() {
+      return Promise.resolve(null);
+    },
     getTodaySchedule() {
       return melonApi.getTodaySchedule();
     },

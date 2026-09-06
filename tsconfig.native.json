@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "types": ["node"]
+  },
+  "include": ["src/native/**/*.ts", "src/main/**/*.ts", "src/shared/**/*.ts"],
+  "exclude": ["src/main/index.ts", "src/main/app/**", "src/main/ipc/**"]
+}

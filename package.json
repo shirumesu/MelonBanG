@@ -1,14 +1,19 @@
 {
   "name": "melonbang",
-  "version": "0.1.0",
-  "description": "Windows-first Bangumi desktop tracker built with Electron, React, Tailwind CSS, and shadcn/ui.",
+  "version": "0.2.0",
+  "description": "Windows anime client with Flutter, media_kit, and a headless Node.js service.",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
   "packageManager": "pnpm@11.7.0",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "native:service": "node scripts/build-service.mjs",
+    "native:dev": "node scripts/native.mjs run",
+    "native:build": "node scripts/native.mjs build",
+    "dev": "node scripts/native.mjs run",
+    "build": "node scripts/native.mjs build",
+    "legacy:dev": "electron-vite dev",
+    "legacy:build": "electron-vite build",
     "preview": "electron-vite preview",
     "lint": "eslint .",
     "format": "prettier --write . --ignore-unknown",
@@ -44,6 +49,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "esbuild": "^0.25.0",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.1",
     "@types/node": "^24.10.1",

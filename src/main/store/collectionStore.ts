@@ -119,7 +119,7 @@ export class CollectionStore {
 
   listCollection(filter?: CollectionFilter): CollectionListItem[] {
     const where: string[] = [];
-    const params: unknown[] = [];
+    const params: string[] = [];
     if (filter?.status) {
       where.push("c.status = ?");
       params.push(filter.status);

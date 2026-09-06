@@ -6,7 +6,15 @@ import reactRefresh from "eslint-plugin-react-refresh";
 
 export default tseslint.config(
   {
-    ignores: ["out/**", "dist/**", "node_modules/**", "DESIGN/**"]
+    ignores: [
+      "out/**",
+      "dist/**",
+      "node_modules/**",
+      "DESIGN/**",
+      "build/**",
+      "desktop/**",
+      "temp/**"
+    ]
   },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
@@ -24,6 +32,7 @@ export default tseslint.config(
   {
     files: [
       "src/main/**/*.ts",
+      "src/native/**/*.ts",
       "src/preload/**/*.ts",
       "src/shared/**/*.ts",
       "src/test/**/*.ts",
@@ -36,7 +45,7 @@ export default tseslint.config(
     }
   },
   {
-    files: ["eslint.config.js"],
+    files: ["eslint.config.js", "scripts/**/*.mjs"],
     languageOptions: {
       globals: {
         ...globals.node

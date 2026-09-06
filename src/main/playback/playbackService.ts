@@ -81,6 +81,7 @@ export function getPlaybackService(): PlaybackService {
 export class PlaybackService {
   private readonly events = new EventEmitter();
   private session: PlaybackSessionView | null = null;
+  private localMedia: { path: string } | null = null;
   private startQueue: Promise<void> = Promise.resolve();
   private readonly pendingStarts = new Map<string, Promise<PlaybackSessionView>>();
   private readonly danmakuItemsBySource = new Map<
@@ -95,7 +96,10 @@ export class PlaybackService {
     private readonly repository = new DownloadRepository(),
     private readonly mediaServer: LocalMediaServerLike = getLocalMediaServer(),
     private readonly mediaProbe: MediaProbeLike = new MediaProbe(),
-    private readonly subtitleService = new SubtitleService(mediaServer),
+    private readonly subtitleService: Pick<
+      SubtitleService,
+      "prepareSubtitles"
+    > = new SubtitleService(mediaServer),
     private readonly playbackRepository = new PlaybackRepository(),
     private readonly danmakuLoader?: DanmakuLoaderLike,
     private readonly bilibiliDanmakuLoader: DirectDanmakuLoaderLike = new BilibiliDanmakuClient(),
@@ -149,6 +153,22 @@ export class PlaybackService {
     return this.playbackRepository.getProgress(input.subjectId, input.episodeId);
   }
 
+  startLocal(
+    path: string,
+    title: string,
+    subjectId?: number,
+    episodeId?: number
+  ): Promise<PlaybackSessionView> {
+    return this.enqueuePlaybackStart(
+      { path, title, fileId: "local" },
+      {
+        downloadId: null,
+        subjectId: subjectId ?? null,
+        episodeId: episodeId ?? null
+      }
+    );
+  }
+
   private enqueuePlaybackStart(
     media: {
       path: string;
@@ -156,12 +176,13 @@ export class PlaybackService {
       fileId: string;
     },
     context: {
-      downloadId: string;
+      downloadId: string | null;
       subjectId: number | null;
       episodeId: number | null;
     }
   ): Promise<PlaybackSessionView> {
     const key = [
+      media.path,
       context.downloadId,
       media.fileId,
       context.subjectId ?? "cache",
@@ -192,7 +213,7 @@ export class PlaybackService {
       fileId: string;
     },
     context: {
-      downloadId: string;
+      downloadId: string | null;
       subjectId: number | null;
       episodeId: number | null;
     }
@@ -202,6 +223,7 @@ export class PlaybackService {
     }
 
     const sessionId = randomUUID();
+    this.localMedia = { path: media.path };
     const now = new Date().toISOString();
     this.resetDanmakuSources();
     this.session = {
@@ -268,7 +290,7 @@ export class PlaybackService {
     const media =
       session.downloadId && session.fileId
         ? this.resolveDownloadMedia({ downloadId: session.downloadId, fileId: session.fileId })
-        : null;
+        : this.localMedia;
     const enabledSources = session.danmakuSources
       .filter((source) => source.enabled)
       .map((source) => source.id);
@@ -341,7 +363,7 @@ export class PlaybackService {
       const media =
         session.downloadId && session.fileId
           ? this.resolveDownloadMedia({ downloadId: session.downloadId, fileId: session.fileId })
-          : null;
+          : this.localMedia;
       await this.loadDanmakuSourceAutomatically(
         input.sessionId,
         input.providerId,
@@ -535,9 +557,7 @@ export class PlaybackService {
     // stream, so their reported duration is a growing partial value; adopt the
     // media element duration for direct playback only.
     const reportedDuration =
-      session.source.deliveryMode === "direct" &&
-      input.durationSeconds &&
-      input.durationSeconds > 0
+      session.source.deliveryMode === "direct" && input.durationSeconds && input.durationSeconds > 0
         ? input.durationSeconds
         : null;
     this.updateSession({

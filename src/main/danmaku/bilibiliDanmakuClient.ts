@@ -186,7 +186,9 @@ export class BilibiliDanmakuClient {
         return { titleScore, episode };
       })
       .filter(
-        (candidate): candidate is { titleScore: number; episode: { id: number } } =>
+        (
+          candidate
+        ): candidate is typeof candidate & { episode: NonNullable<typeof candidate.episode> } =>
           Number.isFinite(candidate.titleScore) && Boolean(candidate.episode)
       )
       .sort((left, right) => left.titleScore - right.titleScore);
@@ -267,16 +269,17 @@ export class BilibiliDanmakuClient {
     const xmlItems = xmlResult.status === "fulfilled" ? xmlResult.value : [];
     const segmentItems = segmentResult.status === "fulfilled" ? segmentResult.value : [];
     const items = mergeDanmakuItems(xmlItems, segmentItems);
-    if (items.length > 0 || xmlResult.status === "fulfilled" || segmentResult.status === "fulfilled") {
+    if (
+      items.length > 0 ||
+      xmlResult.status === "fulfilled" ||
+      segmentResult.status === "fulfilled"
+    ) {
       return items;
     }
     throw new Error("Bilibili弹幕请求暂时不可用。");
   }
 
-  private async loadXmlComments(
-    cid: number,
-    refererLocator: string
-  ): Promise<DanmakuItemView[]> {
+  private async loadXmlComments(cid: number, refererLocator: string): Promise<DanmakuItemView[]> {
     const response = await this.request(`https://comment.bilibili.com/${cid}.xml`, {
       headers: {
         Accept: "text/xml,application/xml;q=0.9,*/*;q=0.8",
