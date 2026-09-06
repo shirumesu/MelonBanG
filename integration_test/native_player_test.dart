@@ -8,8 +8,8 @@ import 'package:integration_test/integration_test.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
-import 'package:melonbang/playback.dart';
-import 'package:melonbang/player_page.dart';
+import 'package:melonbang/ui/player/playback.dart';
+import 'package:melonbang/ui/player/player_page.dart';
 import 'package:melonbang/app_services.dart';
 
 void main() {
@@ -51,6 +51,7 @@ void main() {
                 onBack: () {},
                 onError: errors.add,
                 fullScreen: false,
+                onFullScreenChanged: windowManager.setFullScreen,
                 onEpisode: (_) {},
               ),
             ),

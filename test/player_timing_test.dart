@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:melonbang/danmaku.dart';
-import 'package:melonbang/player_page.dart';
+import 'package:melonbang/ui/player/danmaku.dart';
+import 'package:melonbang/ui/player/player_controls.dart';
 
 void main() {
   test(

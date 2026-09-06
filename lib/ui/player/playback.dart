@@ -6,7 +6,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'app_services.dart';
+import '../../app_services.dart';
 
 class Playback extends ChangeNotifier {
   Playback(this.service, this.preferences) {
@@ -53,6 +53,14 @@ class Playback extends ChangeNotifier {
   Future<void> _openQueue = Future.value();
   Future<void> _progressWrites = Future.value();
   Future<void>? _closing;
+
+  Future<void> offsetSubtitle(double delta) async {
+    subtitleDelay += delta;
+    final platform = player.platform;
+    if (platform is NativePlayer) {
+      await platform.setProperty('sub-delay', '$subtitleDelay');
+    }
+  }
 
   Future<void> open(Json next) {
     if (_closed) return Future.error(StateError('播放器已关闭'));

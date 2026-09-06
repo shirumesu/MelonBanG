@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -11,7 +12,6 @@ import 'package:media_kit/media_kit.dart';
 import 'package:melonbang/app.dart';
 import 'package:melonbang/app_services.dart';
 import 'package:melonbang/data/network.dart';
-import 'package:melonbang/player_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -142,14 +142,50 @@ void main() {
       await state.openSubject(<String, dynamic>{'subjectId': 1});
       await state.openVideo(media, <String, dynamic>{'episodeId': 10});
       await tester.pump();
-      final dynamic firstPlayer = tester.state(find.byType(PlayerPage));
-      await firstPlayer.offsetSubtitle(2.0);
+      await tester.tap(find.text('弹幕'));
+      await tester.pump();
+      await tester.enterText(
+        find.widgetWithText(TextField, '剧集网址或编号'),
+        'BV-draft',
+      );
+      await tester.tap(find.byTooltip('播放设置'));
+      await tester.pump();
+      expect(find.text('手动匹配'), findsNothing);
+      await tester.tap(find.byTooltip('播放设置'));
+      await tester.pump();
+      expect(find.text('BV-draft'), findsOneWidget);
+      await tester.tap(find.byTooltip('全屏（F）'));
+      for (var i = 0; i < 30 && state.fullScreen != true; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      await tester.pump();
+      expect(state.fullScreen, isTrue);
+      expect(await windowManager.isFullScreen(), isTrue);
+      expect(find.text('手动匹配'), findsNothing);
+      final wasPlaying = state.playback.player.state.playing;
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(state.playback.player.state.playing, !wasPlaying);
+      await tester.tap(find.byTooltip('全屏（F）'));
+      for (var i = 0; i < 30 && state.fullScreen != false; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      await tester.pump();
+      expect(state.fullScreen, isFalse);
+      expect(await windowManager.isFullScreen(), isFalse);
+      expect(find.text('BV-draft'), findsOneWidget);
+      await tester.tap(find.text('播放'));
+      await tester.pump();
+      for (var i = 0; i < 4; i++) {
+        await tester.tap(find.text('延后 0.5 秒'));
+        await tester.pump();
+      }
       await state.openSubject(<String, dynamic>{'subjectId': 2});
       await tester.pump();
       state.navigate('player');
       await tester.pump();
-      final dynamic returnedPlayer = tester.state(find.byType(PlayerPage));
-      await returnedPlayer.offsetSubtitle(.5);
+      await tester.tap(find.text('延后 0.5 秒'));
+      await tester.pump();
       expect(state.playback.subtitleDelay, 2.5);
       await tester.tap(find.text('选集'));
       await tester.pump();

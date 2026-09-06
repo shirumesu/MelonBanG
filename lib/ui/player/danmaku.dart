@@ -3,8 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../../app_services.dart';
 import 'playback.dart';
-import 'app_services.dart';
 
 class DanmakuLayer extends StatefulWidget {
   const DanmakuLayer({super.key, required this.playback});

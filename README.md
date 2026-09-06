@@ -23,9 +23,11 @@ several minutes. Later builds reuse the native dependency cache.
 
 ## Project layout
 
-- `lib/`: application entry, Flutter screens, and playback controls.
+- `lib/`: application entry, service composition, navigation and lifecycle.
+- `lib/ui/`: Flutter views grouped by discovery, tracking, acquisition, settings,
+  and player. `ui/core/` holds shared page widgets, posters, theme and shell chrome.
 - `lib/data/`: in-process repositories, provider clients, and persistence.
-- `test/`: data, OAuth, and playback regression tests.
+- `test/`: data, OAuth, playback and isolated page interaction tests.
 - `integration_test/`: Windows application, native playback, and torrent tests.
 - `windows/`: Flutter runner and the pinned native dependency build.
 - `vendor/`: patched upstream plugins; each patch is documented in `PATCHES.md`.
@@ -35,6 +37,21 @@ Generated build output belongs in `build/` and portable releases in `dist/`.
 Local experiments and historical worktrees belong in ignored `temp/`; they are
 not required to build or run the app. The vendored plugins are explicit path
 dependencies, so all builds use the same checked-in patches.
+
+Pages receive data and action callbacks; `app.dart` connects them to repositories
+and owns navigation, asynchronous request identity, and application shutdown.
+The player separates the video scene and keyboard/drag lifecycle (`player_page`),
+transport controls (`player_controls`), side-panel interactions (`player_settings`),
+and the media session (`playback`). Hiding the side panel or entering fullscreen
+preserves its selected tab and unfinished input. Connection settings own their
+form state and credential load/save lifecycle.
+
+Split code when it has an independent responsibility or a reusable widget boundary.
+Small related views and their private widgets can share a file; cohesive repositories
+stay together. This follows Flutter's
+[architecture recommendations](https://docs.flutter.dev/app-architecture/recommendations)
+without requiring an additional state-management framework. Keep `test/` and
+`integration_test/` separate: Flutter uses the latter path to select device testing.
 
 ## Application
 
@@ -103,6 +120,8 @@ piece while reusing the valid pieces. Tests use
 temporary databases and do not access personal account state.
 The navigation test checks delayed searches, navigation during collection edits,
 concurrent video selections, and subtitle state across page changes using mock APIs.
+It also checks player settings survive panel collapse and fullscreen. Page widget
+tests cover collection filtering and subject/chapter/download action identity.
 
 Actual account synchronization and third-party provider availability should be
 validated with configured accounts and representative media. Mixed-DPI monitors,

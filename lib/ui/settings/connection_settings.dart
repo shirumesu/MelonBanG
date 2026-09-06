@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import 'app_services.dart';
+import '../../app_services.dart';
 
 class ConnectionSettings extends StatefulWidget {
   const ConnectionSettings({super.key, required this.services});
