@@ -8,9 +8,47 @@ import 'package:http/testing.dart';
 import 'package:melonbang/data/account.dart';
 import 'package:melonbang/data/network.dart';
 
-import 'data_test.dart' show MemoryCredentials;
+import 'support/memory_credentials.dart';
+
+class DelayedConfiguration extends MemoryCredentials {
+  final requested = Completer<void>();
+  final release = Completer<void>();
+  @override
+  Future<String?> read(String key) async {
+    if (key == 'oauth') {
+      requested.complete();
+      await release.future;
+    }
+    return super.read(key);
+  }
+}
 
 void main() {
+  test(
+    'cancel during configuration loading prevents opening a login browser',
+    () async {
+      final credentials = DelayedConfiguration();
+      final api = ApiClient();
+      var launches = 0;
+      final account = AccountRepository(
+        api,
+        credentials,
+        launch: (_) async {
+          launches++;
+        },
+      );
+      await account.configure(clientId: 'id', clientSecret: 'secret');
+      final result = expectLater(account.signIn(), throwsStateError);
+      await credentials.requested.future;
+      await account.cancelSignIn();
+      credentials.release.complete();
+      await result;
+      expect(launches, 0);
+      expect(account.session, isNull);
+      await account.close();
+      api.close();
+    },
+  );
   test(
     'OAuth rejects a wrong state then exchanges the valid callback',
     () async {

@@ -18,19 +18,7 @@ import 'package:melonbang/data/sources.dart';
 import 'package:melonbang/data/store.dart';
 import 'package:melonbang/data/tracking.dart';
 
-class MemoryCredentials implements Credentials {
-  final values = <String, String>{};
-  @override
-  Future<String?> read(String key) async => values[key];
-  @override
-  Future<void> write(String key, String? value) async {
-    if (value == null) {
-      values.remove(key);
-    } else {
-      values[key] = value;
-    }
-  }
-}
+import 'support/memory_credentials.dart';
 
 class ControlledDanmaku extends DanmakuRepository {
   ControlledDanmaku(super.api, super.credentials);

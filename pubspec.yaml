@@ -11,9 +11,9 @@ dependencies:
   flutter:
     sdk: flutter
 
-  cupertino_icons: ^1.0.8
   media_kit: ^1.2.6
-  media_kit_video: ^2.0.1
+  media_kit_video:
+    path: vendor/media_kit_video
   media_kit_libs_video: ^1.0.7
   file_selector: ^1.1.0
   window_manager: ^0.5.2
@@ -25,14 +25,9 @@ dependencies:
   xml: ^7.0.1
   crypto: ^3.0.7
   sqflite_common_ffi: ^2.4.2+1
-  libtorrent_flutter: ^2.0.0
-  ffi: ^2.2.0
-
-dependency_overrides:
   libtorrent_flutter:
     path: vendor/libtorrent_flutter
-  media_kit_video:
-    path: vendor/media_kit_video
+  ffi: ^2.2.0
 
 dev_dependencies:
   integration_test:
@@ -43,5 +38,4 @@ dev_dependencies:
   flutter_lints: ^6.0.0
 
 flutter:
-
   uses-material-design: true

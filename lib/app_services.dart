@@ -33,6 +33,7 @@ class AppServices {
   late final PlaybackLibrary library;
   Future<void>? _starting;
   Future<void>? _closing;
+  final _dispose = <Future<void> Function()>[];
   Future<void> start() => _starting ??= _start();
   Future<void> _start() async {
     dataDirectory =
@@ -41,14 +42,19 @@ class AppServices {
         p.join((await getApplicationSupportDirectory()).path, 'native');
     await Directory(dataDirectory!).create(recursive: true);
     store = await AppStore.open(p.join(dataDirectory!, 'melonbang.sqlite'));
+    _dispose.add(store.close);
     credentials ??= WindowsCredentials(p.join(dataDirectory!, 'credentials'));
     account = AccountRepository(api, credentials!);
+    _dispose.add(account.close);
     catalog = CatalogRepository(api, store);
     tracking = TrackingRepository(store, account, catalog);
+    _dispose.add(tracking.close);
     downloads = DownloadRepository(store, p.join(dataDirectory!, 'downloads'));
+    _dispose.add(downloads.close);
     sources = SourceRepository(api, downloads);
     danmaku = DanmakuRepository(api, credentials!);
     library = PlaybackLibrary(store, downloads, danmaku, catalog);
+    _dispose.add(library.close);
     await account.initialize();
     await downloads.initialize();
     tracking.start();
@@ -60,12 +66,22 @@ class AppServices {
       api.close();
       return;
     }
-    await _starting;
-    await library.close();
-    await account.close();
+    try {
+      await _starting;
+    } catch (_) {
+      // Partially initialized services still own resources that need closing.
+    }
     api.close();
-    await tracking.close();
-    await downloads.close();
-    await store.close();
+    Object? failure;
+    StackTrace? stack;
+    for (final dispose in _dispose.reversed) {
+      try {
+        await dispose();
+      } catch (e, s) {
+        failure ??= e;
+        stack ??= s;
+      }
+    }
+    if (failure != null) Error.throwWithStackTrace(failure, stack!);
   }
 }

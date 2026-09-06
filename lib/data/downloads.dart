@@ -2,12 +2,12 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
 import 'package:libtorrent_flutter/libtorrent_flutter.dart' as lt;
 import 'package:path/path.dart' as p;
 
 import 'json.dart';
 import 'store.dart';
+import 'torrent_identity.dart';
 
 class DownloadRepository {
   DownloadRepository(this.store, String directory)
@@ -22,9 +22,17 @@ class DownloadRepository {
   StreamSubscription<dynamic>? _subscription;
   Future<void>? _initializing;
   Future<void> _writes = Future.value();
+  Future<void>? _closing;
   bool _closed = false;
   Future<void> initialize() async {
     for (final task in await store.list('downloads')) {
+      try {
+        task['fingerprint'] = task['kind'] == 'magnet'
+            ? magnetInfoHash(Uri.parse('${task['input']}'))
+            : torrentInfoHash(await File('${task['input']}').readAsBytes());
+      } catch (_) {
+        // Attachment below reports unavailable or invalid metadata per task.
+      }
       _tasks['${task['id']}'] = task;
     }
     if (_tasks.isNotEmpty) await _engine();
@@ -86,8 +94,7 @@ class DownloadRepository {
               )
               .toList();
         }
-        final saved = Map<String, dynamic>.from(task);
-        _writes = _writes.then((_) => store.put('downloads', entry.key, saved));
+        _persist(entry.key, task);
       }
       _emit();
     });
@@ -107,21 +114,16 @@ class DownloadRepository {
     'files': _files.values.expand((v) => v).toList(),
   };
   Future<Json> addMagnet(String input, {int? subjectId, int? episodeId}) async {
+    if (_closed) throw StateError('下载器已关闭');
     final uri = Uri.tryParse(input.trim());
-    final hashes = uri?.queryParametersAll['xt'] ?? [];
-    if (uri?.scheme != 'magnet' ||
-        !hashes.any(
-          (v) =>
-              RegExp(r'^urn:btih:([a-fA-F0-9]{40}|[A-Z2-7a-z]{32})$')
-                  .hasMatch(v),
-        )) {
+    if (uri?.scheme != 'magnet') {
       throw const FormatException('磁力链接缺少有效的 BT info hash');
     }
     return _add(
       'magnet',
       uri.toString(),
-      hashes.first.toLowerCase(),
-      uri?.queryParameters['dn'] ?? '正在获取种子信息',
+      magnetInfoHash(uri!),
+      uri.queryParameters['dn'] ?? '正在获取种子信息',
       subjectId,
       episodeId,
     );
@@ -133,8 +135,9 @@ class DownloadRepository {
     int? subjectId,
     int? episodeId,
   }) async {
+    if (_closed) throw StateError('下载器已关闭');
     if (bytes.isEmpty) throw const FormatException('种子文件为空');
-    final fingerprint = sha1.convert(bytes).toString();
+    final fingerprint = torrentInfoHash(bytes);
     final metadata = p.join(directory, 'metadata');
     await Directory(metadata).create(recursive: true);
     final file = File(p.join(metadata, '$fingerprint.torrent'));
@@ -165,6 +168,7 @@ class DownloadRepository {
     int? subjectId,
     int? episodeId,
   ) async {
+    if (_closed) throw StateError('下载器已关闭');
     final existing = _tasks.values
         .where((t) => t['fingerprint'] == fingerprint)
         .firstOrNull;
@@ -174,6 +178,7 @@ class DownloadRepository {
     final id = newId();
     final savePath = p.join(directory, id);
     await Directory(savePath).create(recursive: true);
+    if (_closed) throw StateError('下载器已关闭');
     final task = <String, dynamic>{
       'id': id,
       'kind': kind,
@@ -190,7 +195,7 @@ class DownloadRepository {
     };
     _attach(task);
     _tasks[id] = task;
-    await store.put('downloads', id, task);
+    await _persist(id, task);
     _emit();
     return task;
   }
@@ -198,7 +203,7 @@ class DownloadRepository {
   Future<void> pause(String id) async {
     lt.LibtorrentFlutter.instance.pauseTorrent(_handles[id]!);
     _tasks[id]!['status'] = 'paused';
-    await store.put('downloads', id, _tasks[id]!);
+    await _persist(id, _tasks[id]!);
     _emit();
   }
 
@@ -206,7 +211,7 @@ class DownloadRepository {
     if (!_handles.containsKey(id)) _attach(_tasks[id]!);
     lt.LibtorrentFlutter.instance.resumeTorrent(_handles[id]!);
     _tasks[id]!['status'] = 'downloading';
-    await store.put('downloads', id, _tasks[id]!);
+    await _persist(id, _tasks[id]!);
     _emit();
   }
 
@@ -226,6 +231,12 @@ class DownloadRepository {
   Json media(String id, {String? fileId}) {
     final task = _tasks[id];
     if (task == null) throw StateError('下载任务不存在');
+    final videos = (_files[id] ?? [])
+        .where((f) => f['mediaKind'] == 'video')
+        .toList();
+    if (fileId == null && videos.length > 1) {
+      throw StateError('资源包含多个视频，请在缓存列表中选择具体文件');
+    }
     final files =
         (_files[id] ?? [])
             .where(
@@ -241,7 +252,7 @@ class DownloadRepository {
     return {
       ...file,
       'subjectId': task['subjectId'],
-      'episodeId': task['episodeId'],
+      'episodeId': videos.length == 1 ? task['episodeId'] : null,
     };
   }
 
@@ -262,13 +273,27 @@ class DownloadRepository {
     if (!_closed) changes.add(snapshot());
   }
 
-  Future<void> close() async {
-    if (_closed) return;
+  Future<void> _persist(String id, Json task) {
+    final saved = Map<String, dynamic>.from(task);
+    return _writes = _writes.then((_) => store.put('downloads', id, saved));
+  }
+
+  Future<void> close() => _closing ??= _close();
+  Future<void> _close() async {
     _closed = true;
-    await _subscription?.cancel();
-    await _writes;
+    await Future.wait(
+      _adding.values.toList().map((operation) async {
+        try {
+          await operation;
+        } catch (_) {
+          /* The caller receives add failures. */
+        }
+      }),
+    );
     if (_initializing != null) {
       await _initializing;
+      await _subscription?.cancel();
+      await _writes;
       final engine = lt.LibtorrentFlutter.instance;
       // The upstream disposeAll deletes files. Detach all handles without
       // deleting data first, so closing the app preserves downloaded episodes.

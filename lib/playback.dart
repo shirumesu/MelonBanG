@@ -45,19 +45,24 @@ class Playback extends ChangeNotifier {
   bool opening = false;
   bool _closed = false;
   bool danmakuEnabled = true;
+  double subtitleDelay = 0;
   double danmakuOpacity = .9;
   double danmakuSize = 23;
   double danmakuArea = .6;
   List<Json> comments = [];
   Future<void> _openQueue = Future.value();
+  Future<void> _progressWrites = Future.value();
+  Future<void>? _closing;
 
   Future<void> open(Json next) {
+    if (_closed) return Future.error(StateError('播放器已关闭'));
     final operation = _openQueue.then((_) => _open(next));
     _openQueue = operation.catchError((Object _) {});
     return operation;
   }
 
   Future<void> _open(Json next) async {
+    if (_closed) return;
     await saveProgress();
     opening = true;
     error = null;
@@ -68,12 +73,14 @@ class Playback extends ChangeNotifier {
       }
       session = next;
       comments = [];
+      subtitleDelay = 0;
       uri = object(next['source'])['url'] as String?;
       if (uri == null) throw StateError('没有可播放的文件。');
       final platform = player.platform;
       if (platform is NativePlayer) {
         await platform.setProperty('sub-auto', 'fuzzy');
         await platform.setProperty('sub-ass-override', 'no');
+        await platform.setProperty('sub-delay', '0');
       }
       await player.open(Media(uri!), play: false);
       if (Platform.environment['MELONBANG_MUTE_AUDIO'] == '1') {
@@ -88,7 +95,9 @@ class Playback extends ChangeNotifier {
               next['episodeId'] as int,
             ),
           );
-          if (saved['completed'] != true) {
+          if (saved['completed'] == true) {
+            resume = 0;
+          } else if (saved.isNotEmpty) {
             resume = number(saved['positionSeconds']);
           }
         } catch (_) {}
@@ -96,10 +105,11 @@ class Playback extends ChangeNotifier {
       if (resume > 0) {
         await player.seek(Duration(milliseconds: (resume * 1000).round()));
       }
-      await preferences.setString('lastMedia', jsonEncodeSession(next));
       await player.play();
     } catch (e) {
       error = e.toString();
+      session = null;
+      uri = null;
       rethrow;
     } finally {
       opening = false;
@@ -139,23 +149,32 @@ class Playback extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> saveProgress({bool ended = false}) async {
-    if (uri == null || session == null || opening) return;
+  Future<void> saveProgress({bool ended = false}) {
+    if (uri == null || session == null || opening) return _progressWrites;
+    final savedUri = uri!;
+    final savedSession = session!;
     ended = ended || player.state.completed;
     final position = player.state.position.inMilliseconds / 1000;
     final duration = player.state.duration.inMilliseconds / 1000;
-    try {
-      await preferences.setDouble('progress:$uri', ended ? 0 : position);
-      await service.library.save(session!, position, duration, ended);
-    } catch (_) {
-      /* Playback is independent of progress storage availability. */
-    }
+    final completed = ended;
+    return _progressWrites = _progressWrites.then((_) async {
+      try {
+        await preferences.setDouble(
+          'progress:$savedUri',
+          completed ? 0 : position,
+        );
+        await service.library.save(savedSession, position, duration, completed);
+      } catch (_) {
+        /* Playback is independent of progress storage availability. */
+      }
+    });
   }
 
-  Future<void> close() async {
-    if (_closed) return;
+  Future<void> close() => _closing ??= _close();
+  Future<void> _close() async {
     _closed = true;
     _timer?.cancel();
+    await _openQueue;
     await saveProgress();
     for (final subscription in _subscriptions) {
       await subscription.cancel();
@@ -163,6 +182,3 @@ class Playback extends ChangeNotifier {
     await player.dispose();
   }
 }
-
-// History stores only the media locator and episode association, never credentials.
-String jsonEncodeSession(Json session) => '${object(session['source'])['url']}';

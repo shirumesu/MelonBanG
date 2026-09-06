@@ -147,6 +147,22 @@ void main() {
         ]).timeout(const Duration(seconds: 10));
         final task = added.first;
         expect(added.last['id'], task['id']);
+        final changedTrackers = bencode(<String, Object>{
+          'announce': 'http://127.0.0.1:${tracker.port}/announce',
+          'comment': 'Same content from another RSS provider',
+          'info': info,
+        });
+        expect(
+          (await downloads.addTorrent(changedTrackers, 'Other provider'))['id'],
+          task['id'],
+        );
+        final hexHash = hash
+            .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+            .join();
+        expect(
+          (await downloads.addMagnet('magnet:?xt=urn:btih:$hexHash'))['id'],
+          task['id'],
+        );
         expect(objects(downloads.snapshot()['tasks']), hasLength(1));
         LibtorrentFlutter.instance.configureSession(
           const BtConfig(

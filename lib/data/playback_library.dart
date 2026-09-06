@@ -21,7 +21,7 @@ class PlaybackLibrary {
   final _loads = <String, Object>{};
   Future<Json> local(String path, {int? subjectId, int? episodeId}) async {
     if (!await File(path).exists()) throw StateError('视频文件不存在');
-    current = {
+    final session = <String, dynamic>{
       'id': newId(),
       'title': p.basename(path),
       'path': path,
@@ -45,25 +45,37 @@ class PlaybackLibrary {
           },
       ],
     };
+    current = session;
     _comments.clear();
     _loads.clear();
     if (subjectId != null && episodeId != null) {
       await store.put('episode_files', '$subjectId:$episodeId', {'path': path});
     }
-    return current!;
+    return session;
   }
 
   Future<Json> fromDownload(String id, {String? fileId}) async {
     final media = downloads.media(id, fileId: fileId);
-    return local(
+    final session = await local(
       '${media['path']}',
       subjectId: media['subjectId'] as int?,
       episodeId: media['episodeId'] as int?,
     );
+    if (media['subjectId'] != null && media['episodeId'] != null) {
+      await store.put(
+        'episode_files',
+        '${media['subjectId']}:${media['episodeId']}',
+        {'path': media['path'], 'downloadId': id, 'fileId': media['id']},
+      );
+    }
+    return session;
   }
 
   Future<Json> episode(int subjectId, int episodeId) async {
     final localFile = await store.get('episode_files', '$subjectId:$episodeId');
+    if (localFile?['downloadId'] case final String downloadId) {
+      return fromDownload(downloadId, fileId: localFile!['fileId'] as String?);
+    }
     if (localFile != null && await File('${localFile['path']}').exists()) {
       return local(
         '${localFile['path']}',
@@ -72,11 +84,7 @@ class PlaybackLibrary {
       );
     }
     final media = downloads.episodeMedia(subjectId, episodeId);
-    return local(
-      '${media['path']}',
-      subjectId: subjectId,
-      episodeId: episodeId,
-    );
+    return fromDownload('${media['downloadId']}', fileId: '${media['id']}');
   }
 
   Future<Json?> progress(int subjectId, int episodeId) =>

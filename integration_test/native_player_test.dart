@@ -98,6 +98,21 @@ void main() {
         );
       }
       final subtitles = playback.player.state.tracks.subtitle;
+      final originalSession = playback.session!;
+      playback.session = {...originalSession, 'subjectId': 42, 'episodeId': 7};
+      final saving = playback.saveProgress();
+      playback.session = {...originalSession, 'subjectId': 42, 'episodeId': 8};
+      await saving;
+      expect(
+        (await services.library.progress(42, 7))!['positionSeconds'],
+        greaterThan(2),
+      );
+      expect(
+        await services.library.progress(42, 8),
+        isNull,
+        reason: 'A pending save belongs to the episode captured before its first await',
+      );
+      playback.session = originalSession;
       await playback.player.setSubtitleTrack(
         subtitles.firstWhere((track) => !['auto', 'no'].contains(track.id)),
       );

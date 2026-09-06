@@ -18,7 +18,7 @@ class _ConnectionSettingsState extends State<ConnectionSettings> {
       appId = TextEditingController(),
       appSecret = TextEditingController();
   String? error;
-  bool saving = false;
+  bool saving = false, loading = true;
   @override
   void initState() {
     super.initState();
@@ -41,21 +41,28 @@ class _ConnectionSettingsState extends State<ConnectionSettings> {
       appSecret.text = '${dandan['appSecret'] ?? ''}';
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => loading = false);
     }
   }
 
   Future<void> _save() async {
+    final oauthId = clientId.text;
+    final oauthSecret = clientSecret.text;
+    final callback = redirect.text;
+    final dandanId = appId.text;
+    final dandanSecret = appSecret.text;
     setState(() {
       saving = true;
       error = null;
     });
     try {
       await widget.services.account.configure(
-        clientId: clientId.text,
-        clientSecret: clientSecret.text,
-        redirectUri: redirect.text,
+        clientId: oauthId,
+        clientSecret: oauthSecret,
+        redirectUri: callback,
       );
-      await widget.services.danmaku.configure(appId.text, appSecret.text);
+      await widget.services.danmaku.configure(dandanId, dandanSecret);
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('连接配置已加密保存')));
@@ -83,6 +90,7 @@ class _ConnectionSettingsState extends State<ConnectionSettings> {
     padding: const EdgeInsets.symmetric(vertical: 8),
     child: TextField(
       controller: controller,
+      enabled: !loading && !saving,
       obscureText: secret,
       decoration: InputDecoration(
         labelText: label,
@@ -114,7 +122,7 @@ class _ConnectionSettingsState extends State<ConnectionSettings> {
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           FilledButton(
-            onPressed: saving ? null : _save,
+            onPressed: saving || loading ? null : _save,
             child: Text(saving ? '正在保存…' : '保存连接配置'),
           ),
         ],

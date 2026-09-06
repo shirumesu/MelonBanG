@@ -4,51 +4,57 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$trialPath = (Resolve-Path -LiteralPath $Executable).Path
-$trialData = Join-Path ([IO.Path]::GetTempPath()) ('melonbang-window-' + [guid]::NewGuid())
+$projectDirectory = Split-Path $PSScriptRoot
+$executablePath = if ([IO.Path]::IsPathRooted($Executable)) { $Executable } else { Join-Path $projectDirectory $Executable }
+$executablePath = (Resolve-Path -LiteralPath $executablePath).Path
+$verificationData = Join-Path ([IO.Path]::GetTempPath()) ('melonbang-window-' + [guid]::NewGuid())
 $previousDataDirectory = $env:MELONBANG_DATA_DIR
 $previousMute = $env:MELONBANG_MUTE_AUDIO
-$env:MELONBANG_DATA_DIR = $trialData
-$env:MELONBANG_MUTE_AUDIO = '1'
+$applicationProcess = $null
 $childIds = @()
-$startOptions = @{ FilePath = $trialPath; WorkingDirectory = (Split-Path $trialPath); WindowStyle = 'Hidden'; PassThru = $true }
-if ($Media) {
-  $mediaPath = (Resolve-Path -LiteralPath $Media).Path
-  $startOptions.ArgumentList = '"' + $mediaPath + '"'
-}
-$trialProcess = Start-Process @startOptions
 try {
-  Start-Sleep -Seconds 8
-  $trialProcess.Refresh()
-  if ($trialProcess.HasExited -or $trialProcess.MainWindowHandle -eq 0) {
-    throw 'The packaged application did not show its window.'
+  $env:MELONBANG_DATA_DIR = $verificationData
+  $env:MELONBANG_MUTE_AUDIO = '1'
+  $startOptions = @{ FilePath = $executablePath; WorkingDirectory = (Split-Path $executablePath); WindowStyle = 'Hidden'; PassThru = $true }
+  if ($Media) {
+    $mediaPath = (Resolve-Path -LiteralPath $Media).Path
+    $startOptions.ArgumentList = '"' + $mediaPath + '"'
   }
-  $databasePath = Join-Path $trialData 'melonbang.sqlite'
-  if (-not (Test-Path -LiteralPath $databasePath) -or (Get-Item -LiteralPath $databasePath).Length -eq 0) {
-    throw 'The packaged application did not initialize its Dart database.'
-  }
-  $childIds = @(Get-CimInstance Win32_Process -Filter ('ParentProcessId = ' + $trialProcess.Id) | Select-Object -ExpandProperty ProcessId)
+  $applicationProcess = Start-Process @startOptions
+  $databasePath = Join-Path $verificationData 'melonbang.sqlite'
+  $startupDeadline = [DateTime]::UtcNow.AddSeconds(20)
+  do {
+    Start-Sleep -Milliseconds 250
+    $applicationProcess.Refresh()
+    if ($applicationProcess.HasExited) { throw 'The packaged application exited during startup.' }
+    $databaseReady = (Test-Path -LiteralPath $databasePath) -and (Get-Item -LiteralPath $databasePath).Length -gt 0
+  } while (($applicationProcess.MainWindowHandle -eq 0 -or -not $databaseReady) -and [DateTime]::UtcNow -lt $startupDeadline)
+  if ($applicationProcess.MainWindowHandle -eq 0) { throw 'The packaged application did not show its window.' }
+  if (-not $databaseReady) { throw 'The packaged application did not initialize its Dart database.' }
+  # Allow media initialization before exercising active-playback shutdown.
+  Start-Sleep -Seconds 3
+  $childIds = @(Get-CimInstance Win32_Process -Filter ('ParentProcessId = ' + $applicationProcess.Id) | Select-Object -ExpandProperty ProcessId)
   if ($childIds.Count -ne 0) { throw 'The native application unexpectedly started a child process.' }
-  if (-not $trialProcess.CloseMainWindow()) { throw 'Could not request normal window close.' }
-  if (-not $trialProcess.WaitForExit(8000)) { throw 'The application did not exit in eight seconds.' }
-  if ($trialProcess.ExitCode -ne 0) { throw ('Native shutdown failed: ' + $trialProcess.ExitCode) }
-  foreach ($childId in $childIds) {
-    if (Get-Process -Id $childId -ErrorAction SilentlyContinue) { throw 'The application left its service running.' }
-  }
+  if (-not $applicationProcess.CloseMainWindow()) { throw 'Could not request normal window close.' }
+  if (-not $applicationProcess.WaitForExit(8000)) { throw 'The application did not exit in eight seconds.' }
+  if ($applicationProcess.ExitCode -ne 0) { throw ('Native shutdown failed: ' + $applicationProcess.ExitCode) }
   Write-Output 'Packaged Flutter app: launch, no child runtime, and normal close passed.'
 } finally {
-  if (-not $trialProcess.HasExited) { $trialProcess.Kill(); $trialProcess.WaitForExit() }
+  $env:MELONBANG_DATA_DIR = $previousDataDirectory
+  $env:MELONBANG_MUTE_AUDIO = $previousMute
+  if ($applicationProcess -and -not $applicationProcess.HasExited) {
+    $applicationProcess.Kill()
+    $applicationProcess.WaitForExit()
+  }
   foreach ($childId in $childIds) {
     Stop-Process -Id $childId -ErrorAction SilentlyContinue
   }
-  $env:MELONBANG_DATA_DIR = $previousDataDirectory
-  $env:MELONBANG_MUTE_AUDIO = $previousMute
-  if (Test-Path -LiteralPath $trialData) {
-    $resolvedTrialData = (Resolve-Path -LiteralPath $trialData).Path
+  if (Test-Path -LiteralPath $verificationData) {
+    $resolvedVerificationData = (Resolve-Path -LiteralPath $verificationData).Path
     $temporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
-    if (-not $resolvedTrialData.StartsWith($temporaryRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    if (-not $resolvedVerificationData.StartsWith($temporaryRoot, [StringComparison]::OrdinalIgnoreCase)) {
       throw 'Unexpected verification data path.'
     }
-    Remove-Item -LiteralPath $resolvedTrialData -Recurse -Force
+    Remove-Item -LiteralPath $resolvedVerificationData -Recurse -Force
   }
 }

@@ -45,15 +45,25 @@ class _PlayerPageState extends State<PlayerPage> {
   double? dragging;
   Timer? hideTimer;
   List<Json> matches = [];
+  String? _sessionId;
+  int _searchRequest = 0;
   Playback get playback => widget.playback;
   Player get player => playback.player;
   @override
   void initState() {
     super.initState();
+    _sessionId = playback.session?['id'] as String?;
     playback.addListener(refresh);
   }
 
   void refresh() {
+    final sessionId = playback.session?['id'] as String?;
+    if (sessionId != _sessionId) {
+      _sessionId = sessionId;
+      _searchRequest++;
+      matches = [];
+      dragging = null;
+    }
     if (mounted) setState(() {});
   }
 
@@ -75,6 +85,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   void reveal() {
+    if (!mounted) return;
     if (!controls) setState(() => controls = true);
     hideTimer?.cancel();
     hideTimer = Timer(const Duration(seconds: 3), () {
@@ -134,6 +145,12 @@ class _PlayerPageState extends State<PlayerPage> {
               icon: const Icon(Icons.folder_open),
               label: const Text('打开视频'),
             ),
+            if (widget.fullScreen)
+              TextButton.icon(
+                onPressed: () => windowManager.setFullScreen(false),
+                icon: const Icon(Icons.fullscreen_exit),
+                label: const Text('退出全屏'),
+              ),
           ],
         ),
       );
@@ -560,12 +577,11 @@ class _PlayerPageState extends State<PlayerPage> {
       style: TextStyle(height: 1.8, color: Colors.grey),
     ),
   ];
-  double subtitleDelay = 0;
   Future<void> offsetSubtitle(double delta) => perform(() async {
-    subtitleDelay += delta;
+    playback.subtitleDelay += delta;
     final platform = player.platform;
     if (platform is NativePlayer) {
-      await platform.setProperty('sub-delay', '$subtitleDelay');
+      await platform.setProperty('sub-delay', '${playback.subtitleDelay}');
     }
   });
   Future<void> loadSubtitle() async {
@@ -678,6 +694,7 @@ class _PlayerPageState extends State<PlayerPage> {
       ],
       onChanged: (value) => setState(() {
         provider = value!;
+        _searchRequest++;
         matches = [];
       }),
     ),
@@ -721,9 +738,15 @@ class _PlayerPageState extends State<PlayerPage> {
   Future<void> manualDanmaku() async {
     if (query.text.trim().isEmpty) return;
     if (provider == 'dandanplay') {
+      final ticket = ++_searchRequest;
+      final sessionId = playback.session?['id'];
       await perform(() async {
         final result = await widget.service.danmaku.search(query.text.trim());
-        if (mounted) setState(() => matches = objects(result));
+        if (mounted &&
+            ticket == _searchRequest &&
+            sessionId == playback.session?['id']) {
+          setState(() => matches = objects(result));
+        }
       });
     } else {
       await loadDanmaku(
@@ -733,6 +756,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Future<void> loadLocalComments() async {
+    final sessionId = playback.session?['id'];
     final file = await openFile(
       acceptedTypeGroups: [
         const XTypeGroup(label: 'Danmaku JSON', extensions: ['json']),
@@ -756,7 +780,9 @@ class _PlayerPageState extends State<PlayerPage> {
                     number(a['timeSeconds'])
                         .compareTo(number(b['timeSeconds'])),
               );
-        if (mounted) setState(() => playback.comments = comments);
+        if (mounted && sessionId == playback.session?['id']) {
+          setState(() => playback.comments = comments);
+        }
       });
     }
   }

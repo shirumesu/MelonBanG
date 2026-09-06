@@ -1,25 +1,17 @@
 # Local-only development and generated files
-DESIGN/
-node_modules/
-out/
-.codex-*.log
 dist/
 coverage/
-.vite/
 .cache/
 *.log
 .env
 .env.*
-.env.example
-*.tsbuildinfo
 Thumbs.db
 Desktop.ini
 
-temp
+temp/
 build/
 .dart_tool/
 .flutter-plugins-dependencies
 *.iml
 .idea/
 .metadata.*
-desktop/

@@ -3,7 +3,13 @@ import 'dart:async';
 import 'account.dart';
 import 'catalog.dart';
 import 'json.dart';
+import 'network.dart';
 import 'store.dart';
+
+class _SyncStatus {
+  String? error;
+  String? syncedAt;
+}
 
 class TrackingRepository {
   TrackingRepository(this.store, this.account, this.catalog);
@@ -13,8 +19,13 @@ class TrackingRepository {
   Future<void>? _flushing;
   Timer? _retry;
   bool _closed = false;
-  String? lastSyncError;
-  String? lastSyncedAt;
+  final _syncStatus = <String, _SyncStatus>{};
+  _SyncStatus get _currentSync =>
+      _syncStatus.putIfAbsent(account.userId, _SyncStatus.new);
+  String? get lastSyncError => _currentSync.error;
+  set lastSyncError(String? value) => _currentSync.error = value;
+  String? get lastSyncedAt => _currentSync.syncedAt;
+  set lastSyncedAt(String? value) => _currentSync.syncedAt = value;
   final changes = StreamController<void>.broadcast();
   void start() {
     _retry = Timer.periodic(
@@ -32,14 +43,18 @@ class TrackingRepository {
     'lastSyncedAt': lastSyncedAt,
   };
   Future<Json> subject(int id) async {
+    final user = account.userId;
     final detail = await catalog.subject(id);
+    if (user != account.userId) throw StateError('账号已经切换');
     try {
       await refreshEpisodes(id);
     } catch (e) {
-      lastSyncError = e.toString();
+      if (user == account.userId) lastSyncError = e.toString();
     }
-    final item = await store.get(_collection(account.userId), '$id');
-    final progress = await store.list(_episodes(account.userId));
+    if (user != account.userId) throw StateError('账号已经切换');
+    final item = await store.get(_collection(user), '$id');
+    final progress = await store.list(_episodes(user));
+    if (user != account.userId) throw StateError('账号已经切换');
     final status = {for (final e in progress) '${e['episodeId']}': e['status']};
     return {
       ...detail,
@@ -121,6 +136,7 @@ class TrackingRepository {
     final remote = <String, Json>{};
     try {
       for (var offset = 0; ; offset += 50) {
+        if (user != account.userId || _closed) return;
         final response = object(
           await account.request(
             '/v0/users/$username/collections?subject_type=2&limit=50&offset=$offset',
@@ -137,7 +153,7 @@ class TrackingRepository {
             'summary': s['short_summary'],
             'coverUrl': object(s['images'])['common'],
             'episodeTotal': s['eps'] ?? s['total_episodes'],
-            'score': object(s['rating'])['score'],
+            'score': s['score'],
             'status': CollectionStatus.fromRemote(number(row['type']).toInt())
                 .key,
             'userScore': row['rate'],
@@ -162,7 +178,7 @@ class TrackingRepository {
       _changed();
       await flush();
     } catch (e) {
-      lastSyncError = e.toString();
+      if (user == account.userId) lastSyncError = e.toString();
       _changed();
       rethrow;
     }
@@ -214,35 +230,73 @@ class TrackingRepository {
   Future<void> _flush() async {
     final user = account.userId;
     if (user == 'local' || _closed) return;
+    final attempted = <int>{};
+    final blocked = <String>{};
+    String? error;
     try {
-      for (final row in await store.pending(user)) {
-        if (user != account.userId || _closed) return;
-        final input = object(row['body']);
-        if (input['kind'] == 'subject') {
-          await account.request(
-            '/v0/users/-/collections/${input['subjectId']}',
-            method: 'POST',
-            body: {
-              'type': input['status'] == null
-                  ? null
-                  : CollectionStatus.parse('${input['status']}').remoteValue,
-              'rate': input['score'],
-            }..removeWhere((_, v) => v == null),
-          );
-        } else {
-          await account.request(
-            '/v0/users/-/collections/-/episodes/${input['episodeId']}',
-            method: 'PUT',
-            body: {
-              'type': EpisodeStatus.parse('${input['status']}').remoteValue,
-            },
-          );
+      while (!_closed && user == account.userId) {
+        final rows = (await store.pending(user))
+            .where((row) => !attempted.contains(row['sequence']))
+            .toList();
+        if (rows.isEmpty) break;
+        // Bangumi requires a subject collection before accepting episode edits.
+        // Preserve order within each entity, but send collection edits first.
+        rows.sort((a, b) {
+          final aEpisode = object(a['body'])['kind'] == 'episode' ? 1 : 0;
+          final bEpisode = object(b['body'])['kind'] == 'episode' ? 1 : 0;
+          final kind = aEpisode.compareTo(bEpisode);
+          return kind != 0
+              ? kind
+              : (a['sequence'] as int).compareTo(b['sequence'] as int);
+        });
+        for (final row in rows) {
+          if (user != account.userId || _closed) return;
+          final sequence = row['sequence'] as int;
+          attempted.add(sequence);
+          final entity = '${row['entity']}';
+          final input = object(row['body']);
+          if (blocked.contains(entity) ||
+              (input['kind'] == 'episode' &&
+                  blocked.contains('subject:${input['subjectId']}'))) {
+            continue;
+          }
+          try {
+            if (input['kind'] == 'subject') {
+              await account.request(
+                '/v0/users/-/collections/${input['subjectId']}',
+                method: 'POST',
+                body: {
+                  'type': input['status'] == null
+                      ? null
+                      : CollectionStatus.parse('${input['status']}')
+                            .remoteValue,
+                  'rate': input['score'],
+                }..removeWhere((_, v) => v == null),
+              );
+            } else {
+              await account.request(
+                '/v0/users/-/collections/-/episodes/${input['episodeId']}',
+                method: 'PUT',
+                body: {
+                  'type': EpisodeStatus.parse('${input['status']}').remoteValue,
+                },
+              );
+            }
+            await store.acknowledge(sequence);
+          } on ApiException catch (e) {
+            // A rejected item must not prevent unrelated valid edits syncing.
+            // Stop on connection/server/account failures until the next retry.
+            if (e.status != 400 && e.status != 404) rethrow;
+            blocked.add(entity);
+            error ??= input['kind'] == 'episode' && e.status == 400
+                ? '章节 ${input['episodeId']} 同步失败，请先收藏对应番剧后重试。'
+                : e.toString();
+          }
         }
-        await store.acknowledge(row['sequence'] as int);
       }
-      lastSyncError = null;
+      if (user == account.userId) lastSyncError = error;
     } catch (e) {
-      lastSyncError = e.toString();
+      if (user == account.userId) lastSyncError = e.toString();
     }
     _changed();
   }

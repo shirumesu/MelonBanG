@@ -29,6 +29,7 @@ class AccountRepository {
   HttpServer? _callback;
   Completer<String>? _authorization;
   Future<String>? _refresh;
+  int _signInGeneration = 0;
   bool _closed = false;
   Future<void> initialize() async {
     final saved = await credentials.read('account');
@@ -57,20 +58,28 @@ class AccountRepository {
   }
 
   Future<Json> signIn() async {
-    await cancelSignIn();
+    final generation = ++_signInGeneration;
+    await _cancelPendingSignIn();
     final config = await configuration();
+    if (_closed || generation != _signInGeneration) {
+      throw StateError('登录已取消');
+    }
     if ('${config['clientId'] ?? ''}'.isEmpty ||
         '${config['clientSecret'] ?? ''}'.isEmpty) {
       throw StateError('请先在设置中填写 Bangumi OAuth 应用信息。');
     }
     final redirect = Uri.parse('${config['redirectUri']}');
     final state = newId();
-    final authorization = Completer<String>();
-    _authorization = authorization;
     final server = await HttpServer.bind(
       InternetAddress.loopbackIPv4,
       redirect.port,
     );
+    if (_closed || generation != _signInGeneration) {
+      await server.close(force: true);
+      throw StateError('登录已取消');
+    }
+    final authorization = Completer<String>();
+    _authorization = authorization;
     _callback = server;
     server.listen((request) async {
       if (request.uri.path != redirect.path ||
@@ -116,7 +125,7 @@ class AccountRepository {
         headers: {'Authorization': 'Bearer ${token['access_token']}'},
       );
       if (_closed || _authorization != authorization) throw StateError('登录已取消');
-      _bundle = {
+      final bundle = <String, dynamic>{
         ...token,
         'user': {
           'userId': '${me['id']}',
@@ -125,7 +134,9 @@ class AccountRepository {
           'avatarUrl': object(me['avatar'])['medium'],
         },
       };
-      await credentials.write('account', jsonEncode(_bundle));
+      _bundle = bundle;
+      await credentials.write('account', jsonEncode(bundle));
+      if (_closed || !identical(_bundle, bundle)) throw StateError('登录已取消');
       return session!;
     } finally {
       await server.close(force: true);
@@ -162,7 +173,12 @@ class AccountRepository {
         DateTime.now().millisecondsSinceEpoch + 60000) {
       return '${_bundle!['access_token']}';
     }
-    return _refresh ??= _renew().whenComplete(() => _refresh = null);
+    if (_refresh case final pending?) return pending;
+    late final Future<String> refreshing;
+    refreshing = _renew().whenComplete(() {
+      if (identical(_refresh, refreshing)) _refresh = null;
+    });
+    return _refresh = refreshing;
   }
 
   Future<String> _renew() async {
@@ -181,25 +197,38 @@ class AccountRepository {
     String path, {
     String method = 'GET',
     Json? body,
-  }) async => api.json(
-    Uri.parse('https://api.bgm.tv$path'),
-    method: method,
-    body: body,
-    headers: {'Authorization': 'Bearer ${await accessToken()}'},
-  );
+  }) async {
+    final user = userId;
+    final token = await accessToken();
+    if (_closed || user != userId) throw StateError('账号已经切换');
+    return api.json(
+      Uri.parse('https://api.bgm.tv$path'),
+      method: method,
+      body: body,
+      headers: {'Authorization': 'Bearer $token'},
+    );
+  }
+
   Future<void> cancelSignIn() async {
+    _signInGeneration++;
+    await _cancelPendingSignIn();
+  }
+
+  Future<void> _cancelPendingSignIn() async {
     final pending = _authorization;
+    final callback = _callback;
     _authorization = null;
+    _callback = null;
     if (pending != null && !pending.isCompleted) {
       pending.completeError(StateError('登录已取消'));
     }
-    await _callback?.close(force: true);
-    _callback = null;
+    await callback?.close(force: true);
   }
 
   Future<void> signOut() async {
     await cancelSignIn();
     _bundle = null;
+    _refresh = null;
     await credentials.write('account', null);
   }
 

@@ -99,16 +99,26 @@ class DanmakuRepository {
     final config = object(
       jsonDecode(await credentials.read('dandanplay') ?? '{}'),
     );
-    if (config['appId'] == null || '${config['appId']}'.isEmpty) {
+    final appId = '${config['appId'] ?? ''}';
+    final appSecret = '${config['appSecret'] ?? ''}';
+    if (appId.isEmpty || appSecret.isEmpty) {
       throw StateError('请先在设置中填写弹弹play应用凭据');
     }
+    final uri = Uri.parse('https://api.dandanplay.net$path');
+    final timestamp = '${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
+    final signature = base64Encode(
+      sha256
+          .convert(utf8.encode('$appId$timestamp${uri.path}$appSecret'))
+          .bytes,
+    );
     return api.map(
-      Uri.parse('https://api.dandanplay.net$path'),
+      uri,
       method: body == null ? 'GET' : 'POST',
       body: body,
       headers: {
-        'X-AppId': '${config['appId']}',
-        'X-AppSecret': '${config['appSecret']}',
+        'X-AppId': appId,
+        'X-Timestamp': timestamp,
+        'X-Signature': signature,
       },
     );
   }
@@ -163,6 +173,9 @@ class DanmakuRepository {
     final value = await _dandan(
       '/api/v2/comment/$episodeId?withRelated=true&chConvert=1',
     );
+    if (value['success'] == false) {
+      throw StateError('弹弹play弹幕获取失败：${value['errorMessage'] ?? '未知错误'}');
+    }
     return normalizeComments(
       objects(value['comments']).map((c) {
         final fields = '${c['p']}'.split(',');
@@ -310,7 +323,7 @@ List<Json> normalizeComments(Iterable<Json> input) {
     final color = RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch('${comment['color']}')
         ? '${comment['color']}'
         : '#ffffff';
-    unique['$time:$mode:$text'] = {
+    unique['${time.toDouble()}:$mode:$text'] = {
       'timeSeconds': time.toDouble(),
       'text': text,
       'mode': mode,

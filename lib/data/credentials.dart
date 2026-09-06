@@ -40,6 +40,7 @@ typedef _CryptDart = int Function(
 class WindowsCredentials implements Credentials {
   WindowsCredentials(this.directory);
   final String directory;
+  final _writes = <String, Future<void>>{};
   Uint8List _crypt(Uint8List bytes, bool decrypt) {
     final dll = DynamicLibrary.open('crypt32.dll');
     final call = dll.lookupFunction<_CryptNative, _CryptDart>(
@@ -75,6 +76,7 @@ class WindowsCredentials implements Credentials {
 
   @override
   Future<String?> read(String key) async {
+    await _writes[key];
     final file = _file(key);
     return await file.exists()
         ? utf8.decode(_crypt(await file.readAsBytes(), true))
@@ -82,7 +84,21 @@ class WindowsCredentials implements Credentials {
   }
 
   @override
-  Future<void> write(String key, String? value) async {
+  Future<void> write(String key, String? value) {
+    final previous = _writes[key] ?? Future<void>.value();
+    late final Future<void> writing;
+    writing = previous
+        .catchError((Object _) {})
+        .then((_) {
+          return _write(key, value);
+        })
+        .whenComplete(() {
+          if (identical(_writes[key], writing)) _writes.remove(key);
+        });
+    return _writes[key] = writing;
+  }
+
+  Future<void> _write(String key, String? value) async {
     final file = _file(key);
     if (value == null) {
       if (await file.exists()) await file.delete();

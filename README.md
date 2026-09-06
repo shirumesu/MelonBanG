@@ -4,7 +4,8 @@ A Windows anime client built with Dart, Flutter, and media_kit.
 
 ## Run and build
 
-Install Flutter stable (Dart 3.13+) and Visual Studio's C++ desktop build tools.
+Install Flutter stable (Dart 3.13.2+) and Visual Studio's C++ desktop build tools
+with a Windows SDK. The current build targets Windows x64.
 From this repository root:
 
 ```powershell
@@ -20,6 +21,21 @@ not build or runtime requirements. The first build downloads media_kit binaries 
 builds the patched torrent engine through a pinned vcpkg toolchain; this can take
 several minutes. Later builds reuse the native dependency cache.
 
+## Project layout
+
+- `lib/`: application entry, Flutter screens, and playback controls.
+- `lib/data/`: in-process repositories, provider clients, and persistence.
+- `test/`: data, OAuth, and playback regression tests.
+- `integration_test/`: Windows application, native playback, and torrent tests.
+- `windows/`: Flutter runner and the pinned native dependency build.
+- `vendor/`: patched upstream plugins; each patch is documented in `PATCHES.md`.
+- `scripts/`: release packaging and packaged application verification.
+
+Generated build output belongs in `build/` and portable releases in `dist/`.
+Local experiments and historical worktrees belong in ignored `temp/`; they are
+not required to build or run the app. The vendored plugins are explicit path
+dependencies, so all builds use the same checked-in patches.
+
 ## Application
 
 - Discover, search, browse the release calendar, and inspect anime and episodes.
@@ -27,6 +43,8 @@ several minutes. Later builds reuse the native dependency cache.
   enables account-scoped synchronization, with a durable queue for offline edits.
 - Search RSS resources, import magnets or torrent files, pause and resume native
   downloads, and play completed episodes. Closing the app preserves downloaded data.
+  Multi-video torrents require selecting a file in the cache list; individual files
+  are not automatically assigned to the chapter used to find the collection.
 - Play original video files through media_kit: native ASS subtitles, audio and
   subtitle selection, external subtitles, subtitle delay, seeks, resume, fullscreen,
   and keyboard controls. Video, controls, and danmaku share one Flutter scene.
@@ -55,6 +73,9 @@ Public anime data comes from Melon API; personal writes go to Bangumi. Account
 queues are isolated by user ID. Guest collections remain local and are not
 silently uploaded when signing in. Download tasks and episode/file associations
 are persisted in the Dart-owned SQLite database.
+Bangumi requires collecting a subject before its chapter states can synchronize.
+Rejected chapter edits remain queued for retry without blocking other subjects.
+Local chapter states remain usable independently of subject collection.
 
 Danmaku JSON is an array of objects containing `timeSeconds`, `text`, `mode`
 (`scroll`, `top`, `bottom`), and optional `color` (`#rrggbb`). Provider availability
@@ -68,6 +89,7 @@ flutter test
 flutter test integration_test/app_test.dart -d windows
 flutter test integration_test/torrent_test.dart -d windows
 flutter test integration_test/native_player_test.dart -d windows --dart-define=TEST_MEDIA=<absolute-video-path>
+flutter test integration_test/navigation_test.dart -d windows --dart-define=TEST_MEDIA=<absolute-video-path>
 ./scripts/verify-window.ps1
 ./scripts/verify-window.ps1 -Media <absolute-video-path>
 ```
@@ -79,6 +101,8 @@ creates its own tracker, seeder, and generated fixture, verifies transferred
 pieces, checks offline restart and pause/resume, and rejects a deliberately damaged
 piece while reusing the valid pieces. Tests use
 temporary databases and do not access personal account state.
+The navigation test checks delayed searches, navigation during collection edits,
+concurrent video selections, and subtitle state across page changes using mock APIs.
 
 Actual account synchronization and third-party provider availability should be
 validated with configured accounts and representative media. Mixed-DPI monitors,
