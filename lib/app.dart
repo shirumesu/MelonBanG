@@ -440,57 +440,79 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       navigatorKey: navigation,
       theme: appTheme(dark),
       home: Scaffold(
-        body: Row(
+        body: Column(
           children: [
-            if (!fullScreen)
-              SizedBox(
-                width: 202,
-                child: AppSidebar(
-                  dark: dark,
-                  route: route,
-                  nickname: '${account?['nickname'] ?? '尚未登录'}',
-                  onNavigate: navigate,
-                  onOpenVideo: () => openVideo(),
-                ),
-              ),
+            if (!fullScreen) AppTitleBar(route: route),
             Expanded(
-              child: Column(
+              child: Row(
                 children: [
-                  if (!fullScreen)
-                    AppHeader(
-                      dark: dark,
-                      route: route,
-                      search: search,
-                      onBack: () => navigate('home'),
-                      onSearch: searchSubjects,
-                      onToggleTheme: () => setDark(!dark),
+                  if (!fullScreen && route != 'settings')
+                    SizedBox(
+                      width: 236,
+                      child: AppSidebar(
+                        dark: dark,
+                        route: route,
+                        nickname: '${account?['nickname'] ?? '尚未登录'}',
+                        username: account?['username'] as String?,
+                        watchingCount: collection
+                            .where((item) => item['status'] == 'watching')
+                            .length,
+                        downloadCount: objects(downloads['tasks'])
+                            .where(
+                              (task) => [
+                                'metadata',
+                                'downloading',
+                                'ready',
+                              ].contains(task['status']),
+                            )
+                            .length,
+                        onNavigate: navigate,
+                        onOpenVideo: () => openVideo(),
+                      ),
                     ),
-                  if (!ready && error != null && !fullScreen)
-                    MaterialBanner(
-                      content: Text(error!),
-                      actions: [
-                        TextButton(
-                          onPressed: () => openVideo(),
-                          child: const Text('打开本地视频'),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        if (!fullScreen && route != 'settings')
+                          AppHeader(
+                            dark: dark,
+                            route: route,
+                            search: search,
+                            onBack: () => navigate('home'),
+                            onSearch: searchSubjects,
+                            onToggleTheme: () => setDark(!dark),
+                            sync: sync,
+                            collectionCount: collection.length,
+                          ),
+                        if (!ready && error != null && !fullScreen)
+                          MaterialBanner(
+                            content: Text(error!),
+                            actions: [
+                              TextButton(
+                                onPressed: () => openVideo(),
+                                child: const Text('打开本地视频'),
+                              ),
+                            ],
+                          ),
+                        if (busy && !fullScreen)
+                          const LinearProgressIndicator(minHeight: 2),
+                        Expanded(
+                          child: route == 'player'
+                              ? PlayerPage(
+                                  playback: playback,
+                                  service: widget.service,
+                                  onOpen: () => openVideo(),
+                                  onError: showError,
+                                  onBack: () => navigate('home'),
+                                  fullScreen: fullScreen,
+                                  onFullScreenChanged: setFullScreen,
+                                  subject: playerSubject,
+                                  onEpisode: playEpisode,
+                                )
+                              : page(),
                         ),
                       ],
                     ),
-                  if (busy && !fullScreen)
-                    const LinearProgressIndicator(minHeight: 2),
-                  Expanded(
-                    child: route == 'player'
-                        ? PlayerPage(
-                            playback: playback,
-                            service: widget.service,
-                            onOpen: () => openVideo(),
-                            onError: showError,
-                            onBack: () => navigate('home'),
-                            fullScreen: fullScreen,
-                            onFullScreenChanged: setFullScreen,
-                            subject: playerSubject,
-                            onEpisode: playEpisode,
-                          )
-                        : page(),
                   ),
                 ],
               ),
@@ -523,6 +545,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           dark: dark,
           today: today,
           trending: trending,
+          watching: collection
+              .where((item) => item['status'] == 'watching')
+              .toList(),
           trendingLoading: trendingLoading,
           error: error,
           onOpenVideo: () => openVideo(),
@@ -606,6 +631,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         );
       case 'settings':
         return SettingsPage(
+          onBack: () => navigate('home'),
           account: account,
           sync: sync,
           dark: dark,

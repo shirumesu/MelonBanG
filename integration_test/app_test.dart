@@ -39,7 +39,8 @@ void main() {
     for (var i = 0; i < 20; i++) {
       await tester.pump(const Duration(milliseconds: 500));
     }
-    expect(find.text('好故事，慢慢看。'), findsOneWidget);
+    expect(find.text('本季热度'), findsOneWidget);
+    expect(find.text('继续播放'), findsOneWidget);
     expect(tester.takeException(), isNull);
     const path = String.fromEnvironment('TEST_CAPTURE');
     if (path.isNotEmpty) {

@@ -133,6 +133,12 @@ void main() {
           onOpenSubject: (_) {},
         ),
       );
+      Future<void> openEpisodes() async {
+        await tester.tap(find.text('选集'));
+        await tester.pumpAndSettle();
+      }
+
+      await openEpisodes();
       await tester.tap(find.byTooltip('标记已看 / 未看'));
       expect(mutation, {
         'kind': 'episodeCollection',
@@ -141,8 +147,16 @@ void main() {
         'status': 'unwatched',
       });
       await tester.tap(find.byTooltip('打开本地文件并关联此话'));
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsNothing);
+      await openEpisodes();
       await tester.tap(find.byTooltip('搜索此话资源'));
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsNothing);
+      await openEpisodes();
       await tester.tap(find.byTooltip('播放已缓存视频'));
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsNothing);
       expect(local?['episodeId'], 120);
       expect(resources?['episodeId'], 120);
       expect(play?['episodeId'], 120);

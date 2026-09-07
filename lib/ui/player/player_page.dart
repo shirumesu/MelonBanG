@@ -6,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../app_services.dart';
+import '../core/theme.dart';
 import 'danmaku.dart';
 import 'playback.dart';
 import 'player_controls.dart';
@@ -94,14 +95,9 @@ class _PlayerPageState extends State<PlayerPage> {
 
   @override
   Widget build(BuildContext context) => Theme(
-    data: ThemeData.dark(useMaterial3: true).copyWith(
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xff22b388),
-        brightness: Brightness.dark,
-      ),
-    ),
+    data: appTheme(true),
     child: Material(
-      color: const Color(0xff141c1a),
+      color: const Color(0xff0a0f14),
       child: Builder(builder: _buildBody),
     ),
   );

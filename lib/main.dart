@@ -18,7 +18,8 @@ Future<void> main(List<String> args) async {
       minimumSize: Size(960, 640),
       center: true,
       title: 'Melonbang',
-      backgroundColor: Color(0xffeef3f1),
+      backgroundColor: Color(0xfff4f5f7),
+      titleBarStyle: TitleBarStyle.hidden,
     ),
     () async {
       await windowManager.show();

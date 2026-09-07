@@ -1,31 +1,145 @@
 import 'package:flutter/material.dart';
 
 const mint = Color(0xff22b388);
+const coral = Color(0xffff6b81);
+const gold = Color(0xffffb83d);
+const sky = Color(0xff8bbcf6);
+const grape = Color(0xffb6a4f0);
+
+bool isDark(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark;
+Color surfaceColor(BuildContext context) =>
+    isDark(context) ? const Color(0xff1e2430) : Colors.white;
+Color softSurface(BuildContext context) =>
+    isDark(context) ? const Color(0xff262d3a) : const Color(0xfff7f8fa);
+Color lineColor(BuildContext context) =>
+    isDark(context) ? const Color(0xff354052) : const Color(0xffe5e7ec);
+Color mutedColor(BuildContext context) =>
+    isDark(context) ? const Color(0xffa0afb9) : const Color(0xff84919a);
 
 ThemeData appTheme(bool dark) {
-  final scheme = ColorScheme.fromSeed(
-    seedColor: mint,
-    brightness: dark ? Brightness.dark : Brightness.light,
-  );
-  return ThemeData(
+  final scheme =
+      ColorScheme.fromSeed(
+        seedColor: mint,
+        brightness: dark ? Brightness.dark : Brightness.light,
+      ).copyWith(
+        primary: mint,
+        onPrimary: Colors.white,
+        secondary: coral,
+        surface: dark ? const Color(0xff1e2430) : Colors.white,
+        surfaceContainerLowest: dark ? const Color(0xff151922) : Colors.white,
+        surfaceContainerLow: dark
+            ? const Color(0xff1e2430)
+            : const Color(0xfff7f8fa),
+        surfaceContainer: dark
+            ? const Color(0xff262d3a)
+            : const Color(0xfff4f5f7),
+        surfaceContainerHigh: dark
+            ? const Color(0xff2b3442)
+            : const Color(0xffeef0f4),
+        surfaceContainerHighest: dark
+            ? const Color(0xff354052)
+            : const Color(0xffe5e7ec),
+        onSurface: dark ? const Color(0xffe7eef1) : const Color(0xff243239),
+        outlineVariant: dark
+            ? const Color(0xff354052)
+            : const Color(0xffe5e7ec),
+      );
+  final theme = ThemeData(
     useMaterial3: true,
-    colorScheme: scheme.copyWith(primary: mint),
+    colorScheme: scheme,
     scaffoldBackgroundColor: dark
-        ? const Color(0xff172322)
-        : const Color(0xffeef3f1),
+        ? const Color(0xff151922)
+        : const Color(0xfff4f5f7),
     fontFamily: 'Microsoft YaHei UI',
+    dialogTheme: DialogThemeData(
+      backgroundColor: scheme.surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+    ),
+    dividerTheme: DividerThemeData(
+      color: scheme.outlineVariant,
+      thickness: 1,
+      space: 24,
+    ),
     cardTheme: CardThemeData(
-      elevation: 0,
-      color: dark ? const Color(0xff21312e) : Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      margin: EdgeInsets.zero,
+      elevation: 1,
+      shadowColor: Colors.black.withValues(alpha: .12),
+      color: scheme.surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
     ),
     inputDecorationTheme: InputDecorationTheme(
+      isDense: true,
       filled: true,
-      fillColor: dark ? const Color(0xff21312e) : Colors.white,
+      fillColor: scheme.surface,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      hintStyle: TextStyle(
+        color: dark ? const Color(0xffa0afb9) : const Color(0xff93a1a6),
+        fontSize: 13,
+      ),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide.none,
+        borderSide: BorderSide(color: scheme.outlineVariant),
       ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: scheme.outlineVariant),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: mint),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+        shape: const StadiumBorder(),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: scheme.onSurface,
+        backgroundColor: scheme.surface,
+        side: BorderSide(color: scheme.outlineVariant),
+        shape: const StadiumBorder(),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+      ),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: scheme.surface,
+      selectedColor: mint.withValues(alpha: .18),
+      side: BorderSide(color: scheme.outlineVariant),
+      shape: const StadiumBorder(),
+      labelStyle: TextStyle(
+        fontSize: 12,
+        color: scheme.onSurface,
+        fontWeight: FontWeight.w600,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      showCheckmark: false,
+    ),
+    tabBarTheme: TabBarThemeData(
+      labelColor: mint,
+      unselectedLabelColor: scheme.onSurface,
+      dividerColor: scheme.outlineVariant,
+    ),
+  );
+  return theme.copyWith(
+    textTheme: theme.textTheme.apply(
+      bodyColor: scheme.onSurface,
+      displayColor: scheme.onSurface,
     ),
   );
 }
