@@ -24,8 +24,10 @@ class AppTitleBar extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     height: 40,
     decoration: BoxDecoration(
-      color: softSurface(context),
-      border: Border(bottom: BorderSide(color: lineColor(context))),
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      border: Border(
+        bottom: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
     ),
     child: Row(
       children: [
@@ -50,7 +52,10 @@ class AppTitleBar extends StatelessWidget {
                   const SizedBox(width: 12),
                   Text(
                     '— ${routeTitles[route] ?? ''}',
-                    style: TextStyle(fontSize: 11, color: mutedColor(context)),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -107,8 +112,11 @@ class AppSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     decoration: BoxDecoration(
-      color: surfaceColor(context).withValues(alpha: dark ? .65 : .8),
-      border: Border(right: BorderSide(color: lineColor(context))),
+      color: Theme.of(context).colorScheme.surface
+          .withValues(alpha: dark ? .65 : .8),
+      border: Border(
+        right: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
     ),
     padding: const EdgeInsets.fromLTRB(14, 24, 14, 14),
     child: Column(
@@ -157,7 +165,7 @@ class AppSidebar extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 9,
                         letterSpacing: 1.6,
-                        color: mutedColor(context),
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -173,7 +181,7 @@ class AppSidebar extends StatelessWidget {
             '浏览',
             style: TextStyle(
               fontSize: 10,
-              color: mutedColor(context),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
               letterSpacing: 1.4,
             ),
           ),
@@ -203,9 +211,11 @@ class AppSidebar extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: surfaceColor(context),
+              color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: lineColor(context)),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
             ),
             child: Row(
               children: [
@@ -245,7 +255,7 @@ class AppSidebar extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 10,
-                          color: mutedColor(context),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -293,23 +303,16 @@ class AppSidebar extends StatelessWidget {
           type: MaterialType.transparency,
           child: ListTile(
             dense: true,
+            selected: selected,
+            selectedColor: const Color(0xff08321f),
+            iconColor: Theme.of(context).colorScheme.onSurfaceVariant,
+            titleTextStyle: Theme.of(context).textTheme.titleSmall,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-            leading: Icon(
-              icon,
-              size: 20,
-              color: selected ? const Color(0xff08321f) : mutedColor(context),
-            ),
-            title: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: selected ? const Color(0xff08321f) : null,
-              ),
-            ),
+            leading: Icon(icon, size: 20),
+            title: Text(label),
             trailing: count == null
                 ? null
                 : Text(
@@ -378,17 +381,11 @@ class AppHeader extends StatelessWidget {
                 if (['home', 'tracking', 'downloads'].contains(route))
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      switch (route) {
-                        'home' => 'Bangumi 收藏与放送动态',
-                        'tracking' => '我的动画收藏 · 已缓存 $collectionCount 部',
-                        _ => '下载与本地缓存',
-                      },
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: mutedColor(context),
-                      ),
-                    ),
+                    child: Text(switch (route) {
+                      'home' => 'Bangumi 收藏与放送动态',
+                      'tracking' => '我的动画收藏 · 已缓存 $collectionCount 部',
+                      _ => '下载与本地缓存',
+                    }, style: Theme.of(context).textTheme.bodySmall),
                   ),
               ],
             ),
@@ -413,7 +410,9 @@ class AppHeader extends StatelessWidget {
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(99),
-                    borderSide: BorderSide(color: lineColor(context)),
+                    borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
                   ),
                   focusedBorder: const OutlineInputBorder(
                     borderRadius: BorderRadius.all(Radius.circular(99)),

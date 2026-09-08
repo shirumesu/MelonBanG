@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:melonbang/data/json.dart';
 import 'package:melonbang/ui/acquisition/downloads_page.dart';
+import 'package:melonbang/ui/core/theme.dart';
+import 'package:melonbang/ui/discovery/discovery_pages.dart';
 import 'package:melonbang/ui/tracking/subject_page.dart';
 import 'package:melonbang/ui/tracking/tracking_page.dart';
 
@@ -9,10 +12,63 @@ Future<void> showPage(WidgetTester tester, Widget page) async {
   tester.view.physicalSize = const Size(1360, 1000);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(MaterialApp(home: Scaffold(body: page)));
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: appTheme(false),
+      home: Scaffold(body: page),
+    ),
+  );
 }
 
 void main() {
+  testWidgets(
+    'calendar days support keyboard selection and opening a result',
+    (tester) async {
+      Json? opened;
+      await showPage(
+        tester,
+        CalendarPage(
+          calendar: [
+            {
+              'weekday': {'id': 1},
+              'items': [
+                {'subjectId': 1, 'name': 'Monday title'},
+              ],
+            },
+            {
+              'weekday': {'id': 2},
+              'items': [
+                {'subjectId': 2, 'name': 'Tuesday title'},
+              ],
+            },
+          ],
+          onRetry: () {},
+          onOpenSubject: (item) => opened = item,
+        ),
+      );
+      await tester.tap(find.widgetWithText(TextButton, '周一'));
+      await tester.pumpAndSettle();
+      expect(find.text('Monday title'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(find.text('Monday title'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(find.text('Monday title'), findsNothing);
+      expect(find.text('Tuesday title'), findsOneWidget);
+      await tester.tap(find.text('Tuesday title'));
+      expect(opened?['subjectId'], 2);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+    }),
+  );
+
   testWidgets('collection filters and selections retain subject identity', (
     tester,
   ) async {

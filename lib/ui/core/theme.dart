@@ -6,17 +6,6 @@ const gold = Color(0xffffb83d);
 const sky = Color(0xff8bbcf6);
 const grape = Color(0xffb6a4f0);
 
-bool isDark(BuildContext context) =>
-    Theme.of(context).brightness == Brightness.dark;
-Color surfaceColor(BuildContext context) =>
-    isDark(context) ? const Color(0xff1e2430) : Colors.white;
-Color softSurface(BuildContext context) =>
-    isDark(context) ? const Color(0xff262d3a) : const Color(0xfff7f8fa);
-Color lineColor(BuildContext context) =>
-    isDark(context) ? const Color(0xff354052) : const Color(0xffe5e7ec);
-Color mutedColor(BuildContext context) =>
-    isDark(context) ? const Color(0xffa0afb9) : const Color(0xff84919a);
-
 ThemeData appTheme(bool dark) {
   final scheme =
       ColorScheme.fromSeed(
@@ -29,7 +18,7 @@ ThemeData appTheme(bool dark) {
         surface: dark ? const Color(0xff1e2430) : Colors.white,
         surfaceContainerLowest: dark ? const Color(0xff151922) : Colors.white,
         surfaceContainerLow: dark
-            ? const Color(0xff1e2430)
+            ? const Color(0xff262d3a)
             : const Color(0xfff7f8fa),
         surfaceContainer: dark
             ? const Color(0xff262d3a)
@@ -41,16 +30,23 @@ ThemeData appTheme(bool dark) {
             ? const Color(0xff354052)
             : const Color(0xffe5e7ec),
         onSurface: dark ? const Color(0xffe7eef1) : const Color(0xff243239),
+        onSurfaceVariant: dark
+            ? const Color(0xffa0afb9)
+            : const Color(0xff84919a),
         outlineVariant: dark
             ? const Color(0xff354052)
             : const Color(0xffe5e7ec),
       );
+  final inputBorder = OutlineInputBorder(
+    borderRadius: BorderRadius.circular(14),
+    borderSide: BorderSide(color: scheme.outlineVariant),
+  );
   final theme = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: dark
-        ? const Color(0xff151922)
-        : const Color(0xfff4f5f7),
+        ? scheme.surfaceContainerLowest
+        : scheme.surfaceContainer,
     fontFamily: 'Microsoft YaHei UI',
     dialogTheme: DialogThemeData(
       backgroundColor: scheme.surface,
@@ -78,21 +74,11 @@ ThemeData appTheme(bool dark) {
       filled: true,
       fillColor: scheme.surface,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      hintStyle: TextStyle(
-        color: dark ? const Color(0xffa0afb9) : const Color(0xff93a1a6),
-        fontSize: 13,
-      ),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: scheme.outlineVariant),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: scheme.outlineVariant),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: mint),
+      hintStyle: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+      border: inputBorder,
+      enabledBorder: inputBorder,
+      focusedBorder: inputBorder.copyWith(
+        borderSide: BorderSide(color: scheme.primary),
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(
@@ -136,10 +122,32 @@ ThemeData appTheme(bool dark) {
       dividerColor: scheme.outlineVariant,
     ),
   );
+  final textTheme = theme.textTheme.apply(
+    bodyColor: scheme.onSurface,
+    displayColor: scheme.onSurface,
+  );
   return theme.copyWith(
-    textTheme: theme.textTheme.apply(
-      bodyColor: scheme.onSurface,
-      displayColor: scheme.onSurface,
+    badgeTheme: BadgeThemeData(
+      largeSize: 24,
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      textStyle: textTheme.bodyMedium!.copyWith(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+    textTheme: textTheme.copyWith(
+      titleMedium: textTheme.bodyMedium!.copyWith(
+        fontSize: 17,
+        fontWeight: FontWeight.w800,
+      ),
+      titleSmall: textTheme.bodyMedium!.copyWith(
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+      ),
+      bodySmall: textTheme.bodyMedium!.copyWith(
+        fontSize: 12,
+        color: scheme.onSurfaceVariant,
+      ),
     ),
   );
 }

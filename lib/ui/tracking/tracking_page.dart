@@ -53,8 +53,10 @@ class _TrackingPageState extends State<TrackingPage> {
           child: Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: surfaceColor(context),
-              border: Border.all(color: lineColor(context)),
+              color: Theme.of(context).colorScheme.surface,
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
               borderRadius: BorderRadius.circular(99),
             ),
             child: Wrap(

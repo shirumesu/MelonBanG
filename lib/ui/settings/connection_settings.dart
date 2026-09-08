@@ -92,10 +92,7 @@ class _ConnectionSettingsState extends State<ConnectionSettings> {
       controller: controller,
       enabled: !loading && !saving,
       obscureText: secret,
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
-      ),
+      decoration: InputDecoration(labelText: label),
     ),
   );
   @override

@@ -108,11 +108,7 @@ class _PlayerPageState extends State<PlayerPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.play_circle_outline,
-              size: 72,
-              color: Color(0xff22b388),
-            ),
+            const Icon(Icons.play_circle_outline, size: 72, color: mint),
             const SizedBox(height: 18),
             const Text(
               '选一部作品，开始观看',
