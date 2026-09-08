@@ -1,14 +1,41 @@
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
+import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
 abstract interface class Credentials {
   Future<String?> read(String key);
   Future<void> write(String key, String? value);
+}
+
+Credentials platformCredentials(String directory) {
+  if (Platform.isWindows) return WindowsCredentials(directory);
+  if (Platform.isMacOS) return MacOSCredentials(directory);
+  throw UnsupportedError('Unsupported credential platform');
+}
+
+/// Store secrets in the login keychain, isolated by application data directory.
+class MacOSCredentials implements Credentials {
+  MacOSCredentials(String directory)
+    : _service =
+          'org.melonbang.credentials.${sha256.convert(utf8.encode(p.normalize(p.absolute(directory))))}';
+
+  static const _channel = MethodChannel('org.melonbang/credentials');
+  final String _service;
+
+  @override
+  Future<String?> read(String key) =>
+      _channel.invokeMethod<String>('read', {'service': _service, 'key': key});
+
+  @override
+  Future<void> write(String key, String? value) => _channel.invokeMethod<void>(
+    'write',
+    {'service': _service, 'key': key, 'value': value},
+  );
 }
 
 final class _DataBlob extends Struct {

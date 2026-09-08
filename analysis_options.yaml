@@ -7,3 +7,4 @@ analyzer:
     - vendor/**
     - temp/**
     - windows/**
+    - macos/**

@@ -1,10 +1,9 @@
-# Windows disk recovery patch
+# Desktop disk recovery patch
 
 Upstream: libtorrent_flutter 2.0.0, https://github.com/ayman708-UX/libtorrent_flutter.
 The upstream license is retained in LICENSE. This app vendors the Dart bindings,
 CA bundle, and native bridge; examples and unrelated platform runners are omitted.
-The unused upstream src/CMakeLists.txt is also omitted; windows/CMakeLists.txt is
-the single build entry for this Windows-only package. README.md and CHANGELOG.md
+The unused upstream src/CMakeLists.txt is also omitted. README.md and CHANGELOG.md
 retain upstream documentation and may describe platforms absent from this copy.
 
 The upstream session sets `no_recheck_incomplete_resume=true`, which skips existing
@@ -16,6 +15,14 @@ The Windows plugin builds this source against the pinned vcpkg registry configur
 in windows/CMakeLists.txt. It never substitutes the upstream prebuilt DLL, which
 would omit the fix. Libtorrent and its dependencies link statically into the bridge.
 No separately installed torrent client is needed.
+
+The macOS CocoaPod builds the same bridge with CMake against Homebrew libtorrent
+2.1. Its build script copies the native dependency closure and rewrites dylib
+references to relative loader paths before CocoaPods embeds and signs them.
+Generated libraries and build caches are ignored. The Dart loader resolves the
+bridge from the app bundle's Frameworks directory, independent of the working
+directory. Re-run `pod install` after changing the native bridge or Homebrew
+dependencies. Builds target the host architecture.
 
 The application detaches handles with `deleteFiles:false` before upstream dispose,
 because the upstream `disposeAll` deletes torrent files by default. Verify changes
