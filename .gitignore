@@ -7,6 +7,7 @@ coverage/
 .env.*
 Thumbs.db
 Desktop.ini
+.DS_Store
 
 temp/
 build/
@@ -15,3 +16,4 @@ build/
 *.iml
 .idea/
 .metadata.*
+vendor/media_kit_video/macos/Headers/

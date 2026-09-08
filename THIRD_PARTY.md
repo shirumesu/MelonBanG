@@ -1,6 +1,6 @@
 # Native dependencies
 
-Application logic and UI are written in Dart. The Windows runner and plugins
+Application logic and UI are written in Dart. The desktop runners and plugins
 contain the native code required by Flutter, SQLite, video playback, and BitTorrent.
 There is no Node.js or Electron process and no external transcoding service.
 
@@ -22,3 +22,8 @@ The local libtorrent_flutter override includes its license and recovery patch in
 `vendor/libtorrent_flutter/PATCHES.md`. Windows CMake pins the native vcpkg registry
 and builds the patched bridge from source. `scripts/build.ps1` copies native
 dependency copyright files into the Release directory's `licenses` folder.
+The macOS runner builds the same patched bridge against Homebrew libtorrent 2.1,
+and bundles libtorrent and its non-system dynamic dependencies, including OpenSSL.
+See [OpenSSL's license](https://www.openssl.org/source/license.html) and
+[Boost's license](https://www.boost.org/users/license.html). The local macOS build
+is intended for development; distribution needs a native-license packaging review.

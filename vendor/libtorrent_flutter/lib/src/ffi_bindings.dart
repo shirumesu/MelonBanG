@@ -322,7 +322,10 @@ DynamicLibrary _openNativeLib() {
   } else if (Platform.isAndroid || Platform.isLinux) {
     return DynamicLibrary.open('lib$libName.so');
   } else if (Platform.isMacOS) {
-    return DynamicLibrary.open('lib$libName.dylib');
+    final executable = File(Platform.resolvedExecutable).parent;
+    return DynamicLibrary.open(
+      '${executable.path}/../Frameworks/lib$libName.dylib',
+    );
   } else if (Platform.isIOS) {
     return DynamicLibrary.process();
   }

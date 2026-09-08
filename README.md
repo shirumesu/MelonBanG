@@ -1,8 +1,10 @@
 # Melonbang
 
-A Windows anime client built with Dart, Flutter, and media_kit.
+A Windows and macOS anime client built with Dart, Flutter, and media_kit.
 
 ## Run and build
+
+### Windows
 
 Install Flutter stable (Dart 3.13.2+) and Visual Studio's C++ desktop build tools
 with a Windows SDK. The current build targets Windows x64.
@@ -21,6 +23,38 @@ not build or runtime requirements. The first build downloads media_kit binaries 
 builds the patched torrent engine through a pinned vcpkg toolchain; this can take
 several minutes. Later builds reuse the native dependency cache.
 
+### macOS
+
+The current native dependency build targets Apple Silicon Macs on macOS 26 or later.
+Install the full Xcode app from the Mac App Store, open it once to complete its
+setup, and select its command-line tools. A paid Apple Developer membership is
+not needed for local builds; the runner uses ad-hoc signing with no team.
+
+```sh
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -runFirstLaunch
+brew install --cask flutter
+brew install cocoapods cmake ninja libtorrent-rasterbar
+flutter doctor -v
+flutter pub get
+flutter run -d macos
+```
+
+Alternatively, set `export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
+in your shell profile to select Xcode for your user without changing the system
+command-line tools selection.
+
+Flutter includes Dart; a separate Dart installation is unnecessary. CocoaPods
+builds the patched torrent bridge using Homebrew's libtorrent 2.1 and embeds its
+native dependencies in the app. Flutter's project configuration selects arm64 for
+release/profile builds; this setup does not produce a universal binary.
+
+`flutter build macos --release` creates
+`build/macos/Build/Products/Release/melonbang.app`. Local builds are desktop apps
+without App Sandbox so downloaded and previously selected media remain accessible
+across restarts. App Store distribution and notarization require separate signing
+and packaging setup.
+
 ## Project layout
 
 - `lib/`: application entry, service composition, navigation and lifecycle.
@@ -28,8 +62,9 @@ several minutes. Later builds reuse the native dependency cache.
   and player. `ui/core/` holds shared page widgets, posters, theme and shell chrome.
 - `lib/data/`: in-process repositories, provider clients, and persistence.
 - `test/`: data, OAuth, playback and isolated page interaction tests.
-- `integration_test/`: Windows application, native playback, and torrent tests.
+- `integration_test/`: desktop application, native playback, and torrent tests.
 - `windows/`: Flutter runner and the pinned native dependency build.
+- `macos/`: Flutter runner, local signing, and Keychain integration.
 - `vendor/`: patched upstream plugins; each patch is documented in `PATCHES.md`.
 - `scripts/`: release packaging and packaged application verification.
 
@@ -69,7 +104,7 @@ without requiring an additional state-management framework. Keep `test/` and
   toggle individual sources, and import local comment JSON.
 
 Application services run in the Flutter process. `lib/data` contains Dart HTTP
-clients, SQLite repositories, OAuth callbacks, Windows DPAPI credential storage,
+clients, SQLite repositories, OAuth callbacks, operating-system credential storage,
 RSS and danmaku parsers, and the libtorrent download adapter. UI calls these Dart
 objects directly; no subprocess, IPC dispatcher, legacy component, or transcode
 pipeline is involved. Native libraries and their licenses are listed in
@@ -83,7 +118,8 @@ another directory. Earlier runtime databases are not opened or migrated.
 
 Settings provides fields for Bangumi OAuth Client ID, Client Secret, callback
 address (default `http://127.0.0.1:14567/callback`), and Dandanplay App ID/Secret.
-Credentials and tokens are encrypted with the current Windows user's DPAPI key.
+Credentials and tokens use the current Windows user's DPAPI key or the macOS login
+Keychain. Credential profiles are isolated by the application data directory.
 No configuration secrets are bundled into the executable or stored in Git.
 
 Public anime data comes from Melon API; personal writes go to Bangumi. Account
@@ -110,6 +146,14 @@ flutter test integration_test/navigation_test.dart -d windows --dart-define=TEST
 ./scripts/verify-window.ps1
 ./scripts/verify-window.ps1 -Media <absolute-video-path>
 ```
+
+On macOS, run the same analyze/unit-test commands and use `-d macos` for the
+integration tests. Also run
+`flutter test integration_test/credentials_test.dart -d macos` to verify real
+Keychain persistence, profile isolation, replacement, and deletion.
+Run the macOS integration files as separate `flutter test` commands. With Flutter
+3.47.2 on macOS 26, a single directory-wide invocation can fail to launch later
+test binaries even though each file passes independently.
 
 The player integration test expects a video longer than 15 seconds with two audio
 tracks and embedded subtitles. Optional `TEST_CAPTURE` saves only the Flutter

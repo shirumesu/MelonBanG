@@ -43,7 +43,7 @@ class AppServices {
     await Directory(dataDirectory!).create(recursive: true);
     store = await AppStore.open(p.join(dataDirectory!, 'melonbang.sqlite'));
     _dispose.add(store.close);
-    credentials ??= WindowsCredentials(p.join(dataDirectory!, 'credentials'));
+    credentials ??= platformCredentials(p.join(dataDirectory!, 'credentials'));
     account = AccountRepository(api, credentials!);
     _dispose.add(account.close);
     catalog = CatalogRepository(api, store);

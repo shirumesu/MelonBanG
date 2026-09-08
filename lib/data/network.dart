@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -24,7 +25,7 @@ class ApiClient {
     final request = http.Request(method, uri);
     request.headers.addAll({
       'Accept': 'application/json',
-      'User-Agent': 'Melonbang/1.0 (Flutter; Windows)',
+      'User-Agent': 'Melonbang/1.0 (Flutter; ${Platform.operatingSystem})',
       ...headers,
     });
     if (body is Map<String, String>) {

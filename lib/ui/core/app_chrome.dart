@@ -29,6 +29,8 @@ class AppTitleBar extends StatelessWidget {
     ),
     child: Row(
       children: [
+        if (Theme.of(context).platform == TargetPlatform.macOS)
+          const SizedBox(width: 78),
         Expanded(
           child: DragToMoveArea(
             child: Padding(
@@ -55,28 +57,30 @@ class AppTitleBar extends StatelessWidget {
             ),
           ),
         ),
-        IconButton(
-          tooltip: '最小化',
-          onPressed: windowManager.minimize,
-          icon: const Icon(Icons.remove, size: 16),
-        ),
-        IconButton(
-          tooltip: '最大化 / 还原',
-          onPressed: () async {
-            if (await windowManager.isMaximized()) {
-              await windowManager.unmaximize();
-            } else {
-              await windowManager.maximize();
-            }
-          },
-          icon: const Icon(Icons.crop_square, size: 15),
-        ),
-        IconButton(
-          tooltip: '关闭窗口',
-          onPressed: windowManager.close,
-          icon: const Icon(Icons.close, size: 17),
-        ),
-        const SizedBox(width: 5),
+        if (Theme.of(context).platform != TargetPlatform.macOS) ...[
+          IconButton(
+            tooltip: '最小化',
+            onPressed: windowManager.minimize,
+            icon: const Icon(Icons.remove, size: 16),
+          ),
+          IconButton(
+            tooltip: '最大化 / 还原',
+            onPressed: () async {
+              if (await windowManager.isMaximized()) {
+                await windowManager.unmaximize();
+              } else {
+                await windowManager.maximize();
+              }
+            },
+            icon: const Icon(Icons.crop_square, size: 15),
+          ),
+          IconButton(
+            tooltip: '关闭窗口',
+            onPressed: windowManager.close,
+            icon: const Icon(Icons.close, size: 17),
+          ),
+          const SizedBox(width: 5),
+        ],
       ],
     ),
   );

@@ -1,5 +1,5 @@
 name: libtorrent_flutter
-description: Windows libtorrent bindings with local disk recovery patches.
+description: Desktop libtorrent bindings with local disk recovery patches.
 publish_to: 'none'
 version: 2.0.0
 homepage: https://github.com/ayman708-UX/libtorrent_flutter
@@ -28,6 +28,8 @@ flutter:
   plugin:
     platforms:
       windows:
+        ffiPlugin: true
+      macos:
         ffiPlugin: true
   assets:
     - assets/cacert.pem
