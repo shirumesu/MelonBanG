@@ -45,7 +45,7 @@ class ResourcesPage extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               resourceEpisode == null ? '搜索适合你的字幕与视频版本' : '下载将关联到$episodeLabel',
-              style: TextStyle(color: mutedColor(context), fontSize: 12),
+              style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 20),
             Row(
@@ -101,7 +101,7 @@ class ResourcesPage extends StatelessWidget {
                   width: 38,
                   height: 38,
                   decoration: BoxDecoration(
-                    color: softSurface(context),
+                    color: Theme.of(context).colorScheme.surfaceContainerLow,
                     borderRadius: BorderRadius.circular(11),
                   ),
                   child: const Icon(
@@ -117,16 +117,13 @@ class ResourcesPage extends StatelessWidget {
                     children: [
                       Text(
                         '${candidate['title']}',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
+                        style: Theme.of(context).textTheme.titleSmall,
                       ),
                       const SizedBox(height: 8),
                       Text(
                         '${candidate['providerName']} · ${candidate['publishedAt'] ?? ''}',
                         style: TextStyle(
-                          color: mutedColor(context),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 11,
                         ),
                       ),

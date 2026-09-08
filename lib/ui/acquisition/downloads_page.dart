@@ -65,20 +65,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       '本地缓存',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                      ),
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 5),
                     Text(
                       '${tasks.length} 个任务 · ${tasks.where((t) => t['status'] == 'completed').length} 个已完成',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: mutedColor(context),
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
                 ),
@@ -188,7 +182,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
                             value: progress,
                             minHeight: 6,
                             borderRadius: BorderRadius.circular(99),
-                            backgroundColor: softSurface(context),
+                            backgroundColor: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerLow,
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -216,7 +212,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
                         Text(
                           '${(number(task['downloadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} MB/s · ${number(task['peerCount']).toInt()} 个连接',
                           style: TextStyle(
-                            color: mutedColor(context),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
                             fontSize: 11,
                           ),
                         ),

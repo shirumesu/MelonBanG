@@ -46,8 +46,12 @@ class _SettingsPageState extends State<SettingsPage> {
       Container(
         width: 236,
         decoration: BoxDecoration(
-          color: surfaceColor(context),
-          border: Border(right: BorderSide(color: lineColor(context))),
+          color: Theme.of(context).colorScheme.surface,
+          border: Border(
+            right: BorderSide(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
+          ),
         ),
         child: Material(
           type: MaterialType.transparency,
@@ -79,13 +83,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     leading: Icon(icons[i], size: 20),
-                    title: Text(
-                      categories[i],
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                    titleTextStyle: Theme.of(context).textTheme.titleSmall,
+                    title: Text(categories[i]),
                     onTap: () => setState(() => selected = i),
                   ),
                 ),
@@ -116,7 +115,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       Text(
                         '管理你的 Bangumi 账户连接与数据同步。',
                         style: TextStyle(
-                          color: mutedColor(context),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 13,
                         ),
                       ),
@@ -142,20 +141,18 @@ class _SettingsPageState extends State<SettingsPage> {
                                     children: [
                                       Text(
                                         '${widget.account?['nickname'] ?? '连接 Bangumi'}',
-                                        style: const TextStyle(
-                                          fontSize: 17,
-                                          fontWeight: FontWeight.w800,
-                                        ),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium,
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
                                         widget.account == null
                                             ? '同步你的追番收藏与章节记录'
                                             : '@${widget.account!['username'] ?? ''}',
-                                        style: TextStyle(
-                                          color: mutedColor(context),
-                                          fontSize: 12,
-                                        ),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall,
                                       ),
                                     ],
                                   ),
@@ -204,7 +201,11 @@ class _SettingsPageState extends State<SettingsPage> {
                               widget.account == null
                                   ? '登录后可同步到 Bangumi，未登录也能记录追番。'
                                   : '${number(widget.sync['pendingMutationCount']).toInt()} 项修改等待同步',
-                              style: TextStyle(color: mutedColor(context)),
+                              style: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
                             ),
                             if (widget.sync['lastSyncError'] != null)
                               Padding(
@@ -265,10 +266,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             const SizedBox(height: 14),
                             SelectableText(
                               widget.dataDirectory ?? '正在准备…',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: mutedColor(context),
-                              ),
+                              style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],
                         ),

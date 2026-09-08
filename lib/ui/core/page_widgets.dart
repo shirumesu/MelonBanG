@@ -17,26 +17,24 @@ class MelonPanel extends StatelessWidget {
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(20),
+    this.onTap,
   });
   final Widget child;
   final EdgeInsetsGeometry padding;
+  final VoidCallback? onTap;
   @override
-  Widget build(BuildContext context) => Container(
-    padding: padding,
-    decoration: BoxDecoration(
-      color: surfaceColor(context),
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: lineColor(context)),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withValues(alpha: isDark(context) ? .14 : .035),
-          blurRadius: 8,
-          offset: const Offset(0, 3),
-        ),
-      ],
-    ),
-    child: Material(type: MaterialType.transparency, child: child),
-  );
+  Widget build(BuildContext context) {
+    final content = Padding(padding: padding, child: child);
+    return Card(
+      child: onTap == null
+          ? content
+          : InkWell(
+              onTap: onTap,
+              customBorder: CardTheme.of(context).shape,
+              child: content,
+            ),
+    );
+  }
 }
 
 class SectionTitle extends StatelessWidget {
@@ -68,18 +66,9 @@ class SectionTitle extends StatelessWidget {
             spacing: 10,
             runSpacing: 4,
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
+              Text(title, style: Theme.of(context).textTheme.titleMedium),
               if (subtitle != null)
-                Text(
-                  subtitle!,
-                  style: TextStyle(fontSize: 12, color: mutedColor(context)),
-                ),
+                Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
             ],
           ),
         ),
@@ -94,23 +83,16 @@ class MelonBadge extends StatelessWidget {
   final String text;
   final Color color;
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: isDark(context) ? .2 : .13),
-      borderRadius: BorderRadius.circular(99),
-    ),
-    child: Text(
-      text,
-      style: TextStyle(
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-        color: isDark(context)
-            ? Color.lerp(color, Colors.white, .25)
-            : Color.lerp(color, Colors.black, .18),
-      ),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Badge(
+      backgroundColor: color.withValues(alpha: dark ? .2 : .13),
+      textColor: dark
+          ? Color.lerp(color, Colors.white, .25)
+          : Color.lerp(color, Colors.black, .18),
+      label: Text(text),
+    );
+  }
 }
 
 class EmptyState extends StatelessWidget {
@@ -132,7 +114,11 @@ class EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.movie_outlined, size: 32, color: mutedColor(context)),
+          Icon(
+            Icons.movie_outlined,
+            size: 32,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
           const SizedBox(height: 14),
           Text(
             text,
@@ -145,7 +131,7 @@ class EmptyState extends StatelessWidget {
               child: Text(
                 detail!,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: mutedColor(context), fontSize: 12),
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
           if (action != null)

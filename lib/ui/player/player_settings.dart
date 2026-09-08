@@ -112,10 +112,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
     ),
   );
   List<Widget> trackSettings() => [
-    const Text(
-      '字幕',
-      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
-    ),
+    Text('字幕', style: Theme.of(context).textTheme.titleMedium),
     const SizedBox(height: 12),
     StreamBuilder<Tracks>(
       stream: player.stream.tracks,
@@ -151,10 +148,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
       label: const Text('载入外部字幕'),
     ),
     const Divider(height: 30),
-    const Text(
-      '音轨',
-      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
-    ),
+    Text('音轨', style: Theme.of(context).textTheme.titleMedium),
     StreamBuilder<Tracks>(
       stream: player.stream.tracks,
       initialData: player.state.tracks,
@@ -200,9 +194,12 @@ class _PlayerSettingsState extends State<PlayerSettings> {
     const Divider(height: 30),
     const Text('快捷键', style: TextStyle(fontWeight: FontWeight.bold)),
     const SizedBox(height: 10),
-    const Text(
+    Text(
       '空格  播放 / 暂停\n← / →  跳转 5 秒\nF / F11  全屏\nEsc  退出全屏\nM  静音\n双击画面  全屏',
-      style: TextStyle(height: 1.8, color: Colors.grey),
+      style: TextStyle(
+        height: 1.8,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
     ),
   ];
   Future<void> offsetSubtitle(double delta) => perform(() async {

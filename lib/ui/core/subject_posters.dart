@@ -169,7 +169,7 @@ class _SubjectPoster extends StatelessWidget {
                         top: 10,
                         left: 10,
                         child: Material(
-                          color: surfaceColor(context),
+                          color: Theme.of(context).colorScheme.surface,
                           borderRadius: BorderRadius.circular(99),
                           child: MelonBadge(
                             collectionLabels[status]!,
@@ -233,7 +233,9 @@ class _SubjectPoster extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  color: rank != null ? gold : mutedColor(context),
+                  color: rank != null
+                      ? gold
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               const Spacer(),
@@ -245,7 +247,7 @@ class _SubjectPoster extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: mutedColor(context),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 )
               else if (rank == null)
@@ -253,7 +255,10 @@ class _SubjectPoster extends StatelessWidget {
                   item['episodeTotal'] == null
                       ? '${item['platform'] ?? '动画'}'
                       : '全 ${item['episodeTotal']} 话',
-                  style: TextStyle(fontSize: 11, color: mutedColor(context)),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
             ],
           ),

@@ -132,8 +132,12 @@ class _CalendarPageState extends State<CalendarPage> {
       children: [
         Container(
           decoration: BoxDecoration(
-            color: softSurface(context),
-            border: Border(bottom: BorderSide(color: lineColor(context))),
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
+            border: Border(
+              bottom: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+            ),
           ),
           height: 115,
           child: ListView.separated(
@@ -143,12 +147,23 @@ class _CalendarPageState extends State<CalendarPage> {
             separatorBuilder: (_, _) => const SizedBox(width: 8),
             itemBuilder: (context, i) => SizedBox(
               width: 82,
-              child: Material(
-                color: selected == i + 1 ? coral : surfaceColor(context),
-                borderRadius: BorderRadius.circular(14),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: () => setState(() => selected = i + 1),
+              child: Semantics(
+                selected: selected == i + 1,
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    textStyle: DefaultTextStyle.of(context).style,
+                    backgroundColor: selected == i + 1
+                        ? coral
+                        : Theme.of(context).colorScheme.surface,
+                    foregroundColor: selected == i + 1
+                        ? Colors.white
+                        : Theme.of(context).colorScheme.onSurface,
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onPressed: () => setState(() => selected = i + 1),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -166,7 +181,7 @@ class _CalendarPageState extends State<CalendarPage> {
                         style: TextStyle(
                           color: selected == i + 1
                               ? Colors.white70
-                              : mutedColor(context),
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 10,
                         ),
                       ),
@@ -175,7 +190,7 @@ class _CalendarPageState extends State<CalendarPage> {
                         style: TextStyle(
                           color: selected == i + 1
                               ? Colors.white70
-                              : mutedColor(context),
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 10,
                         ),
                       ),
@@ -232,7 +247,7 @@ class BroadcastTimeline extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: mutedColor(context),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
               ),
@@ -246,59 +261,53 @@ class BroadcastTimeline extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: InkWell(
+                child: MelonPanel(
                   onTap: () => onOpen(item),
-                  borderRadius: BorderRadius.circular(14),
-                  child: MelonPanel(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 80,
-                          height: 108,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: SubjectCover(
-                              url: item['coverUrl'],
-                              title: titleOf(item),
-                              id: number(item['subjectId']).toInt(),
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 80,
+                        height: 108,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: SubjectCover(
+                            url: item['coverUrl'],
+                            title: titleOf(item),
+                            id: number(item['subjectId']).toInt(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              titleOf(item),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
-                          ),
+                            const SizedBox(height: 7),
+                            Text(
+                              item['episodeTotal'] == null
+                                  ? '今日放送'
+                                  : '放送 · 全 ${item['episodeTotal']} 话',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                titleOf(item),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 7),
-                              Text(
-                                item['episodeTotal'] == null
-                                    ? '今日放送'
-                                    : '放送 · 全 ${item['episodeTotal']} 话',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: mutedColor(context),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        OutlinedButton(
-                          onPressed: () => onOpen(item),
-                          child: const Text('详情'),
-                        ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton(
+                        onPressed: () => onOpen(item),
+                        child: const Text('详情'),
+                      ),
+                    ],
                   ),
                 ),
               ),

@@ -101,10 +101,7 @@ class _SubjectPageState extends State<SubjectPage> {
                       const SizedBox(height: 5),
                       Text(
                         '${item['name'] ?? ''}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: mutedColor(context),
-                        ),
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: 12),
                       Wrap(
@@ -123,7 +120,7 @@ class _SubjectPageState extends State<SubjectPage> {
                         '已看 EP${watched.toString().padLeft(2, '0')} / 预定全 ${item['episodeTotal'] ?? episodes.length} 话',
                         style: TextStyle(
                           fontSize: 13,
-                          color: mutedColor(context),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 14),
@@ -149,7 +146,9 @@ class _SubjectPageState extends State<SubjectPage> {
                                   text: ' /10',
                                   style: TextStyle(
                                     fontSize: 18,
-                                    color: mutedColor(context),
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
                                   ),
                                 ),
                               ],
@@ -183,7 +182,9 @@ class _SubjectPageState extends State<SubjectPage> {
                                   '${item['ratingCount']} 人评分',
                                   style: TextStyle(
                                     fontSize: 11,
-                                    color: mutedColor(context),
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
                                   ),
                                 ),
                             ],
@@ -343,9 +344,9 @@ class _SubjectPageState extends State<SubjectPage> {
     width: 145,
     padding: const EdgeInsets.all(13),
     decoration: BoxDecoration(
-      color: softSurface(context),
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: lineColor(context)),
+      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -360,7 +361,10 @@ class _SubjectPageState extends State<SubjectPage> {
         Text(
           '${person['role'] ?? person['relation'] ?? ''}',
           maxLines: 2,
-          style: TextStyle(color: mutedColor(context), fontSize: 11),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: 11,
+          ),
         ),
       ],
     ),
@@ -401,7 +405,10 @@ class _SubjectPageState extends State<SubjectPage> {
             for (final entry in collectionLabels.entries)
               Text(
                 '${number(stats[entry.key]).toInt()} ${entry.value}',
-                style: TextStyle(fontSize: 11, color: mutedColor(context)),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
           ],
         ),
@@ -453,7 +460,9 @@ class _SubjectPageState extends State<SubjectPage> {
                           leading: CircleAvatar(
                             backgroundColor: ep['status'] == 'watched'
                                 ? mint
-                                : softSurface(context),
+                                : Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerLow,
                             foregroundColor: ep['status'] == 'watched'
                                 ? Colors.white
                                 : null,
