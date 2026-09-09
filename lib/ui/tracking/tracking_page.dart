@@ -54,10 +54,7 @@ class _TrackingPageState extends State<TrackingPage> {
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
-              border: Border.all(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-              borderRadius: BorderRadius.circular(99),
+              borderRadius: controlBorderRadius,
             ),
             child: Wrap(
               spacing: 5,

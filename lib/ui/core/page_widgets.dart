@@ -85,12 +85,22 @@ class MelonBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return Badge(
-      backgroundColor: color.withValues(alpha: dark ? .2 : .13),
-      textColor: dark
-          ? Color.lerp(color, Colors.white, .25)
-          : Color.lerp(color, Colors.black, .18),
-      label: Text(text),
+    final theme = BadgeTheme.of(context);
+    return Container(
+      constraints: BoxConstraints(minHeight: theme.largeSize!),
+      padding: theme.padding,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: dark ? .2 : .13),
+        borderRadius: badgeBorderRadius,
+      ),
+      child: Text(
+        text,
+        style: theme.textStyle!.copyWith(
+          color: dark
+              ? Color.lerp(color, Colors.white, .25)
+              : Color.lerp(color, Colors.black, .28),
+        ),
+      ),
     );
   }
 }

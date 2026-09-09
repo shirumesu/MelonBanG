@@ -6,40 +6,73 @@ const gold = Color(0xffffb83d);
 const sky = Color(0xff8bbcf6);
 const grape = Color(0xffb6a4f0);
 
+const posterBorderRadius = BorderRadius.all(Radius.circular(14));
+const panelBorderRadius = BorderRadius.all(Radius.circular(16));
+const controlBorderRadius = BorderRadius.all(Radius.circular(12));
+const badgeBorderRadius = BorderRadius.all(Radius.circular(8));
+const navigationGradient = LinearGradient(
+  colors: [Color(0xff65cfad), Color(0xff8bddbf)],
+);
+
+List<BoxShadow> posterShadows(BuildContext context) => [
+  BoxShadow(
+    color: Theme.of(context).shadowColor,
+    blurRadius: 6,
+    offset: const Offset(0, 2),
+  ),
+];
+
+LinearGradient sidebarSurface(BuildContext context) => LinearGradient(
+  colors: [
+    Theme.of(context).colorScheme.surface,
+    Theme.of(context).scaffoldBackgroundColor,
+  ],
+  stops: const [.82, 1],
+);
+
 ThemeData appTheme(bool dark) {
   final scheme =
       ColorScheme.fromSeed(
         seedColor: mint,
         brightness: dark ? Brightness.dark : Brightness.light,
       ).copyWith(
-        primary: mint,
-        onPrimary: Colors.white,
+        primary: dark ? const Color(0xff73d7b2) : const Color(0xff168364),
+        onPrimary: dark ? const Color(0xff123a2a) : Colors.white,
+        primaryContainer: dark
+            ? const Color(0xff304f42)
+            : const Color(0xffdef1e8),
+        onPrimaryContainer: dark
+            ? const Color(0xffcbefdc)
+            : const Color(0xff164d39),
         secondary: coral,
-        surface: dark ? const Color(0xff1e2430) : Colors.white,
-        surfaceContainerLowest: dark ? const Color(0xff151922) : Colors.white,
+        tertiary: dark ? const Color(0xffe0bd70) : const Color(0xffa57520),
+        surface: dark ? const Color(0xff1e2430) : const Color(0xfffbfcfb),
+        surfaceContainerLowest: dark
+            ? const Color(0xff151922)
+            : const Color(0xfffbfcfb),
         surfaceContainerLow: dark
             ? const Color(0xff262d3a)
-            : const Color(0xfff7f8fa),
+            : const Color(0xfff6f8f6),
         surfaceContainer: dark
             ? const Color(0xff262d3a)
-            : const Color(0xfff4f5f7),
+            : const Color(0xfff3f5f4),
         surfaceContainerHigh: dark
             ? const Color(0xff2b3442)
-            : const Color(0xffeef0f4),
+            : const Color(0xffeaf0ec),
         surfaceContainerHighest: dark
             ? const Color(0xff354052)
-            : const Color(0xffe5e7ec),
-        onSurface: dark ? const Color(0xffe7eef1) : const Color(0xff243239),
+            : const Color(0xffdce3df),
+        onSurface: dark ? const Color(0xffe7eef1) : const Color(0xff263833),
         onSurfaceVariant: dark
             ? const Color(0xffa0afb9)
-            : const Color(0xff84919a),
+            : const Color(0xff6f7d78),
         outlineVariant: dark
             ? const Color(0xff354052)
-            : const Color(0xffe5e7ec),
+            : const Color(0xffe1e8e3),
       );
   final inputBorder = OutlineInputBorder(
-    borderRadius: BorderRadius.circular(14),
-    borderSide: BorderSide(color: scheme.outlineVariant),
+    borderRadius: posterBorderRadius,
+    borderSide: BorderSide.none,
   );
   final theme = ThemeData(
     useMaterial3: true,
@@ -48,10 +81,13 @@ ThemeData appTheme(bool dark) {
         ? scheme.surfaceContainerLowest
         : scheme.surfaceContainer,
     fontFamily: 'Microsoft YaHei UI',
+    shadowColor: const Color(0xff203b30).withValues(alpha: dark ? .16 : .06),
+    hoverColor: scheme.primary.withValues(alpha: .05),
+    focusColor: scheme.primary.withValues(alpha: .12),
     dialogTheme: DialogThemeData(
       backgroundColor: scheme.surface,
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      shape: const RoundedRectangleBorder(borderRadius: panelBorderRadius),
     ),
     dividerTheme: DividerThemeData(
       color: scheme.outlineVariant,
@@ -60,19 +96,25 @@ ThemeData appTheme(bool dark) {
     ),
     cardTheme: CardThemeData(
       margin: EdgeInsets.zero,
-      elevation: 1,
-      shadowColor: Colors.black.withValues(alpha: .12),
+      elevation: 0,
+      clipBehavior: Clip.antiAlias,
       color: scheme.surface,
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: scheme.outlineVariant),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: panelBorderRadius),
+    ),
+    listTileTheme: ListTileThemeData(
+      shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
+      selectedColor: scheme.primary,
+      selectedTileColor: scheme.primaryContainer,
+      iconColor: scheme.onSurfaceVariant,
+    ),
+    switchTheme: const SwitchThemeData(
+      trackOutlineColor: WidgetStatePropertyAll(Colors.transparent),
     ),
     inputDecorationTheme: InputDecorationTheme(
       isDense: true,
       filled: true,
-      fillColor: scheme.surface,
+      fillColor: scheme.surfaceContainerHigh,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       hintStyle: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
       border: inputBorder,
@@ -83,9 +125,10 @@ ThemeData appTheme(bool dark) {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+        minimumSize: const Size(64, 40),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-        shape: const StadiumBorder(),
+        shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -93,21 +136,23 @@ ThemeData appTheme(bool dark) {
         foregroundColor: scheme.onSurface,
         backgroundColor: scheme.surface,
         side: BorderSide(color: scheme.outlineVariant),
-        shape: const StadiumBorder(),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+        shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
+        minimumSize: const Size(64, 40),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
+        shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
         textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
       ),
     ),
     chipTheme: ChipThemeData(
       backgroundColor: scheme.surface,
-      selectedColor: mint.withValues(alpha: .18),
-      side: BorderSide(color: scheme.outlineVariant),
-      shape: const StadiumBorder(),
+      selectedColor: scheme.primaryContainer,
+      side: BorderSide.none,
+      shape: const RoundedRectangleBorder(borderRadius: badgeBorderRadius),
       labelStyle: TextStyle(
         fontSize: 12,
         color: scheme.onSurface,
@@ -117,9 +162,9 @@ ThemeData appTheme(bool dark) {
       showCheckmark: false,
     ),
     tabBarTheme: TabBarThemeData(
-      labelColor: mint,
+      labelColor: scheme.primary,
       unselectedLabelColor: scheme.onSurface,
-      dividerColor: scheme.outlineVariant,
+      dividerColor: Colors.transparent,
     ),
   );
   final textTheme = theme.textTheme.apply(

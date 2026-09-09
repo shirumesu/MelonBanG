@@ -23,12 +23,7 @@ class AppTitleBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     height: 40,
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      border: Border(
-        bottom: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
-      ),
-    ),
+    color: Theme.of(context).scaffoldBackgroundColor,
     child: Row(
       children: [
         if (Theme.of(context).platform == TargetPlatform.macOS)
@@ -111,13 +106,7 @@ class AppSidebar extends StatelessWidget {
   final VoidCallback onOpenVideo;
   @override
   Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.surface
-          .withValues(alpha: dark ? .65 : .8),
-      border: Border(
-        right: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
-      ),
-    ),
+    decoration: BoxDecoration(gradient: sidebarSurface(context)),
     padding: const EdgeInsets.fromLTRB(14, 24, 14, 14),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -133,14 +122,7 @@ class AppSidebar extends StatelessWidget {
                   gradient: const LinearGradient(
                     colors: [Color(0xff6fd9b1), mint],
                   ),
-                  borderRadius: BorderRadius.circular(11),
-                  boxShadow: [
-                    BoxShadow(
-                      color: mint.withValues(alpha: .25),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+                  borderRadius: controlBorderRadius,
                 ),
                 child: const Icon(
                   Icons.spa_rounded,
@@ -205,63 +187,62 @@ class AppSidebar extends StatelessWidget {
           _nav(context, 'player', '播放器', Icons.play_circle_outline),
         _nav(context, 'settings', '设置', Icons.settings_outlined),
         const SizedBox(height: 10),
-        InkWell(
-          onTap: () => onNavigate('settings'),
-          borderRadius: BorderRadius.circular(14),
-          child: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(colors: [grape, sky]),
-                  ),
-                  child: Text(
-                    nickname.isEmpty ? 'M' : nickname.characters.first,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
+        Material(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: posterBorderRadius,
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => onNavigate('settings'),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(colors: [grape, sky]),
+                    ),
+                    child: Text(
+                      nickname.isEmpty ? 'M' : nickname.characters.first,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        nickname,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          nickname,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                      Text(
-                        username == null ? '本地追番记录' : '@$username',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        Text(
+                          username == null ? '本地追番记录' : '@$username',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -283,21 +264,8 @@ class AppSidebar extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 5),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          gradient: selected
-              ? const LinearGradient(
-                  colors: [Color(0xff43c99f), Color(0xff6fd9b1)],
-                )
-              : null,
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: mint.withValues(alpha: .2),
-                    blurRadius: 14,
-                    offset: const Offset(0, 5),
-                  ),
-                ]
-              : null,
+          borderRadius: controlBorderRadius,
+          gradient: selected ? navigationGradient : null,
         ),
         child: Material(
           type: MaterialType.transparency,
@@ -307,8 +275,9 @@ class AppSidebar extends StatelessWidget {
             selectedColor: const Color(0xff08321f),
             iconColor: Theme.of(context).colorScheme.onSurfaceVariant,
             titleTextStyle: Theme.of(context).textTheme.titleSmall,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+            selectedTileColor: Colors.transparent,
+            shape: const RoundedRectangleBorder(
+              borderRadius: controlBorderRadius,
             ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 12),
             leading: Icon(icon, size: 20),
@@ -393,30 +362,18 @@ class AppHeader extends StatelessWidget {
           if (route != 'player')
             SizedBox(
               width: size.maxWidth < 800 ? 205 : 280,
-              height: 43,
+              height: 40,
               child: TextField(
                 controller: search,
                 onSubmitted: (_) => onSearch(),
                 decoration: InputDecoration(
+                  fillColor: Theme.of(context).colorScheme.surface,
                   hintText: '搜索番剧名称…',
                   prefixIcon: const Icon(Icons.search, size: 19),
                   suffixIcon: IconButton(
                     tooltip: '搜索番剧',
                     onPressed: onSearch,
                     icon: const Icon(Icons.arrow_forward, size: 16),
-                  ),
-                  border: const OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(99)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(99),
-                    borderSide: BorderSide(
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                    ),
-                  ),
-                  focusedBorder: const OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(99)),
-                    borderSide: BorderSide(color: mint),
                   ),
                 ),
               ),

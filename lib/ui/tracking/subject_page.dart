@@ -66,17 +66,11 @@ class _SubjectPageState extends State<SubjectPage> {
                     aspectRatio: .75,
                     child: Container(
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: .15),
-                            blurRadius: 28,
-                            offset: const Offset(0, 12),
-                          ),
-                        ],
+                        borderRadius: posterBorderRadius,
+                        boxShadow: posterShadows(context),
                       ),
                       child: ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: posterBorderRadius,
                         child: SubjectCover(
                           url: item['coverUrl'],
                           title: titleOf(item),
@@ -173,7 +167,9 @@ class _SubjectPageState extends State<SubjectPage> {
                                           ? Icons.star_half_rounded
                                           : Icons.star_outline_rounded,
                                       size: 18,
-                                      color: gold,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .tertiary,
                                     ),
                                 ],
                               ),
@@ -345,8 +341,7 @@ class _SubjectPageState extends State<SubjectPage> {
     padding: const EdgeInsets.all(13),
     decoration: BoxDecoration(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      borderRadius: posterBorderRadius,
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,

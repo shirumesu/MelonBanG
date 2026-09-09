@@ -45,14 +45,7 @@ class _SettingsPageState extends State<SettingsPage> {
     children: [
       Container(
         width: 236,
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          border: Border(
-            right: BorderSide(
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
-          ),
-        ),
+        decoration: BoxDecoration(gradient: sidebarSurface(context)),
         child: Material(
           type: MaterialType.transparency,
           child: Column(
@@ -78,10 +71,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
                   child: ListTile(
                     selected: selected == i,
-                    selectedTileColor: mint.withValues(alpha: .14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
                     leading: Icon(icons[i], size: 20),
                     titleTextStyle: Theme.of(context).textTheme.titleSmall,
                     title: Text(categories[i]),
@@ -224,8 +213,10 @@ class _SettingsPageState extends State<SettingsPage> {
                     children: [
                       const SectionTitle(title: '主题模式'),
                       MelonPanel(
+                        padding: EdgeInsets.zero,
                         child: SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
+                          contentPadding: const EdgeInsets.all(20),
+                          shape: CardTheme.of(context).shape,
                           title: const Text('深色主题'),
                           subtitle: const Text('浅色模式使用中性灰白页面与白色卡片'),
                           value: widget.dark,
