@@ -67,7 +67,7 @@ class SubjectPosters extends StatelessWidget {
   }
 }
 
-class _SubjectPoster extends StatelessWidget {
+class _SubjectPoster extends StatefulWidget {
   const _SubjectPoster({
     required this.item,
     required this.onOpen,
@@ -78,30 +78,39 @@ class _SubjectPoster extends StatelessWidget {
   final ValueChanged<Json> onOpen;
   final int? rank;
   final bool tracking;
+
+  @override
+  State<_SubjectPoster> createState() => _SubjectPosterState();
+}
+
+class _SubjectPosterState extends State<_SubjectPoster> {
+  bool hovered = false;
+  bool focused = false;
+
   @override
   Widget build(BuildContext context) {
+    final item = widget.item;
+    final rank = widget.rank;
+    final tracking = widget.tracking;
     final status =
         '${item['status'] ?? object(item['collection'])['status'] ?? ''}';
     return InkWell(
-      onTap: () => onOpen(item),
-      borderRadius: BorderRadius.circular(14),
+      onTap: () => widget.onOpen(item),
+      onHover: (value) => setState(() => hovered = value),
+      onFocusChange: (value) => setState(() => focused = value),
+      overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+      borderRadius: posterBorderRadius,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             child: Container(
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: .10),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+                borderRadius: posterBorderRadius,
+                boxShadow: posterShadows(context),
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: posterBorderRadius,
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -141,18 +150,19 @@ class _SubjectPoster extends StatelessWidget {
                         top: 9,
                         left: 9,
                         child: Container(
+                          constraints: const BoxConstraints(minHeight: 24),
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 3,
+                            horizontal: 8,
+                            vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(99),
-                            gradient: rank! <= 3
+                            borderRadius: badgeBorderRadius,
+                            gradient: rank <= 3
                                 ? const LinearGradient(
                                     colors: [Color(0xffffcf6b), coral],
                                   )
                                 : null,
-                            color: rank! > 3 ? Colors.black38 : null,
+                            color: rank > 3 ? Colors.black38 : null,
                           ),
                           child: Text(
                             '#$rank',
@@ -170,7 +180,7 @@ class _SubjectPoster extends StatelessWidget {
                         left: 10,
                         child: Material(
                           color: Theme.of(context).colorScheme.surface,
-                          borderRadius: BorderRadius.circular(99),
+                          borderRadius: badgeBorderRadius,
                           child: MelonBadge(
                             collectionLabels[status]!,
                             color: collectionColor(status),
@@ -182,24 +192,42 @@ class _SubjectPoster extends StatelessWidget {
                         top: 10,
                         right: 9,
                         child: Container(
+                          constraints: const BoxConstraints(minHeight: 24),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 8,
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
                             color: Colors.black38,
-                            borderRadius: BorderRadius.circular(99),
+                            borderRadius: badgeBorderRadius,
                           ),
                           child: Text(
                             '全 ${item['episodeTotal']} 话',
                             style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 10,
+                              fontSize: 11,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
                       ),
+                    IgnorePointer(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 120),
+                        decoration: BoxDecoration(
+                          borderRadius: posterBorderRadius,
+                          color: hovered
+                              ? Colors.white.withValues(alpha: .06)
+                              : Colors.transparent,
+                          border: focused
+                              ? Border.all(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  width: 2,
+                                )
+                              : null,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -234,7 +262,7 @@ class _SubjectPoster extends StatelessWidget {
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: rank != null
-                      ? gold
+                      ? Theme.of(context).colorScheme.tertiary
                       : Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),

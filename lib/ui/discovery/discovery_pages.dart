@@ -131,14 +131,7 @@ class _CalendarPageState extends State<CalendarPage> {
     return Column(
       children: [
         Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerLow,
-            border: Border(
-              bottom: BorderSide(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-            ),
-          ),
+          color: Theme.of(context).scaffoldBackgroundColor,
           height: 115,
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 14),
@@ -159,8 +152,8 @@ class _CalendarPageState extends State<CalendarPage> {
                         ? Colors.white
                         : Theme.of(context).colorScheme.onSurface,
                     padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                    shape: const RoundedRectangleBorder(
+                      borderRadius: posterBorderRadius,
                     ),
                   ),
                   onPressed: () => setState(() => selected = i + 1),

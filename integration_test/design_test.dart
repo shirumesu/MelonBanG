@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -120,6 +121,16 @@ void main() {
       image.dispose();
     }
 
+    Future<void> hoverSnapshot(Finder target, String name) async {
+      await tester.ensureVisible(target);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: tester.getCenter(target));
+      await tester.pump(const Duration(milliseconds: 200));
+      await snapshot(name);
+      await mouse.removePointer();
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+
     for (final width in [1360.0, 960.0]) {
       await windowManager.setSize(Size(width, width == 960 ? 640 : 1000));
       await tester.pump(const Duration(milliseconds: 500));
@@ -132,9 +143,11 @@ void main() {
       expect(sections.take(2), ['本季热度', '继续播放']);
       await tester.tap(find.text('追番').first);
       await snapshot('tracking-${width.toInt()}');
-      await tester.ensureVisible(find.text(names.first));
-      await tester.pump();
-      await tester.tap(find.text(names.first));
+      await hoverSnapshot(
+        find.text('看到 EP5').first,
+        'tracking-hover-${width.toInt()}',
+      );
+      await tester.tap(find.text('看到 EP5').first);
       await tester.pump(const Duration(milliseconds: 500));
       await snapshot('subject-${width.toInt()}');
       await tester.ensureVisible(find.text('选集'));
@@ -203,10 +216,17 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       final input = find.widgetWithText(TextField, 'Bangumi Client ID');
       await tester.enterText(input, 'draft-client');
+      await snapshot('connections-${width.toInt()}');
       await tester.tap(find.text('界面与外观'));
       await tester.pump();
+      await snapshot('appearance-${width.toInt()}');
+      await hoverSnapshot(
+        find.text('深色主题'),
+        'appearance-hover-${width.toInt()}',
+      );
       await tester.tap(find.byType(Switch));
       await tester.pump();
+      await snapshot('appearance-dark-${width.toInt()}');
       await tester.tap(find.text('服务连接'));
       await tester.pump();
       expect(find.text('draft-client'), findsOneWidget);
