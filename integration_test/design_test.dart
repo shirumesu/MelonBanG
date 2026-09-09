@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -59,11 +60,17 @@ void main() {
           ],
         },
     ];
+    Completer<void>? refreshGate;
+    var failToday = false;
     final services = AppServices(
       directory: directory.path,
       credentials: MemoryCredentials(),
       api: ApiClient(
         client: MockClient((request) async {
+          if (refreshGate != null) await refreshGate.future;
+          if (failToday && request.url.path.endsWith('/today')) {
+            return http.Response('', 503);
+          }
           final id = int.tryParse(request.url.pathSegments.last);
           final value = id != null
               ? {'data': subjects[id - 1]}
@@ -136,6 +143,35 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
       state.navigate('home');
       await snapshot('home-${width.toInt()}');
+      expect(find.text('打开视频'), findsNothing);
+      await tester.tap(find.byTooltip('收起侧栏'));
+      await snapshot('collapsed-${width.toInt()}');
+      await tester.tap(find.byTooltip('展开侧栏'));
+      await tester.pump();
+      if (width == 1360) {
+        refreshGate = Completer<void>();
+        await tester.tap(find.text('刷新'));
+        await tester.pump();
+        expect(find.text('刷新中…'), findsOneWidget);
+        await snapshot('refresh-running');
+        failToday = true;
+        refreshGate.complete();
+        for (var i = 0; i < 20; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        refreshGate = null;
+        expect(find.text('本季热度已更新，今日放送刷新失败。'), findsOneWidget);
+        expect(find.text(names.first), findsWidgets);
+        await snapshot('refresh-partial');
+        failToday = false;
+        await tester.tap(find.text('重试'));
+        for (var i = 0; i < 10; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        expect(find.text('已更新'), findsOneWidget);
+        expect(find.textContaining('刚刚'), findsNothing);
+        await snapshot('refresh-success');
+      }
       final sections = tester
           .widgetList<SectionTitle>(find.byType(SectionTitle))
           .map((w) => w.title)
@@ -143,6 +179,10 @@ void main() {
       expect(sections.take(2), ['本季热度', '继续播放']);
       await tester.tap(find.text('追番').first);
       await snapshot('tracking-${width.toInt()}');
+      await tester.tap(find.text('同步收藏'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('登录 Bangumi 后可同步收藏。'), findsOneWidget);
+      await snapshot('sync-sign-in-${width.toInt()}');
       await hoverSnapshot(
         find.text('看到 EP5').first,
         'tracking-hover-${width.toInt()}',
@@ -185,6 +225,13 @@ void main() {
       expect(find.text(names.first), findsNothing);
       expect(find.text(names[1]), findsOneWidget);
       await snapshot('calendar-${width.toInt()}');
+      await hoverSnapshot(
+        find.text(names[1]),
+        'calendar-hover-${width.toInt()}',
+      );
+      await tester.tap(find.byTooltip('返回探索'));
+      await tester.pump();
+      expect(find.text('本季热度'), findsOneWidget);
       state.downloads = <String, dynamic>{
         'tasks': <Map<String, dynamic>>[
           {
@@ -207,6 +254,11 @@ void main() {
       };
       state.navigate('downloads');
       await snapshot('downloads-${width.toInt()}');
+      await tester.tap(find.byTooltip('更多缓存操作'));
+      await snapshot('downloads-menu-${width.toInt()}');
+      expect(find.text('打开本地视频…'), findsOneWidget);
+      await tester.tapAt(const Offset(500, 80));
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(find.widgetWithText(ChoiceChip, '已暂停'));
       await tester.pump();
       expect(find.text('完整缓存'), findsNothing);
@@ -229,6 +281,12 @@ void main() {
       await snapshot('appearance-dark-${width.toInt()}');
       await tester.tap(find.text('服务连接'));
       await tester.pump();
+      expect(find.text('draft-client'), findsOneWidget);
+      await tester.tap(find.byTooltip('收起侧栏'));
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.text('draft-client'), findsOneWidget);
+      await tester.tap(find.byTooltip('展开侧栏'));
+      await tester.pump(const Duration(milliseconds: 200));
       expect(find.text('draft-client'), findsOneWidget);
       await snapshot('connections-dark-${width.toInt()}');
       state.navigate('home');

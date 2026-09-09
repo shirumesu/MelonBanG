@@ -18,8 +18,20 @@ const routeTitles = {
 };
 
 class AppTitleBar extends StatelessWidget {
-  const AppTitleBar({super.key, required this.route});
+  const AppTitleBar({
+    super.key,
+    required this.route,
+    required this.dark,
+    required this.sidebarVisible,
+    required this.onToggleSidebar,
+    required this.onToggleTheme,
+    this.onBack,
+  });
   final String route;
+  final bool dark, sidebarVisible;
+  final VoidCallback onToggleSidebar, onToggleTheme;
+  final VoidCallback? onBack;
+
   @override
   Widget build(BuildContext context) => Container(
     height: 40,
@@ -27,34 +39,53 @@ class AppTitleBar extends StatelessWidget {
     child: Row(
       children: [
         if (Theme.of(context).platform == TargetPlatform.macOS)
-          const SizedBox(width: 78),
+          const SizedBox(width: 78)
+        else
+          const SizedBox(width: 8),
+        IconButton(
+          tooltip: sidebarVisible ? '收起侧栏' : '展开侧栏',
+          onPressed: onToggleSidebar,
+          icon: const Icon(Icons.view_sidebar_outlined, size: 18),
+        ),
+        IconButton(
+          tooltip: route == 'resources' ? '返回番剧' : '返回探索',
+          onPressed: onBack,
+          icon: const Icon(Icons.arrow_back, size: 18),
+        ),
         Expanded(
           child: DragToMoveArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 15),
-              child: Row(
-                children: [
-                  const Icon(Icons.spa_rounded, size: 18, color: mint),
-                  const SizedBox(width: 9),
-                  const Text(
-                    'melonbang',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: .4,
+            child: Container(
+              height: 40,
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    const TextSpan(
+                      text: 'melonbang',
+                      style: TextStyle(fontWeight: FontWeight.w700),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    '— ${routeTitles[route] ?? ''}',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    TextSpan(
+                      text: '  /  ${routeTitles[route] ?? ''}',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
               ),
             ),
+          ),
+        ),
+        IconButton(
+          tooltip: '切换主题',
+          onPressed: onToggleTheme,
+          icon: Icon(
+            dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+            size: 18,
           ),
         ),
         if (Theme.of(context).platform != TargetPlatform.macOS) ...[
@@ -93,7 +124,6 @@ class AppSidebar extends StatelessWidget {
     required this.route,
     required this.nickname,
     required this.onNavigate,
-    required this.onOpenVideo,
     this.watchingCount = 0,
     this.downloadCount = 0,
     this.username,
@@ -103,7 +133,6 @@ class AppSidebar extends StatelessWidget {
   final String? username;
   final int watchingCount, downloadCount;
   final ValueChanged<String> onNavigate;
-  final VoidCallback onOpenVideo;
   @override
   Widget build(BuildContext context) => Container(
     decoration: BoxDecoration(gradient: sidebarSurface(context)),
@@ -178,11 +207,6 @@ class AppSidebar extends StatelessWidget {
           downloadCount,
         ),
         const Spacer(),
-        TextButton.icon(
-          onPressed: onOpenVideo,
-          icon: const Icon(Icons.video_file_outlined, size: 17),
-          label: const Text('打开视频'),
-        ),
         if (route == 'player')
           _nav(context, 'player', '播放器', Icons.play_circle_outline),
         _nav(context, 'settings', '设置', Icons.settings_outlined),
@@ -303,19 +327,15 @@ class AppSidebar extends StatelessWidget {
 class AppHeader extends StatelessWidget {
   const AppHeader({
     super.key,
-    required this.dark,
     required this.route,
     required this.search,
-    required this.onBack,
     required this.onSearch,
-    required this.onToggleTheme,
     this.sync = const {},
     this.collectionCount = 0,
   });
-  final bool dark;
   final String route;
   final TextEditingController search;
-  final VoidCallback onBack, onSearch, onToggleTheme;
+  final VoidCallback onSearch;
   final Json sync;
   final int collectionCount;
   @override
@@ -324,18 +344,6 @@ class AppHeader extends StatelessWidget {
     child: LayoutBuilder(
       builder: (context, size) => Row(
         children: [
-          if ([
-            'subject',
-            'resources',
-            'search',
-            'calendar',
-          ].contains(route)) ...[
-            IconButton(
-              onPressed: onBack,
-              icon: const Icon(Icons.arrow_back, size: 20),
-            ),
-            const SizedBox(width: 8),
-          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -365,10 +373,21 @@ class AppHeader extends StatelessWidget {
               height: 40,
               child: TextField(
                 controller: search,
+                textAlignVertical: TextAlignVertical.center,
+                style: const TextStyle(fontSize: 13, height: 1.25),
                 onSubmitted: (_) => onSearch(),
                 decoration: InputDecoration(
                   fillColor: Theme.of(context).colorScheme.surface,
                   hintText: '搜索番剧名称…',
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                  prefixIconConstraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
+                  suffixIconConstraints: const BoxConstraints.tightFor(
+                    width: 40,
+                    height: 40,
+                  ),
                   prefixIcon: const Icon(Icons.search, size: 19),
                   suffixIcon: IconButton(
                     tooltip: '搜索番剧',
@@ -391,15 +410,6 @@ class AppHeader extends StatelessWidget {
               color: sync['lastSyncError'] == null ? mint : gold,
             ),
           ],
-          const SizedBox(width: 8),
-          IconButton(
-            tooltip: '切换主题',
-            onPressed: onToggleTheme,
-            icon: Icon(
-              dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-              size: 20,
-            ),
-          ),
         ],
       ),
     ),

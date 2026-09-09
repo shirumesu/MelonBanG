@@ -41,6 +41,56 @@ void main() {
   });
 
   test(
+    'manual catalogue refresh bypasses cache and reports network failure',
+    () async {
+      var version = 1, requests = 0;
+      var online = true;
+      final api = ApiClient(
+        client: MockClient((request) async {
+          requests++;
+          if (!online) return http.Response('', 503);
+          final item = {'subjectId': version, 'name': 'Version $version'};
+          return http.Response(
+            jsonEncode(
+              request.url.path.endsWith('/today')
+                  ? {
+                      'items': [item],
+                    }
+                  : {
+                      'data': [item],
+                      'hasMore': false,
+                    },
+            ),
+            200,
+          );
+        }),
+      );
+      final catalog = CatalogRepository(api, store);
+      expect((await catalog.trending()).single['subjectId'], 1);
+      await catalog.today();
+      version = 2;
+      expect((await catalog.trending()).single['subjectId'], 1);
+      expect(requests, 2);
+      expect((await catalog.trending(refresh: true)).single['subjectId'], 2);
+      expect(
+        objects((await catalog.today(refresh: true))['items'])
+            .single['subjectId'],
+        2,
+      );
+      online = false;
+      await expectLater(
+        catalog.trending(refresh: true),
+        throwsA(isA<Exception>()),
+      );
+      await expectLater(
+        catalog.today(refresh: true),
+        throwsA(isA<Exception>()),
+      );
+      expect((await catalog.trending()).single['subjectId'], 2);
+    },
+  );
+
+  test(
     'complete details survive search results and unavailable network',
     () async {
       var online = true;

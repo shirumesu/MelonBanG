@@ -17,10 +17,11 @@ class SettingsPage extends StatefulWidget {
     required this.onThemeChanged,
     required this.onOpenVideo,
     this.onBack,
+    this.showSidebar = true,
   });
   final Json? account;
   final Json sync;
-  final bool dark;
+  final bool dark, showSidebar;
   final String? dataDirectory;
   final Widget connectionSettings;
   final VoidCallback onAccountAction, onCancelSignIn, onOpenVideo;
@@ -43,44 +44,45 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) => Row(
     children: [
-      Container(
-        width: 236,
-        decoration: BoxDecoration(gradient: sidebarSurface(context)),
-        child: Material(
-          type: MaterialType.transparency,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(18),
-                child: TextButton.icon(
-                  onPressed: widget.onBack,
-                  icon: const Icon(Icons.arrow_back, size: 18),
-                  label: const Text('返回'),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(26, 0, 0, 24),
-                child: Text(
-                  '设置',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
-                ),
-              ),
-              for (var i = 0; i < categories.length; i++)
+      if (widget.showSidebar)
+        Container(
+          width: 236,
+          decoration: BoxDecoration(gradient: sidebarSurface(context)),
+          child: Material(
+            type: MaterialType.transparency,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-                  child: ListTile(
-                    selected: selected == i,
-                    leading: Icon(icons[i], size: 20),
-                    titleTextStyle: Theme.of(context).textTheme.titleSmall,
-                    title: Text(categories[i]),
-                    onTap: () => setState(() => selected = i),
+                  padding: const EdgeInsets.all(18),
+                  child: TextButton.icon(
+                    onPressed: widget.onBack,
+                    icon: const Icon(Icons.arrow_back, size: 18),
+                    label: const Text('返回'),
                   ),
                 ),
-            ],
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(26, 0, 0, 24),
+                  child: Text(
+                    '设置',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                for (var i = 0; i < categories.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                    child: ListTile(
+                      selected: selected == i,
+                      leading: Icon(icons[i], size: 20),
+                      titleTextStyle: Theme.of(context).textTheme.titleSmall,
+                      title: Text(categories[i]),
+                      onTap: () => setState(() => selected = i),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
-      ),
       Expanded(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

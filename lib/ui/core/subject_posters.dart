@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/json.dart';
 import '../tracking/collection_labels.dart';
 import 'page_widgets.dart';
+import 'motion.dart';
 import 'theme.dart';
 
 const _artColors = [
@@ -213,7 +214,7 @@ class _SubjectPosterState extends State<_SubjectPoster> {
                       ),
                     IgnorePointer(
                       child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 120),
+                        duration: motionDuration(context, 120),
                         decoration: BoxDecoration(
                           borderRadius: posterBorderRadius,
                           color: hovered
@@ -343,9 +344,69 @@ class SubjectCover extends StatelessWidget {
       final String address when address.startsWith('http') => Image.network(
         address,
         fit: BoxFit.cover,
+        frameBuilder: (context, child, frame, synchronous) {
+          if (synchronous) return child;
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              ColoredBox(
+                color: Theme.of(context).colorScheme.surfaceContainerHigh,
+              ),
+              AnimatedOpacity(
+                key: ValueKey(address),
+                opacity: frame == null ? 0 : 1,
+                duration: motionDuration(context),
+                child: child,
+              ),
+            ],
+          );
+        },
         errorBuilder: (_, _, _) => fallback,
       ),
       _ => fallback,
     };
   }
+}
+
+class PosterPlaceholders extends StatelessWidget {
+  const PosterPlaceholders({super.key});
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: '正在加载番剧',
+    child: ExcludeSemantics(
+      child: SizedBox(
+        height: 330,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: 5,
+          separatorBuilder: (_, _) => const SizedBox(width: 16),
+          itemBuilder: (context, _) => SizedBox(
+            width: 180,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  height: 240,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                    borderRadius: posterBorderRadius,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: 130,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                    borderRadius: badgeBorderRadius,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
