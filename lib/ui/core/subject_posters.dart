@@ -79,6 +79,11 @@ class _HorizontalPosters extends StatefulWidget {
 class _HorizontalPostersState extends State<_HorizontalPosters> {
   final _scroll = ScrollController();
   bool _back = false, _forward = false;
+  int _hoveredEdge = 0, _focusedEdge = 0;
+
+  void _hover(int direction) {
+    if (_hoveredEdge != direction) setState(() => _hoveredEdge = direction);
+  }
 
   @override
   void initState() {
@@ -135,42 +140,84 @@ class _HorizontalPostersState extends State<_HorizontalPosters> {
         _updateButtons();
         return false;
       },
-      child: Stack(
-        children: [
-          ListView.separated(
-            controller: _scroll,
-            padding: const EdgeInsets.fromLTRB(2, 3, 2, 10),
-            scrollDirection: Axis.horizontal,
-            itemCount: widget.itemCount,
-            separatorBuilder: (_, _) => const SizedBox(width: 16),
-            itemBuilder: (_, i) => SizedBox(
-              width: widget.ranked ? 180 : 188,
-              child: widget.itemBuilder(i),
-            ),
-          ),
-          if (_back || _forward)
-            for (final direction in [-1, 1])
-              Positioned(
-                left: direction < 0 ? 6 : null,
-                right: direction > 0 ? 6 : null,
-                top: widget.ranked ? 102 : 114,
-                child: Material(
-                  color: Theme.of(context).colorScheme.surface,
-                  shape: const CircleBorder(),
-                  elevation: 2,
-                  shadowColor: Theme.of(context).shadowColor,
-                  child: IconButton(
-                    tooltip: direction < 0 ? '向左翻页' : '向右翻页',
-                    onPressed: (direction < 0 ? _back : _forward)
-                        ? () => _page(direction)
-                        : null,
-                    icon: Icon(
-                      direction < 0 ? Icons.chevron_left : Icons.chevron_right,
-                    ),
-                  ),
+      child: LayoutBuilder(
+        builder: (context, constraints) => MouseRegion(
+          onExit: (_) => _hover(0),
+          onHover: (event) {
+            final point = event.localPosition;
+            final nearButton =
+                (point.dy - (widget.ranked ? 122 : 134)).abs() <= 56;
+            _hover(
+              !nearButton
+                  ? 0
+                  : point.dx <= 76
+                  ? -1
+                  : point.dx >= constraints.maxWidth - 76
+                  ? 1
+                  : 0,
+            );
+          },
+          child: Stack(
+            children: [
+              ListView.separated(
+                controller: _scroll,
+                padding: const EdgeInsets.fromLTRB(2, 3, 2, 10),
+                scrollDirection: Axis.horizontal,
+                itemCount: widget.itemCount,
+                separatorBuilder: (_, _) => const SizedBox(width: 16),
+                itemBuilder: (_, i) => SizedBox(
+                  width: widget.ranked ? 180 : 188,
+                  child: widget.itemBuilder(i),
                 ),
               ),
-        ],
+              for (final direction in [-1, 1])
+                if (direction < 0 ? _back : _forward)
+                  Positioned(
+                    left: direction < 0 ? 6 : null,
+                    right: direction > 0 ? 6 : null,
+                    top: widget.ranked ? 102 : 114,
+                    child: Focus(
+                      canRequestFocus: false,
+                      onFocusChange: (focused) => setState(() {
+                        _focusedEdge = focused
+                            ? direction
+                            : _focusedEdge == direction
+                            ? 0
+                            : _focusedEdge;
+                      }),
+                      child: IgnorePointer(
+                        ignoring:
+                            _hoveredEdge != direction &&
+                            _focusedEdge != direction,
+                        child: AnimatedOpacity(
+                          opacity:
+                              _hoveredEdge == direction ||
+                                  _focusedEdge == direction
+                              ? .85
+                              : 0,
+                          duration: motionDuration(context, 150),
+                          child: Material(
+                            color: Theme.of(context).colorScheme.surface,
+                            shape: const CircleBorder(),
+                            elevation: 2,
+                            shadowColor: Theme.of(context).shadowColor,
+                            child: IconButton(
+                              tooltip: direction < 0 ? '向左翻页' : '向右翻页',
+                              onPressed: () => _page(direction),
+                              icon: Icon(
+                                direction < 0
+                                    ? Icons.chevron_left
+                                    : Icons.chevron_right,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+            ],
+          ),
+        ),
       ),
     ),
   );
