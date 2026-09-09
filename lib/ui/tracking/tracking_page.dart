@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/json.dart';
+import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -14,13 +15,18 @@ class TrackingPage extends StatefulWidget {
     required this.sync,
     required this.onFilterChanged,
     required this.onSync,
+    required this.feedback,
+    required this.signedIn,
+    required this.onSignIn,
     required this.onOpenSubject,
   });
   final List<Json> collection;
   final String collectionFilter;
   final Json sync;
   final ValueChanged<String> onFilterChanged;
-  final VoidCallback onSync;
+  final VoidCallback onSync, onSignIn;
+  final ActionFeedback feedback;
+  final bool signedIn;
   final ValueChanged<Json> onOpenSubject;
   @override
   State<TrackingPage> createState() => _TrackingPageState();
@@ -100,12 +106,20 @@ class _TrackingPageState extends State<TrackingPage> {
               icon: const Icon(Icons.sort, size: 16),
               label: Text(sortByScore ? '按我的评分' : '默认顺序'),
             ),
-            TextButton.icon(
+            FeedbackButton(
+              feedback: widget.feedback,
+              label: '同步收藏',
+              runningLabel: '同步中…',
+              successLabel: '同步完成',
+              icon: Icons.sync,
               onPressed: widget.onSync,
-              icon: const Icon(Icons.sync, size: 17),
-              label: const Text('同步收藏'),
             ),
           ],
+        ),
+        FeedbackIssue(
+          feedback: widget.feedback,
+          onRetry: widget.signedIn ? widget.onSync : widget.onSignIn,
+          actionLabel: widget.signedIn ? '重试' : '去登录',
         ),
         if (number(widget.sync['pendingMutationCount']) > 0)
           Padding(

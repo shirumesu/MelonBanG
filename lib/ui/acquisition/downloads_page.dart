@@ -11,13 +11,14 @@ class DownloadsPage extends StatefulWidget {
     required this.downloads,
     required this.onAddMagnet,
     required this.onAddTorrent,
+    required this.onOpenVideo,
     required this.onExplore,
     required this.onTogglePause,
     required this.onRemove,
     required this.onPlay,
   });
   final Json downloads;
-  final VoidCallback onAddMagnet, onAddTorrent, onExplore;
+  final VoidCallback onAddMagnet, onAddTorrent, onOpenVideo, onExplore;
   final ValueChanged<Json> onTogglePause, onRemove;
   final void Function(String, String?) onPlay;
   @override
@@ -91,6 +92,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         SectionTitle(
           title: '下载与本地缓存',
           trailing: Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
             spacing: 8,
             children: [
               TextButton.icon(
@@ -102,6 +104,19 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 onPressed: widget.onAddTorrent,
                 icon: const Icon(Icons.file_open_outlined, size: 17),
                 label: const Text('种子文件'),
+              ),
+              PopupMenuButton<String>(
+                tooltip: '更多缓存操作',
+                icon: const Icon(Icons.more_horiz, size: 20),
+                onSelected: (_) => widget.onOpenVideo(),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    enabled: false,
+                    height: 28,
+                    child: Text('测试工具'),
+                  ),
+                  PopupMenuItem(value: 'local', child: Text('打开本地视频…')),
+                ],
               ),
             ],
           ),

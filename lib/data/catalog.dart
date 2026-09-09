@@ -16,28 +16,32 @@ class CatalogRepository {
     String key,
     String path, {
     Duration ttl = const Duration(minutes: 5),
+    bool refresh = false,
   }) async {
     final cached = await store.get('catalog', key);
-    if (cached != null &&
+    if (!refresh &&
+        cached != null &&
         DateTime.now().millisecondsSinceEpoch - number(cached['savedAt']) <
             ttl.inMilliseconds) {
       return cached['value'];
     }
-    return _requests.putIfAbsent(key, () async {
-      try {
-        final value = await api.json(Uri.parse('$origin$path'));
-        await store.put('catalog', key, {
-          'value': value,
-          'savedAt': DateTime.now().millisecondsSinceEpoch,
-        });
-        return value;
-      } catch (_) {
-        if (cached != null) return cached['value'];
-        rethrow;
-      } finally {
-        _requests.remove(key);
-      }
-    });
+    try {
+      return await _requests.putIfAbsent(key, () async {
+        try {
+          final value = await api.json(Uri.parse('$origin$path'));
+          await store.put('catalog', key, {
+            'value': value,
+            'savedAt': DateTime.now().millisecondsSinceEpoch,
+          });
+          return value;
+        } finally {
+          _requests.remove(key);
+        }
+      });
+    } catch (_) {
+      if (!refresh && cached != null) return cached['value'];
+      rethrow;
+    }
   }
 
   Json summary(Json value) => {
@@ -58,13 +62,14 @@ class CatalogRepository {
     return objects(response['data']).map(summary).toList();
   }
 
-  Future<List<Json>> trending() async {
+  Future<List<Json>> trending({bool refresh = false}) async {
     final items = <Json>[];
     for (var offset = 0; ; offset += 50) {
       final page = object(
         await _cached(
           'trending:$offset',
           '/v1/trending/current?limit=50&offset=$offset',
+          refresh: refresh,
         ),
       );
       final values = objects(page['data']);
@@ -74,8 +79,10 @@ class CatalogRepository {
     return items;
   }
 
-  Future<Json> today() async {
-    final response = object(await _cached('today', '/v1/schedule/today'));
+  Future<Json> today({bool refresh = false}) async {
+    final response = object(
+      await _cached('today', '/v1/schedule/today', refresh: refresh),
+    );
     return {
       'date': response['date'],
       'items': objects(response['items']).map(summary).toList(),

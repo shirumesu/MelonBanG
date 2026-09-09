@@ -9,7 +9,9 @@ import 'app_services.dart';
 import 'ui/acquisition/download_dialogs.dart';
 import 'ui/acquisition/downloads_page.dart';
 import 'ui/acquisition/resources_page.dart';
+import 'ui/core/action_feedback.dart';
 import 'ui/core/app_chrome.dart';
+import 'ui/core/motion.dart';
 import 'ui/core/page_widgets.dart';
 import 'ui/core/theme.dart';
 import 'ui/discovery/discovery_pages.dart';
@@ -45,7 +47,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   bool dark = false, ready = false, busy = false, fullScreen = false;
   String? error;
   bool trendingLoading = true;
-  bool closing = false;
+  bool closing = false, sidebarVisible = true;
+  final homeFeedback = ActionFeedback();
+  final syncFeedback = ActionFeedback();
   Json? account, subject, playerSubject;
   List<Json> trending = [],
       today = [],
@@ -93,7 +97,12 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         await openVideo(widget.initialMedia);
       }
       if (!mounted || closing) return;
-      await Future.wait([loadHome(), refreshPersonal()]);
+      await Future.wait([
+        loadHome().then((issue) {
+          if (issue != null) showError(issue);
+        }),
+        refreshPersonal(),
+      ]);
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
     }
@@ -105,44 +114,62 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     }
   }
 
-  Future<void> loadHome() async {
-    if (mounted) {
-      setState(() {
-        trendingLoading = true;
-        error = null;
-      });
-    }
+  Future<String?> loadHome({bool refresh = false}) async {
+    if (!mounted) return null;
+    setState(() {
+      trendingLoading = true;
+      error = null;
+    });
+    var trendingFailed = false, todayFailed = false;
     await Future.wait([
       widget.service.catalog
-          .trending()
+          .trending(refresh: refresh)
           .then((value) {
-            if (mounted) {
-              setState(() {
-                trending = objects(value);
-                trendingLoading = false;
-              });
-            }
+            if (mounted) setState(() => trending = objects(value));
           })
           .catchError((Object e) {
-            if (mounted) {
-              setState(() {
-                error = e.toString();
-                trendingLoading = false;
-              });
-            }
+            trendingFailed = true;
+            if (mounted) setState(() => error = e.toString());
           }),
       widget.service.catalog
-          .today()
+          .today(refresh: refresh)
           .then((value) {
             if (mounted) {
               setState(() => today = objects(object(value)['items']));
             }
           })
-          .catchError((Object e) {
-            showError(e);
+          .catchError((Object _) {
+            todayFailed = true;
           }),
     ]);
+    if (mounted) setState(() => trendingLoading = false);
+    if (trendingFailed && todayFailed) return '刷新失败，仍显示上次内容。';
+    if (trendingFailed) return '今日放送已更新，本季热度刷新失败。';
+    if (todayFailed) return '本季热度已更新，今日放送刷新失败。';
+    return null;
   }
+
+  Future<void> refreshHome() => homeFeedback.run(() => loadHome(refresh: true));
+
+  Future<void> syncCollection() => syncFeedback.run(() async {
+    final user = widget.service.account.userId;
+    if (widget.service.account.session == null) return '登录 Bangumi 后可同步收藏。';
+    try {
+      await widget.service.tracking.refresh();
+      await refreshPersonal();
+      if (user != widget.service.account.userId) return '账号已切换，请重新同步。';
+      final status = await widget.service.tracking.syncState();
+      final pending = number(status['pendingMutationCount']).toInt();
+      if (pending > 0) return '已拉取收藏，仍有 $pending 项修改待上传。';
+      if (status['lastSyncError'] != null) return '部分修改未能同步，请重试。';
+      return null;
+    } catch (_) {
+      return '同步失败，本地收藏已保留。';
+    }
+  });
+
+  void goBack() =>
+      navigate(route == 'resources' && subject != null ? 'subject' : 'home');
 
   Future<void> refreshPersonal() async {
     final ticket = ++_personalRequest;
@@ -422,6 +449,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     for (final subscription in subscriptions) {
       unawaited(subscription.cancel());
     }
+    homeFeedback.dispose();
+    syncFeedback.dispose();
     search.dispose();
     resourceSearch.dispose();
     windowManager.removeListener(this);
@@ -442,11 +471,20 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       home: Scaffold(
         body: Column(
           children: [
-            if (!fullScreen) AppTitleBar(route: route),
+            if (!fullScreen)
+              AppTitleBar(
+                route: route,
+                dark: dark,
+                sidebarVisible: sidebarVisible,
+                onBack: route == 'home' ? null : goBack,
+                onToggleSidebar: () =>
+                    setState(() => sidebarVisible = !sidebarVisible),
+                onToggleTheme: () => setDark(!dark),
+              ),
             Expanded(
               child: Row(
                 children: [
-                  if (!fullScreen && route != 'settings')
+                  if (!fullScreen && route != 'settings' && sidebarVisible)
                     SizedBox(
                       width: 236,
                       child: AppSidebar(
@@ -467,7 +505,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                             )
                             .length,
                         onNavigate: navigate,
-                        onOpenVideo: () => openVideo(),
                       ),
                     ),
                   Expanded(
@@ -475,12 +512,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                       children: [
                         if (!fullScreen && route != 'settings')
                           AppHeader(
-                            dark: dark,
                             route: route,
                             search: search,
-                            onBack: () => navigate('home'),
                             onSearch: searchSubjects,
-                            onToggleTheme: () => setDark(!dark),
                             sync: sync,
                             collectionCount: collection.length,
                           ),
@@ -503,13 +537,16 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                                   service: widget.service,
                                   onOpen: () => openVideo(),
                                   onError: showError,
-                                  onBack: () => navigate('home'),
+                                  onBack: goBack,
                                   fullScreen: fullScreen,
                                   onFullScreenChanged: setFullScreen,
                                   subject: playerSubject,
                                   onEpisode: playEpisode,
                                 )
-                              : page(),
+                              : PageEntrance(
+                                  key: ValueKey(route),
+                                  child: page(),
+                                ),
                         ),
                       ],
                     ),
@@ -550,9 +587,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
               .toList(),
           trendingLoading: trendingLoading,
           error: error,
-          onOpenVideo: () => openVideo(),
+          onExplore: () => navigate('tracking'),
+          feedback: homeFeedback,
           onCalendar: () => navigate('calendar'),
-          onRefresh: () => perform(loadHome),
+          onRefresh: refreshHome,
           onOpenSubject: openSubject,
         );
       case 'search':
@@ -577,10 +615,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           sync: sync,
           onFilterChanged: (value) => setState(() => collectionFilter = value),
           onOpenSubject: openSubject,
-          onSync: () => perform(() async {
-            await widget.service.tracking.refresh();
-            await refreshPersonal();
-          }),
+          feedback: syncFeedback,
+          signedIn: account != null,
+          onSignIn: () => navigate('settings'),
+          onSync: syncCollection,
         );
       case 'subject':
         final item = subject;
@@ -616,6 +654,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           downloads: downloads,
           onAddMagnet: addMagnet,
           onAddTorrent: addTorrent,
+          onOpenVideo: () => openVideo(),
           onExplore: () => navigate('home'),
           onRemove: confirmRemoval,
           onTogglePause: (task) => perform(() async {
@@ -631,6 +670,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         );
       case 'settings':
         return SettingsPage(
+          showSidebar: sidebarVisible,
           onBack: () => navigate('home'),
           account: account,
           sync: sync,

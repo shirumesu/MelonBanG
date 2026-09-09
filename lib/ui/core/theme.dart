@@ -45,6 +45,12 @@ ThemeData appTheme(bool dark) {
             ? const Color(0xffcbefdc)
             : const Color(0xff164d39),
         secondary: coral,
+        secondaryContainer: dark
+            ? const Color(0xff483139)
+            : const Color(0xfff8e5eb),
+        onSecondaryContainer: dark
+            ? const Color(0xffff8fa5)
+            : const Color(0xffb54763),
         tertiary: dark ? const Color(0xffe0bd70) : const Color(0xffa57520),
         surface: dark ? const Color(0xff1e2430) : const Color(0xfffbfcfb),
         surfaceContainerLowest: dark
@@ -101,6 +107,13 @@ ThemeData appTheme(bool dark) {
       color: scheme.surface,
       surfaceTintColor: Colors.transparent,
       shape: const RoundedRectangleBorder(borderRadius: panelBorderRadius),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: scheme.surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 3,
+      shadowColor: Colors.black.withValues(alpha: dark ? .3 : .16),
+      shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
     ),
     listTileTheme: ListTileThemeData(
       shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../data/json.dart';
+import '../core/action_feedback.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -13,7 +15,8 @@ class HomePage extends StatelessWidget {
     required this.trending,
     required this.trendingLoading,
     required this.error,
-    required this.onOpenVideo,
+    required this.onExplore,
+    required this.feedback,
     required this.onCalendar,
     required this.onRefresh,
     required this.onOpenSubject,
@@ -22,7 +25,8 @@ class HomePage extends StatelessWidget {
   final bool dark, trendingLoading;
   final List<Json> today, trending, watching;
   final String? error;
-  final VoidCallback onOpenVideo, onCalendar, onRefresh;
+  final VoidCallback onExplore, onCalendar, onRefresh;
+  final ActionFeedback feedback;
   final ValueChanged<Json> onOpenSubject;
   @override
   Widget build(BuildContext context) => PageScroll(
@@ -31,17 +35,18 @@ class HomePage extends StatelessWidget {
         title: '本季热度',
         subtitle: '当季最受欢迎的番剧',
         icon: Icons.local_fire_department_outlined,
-        trailing: IconButton(
-          tooltip: '刷新',
+        trailing: FeedbackButton(
+          feedback: feedback,
+          label: '刷新',
+          runningLabel: '刷新中…',
+          successLabel: '已更新',
+          icon: Icons.refresh,
           onPressed: onRefresh,
-          icon: const Icon(Icons.refresh, size: 18),
         ),
       ),
+      FeedbackIssue(feedback: feedback, onRetry: onRefresh),
       if (trendingLoading && trending.isEmpty)
-        const SizedBox(
-          height: 250,
-          child: Center(child: CircularProgressIndicator()),
-        )
+        const PosterPlaceholders()
       else if (error != null && trending.isEmpty)
         EmptyState(text: '暂时无法加载番剧', detail: error, action: onRefresh)
       else
@@ -58,7 +63,7 @@ class HomePage extends StatelessWidget {
         color: mint,
       ),
       if (watching.isEmpty)
-        EmptyState(text: '暂无在看收藏', action: onOpenVideo, actionLabel: '打开本地视频')
+        EmptyState(text: '暂无在看收藏', action: onExplore, actionLabel: '查看追番')
       else
         SubjectPosters(
           onOpen: onOpenSubject,
@@ -146,10 +151,10 @@ class _CalendarPageState extends State<CalendarPage> {
                   style: TextButton.styleFrom(
                     textStyle: DefaultTextStyle.of(context).style,
                     backgroundColor: selected == i + 1
-                        ? coral
+                        ? Theme.of(context).colorScheme.secondaryContainer
                         : Theme.of(context).colorScheme.surface,
                     foregroundColor: selected == i + 1
-                        ? Colors.white
+                        ? Theme.of(context).colorScheme.onSecondaryContainer
                         : Theme.of(context).colorScheme.onSurface,
                     padding: EdgeInsets.zero,
                     shape: const RoundedRectangleBorder(
@@ -163,7 +168,11 @@ class _CalendarPageState extends State<CalendarPage> {
                       Text(
                         ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][i],
                         style: TextStyle(
-                          color: selected == i + 1 ? Colors.white : null,
+                          color: selected == i + 1
+                              ? Theme.of(context)
+                                    .colorScheme
+                                    .onSecondaryContainer
+                              : null,
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
                         ),
@@ -173,7 +182,9 @@ class _CalendarPageState extends State<CalendarPage> {
                         ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'][i],
                         style: TextStyle(
                           color: selected == i + 1
-                              ? Colors.white70
+                              ? Theme.of(context)
+                                    .colorScheme
+                                    .onSecondaryContainer
                               : Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 10,
                         ),
@@ -182,7 +193,9 @@ class _CalendarPageState extends State<CalendarPage> {
                         '${objects(days[i + 1]?['items']).length} 部',
                         style: TextStyle(
                           color: selected == i + 1
-                              ? Colors.white70
+                              ? Theme.of(context)
+                                    .colorScheme
+                                    .onSecondaryContainer
                               : Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 10,
                         ),
@@ -208,7 +221,13 @@ class _CalendarPageState extends State<CalendarPage> {
                   action: widget.calendar.isEmpty ? widget.onRetry : null,
                 )
               else
-                BroadcastTimeline(items: items, onOpen: widget.onOpenSubject),
+                PageEntrance(
+                  key: ValueKey(selected),
+                  child: BroadcastTimeline(
+                    items: items,
+                    onOpen: widget.onOpenSubject,
+                  ),
+                ),
             ],
           ),
         ),
@@ -228,87 +247,180 @@ class BroadcastTimeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      for (final item in items)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 48,
-                child: Text(
-                  _time(item),
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
+      for (var i = 0; i < items.length; i++)
+        _BroadcastEntry(
+          key: ValueKey('${items[i]['subjectId']}:$i'),
+          item: items[i],
+          onOpen: onOpen,
+          first: i == 0,
+          last: i == items.length - 1,
+        ),
+    ],
+  );
+}
+
+class _BroadcastEntry extends StatefulWidget {
+  const _BroadcastEntry({
+    super.key,
+    required this.item,
+    required this.onOpen,
+    required this.first,
+    required this.last,
+  });
+  final Json item;
+  final ValueChanged<Json> onOpen;
+  final bool first, last;
+  @override
+  State<_BroadcastEntry> createState() => _BroadcastEntryState();
+}
+
+class _BroadcastEntryState extends State<_BroadcastEntry> {
+  bool hovered = false, focused = false;
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
+    final active = hovered || focused;
+    final scheme = Theme.of(context).colorScheme;
+    return MouseRegion(
+      onEnter: (_) => setState(() => hovered = true),
+      onExit: (_) => setState(() => hovered = false),
+      child: Focus(
+        canRequestFocus: false,
+        onFocusChange: (value) => setState(() => focused = value),
+        child: Stack(
+          children: [
+            Positioned(
+              left: 66.5,
+              top: widget.first ? 68 : 0,
+              bottom: widget.last ? 80 : 0,
+              child: AnimatedContainer(
+                width: 2,
+                duration: motionDuration(context, 200),
+                color: active
+                    ? scheme.primary.withValues(alpha: .4)
+                    : scheme.outlineVariant,
               ),
-              Container(
-                width: 11,
-                height: 11,
-                margin: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: const BoxDecoration(
-                  color: mint,
-                  shape: BoxShape.circle,
-                ),
+            ),
+            Positioned(
+              left: 68,
+              top: 67.5,
+              width: 19,
+              height: 1,
+              child: ColoredBox(
+                color: active
+                    ? scheme.primary.withValues(alpha: .4)
+                    : scheme.outlineVariant,
               ),
-              Expanded(
-                child: MelonPanel(
-                  onTap: () => onOpen(item),
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: 80,
-                        height: 108,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: SubjectCover(
-                            url: item['coverUrl'],
-                            title: titleOf(item),
-                            id: number(item['subjectId']).toInt(),
-                          ),
-                        ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 48,
+                    child: Text(
+                      _time(item),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                    ),
+                  ),
+                  AnimatedContainer(
+                    duration: motionDuration(context, 200),
+                    width: 11,
+                    height: 11,
+                    margin: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      shape: BoxShape.circle,
+                      boxShadow: active
+                          ? [
+                              BoxShadow(
+                                color: Theme.of(context).colorScheme.primary
+                                    .withValues(alpha: .14),
+                                spreadRadius: 4,
+                              ),
+                            ]
+                          : null,
+                    ),
+                  ),
+                  Expanded(
+                    child: AnimatedContainer(
+                      duration: motionDuration(context, 200),
+                      curve: Curves.easeOut,
+                      transform: Matrix4.translationValues(
+                        active && !MediaQuery.disableAnimationsOf(context)
+                            ? 2
+                            : 0,
+                        active && !MediaQuery.disableAnimationsOf(context)
+                            ? -2
+                            : 0,
+                        0,
+                      ),
+                      child: MelonPanel(
+                        onTap: () => widget.onOpen(item),
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
                           children: [
-                            Text(
-                              titleOf(item),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
+                            SizedBox(
+                              width: 80,
+                              height: 108,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: SubjectCover(
+                                  url: item['coverUrl'],
+                                  title: titleOf(item),
+                                  id: number(item['subjectId']).toInt(),
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 7),
-                            Text(
-                              item['episodeTotal'] == null
-                                  ? '今日放送'
-                                  : '放送 · 全 ${item['episodeTotal']} 话',
-                              style: Theme.of(context).textTheme.bodySmall,
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    titleOf(item),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 7),
+                                  Text(
+                                    item['episodeTotal'] == null
+                                        ? '今日放送'
+                                        : '放送 · 全 ${item['episodeTotal']} 话',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            OutlinedButton(
+                              onPressed: () => widget.onOpen(item),
+                              child: const Text('详情'),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      OutlinedButton(
-                        onPressed: () => onOpen(item),
-                        child: const Text('详情'),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-    ],
-  );
+      ),
+    );
+  }
+
   String _time(Json item) {
     final value = '${item['airingAtShanghai'] ?? item['airingAt'] ?? ''}';
     final parsed = DateTime.tryParse(value);

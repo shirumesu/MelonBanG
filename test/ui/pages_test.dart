@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:melonbang/data/json.dart';
 import 'package:melonbang/ui/acquisition/downloads_page.dart';
 import 'package:melonbang/ui/core/theme.dart';
+import 'package:melonbang/ui/core/action_feedback.dart';
 import 'package:melonbang/ui/discovery/discovery_pages.dart';
 import 'package:melonbang/ui/tracking/subject_page.dart';
 import 'package:melonbang/ui/tracking/tracking_page.dart';
@@ -86,6 +87,9 @@ void main() {
         sync: {'pendingMutationCount': 2},
         onFilterChanged: (value) => filter = value,
         onSync: () => syncs++,
+        feedback: ActionFeedback(),
+        signedIn: true,
+        onSignIn: () {},
         onOpenSubject: (value) => selected = value,
       ),
     );
@@ -141,6 +145,7 @@ void main() {
           },
           onAddMagnet: () {},
           onAddTorrent: () {},
+          onOpenVideo: () {},
           onExplore: () {},
           onTogglePause: (value) => paused = value,
           onRemove: (_) {},
