@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,66 +7,107 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../app_services.dart';
-import '../core/theme.dart';
+import '../core/motion.dart';
 import 'danmaku.dart';
 import 'playback.dart';
 import 'player_controls.dart';
+import 'player_library_panel.dart';
 import 'player_settings.dart';
+import 'player_theme.dart';
 
 class PlayerPage extends StatefulWidget {
   const PlayerPage({
     super.key,
     required this.playback,
     required this.service,
-    required this.onOpen,
     required this.onBack,
     required this.onError,
     required this.fullScreen,
     required this.onFullScreenChanged,
-    this.subject,
     required this.onEpisode,
+    this.subject,
+    this.downloads = const {},
+    this.windowFullScreen = false,
+    this.onWindowFullScreenChanged,
+    this.onPlayFile,
   });
   final Playback playback;
   final AppServices service;
-  final VoidCallback onOpen, onBack;
-  final void Function(Object) onError;
-  final bool fullScreen;
+  final VoidCallback onBack;
+  final ValueChanged<Object> onError;
+  final bool fullScreen, windowFullScreen;
   final Future<void> Function(bool) onFullScreenChanged;
+  final Future<void> Function(bool)? onWindowFullScreenChanged;
   final Json? subject;
-  final void Function(Json) onEpisode;
+  final Json downloads;
+  final ValueChanged<Json> onEpisode;
+  final void Function(String id, String? fileId)? onPlayFile;
   @override
   State<PlayerPage> createState() => _PlayerPageState();
 }
 
 class _PlayerPageState extends State<PlayerPage> {
   final focus = FocusNode();
-  bool panel = true, controls = true;
+  bool panel = true, controls = true, nearPanel = false, panelFocused = false;
+  bool titleVisible = false, panelBeforeImmersive = true;
+  PlayerMenu? menu;
+  PlayerMenu lastMenu = PlayerMenu.subtitles;
   double? dragging;
-  Timer? hideTimer;
-  String? _sessionId;
+  Timer? hideTimer, titleTimer;
+  StreamSubscription<bool>? playingSubscription;
+  String? sessionId;
   Playback get playback => widget.playback;
   Player get player => playback.player;
+  bool get immersive => widget.fullScreen || widget.windowFullScreen;
+
   @override
   void initState() {
     super.initState();
-    _sessionId = playback.session?['id'] as String?;
+    sessionId = playback.session?['id'] as String?;
     playback.addListener(refresh);
+    playingSubscription = player.stream.playing.listen((_) => reveal());
+  }
+
+  @override
+  void didUpdateWidget(PlayerPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final wasImmersive = oldWidget.fullScreen || oldWidget.windowFullScreen;
+    if (!wasImmersive && immersive) {
+      panelBeforeImmersive = panel;
+      panel = false;
+    } else if (wasImmersive && !immersive) {
+      panel = panelBeforeImmersive;
+    }
+    if (oldWidget.fullScreen != widget.fullScreen ||
+        oldWidget.windowFullScreen != widget.windowFullScreen) {
+      menu = null;
+      titleVisible = false;
+      controls = true;
+      // Shell changes reparent the player; restore focus after it reattaches.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) focus.requestFocus();
+      });
+    }
   }
 
   void refresh() {
-    final sessionId = playback.session?['id'] as String?;
-    if (sessionId != _sessionId) {
-      _sessionId = sessionId;
+    if (!mounted) return;
+    final next = playback.session?['id'] as String?;
+    if (next != sessionId) {
+      sessionId = next;
       dragging = null;
+      menu = null;
     }
-    if (mounted) setState(() {});
+    setState(() {});
   }
 
   @override
   void dispose() {
     playback.removeListener(refresh);
+    unawaited(playingSubscription?.cancel());
     focus.dispose();
     hideTimer?.cancel();
+    titleTimer?.cancel();
     super.dispose();
   }
 
@@ -74,10 +116,25 @@ class _PlayerPageState extends State<PlayerPage> {
     if (!controls) setState(() => controls = true);
     hideTimer?.cancel();
     hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && player.state.playing && dragging == null) {
+      if (mounted && player.state.playing && dragging == null && menu == null) {
         setState(() => controls = false);
       }
     });
+  }
+
+  void toggleMenu(PlayerMenu value) {
+    setState(() {
+      menu = menu == value ? null : value;
+      lastMenu = value;
+    });
+    if (menu == null) focus.requestFocus();
+    reveal();
+  }
+
+  void closeMenu() {
+    setState(() => menu = null);
+    focus.requestFocus();
+    reveal();
   }
 
   Future<void> seekRelative(int seconds) async {
@@ -90,211 +147,340 @@ class _PlayerPageState extends State<PlayerPage> {
 
   Future<void> fullscreen() async {
     await widget.onFullScreenChanged(!widget.fullScreen);
-    if (mounted) focus.requestFocus();
+    if (mounted) {
+      focus.requestFocus();
+      reveal();
+    }
+  }
+
+  Future<void> windowFullscreen() async {
+    await widget.onWindowFullScreenChanged?.call(!widget.windowFullScreen);
+    if (mounted) {
+      focus.requestFocus();
+      reveal();
+    }
+  }
+
+  KeyEventResult handleKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent || menu != null) return KeyEventResult.ignored;
+    if (event.logicalKey == LogicalKeyboardKey.space) {
+      unawaited(player.playOrPause());
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      unawaited(seekRelative(5));
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+      unawaited(seekRelative(-5));
+    } else if (event.logicalKey == LogicalKeyboardKey.keyF ||
+        event.logicalKey == LogicalKeyboardKey.f11) {
+      unawaited(fullscreen());
+    } else if (event.logicalKey == LogicalKeyboardKey.escape) {
+      if (widget.fullScreen) {
+        unawaited(widget.onFullScreenChanged(false));
+      } else if (widget.windowFullScreen) {
+        unawaited(widget.onWindowFullScreenChanged?.call(false));
+      }
+    } else if (event.logicalKey == LogicalKeyboardKey.keyM) {
+      unawaited(player.setVolume(player.state.volume == 0 ? 80 : 0));
+    } else {
+      return KeyEventResult.ignored;
+    }
+    reveal();
+    return KeyEventResult.handled;
+  }
+
+  void hoverTitle(double y) {
+    if (!immersive) return;
+    final near = y < 72;
+    if (titleVisible != near) setState(() => titleVisible = near);
+    titleTimer?.cancel();
+    if (near) {
+      titleTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) setState(() => titleVisible = false);
+      });
+    }
+  }
+
+  String get title {
+    if (widget.subject == null) return '${playback.session?['title'] ?? '播放器'}';
+    final episode = objects(widget.subject?['episodes'])
+        .where((e) => e['episodeId'] == playback.session?['episodeId'])
+        .firstOrNull;
+    return '${titleOf(widget.subject!)}${episode == null ? '' : ' · 第 ${episode['sort']} 话'}';
   }
 
   @override
   Widget build(BuildContext context) => Theme(
-    data: appTheme(true),
+    data: playerTheme(),
     child: Material(
-      color: const Color(0xff0a0f14),
-      child: Builder(builder: _buildBody),
+      color: const Color(0xff080b0b),
+      child: Builder(builder: body),
     ),
   );
 
-  Widget _buildBody(BuildContext context) {
+  Widget body(BuildContext context) {
     if (playback.uri == null) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.play_circle_outline, size: 72, color: mint),
-            const SizedBox(height: 18),
-            const Text(
-              '选一部作品，开始观看',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            const Text('本地视频 · 内嵌字幕 · 音轨切换'),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: widget.onOpen,
-              icon: const Icon(Icons.folder_open),
-              label: const Text('打开视频'),
-            ),
-            if (widget.fullScreen)
-              TextButton.icon(
-                onPressed: () => widget.onFullScreenChanged(false),
-                icon: const Icon(Icons.fullscreen_exit),
-                label: const Text('退出全屏'),
-              ),
+            const Icon(Icons.play_circle_outline, size: 48),
+            const SizedBox(height: 16),
+            Text(playback.error ?? '选一部作品，开始观看'),
+            TextButton(onPressed: widget.onBack, child: const Text('返回探索')),
           ],
         ),
       );
     }
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final panelWidth = constraints.maxWidth < 820 ? 284.0 : 310.0;
+        final showButton = panel || nearPanel || panelFocused;
+        return MouseRegion(
+          onHover: (event) {
+            final near =
+                event.localPosition.dx > constraints.maxWidth - 92 &&
+                event.localPosition.dy < 84;
+            if (nearPanel != near) setState(() => nearPanel = near);
+          },
+          onExit: (_) {
+            if (nearPanel) setState(() => nearPanel = false);
+          },
+          child: Stack(
             children: [
-              if (!widget.fullScreen)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 12, 12),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        tooltip: '返回探索',
-                        onPressed: widget.onBack,
-                        icon: const Icon(Icons.arrow_back),
-                      ),
-                      Expanded(
-                        child: Text(
-                          '${playback.session?['title'] ?? ''}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
+              Row(
+                children: [
+                  Expanded(child: video(context)),
+                  ExcludeFocus(
+                    excluding: !panel,
+                    child: Offstage(
+                      offstage: !panel,
+                      child: SizedBox(
+                        width: math.min(panelWidth, constraints.maxWidth * .5),
+                        child: PlayerLibraryPanel(
+                          key: ValueKey(playback.session?['subjectId']),
+                          service: widget.service,
+                          subjectId: playback.session?['subjectId'] as int?,
+                          subject: widget.subject,
+                          episodeId: playback.session?['episodeId'] as int?,
+                          title: '${playback.session?['title'] ?? '播放器'}',
+                          downloads: widget.downloads,
+                          onEpisode: widget.onEpisode,
+                          onPlayFile: widget.onPlayFile ?? (_, _) {},
                         ),
                       ),
-                      IconButton(
-                        tooltip: '播放设置',
-                        onPressed: () {
-                          setState(() => panel = !panel);
-                          if (!panel) focus.requestFocus();
-                        },
-                        icon: Icon(panel ? Icons.chevron_right : Icons.tune),
+                    ),
+                  ),
+                ],
+              ),
+              Positioned(
+                top: 14,
+                right: 12,
+                child: Focus(
+                  canRequestFocus: false,
+                  onFocusChange: (value) =>
+                      setState(() => panelFocused = value),
+                  child: IgnorePointer(
+                    ignoring: !showButton,
+                    child: AnimatedOpacity(
+                      opacity: showButton ? (panel ? 1 : .85) : 0,
+                      duration: motionDuration(context, 150),
+                      child: Material(
+                        color: panel
+                            ? Colors.transparent
+                            : Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(10),
+                        child: IconButton(
+                          tooltip: panel ? '收起选集与资源' : '展开选集与资源',
+                          onPressed: () {
+                            setState(() => panel = !panel);
+                            focus.requestFocus();
+                          },
+                          icon: const Icon(
+                            Icons.view_sidebar_outlined,
+                            size: 20,
+                          ),
+                        ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              Expanded(
-                child: Focus(
-                  focusNode: focus,
-                  autofocus: true,
-                  onKeyEvent: (node, event) {
-                    if (event is! KeyDownEvent) return KeyEventResult.ignored;
-                    if (event.logicalKey == LogicalKeyboardKey.space) {
-                      unawaited(player.playOrPause());
-                    } else if (event.logicalKey ==
-                        LogicalKeyboardKey.arrowRight) {
-                      unawaited(seekRelative(5));
-                    } else if (event.logicalKey ==
-                        LogicalKeyboardKey.arrowLeft) {
-                      unawaited(seekRelative(-5));
-                    } else if (event.logicalKey == LogicalKeyboardKey.keyF ||
-                        event.logicalKey == LogicalKeyboardKey.f11) {
-                      unawaited(fullscreen());
-                    } else if (event.logicalKey == LogicalKeyboardKey.escape) {
-                      unawaited(widget.onFullScreenChanged(false));
-                    } else if (event.logicalKey == LogicalKeyboardKey.keyM) {
-                      unawaited(
-                        player.setVolume(player.state.volume == 0 ? 80 : 0),
-                      );
-                    } else {
-                      return KeyEventResult.ignored;
-                    }
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget video(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      return Focus(
+        focusNode: focus,
+        autofocus: true,
+        onKeyEvent: handleKey,
+        child: MouseRegion(
+          onHover: (event) {
+            reveal();
+            hoverTitle(event.localPosition.dy);
+          },
+          onExit: (_) {
+            if (titleVisible) setState(() => titleVisible = false);
+          },
+          cursor: controls || menu != null
+              ? SystemMouseCursors.basic
+              : SystemMouseCursors.none,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              GestureDetector(
+                onTap: () {
+                  if (menu != null) {
+                    closeMenu();
+                  } else {
+                    focus.requestFocus();
                     reveal();
-                    return KeyEventResult.handled;
-                  },
-                  child: MouseRegion(
-                    onHover: (_) => reveal(),
-                    cursor: controls
-                        ? SystemMouseCursors.basic
-                        : SystemMouseCursors.none,
-                    child: GestureDetector(
-                      onTap: () {
-                        focus.requestFocus();
-                        reveal();
-                      },
-                      onDoubleTap: fullscreen,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Video(
-                            controller: playback.video,
-                            controls: NoVideoControls,
-                            subtitleViewConfiguration:
-                                const SubtitleViewConfiguration(visible: false),
-                          ),
-                          DanmakuLayer(playback: playback),
-                          if (playback.opening)
-                            const Center(child: CircularProgressIndicator()),
-                          StreamBuilder<bool>(
-                            stream: player.stream.buffering,
-                            initialData: player.state.buffering,
-                            builder: (_, snapshot) => snapshot.data == true
-                                ? const Center(
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const SizedBox.shrink(),
-                          ),
-                          if (playback.error != null)
-                            Center(
-                              child: Container(
-                                constraints: const BoxConstraints(
-                                  maxWidth: 440,
-                                ),
-                                padding: const EdgeInsets.all(24),
-                                color: Colors.black87,
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.error_outline,
-                                      color: Colors.orange,
-                                      size: 38,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      playback.error!,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                    TextButton(
-                                      onPressed: widget.onOpen,
-                                      child: const Text('选择其他视频'),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                  }
+                },
+                onDoubleTap: fullscreen,
+                child: Video(
+                  controller: playback.video,
+                  controls: NoVideoControls,
+                  subtitleViewConfiguration: const SubtitleViewConfiguration(
+                    visible: false,
+                  ),
+                ),
+              ),
+              DanmakuLayer(playback: playback),
+              StreamBuilder<bool>(
+                stream: player.stream.buffering,
+                initialData: player.state.buffering,
+                builder: (_, snapshot) =>
+                    playback.opening || snapshot.data == true
+                    ? const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+              if (playback.error != null)
+                Center(
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 440),
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(playback.error!),
+                  ),
+                ),
+              if (immersive)
+                Positioned(
+                  key: const ValueKey('player-title'),
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: IgnorePointer(
+                    child: AnimatedSlide(
+                      offset: titleVisible
+                          ? Offset.zero
+                          : const Offset(0, -.08),
+                      duration: motionDuration(context),
+                      child: AnimatedOpacity(
+                        opacity: titleVisible ? 1 : 0,
+                        duration: motionDuration(context),
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(22, 20, 68, 36),
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.black87, Colors.transparent],
                             ),
-                          if (controls)
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              child: PlayerControls(
-                                playback: playback,
-                                fullScreen: widget.fullScreen,
-                                dragging: dragging,
-                                onDragStart: (value) {
-                                  setState(() => dragging = value);
-                                  hideTimer?.cancel();
-                                },
-                                onDragChanged: (value) =>
-                                    setState(() => dragging = value),
-                                onDragEnd: (value) async {
-                                  await player.seek(
-                                    Duration(
-                                      milliseconds: (value * 1000).round(),
-                                    ),
-                                  );
-                                  if (mounted) setState(() => dragging = null);
-                                  reveal();
-                                },
-                                onSeekRelative: seekRelative,
-                                onFocus: focus.requestFocus,
-                                onReveal: reveal,
-                                onFullscreen: fullscreen,
-                                onToggleDanmaku: () => setState(
-                                  () => playback.danmakuEnabled =
-                                      !playback.danmakuEnabled,
-                                ),
-                              ),
-                            ),
-                        ],
+                          ),
+                          child: Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 16),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              Positioned(
+                key: const ValueKey('player-controls'),
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ExcludeFocus(
+                  excluding: !controls && menu == null,
+                  child: IgnorePointer(
+                    ignoring: !controls && menu == null,
+                    child: AnimatedOpacity(
+                      opacity: controls || menu != null ? 1 : 0,
+                      duration: motionDuration(context),
+                      child: PlayerControls(
+                        playback: playback,
+                        fullScreen: widget.fullScreen,
+                        windowFullScreen: widget.windowFullScreen,
+                        menu: menu,
+                        dragging: dragging,
+                        onDragStart: (value) {
+                          setState(() => dragging = value);
+                          hideTimer?.cancel();
+                        },
+                        onDragChanged: (value) =>
+                            setState(() => dragging = value),
+                        onDragEnd: (value) async {
+                          await player.seek(
+                            Duration(milliseconds: (value * 1000).round()),
+                          );
+                          if (mounted) setState(() => dragging = null);
+                          reveal();
+                        },
+                        onSeekRelative: seekRelative,
+                        onFocus: focus.requestFocus,
+                        onReveal: reveal,
+                        onFullscreen: fullscreen,
+                        onWindowFullScreen: windowFullscreen,
+                        onMenu: toggleMenu,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                key: const ValueKey('player-menu'),
+                right: 12,
+                bottom: constraints.maxWidth < 624 ? 132 : 100,
+                child: ExcludeFocus(
+                  excluding: menu == null,
+                  child: Offstage(
+                    offstage: menu == null,
+                    child: SizedBox(
+                      width: math.min(300, constraints.maxWidth - 24),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: math.max(120, constraints.maxHeight - 160),
+                        ),
+                        child: Focus(
+                          onKeyEvent: (_, event) {
+                            if (event is KeyDownEvent &&
+                                event.logicalKey == LogicalKeyboardKey.escape) {
+                              closeMenu();
+                              return KeyEventResult.handled;
+                            }
+                            return KeyEventResult.ignored;
+                          },
+                          child: PlayerSettings(
+                            playback: playback,
+                            service: widget.service,
+                            menu: lastMenu,
+                            onClose: closeMenu,
+                            onError: widget.onError,
+                            onPresentationChanged: refresh,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -303,25 +489,7 @@ class _PlayerPageState extends State<PlayerPage> {
             ],
           ),
         ),
-        // Preserve panel drafts while hidden, without intercepting video shortcuts.
-        ExcludeFocus(
-          excluding: !panel || widget.fullScreen,
-          child: Offstage(
-            offstage: !panel || widget.fullScreen,
-            child: SizedBox(
-              width: 290,
-              child: PlayerSettings(
-                playback: playback,
-                service: widget.service,
-                subject: widget.subject,
-                onEpisode: widget.onEpisode,
-                onError: widget.onError,
-                onPresentationChanged: refresh,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+      );
+    },
+  );
 }

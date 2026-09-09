@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:melonbang/ui/core/app_chrome.dart';
+import 'package:melonbang/ui/player/player_settings.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -97,7 +100,7 @@ void main() {
         'subjectId': 1,
         'name': 'Subject 1',
       });
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
       final Future<void> update = state.updateTracking(<String, dynamic>{
         'kind': 'subjectCollection',
         'subjectId': 1,
@@ -105,7 +108,7 @@ void main() {
       });
       state.navigate('settings');
       await update;
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
       expect(find.text('服务连接'), findsOneWidget);
       expect(find.text('番剧详情'), findsNothing);
 
@@ -120,7 +123,7 @@ void main() {
       await state.searchResources();
       slowSearch.complete();
       await oldSearch;
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
       expect(find.text('new result'), findsNWidgets(2));
       expect(find.text('old result'), findsNothing);
       final fields = tester
@@ -141,58 +144,131 @@ void main() {
       );
       await state.openSubject(<String, dynamic>{'subjectId': 1});
       await state.openVideo(media, <String, dynamic>{'episodeId': 10});
-      await tester.pump();
-      await tester.tap(find.text('弹幕'));
-      await tester.pump();
-      await tester.enterText(
-        find.widgetWithText(TextField, '剧集网址或编号'),
-        'BV-draft',
+      await tester.pump(const Duration(milliseconds: 200));
+      final pageKey = state.playerPageKey;
+      final originalPage = pageKey.currentState;
+      await tester.tap(find.byTooltip('弹幕'));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(PlayerSettings), findsOneWidget);
+      final danmakuField = find.widgetWithText(TextField, '剧集网址或编号');
+      await tester.scrollUntilVisible(
+        danmakuField,
+        240,
+        scrollable: find
+            .descendant(
+              of: find.byType(PlayerSettings),
+              matching: find.byType(Scrollable),
+            )
+            .first,
       );
-      await tester.tap(find.byTooltip('播放设置'));
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.enterText(danmakuField, 'BV-draft');
+      await tester.tap(find.byTooltip('关闭播放菜单'));
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(state.playerPageKey.currentState.menu, isNull);
       expect(find.text('手动匹配'), findsNothing);
-      await tester.tap(find.byTooltip('播放设置'));
-      await tester.pump();
+      await tester.tap(find.byTooltip('弹幕'));
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.scrollUntilVisible(
+        danmakuField,
+        220,
+        scrollable: find
+            .descendant(
+              of: find.byType(PlayerSettings),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
       expect(find.text('BV-draft'), findsOneWidget);
-      await tester.tap(find.byTooltip('全屏（F）'));
+      await tester.tap(find.byTooltip('关闭播放菜单'));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      final originalSize = await windowManager.getSize();
+      await tester.tap(find.byTooltip('窗口全屏'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(state.windowFullScreen, isTrue);
+      expect(await windowManager.isFullScreen(), isFalse);
+      expect(await windowManager.getSize(), originalSize);
+      expect(find.byType(AppSidebar), findsNothing);
+      expect(find.byType(AppTitleBar), findsOneWidget);
+      expect(pageKey.currentState, same(originalPage));
+      await tester.tap(find.byTooltip('显示屏全屏（F）'));
       for (var i = 0; i < 30 && state.fullScreen != true; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
       expect(state.fullScreen, isTrue);
       expect(await windowManager.isFullScreen(), isTrue);
+      expect(find.byType(AppTitleBar), findsNothing);
       expect(find.text('手动匹配'), findsNothing);
       final wasPlaying = state.playback.player.state.playing;
       await tester.sendKeyEvent(LogicalKeyboardKey.space);
       await tester.pump(const Duration(milliseconds: 200));
       expect(state.playback.player.state.playing, !wasPlaying);
-      await tester.tap(find.byTooltip('全屏（F）'));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       for (var i = 0; i < 30 && state.fullScreen != false; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
       expect(state.fullScreen, isFalse);
+      expect(state.windowFullScreen, isTrue);
       expect(await windowManager.isFullScreen(), isFalse);
+      await tester.tap(find.byTooltip('退出窗口全屏'));
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(state.windowFullScreen, isFalse);
+      expect(find.byType(AppSidebar), findsOneWidget);
+      expect(pageKey.currentState, same(originalPage));
+      await tester.tap(find.byTooltip('弹幕'));
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.scrollUntilVisible(
+        danmakuField,
+        220,
+        scrollable: find
+            .descendant(
+              of: find.byType(PlayerSettings),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
       expect(find.text('BV-draft'), findsOneWidget);
-      await tester.tap(find.text('播放'));
-      await tester.pump();
+      await tester.tap(find.byTooltip('关闭播放菜单'));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // A hidden panel must remain reachable without a duplicate bottom action.
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      final panelButton = tester.getCenter(find.byTooltip('收起选集与资源'));
+      await tester.tap(find.byTooltip('收起选集与资源'));
+      await mouse.moveTo(const Offset(500, 300));
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.byTooltip('展开选集与资源').hitTestable(), findsNothing);
+      await mouse.moveTo(panelButton - const Offset(20, 0));
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.byTooltip('展开选集与资源').hitTestable(), findsOneWidget);
+      await tester.tap(find.byTooltip('展开选集与资源'));
+      await mouse.removePointer();
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.tap(find.byTooltip('播放设置'));
+      await tester.pump(const Duration(milliseconds: 200));
       for (var i = 0; i < 4; i++) {
-        await tester.tap(find.text('延后 0.5 秒'));
-        await tester.pump();
+        await tester.tap(find.byTooltip('延后 0.5 秒'));
+        await tester.pump(const Duration(milliseconds: 200));
       }
       await state.openSubject(<String, dynamic>{'subjectId': 2});
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
       state.navigate('player');
-      await tester.pump();
-      await tester.tap(find.text('延后 0.5 秒'));
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.tap(find.byTooltip('播放设置'));
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.tap(find.byTooltip('延后 0.5 秒'));
+      await tester.pump(const Duration(milliseconds: 200));
       expect(state.playback.subtitleDelay, 2.5);
-      await tester.tap(find.text('选集'));
-      await tester.pump();
-      expect(find.text('Episode 1'), findsOneWidget);
-      expect(find.text('Episode 2'), findsNothing);
+      await tester.tap(find.byTooltip('关闭播放菜单'));
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.textContaining('Episode 1'), findsOneWidget);
+      expect(find.textContaining('Episode 2'), findsNothing);
       await state.openVideo(media);
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
       expect(find.textContaining('此视频没有关联章节'), findsOneWidget);
       expect(state.playback.subtitleDelay, 0);
 

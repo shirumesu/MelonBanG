@@ -11,7 +11,7 @@ const routeTitles = {
   'calendar': '新番时间表',
   'downloads': '缓存',
   'settings': '设置',
-  'player': '正在播放',
+  'player': '播放器',
   'subject': '番剧详情',
   'search': '搜索番剧',
   'resources': '查找资源',
@@ -26,9 +26,10 @@ class AppTitleBar extends StatelessWidget {
     required this.onToggleSidebar,
     required this.onToggleTheme,
     this.onBack,
+    this.immersive = false,
   });
   final String route;
-  final bool dark, sidebarVisible;
+  final bool dark, sidebarVisible, immersive;
   final VoidCallback onToggleSidebar, onToggleTheme;
   final VoidCallback? onBack;
 
@@ -42,16 +43,18 @@ class AppTitleBar extends StatelessWidget {
           const SizedBox(width: 78)
         else
           const SizedBox(width: 8),
-        IconButton(
-          tooltip: sidebarVisible ? '收起侧栏' : '展开侧栏',
-          onPressed: onToggleSidebar,
-          icon: const Icon(Icons.view_sidebar_outlined, size: 18),
-        ),
-        IconButton(
-          tooltip: route == 'resources' ? '返回番剧' : '返回探索',
-          onPressed: onBack,
-          icon: const Icon(Icons.arrow_back, size: 18),
-        ),
+        if (!immersive) ...[
+          IconButton(
+            tooltip: sidebarVisible ? '收起侧栏' : '展开侧栏',
+            onPressed: onToggleSidebar,
+            icon: const Icon(Icons.view_sidebar_outlined, size: 18),
+          ),
+          IconButton(
+            tooltip: route == 'resources' ? '返回番剧' : '返回探索',
+            onPressed: onBack,
+            icon: const Icon(Icons.arrow_back, size: 18),
+          ),
+        ],
         Expanded(
           child: DragToMoveArea(
             child: Container(
@@ -80,14 +83,15 @@ class AppTitleBar extends StatelessWidget {
             ),
           ),
         ),
-        IconButton(
-          tooltip: '切换主题',
-          onPressed: onToggleTheme,
-          icon: Icon(
-            dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-            size: 18,
+        if (!immersive)
+          IconButton(
+            tooltip: '切换主题',
+            onPressed: onToggleTheme,
+            icon: Icon(
+              dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+              size: 18,
+            ),
           ),
-        ),
         if (Theme.of(context).platform != TargetPlatform.macOS) ...[
           IconButton(
             tooltip: '最小化',
