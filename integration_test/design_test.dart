@@ -15,6 +15,7 @@ import 'package:melonbang/app.dart';
 import 'package:melonbang/app_services.dart';
 import 'package:melonbang/data/network.dart';
 import 'package:melonbang/ui/core/page_widgets.dart';
+import 'package:melonbang/ui/core/subject_posters.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -138,36 +139,40 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
     }
 
-    Finder arrow(String tooltip) => find
-        .byWidgetPredicate(
-          (widget) => widget is IconButton && widget.tooltip == tooltip,
-        )
-        .first;
+    Finder arrow(String tooltip) => find.descendant(
+      of: find.byType(SubjectPosters).first,
+      matching: find.byWidgetPredicate(
+        (widget) => widget is IconButton && widget.tooltip == tooltip,
+      ),
+    );
 
     for (final width in [1360.0, 960.0]) {
       await windowManager.setSize(Size(width, width == 960 ? 640 : 1000));
       await tester.pump(const Duration(milliseconds: 500));
       state.navigate('home');
       await snapshot('home-${width.toInt()}');
-      for (
-        var i = 0;
-        i < 4 && tester.widget<IconButton>(arrow('向右翻页')).onPressed != null;
-        i++
-      ) {
+      for (var i = 0; i < 4 && arrow('向右翻页').evaluate().isNotEmpty; i++) {
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: Offset.zero);
+        await mouse.moveTo(tester.getCenter(arrow('向右翻页')));
+        await tester.pump(const Duration(milliseconds: 200));
+        await snapshot('paging-hover-${width.toInt()}');
         await tester.tap(arrow('向右翻页'));
+        await mouse.removePointer();
         await tester.pump(const Duration(milliseconds: 300));
       }
       await snapshot('home-scroll-right-${width.toInt()}');
-      expect(tester.widget<IconButton>(arrow('向右翻页')).onPressed, isNull);
-      for (
-        var i = 0;
-        i < 4 && tester.widget<IconButton>(arrow('向左翻页')).onPressed != null;
-        i++
-      ) {
+      expect(arrow('向右翻页'), findsNothing);
+      for (var i = 0; i < 4 && arrow('向左翻页').evaluate().isNotEmpty; i++) {
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: Offset.zero);
+        await mouse.moveTo(tester.getCenter(arrow('向左翻页')));
+        await tester.pump(const Duration(milliseconds: 200));
         await tester.tap(arrow('向左翻页'));
+        await mouse.removePointer();
         await tester.pump(const Duration(milliseconds: 300));
       }
-      expect(tester.widget<IconButton>(arrow('向左翻页')).onPressed, isNull);
+      expect(arrow('向左翻页'), findsNothing);
       expect(find.text('打开视频'), findsNothing);
       await tester.tap(find.byTooltip('收起侧栏'));
       await snapshot('collapsed-${width.toInt()}');

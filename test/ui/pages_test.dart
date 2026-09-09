@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:melonbang/data/json.dart';
@@ -44,26 +45,36 @@ void main() {
         );
         await showPage(tester, posters(10));
         await tester.pumpAndSettle();
-        IconButton arrow(String tooltip) => tester.widget<IconButton>(
-          find.byWidgetPredicate(
-            (widget) => widget is IconButton && widget.tooltip == tooltip,
-          ),
-        );
-        expect(arrow('向左翻页').onPressed, isNull);
-        expect(arrow('向右翻页').onPressed, isNotNull);
-        await tester.tap(find.byTooltip('向右翻页'));
+        Finder arrow(String tooltip) => find.byTooltip(tooltip);
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: Offset.zero);
+        expect(arrow('向左翻页'), findsNothing);
+        expect(arrow('向右翻页').hitTestable(), findsNothing);
+        final right = tester.getCenter(arrow('向右翻页'));
+        await mouse.moveTo(right - const Offset(40, 0));
         await tester.pumpAndSettle();
-        expect(arrow('向左翻页').onPressed, isNotNull);
+        expect(arrow('向右翻页').hitTestable(), findsOneWidget);
+        await mouse.moveTo(tester.getCenter(find.byType(SubjectPosters)));
+        await tester.pumpAndSettle();
+        expect(arrow('向右翻页').hitTestable(), findsNothing);
+        await mouse.moveTo(right);
+        await tester.pumpAndSettle();
+        await tester.tap(arrow('向右翻页'));
+        await tester.pumpAndSettle();
+        expect(arrow('向左翻页').hitTestable(), findsNothing);
         expect(opened, isNull);
-        for (var i = 0; i < 8 && arrow('向右翻页').onPressed != null; i++) {
-          await tester.tap(find.byTooltip('向右翻页'));
+        for (var i = 0; i < 8 && arrow('向右翻页').evaluate().isNotEmpty; i++) {
+          await tester.tap(arrow('向右翻页'));
           await tester.pumpAndSettle();
         }
-        expect(arrow('向右翻页').onPressed, isNull);
+        expect(arrow('向右翻页'), findsNothing);
         expect(find.text('Poster 9').hitTestable(), findsOneWidget);
-        await tester.tap(find.byTooltip('向左翻页'));
+        await mouse.moveTo(tester.getCenter(arrow('向左翻页')));
         await tester.pumpAndSettle();
-        expect(arrow('向右翻页').onPressed, isNotNull);
+        await tester.tap(arrow('向左翻页'));
+        await tester.pumpAndSettle();
+        expect(arrow('向右翻页').hitTestable(), findsNothing);
+        await mouse.removePointer();
         await showPage(tester, posters(1));
         await tester.pumpAndSettle();
         expect(find.byTooltip('向左翻页'), findsNothing);
