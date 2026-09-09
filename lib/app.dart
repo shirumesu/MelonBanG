@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -39,6 +40,7 @@ class MelonApp extends StatefulWidget {
 class _MelonAppState extends State<MelonApp> with WindowListener {
   final messages = GlobalKey<ScaffoldMessengerState>();
   final navigation = GlobalKey<NavigatorState>();
+  final playerPageKey = GlobalKey();
   final search = TextEditingController();
   final resourceSearch = TextEditingController();
   late final Playback playback;
@@ -47,7 +49,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   bool dark = false, ready = false, busy = false, fullScreen = false;
   String? error;
   bool trendingLoading = true;
-  bool closing = false, sidebarVisible = true;
+  bool closing = false, sidebarVisible = true, windowFullScreen = false;
   final homeFeedback = ActionFeedback();
   final syncFeedback = ActionFeedback();
   Json? account, subject, playerSubject;
@@ -63,6 +65,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   int _navigation = 0;
   int _personalRequest = 0, _resourceRequest = 0, _playbackRequest = 0;
   Future<void> _playbackOperations = Future.value();
+  Future<void> _fullScreenOperations = Future.value();
+  Completer<void>? _fullScreenTransition;
 
   @override
   void initState() {
@@ -422,20 +426,46 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   @override
   void onWindowEnterFullScreen() {
     if (mounted) setState(() => fullScreen = true);
+    _fullScreenTransition?.complete();
+    _fullScreenTransition = null;
   }
 
   @override
   void onWindowLeaveFullScreen() {
     if (mounted) setState(() => fullScreen = false);
+    _fullScreenTransition?.complete();
+    _fullScreenTransition = null;
   }
 
-  Future<void> setFullScreen(bool value) async {
-    await perform(() async {
-      await windowManager.setFullScreen(value);
-      // Windows can resize to fullscreen without emitting enter/leave events.
-      final actual = await windowManager.isFullScreen();
-      if (mounted && !closing) setState(() => fullScreen = actual);
-    });
+  Future<void> setFullScreen(bool value) {
+    return _fullScreenOperations = _fullScreenOperations.then(
+      (_) => perform(() async {
+        if (!mounted || closing) return;
+        if (await windowManager.isFullScreen() != value) {
+          // AppKit updates its style mask before the fullscreen animation ends.
+          // Wait for its completion event before allowing a reverse transition.
+          final transition = Platform.isMacOS ? Completer<void>() : null;
+          _fullScreenTransition = transition;
+          try {
+            await windowManager.setFullScreen(value);
+            await transition?.future.timeout(const Duration(seconds: 5));
+          } finally {
+            _fullScreenTransition = null;
+          }
+        }
+        // Windows can resize to fullscreen without emitting enter/leave events.
+        final actual = await windowManager.isFullScreen();
+        if (mounted && !closing) setState(() => fullScreen = actual);
+      }),
+    );
+  }
+
+  Future<void> setWindowFullScreen(bool value) async {
+    if (fullScreen) {
+      await setFullScreen(false);
+      if (fullScreen) return;
+    }
+    if (mounted) setState(() => windowFullScreen = value);
   }
 
   @override
@@ -474,6 +504,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
             if (!fullScreen)
               AppTitleBar(
                 route: route,
+                immersive: route == 'player' && windowFullScreen,
                 dark: dark,
                 sidebarVisible: sidebarVisible,
                 onBack: route == 'home' ? null : goBack,
@@ -484,7 +515,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
             Expanded(
               child: Row(
                 children: [
-                  if (!fullScreen && route != 'settings' && sidebarVisible)
+                  if (!fullScreen &&
+                      !(route == 'player' && windowFullScreen) &&
+                      route != 'settings' &&
+                      sidebarVisible)
                     SizedBox(
                       width: 236,
                       child: AppSidebar(
@@ -510,7 +544,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                   Expanded(
                     child: Column(
                       children: [
-                        if (!fullScreen && route != 'settings')
+                        if (!fullScreen &&
+                            route != 'settings' &&
+                            route != 'player')
                           AppHeader(
                             route: route,
                             search: search,
@@ -533,12 +569,22 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                         Expanded(
                           child: route == 'player'
                               ? PlayerPage(
+                                  key: playerPageKey,
                                   playback: playback,
                                   service: widget.service,
-                                  onOpen: () => openVideo(),
                                   onError: showError,
                                   onBack: goBack,
                                   fullScreen: fullScreen,
+                                  windowFullScreen: windowFullScreen,
+                                  onWindowFullScreenChanged:
+                                      setWindowFullScreen,
+                                  downloads: downloads,
+                                  onPlayFile: (id, fileId) => startPlayback(
+                                    () => widget.service.library.fromDownload(
+                                      id,
+                                      fileId: fileId,
+                                    ),
+                                  ),
                                   onFullScreenChanged: setFullScreen,
                                   subject: playerSubject,
                                   onEpisode: playEpisode,
@@ -678,7 +724,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           dataDirectory: widget.service.dataDirectory,
           connectionSettings: ConnectionSettings(services: widget.service),
           onThemeChanged: setDark,
-          onOpenVideo: () => openVideo(),
           onCancelSignIn: () => perform(() async {
             await widget.service.account.cancelSignIn();
           }),

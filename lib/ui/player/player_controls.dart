@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'playback.dart';
+import 'player_theme.dart';
 
 class PlayerControls extends StatelessWidget {
   const PlayerControls({
@@ -18,10 +19,16 @@ class PlayerControls extends StatelessWidget {
     required this.onFocus,
     required this.onReveal,
     required this.onFullscreen,
-    required this.onToggleDanmaku,
+    required this.onMenu,
+    required this.onWindowFullScreen,
+    required this.windowFullScreen,
+    required this.menu,
   });
   final Playback playback;
-  final bool fullScreen;
+  final bool fullScreen, windowFullScreen;
+  final PlayerMenu? menu;
+  final ValueChanged<PlayerMenu> onMenu;
+  final VoidCallback onWindowFullScreen;
   final double? dragging;
   final ValueChanged<double> onDragStart;
   final ValueChanged<double> onDragChanged;
@@ -30,7 +37,6 @@ class PlayerControls extends StatelessWidget {
   final VoidCallback onFocus;
   final VoidCallback onReveal;
   final VoidCallback onFullscreen;
-  final VoidCallback onToggleDanmaku;
   Player get player => playback.player;
   @override
   Widget build(BuildContext context) => Container(
@@ -61,55 +67,62 @@ class PlayerControls extends StatelessWidget {
               onChanged: duration > 0 ? onDragChanged : null,
               onChangeEnd: onDragEnd,
             ),
-            Row(
-              children: [
-                StreamBuilder<bool>(
-                  stream: player.stream.playing,
-                  initialData: player.state.playing,
-                  builder: (_, playing) => IconButton(
-                    tooltip: '播放 / 暂停（空格）',
-                    onPressed: () {
-                      unawaited(player.playOrPause());
-                      onFocus();
-                      onReveal();
-                    },
-                    icon: Icon(
-                      playing.data == true
-                          ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final primary = Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    StreamBuilder<bool>(
+                      stream: player.stream.playing,
+                      initialData: player.state.playing,
+                      builder: (_, playing) => IconButton(
+                        tooltip: '播放 / 暂停（空格）',
+                        color: Theme.of(context).colorScheme.primary,
+                        onPressed: () {
+                          unawaited(player.playOrPause());
+                          onFocus();
+                          onReveal();
+                        },
+                        icon: Icon(
+                          playing.data == true
+                              ? Icons.pause_rounded
+                              : Icons.play_arrow_rounded,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                IconButton(
-                  tooltip: '后退 5 秒',
-                  onPressed: () => onSeekRelative(-5),
-                  icon: const Icon(Icons.replay_5),
-                ),
-                IconButton(
-                  tooltip: '前进 5 秒',
-                  onPressed: () => onSeekRelative(5),
-                  icon: const Icon(Icons.forward_5),
-                ),
-                Text(
-                  '${formatTime(dragging ?? current)} / ${formatTime(duration)}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                const Spacer(),
-                IconButton(
-                  tooltip: '弹幕开关',
-                  onPressed: onToggleDanmaku,
-                  icon: Icon(
-                    playback.danmakuEnabled
-                        ? Icons.subtitles
-                        : Icons.subtitles_off,
-                  ),
-                ),
-                StreamBuilder<double>(
-                  stream: player.stream.volume,
-                  initialData: player.state.volume,
-                  builder: (_, snapshot) => Row(
-                    children: [
+                    IconButton(
+                      tooltip: '后退 5 秒',
+                      onPressed: () => onSeekRelative(-5),
+                      icon: const Icon(Icons.replay_5),
+                    ),
+                    IconButton(
+                      tooltip: '前进 5 秒',
+                      onPressed: () => onSeekRelative(5),
+                      icon: const Icon(Icons.forward_5),
+                    ),
+                    Text(
+                      '${formatTime(dragging ?? current)} / ${formatTime(duration)}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                );
+                final secondary = Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final entry in [
+                      (PlayerMenu.audio, '音轨', Icons.graphic_eq),
+                      (PlayerMenu.danmaku, '弹幕', Icons.chat_bubble_outline),
+                    ])
                       IconButton(
+                        tooltip: entry.$2,
+                        isSelected: menu == entry.$1,
+                        onPressed: () => onMenu(entry.$1),
+                        icon: Icon(entry.$3),
+                      ),
+                    StreamBuilder<double>(
+                      stream: player.stream.volume,
+                      initialData: player.state.volume,
+                      builder: (_, snapshot) => IconButton(
                         tooltip: '静音（M）',
                         onPressed: () =>
                             player.setVolume(snapshot.data! == 0 ? 80 : 0),
@@ -119,39 +132,81 @@ class PlayerControls extends StatelessWidget {
                               : Icons.volume_up,
                         ),
                       ),
-                      SizedBox(
-                        width: 80,
-                        child: Slider(
-                          value: snapshot.data!.clamp(0, 100),
-                          max: 100,
-                          onChanged: (value) => player.setVolume(value),
+                    ),
+                    StreamBuilder<double>(
+                      stream: player.stream.rate,
+                      initialData: player.state.rate,
+                      builder: (_, snapshot) => PopupMenuButton<double>(
+                        tooltip: '播放速度',
+                        onOpened: onReveal,
+                        onSelected: (value) {
+                          player.setRate(value);
+                          onFocus();
+                          onReveal();
+                        },
+                        itemBuilder: (_) => [.5, .75, 1.0, 1.25, 1.5, 2.0]
+                            .map(
+                              (rate) => PopupMenuItem(
+                                value: rate,
+                                child: Text('${rate}x'),
+                              ),
+                            )
+                            .toList(),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Text(
+                            '${snapshot.data}x',
+                            style: const TextStyle(fontSize: 12),
+                          ),
                         ),
                       ),
-                    ],
+                    ),
+                    IconButton(
+                      tooltip: '播放设置',
+                      isSelected: menu == PlayerMenu.subtitles,
+                      onPressed: () => onMenu(PlayerMenu.subtitles),
+                      icon: const Icon(Icons.tune),
+                    ),
+                    IconButton(
+                      tooltip: windowFullScreen ? '退出窗口全屏' : '窗口全屏',
+                      onPressed: onWindowFullScreen,
+                      icon: Icon(
+                        windowFullScreen
+                            ? Icons.close_fullscreen
+                            : Icons.fit_screen,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: fullScreen ? '退出显示屏全屏（F）' : '显示屏全屏（F）',
+                      onPressed: onFullscreen,
+                      icon: Icon(
+                        fullScreen ? Icons.fullscreen_exit : Icons.fullscreen,
+                      ),
+                    ),
+                  ],
+                );
+                return IconButtonTheme(
+                  data: IconButtonThemeData(
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size(34, 36),
+                      padding: const EdgeInsets.all(7),
+                      iconSize: 20,
+                    ),
                   ),
-                ),
-                PopupMenuButton<double>(
-                  tooltip: '播放速度',
-                  onSelected: (value) => player.setRate(value),
-                  itemBuilder: (_) => [.5, .75, 1.0, 1.25, 1.5, 2.0]
-                      .map(
-                        (rate) =>
-                            PopupMenuItem(value: rate, child: Text('${rate}x')),
-                      )
-                      .toList(),
-                  child: Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Text('${player.state.rate}x'),
-                  ),
-                ),
-                IconButton(
-                  tooltip: '全屏（F）',
-                  onPressed: onFullscreen,
-                  icon: Icon(
-                    fullScreen ? Icons.fullscreen_exit : Icons.fullscreen,
-                  ),
-                ),
-              ],
+                  child: constraints.maxWidth >= 600
+                      ? Row(children: [primary, const Spacer(), secondary])
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            primary,
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: secondary,
+                            ),
+                          ],
+                        ),
+                );
+              },
             ),
           ],
         );

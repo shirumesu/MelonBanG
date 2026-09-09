@@ -15,7 +15,6 @@ class SettingsPage extends StatefulWidget {
     required this.onAccountAction,
     required this.onCancelSignIn,
     required this.onThemeChanged,
-    required this.onOpenVideo,
     this.onBack,
     this.showSidebar = true,
   });
@@ -24,7 +23,7 @@ class SettingsPage extends StatefulWidget {
   final bool dark, showSidebar;
   final String? dataDirectory;
   final Widget connectionSettings;
-  final VoidCallback onAccountAction, onCancelSignIn, onOpenVideo;
+  final VoidCallback onAccountAction, onCancelSignIn;
   final VoidCallback? onBack;
   final ValueChanged<bool> onThemeChanged;
   @override
@@ -230,20 +229,32 @@ class _SettingsPageState extends State<SettingsPage> {
                   PageScroll(children: [widget.connectionSettings]),
                   PageScroll(
                     children: [
-                      const SectionTitle(title: '本地播放'),
-                      MelonPanel(
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: const Icon(
-                            Icons.video_file_outlined,
-                            color: mint,
-                          ),
-                          title: const Text('从本地文件开始观看'),
-                          subtitle: const Text('支持内嵌字幕、音轨和弹幕'),
-                          trailing: FilledButton(
-                            onPressed: widget.onOpenVideo,
-                            child: const Text('打开'),
-                          ),
+                      const SectionTitle(title: '播放快捷键'),
+                      const MelonPanel(
+                        child: Column(
+                          children: [
+                            ListTile(
+                              title: Text('播放 / 暂停'),
+                              trailing: Text('Space'),
+                            ),
+                            ListTile(
+                              title: Text('后退 / 前进 5 秒'),
+                              trailing: Text('← / →'),
+                            ),
+                            ListTile(
+                              title: Text('显示屏全屏'),
+                              trailing: Text('F / F11'),
+                            ),
+                            ListTile(
+                              title: Text('退出全屏或关闭菜单'),
+                              trailing: Text('Esc'),
+                            ),
+                            ListTile(title: Text('静音'), trailing: Text('M')),
+                            ListTile(
+                              title: Text('切换显示屏全屏'),
+                              trailing: Text('双击画面'),
+                            ),
+                          ],
                         ),
                       ),
                     ],

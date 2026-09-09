@@ -7,21 +7,22 @@ import 'package:media_kit/media_kit.dart';
 
 import '../../app_services.dart';
 import 'playback.dart';
+import 'player_theme.dart';
 
 class PlayerSettings extends StatefulWidget {
   const PlayerSettings({
     super.key,
     required this.playback,
     required this.service,
-    required this.subject,
-    required this.onEpisode,
+    required this.menu,
+    required this.onClose,
     required this.onError,
     required this.onPresentationChanged,
   });
   final Playback playback;
   final AppServices service;
-  final Json? subject;
-  final ValueChanged<Json> onEpisode;
+  final PlayerMenu menu;
+  final VoidCallback onClose;
   final ValueChanged<Object> onError;
   final VoidCallback onPresentationChanged;
   @override
@@ -30,7 +31,7 @@ class PlayerSettings extends StatefulWidget {
 
 class _PlayerSettingsState extends State<PlayerSettings> {
   final query = TextEditingController();
-  String tab = 'tracks', provider = 'bilibili';
+  String provider = 'bilibili';
   bool loading = false;
   List<Json> matches = [];
   String? _sessionId;
@@ -75,171 +76,167 @@ class _PlayerSettingsState extends State<PlayerSettings> {
   }
 
   @override
-  Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      border: Border(
-        left: BorderSide(
-          color: Theme.of(context).dividerColor.withValues(alpha: .15),
-        ),
-      ),
-    ),
+  Widget build(BuildContext context) => Material(
+    color: Theme.of(context).colorScheme.surface,
+    borderRadius: BorderRadius.circular(14),
+    elevation: 8,
+    clipBehavior: Clip.antiAlias,
     child: Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Padding(
-          padding: const EdgeInsets.all(10),
-          child: SegmentedButton<String>(
-            showSelectedIcon: false,
-            segments: const [
-              ButtonSegment(value: 'tracks', label: Text('播放')),
-              ButtonSegment(value: 'danmaku', label: Text('弹幕')),
-              ButtonSegment(value: 'episodes', label: Text('选集')),
+          padding: const EdgeInsets.fromLTRB(16, 8, 6, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(switch (widget.menu) {
+                  PlayerMenu.audio => '音轨',
+                  PlayerMenu.danmaku => '弹幕',
+                  PlayerMenu.subtitles => '播放设置',
+                }, style: Theme.of(context).textTheme.titleSmall),
+              ),
+              IconButton(
+                tooltip: '关闭播放菜单',
+                onPressed: widget.onClose,
+                icon: const Icon(Icons.close, size: 18),
+              ),
             ],
-            selected: {tab},
-            onSelectionChanged: (value) => setState(() => tab = value.first),
           ),
         ),
-        Expanded(
+        Flexible(
           child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: tab == 'tracks'
-                ? trackSettings()
-                : tab == 'danmaku'
-                ? danmakuSettings()
-                : episodeSettings(),
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            children: switch (widget.menu) {
+              PlayerMenu.audio => audioSettings(),
+              PlayerMenu.danmaku => danmakuSettings(),
+              PlayerMenu.subtitles => subtitleSettings(),
+            },
           ),
         ),
       ],
     ),
   );
-  List<Widget> trackSettings() => [
-    Text('字幕', style: Theme.of(context).textTheme.titleMedium),
-    const SizedBox(height: 12),
-    StreamBuilder<Tracks>(
-      stream: player.stream.tracks,
-      initialData: player.state.tracks,
-      builder: (_, snapshot) => Column(
-        children: snapshot.data!.subtitle
-            .map(
-              (track) => ListTile(
+
+  Widget trackChoices(bool subtitle) => StreamBuilder<Tracks>(
+    stream: player.stream.tracks,
+    initialData: player.state.tracks,
+    builder: (_, snapshot) {
+      final tracks = subtitle ? snapshot.data!.subtitle : snapshot.data!.audio;
+      return Material(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(10),
+        child: Column(
+          children: [
+            for (final track in tracks)
+              ListTile(
                 dense: true,
-                contentPadding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                selected: subtitle
+                    ? player.state.track.subtitle == track
+                    : player.state.track.audio == track,
                 title: Text(
                   track.id == 'no'
-                      ? '关闭字幕'
+                      ? (subtitle ? '关闭字幕' : '关闭音频')
                       : track.id == 'auto'
                       ? '自动选择'
-                      : track.title ?? track.language ?? '字幕 ${track.id}',
+                      : track.title ??
+                            track.language ??
+                            '${subtitle ? '字幕' : '音轨'} ${track.id}',
                 ),
-                trailing: player.state.track.subtitle == track
-                    ? const Icon(Icons.check, size: 18)
+                trailing:
+                    (subtitle
+                        ? player.state.track.subtitle == track
+                        : player.state.track.audio == track)
+                    ? const Icon(Icons.check, size: 16)
                     : null,
                 onTap: () => perform(() async {
-                  await player.setSubtitleTrack(track);
+                  if (subtitle) {
+                    await player.setSubtitleTrack(track as SubtitleTrack);
+                  } else {
+                    await player.setAudioTrack(track as AudioTrack);
+                  }
                   refresh();
                 }),
               ),
-            )
-            .toList(),
-      ),
-    ),
-    TextButton.icon(
-      onPressed: loadSubtitle,
-      icon: const Icon(Icons.add),
-      label: const Text('载入外部字幕'),
-    ),
-    const Divider(height: 30),
-    Text('音轨', style: Theme.of(context).textTheme.titleMedium),
-    StreamBuilder<Tracks>(
-      stream: player.stream.tracks,
-      initialData: player.state.tracks,
+          ],
+        ),
+      );
+    },
+  );
+
+  List<Widget> audioSettings() => [
+    trackChoices(false),
+    const SizedBox(height: 16),
+    StreamBuilder<double>(
+      stream: player.stream.volume,
+      initialData: player.state.volume,
       builder: (_, snapshot) => Column(
-        children: snapshot.data!.audio
-            .map(
-              (track) => ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  track.id == 'no'
-                      ? '关闭音频'
-                      : track.id == 'auto'
-                      ? '自动选择'
-                      : track.title ?? track.language ?? '音轨 ${track.id}',
-                ),
-                trailing: player.state.track.audio == track
-                    ? const Icon(Icons.check, size: 18)
-                    : null,
-                onTap: () => perform(() async {
-                  await player.setAudioTrack(track);
-                  refresh();
-                }),
-              ),
-            )
-            .toList(),
-      ),
-    ),
-    const Divider(height: 30),
-    const Text('字幕时间偏移'),
-    Row(
-      children: [
-        TextButton(
-          onPressed: () => offsetSubtitle(-.5),
-          child: const Text('提前 0.5 秒'),
-        ),
-        TextButton(
-          onPressed: () => offsetSubtitle(.5),
-          child: const Text('延后 0.5 秒'),
-        ),
-      ],
-    ),
-    const Divider(height: 30),
-    const Text('快捷键', style: TextStyle(fontWeight: FontWeight.bold)),
-    const SizedBox(height: 10),
-    Text(
-      '空格  播放 / 暂停\n← / →  跳转 5 秒\nF / F11  全屏\nEsc  退出全屏\nM  静音\n双击画面  全屏',
-      style: TextStyle(
-        height: 1.8,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        children: [
+          Row(
+            children: [
+              const Expanded(child: Text('音量')),
+              Text('${snapshot.data!.round()}%'),
+            ],
+          ),
+          Slider(
+            value: snapshot.data!.clamp(0, 100),
+            max: 100,
+            onChanged: (value) => player.setVolume(value),
+          ),
+        ],
       ),
     ),
   ];
-  Future<void> offsetSubtitle(double delta) => perform(() async {
-    await playback.offsetSubtitle(delta);
-  });
-  Future<void> loadSubtitle() async {
-    final file = await openFile(
-      acceptedTypeGroups: [
-        const XTypeGroup(
-          label: 'Subtitle',
-          extensions: ['ass', 'ssa', 'srt', 'vtt', 'sub', 'sup'],
+
+  List<Widget> subtitleSettings() => [
+    const Padding(
+      padding: EdgeInsets.symmetric(vertical: 8),
+      child: Text('字幕'),
+    ),
+    trackChoices(true),
+    const SizedBox(height: 16),
+    Row(
+      children: [
+        const Expanded(child: Text('字幕时间偏移')),
+        TextButton(
+          onPressed: () => offsetSubtitle(-playback.subtitleDelay),
+          child: const Text('重置'),
         ),
       ],
-    );
-    if (file != null) {
-      await perform(() async {
-        await player.setSubtitleTrack(
-          SubtitleTrack.uri(file.path, title: file.name),
-        );
-        refresh();
-      });
-    }
-  }
-
-  List<Widget> episodeSettings() {
-    final episodes = objects(widget.subject?['episodes']);
-    return [
-      if (episodes.isEmpty) const Text('此视频没有关联章节。可以在番剧详情中为某一话打开本地文件。'),
-      for (final episode in episodes)
-        Card(
-          child: ListTile(
-            dense: true,
-            title: Text('第 ${episode['sort']} 话'),
-            subtitle: Text(titleOf(episode)),
-            selected: episode['episodeId'] == playback.session?['episodeId'],
-            onTap: () => widget.onEpisode(episode),
+    ),
+    Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          IconButton(
+            tooltip: '提前 0.5 秒',
+            onPressed: () => offsetSubtitle(-.5),
+            icon: const Icon(Icons.remove),
           ),
-        ),
-    ];
-  }
+          Text(
+            '${playback.subtitleDelay > 0 ? '+' : ''}${playback.subtitleDelay.toStringAsFixed(1)} 秒',
+          ),
+          IconButton(
+            tooltip: '延后 0.5 秒',
+            onPressed: () => offsetSubtitle(.5),
+            icon: const Icon(Icons.add),
+          ),
+        ],
+      ),
+    ),
+  ];
+
+  Future<void> offsetSubtitle(double delta) => perform(() async {
+    await playback.offsetSubtitle(delta);
+    refresh();
+  });
 
   List<Widget> danmakuSettings() => [
     SwitchListTile(
@@ -257,7 +254,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
       onChanged: (value) =>
           changePresentation(() => playback.danmakuSize = value),
     ),
-    const Text('不透明度'),
+    Text('不透明度 ${(playback.danmakuOpacity * 100).round()}%'),
     Slider(
       value: playback.danmakuOpacity,
       min: .2,
@@ -265,7 +262,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
       onChanged: (value) =>
           changePresentation(() => playback.danmakuOpacity = value),
     ),
-    const Text('显示区域'),
+    Text('显示区域 ${(playback.danmakuArea * 100).round()}%'),
     Slider(
       value: playback.danmakuArea,
       min: .2,
@@ -273,7 +270,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
       onChanged: (value) =>
           changePresentation(() => playback.danmakuArea = value),
     ),
-    const Divider(),
+    const SizedBox(height: 12),
     FilledButton.icon(
       onPressed: loading
           ? null
@@ -307,7 +304,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
             ),
         ],
       ),
-    const Divider(height: 30),
+    const SizedBox(height: 20),
     const Text('手动匹配'),
     const SizedBox(height: 12),
     DropdownButtonFormField<String>(

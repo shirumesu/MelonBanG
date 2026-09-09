@@ -47,12 +47,34 @@ void main() {
               child: PlayerPage(
                 playback: playback,
                 service: playback.service,
-                onOpen: () {},
                 onBack: () {},
                 onError: errors.add,
                 fullScreen: false,
                 onFullScreenChanged: windowManager.setFullScreen,
                 onEpisode: (_) {},
+                subject: const {
+                  'subjectId': 42,
+                  'nameCn': '播放交互验证',
+                  'episodes': [
+                    {'episodeId': 7, 'sort': 1, 'name': '当前章节'},
+                    {'episodeId': 8, 'sort': 2, 'name': '下一话'},
+                    {'episodeId': 9, 'sort': 3, 'name': '待下载章节'},
+                  ],
+                },
+                downloads: const {
+                  'tasks': [
+                    {
+                      'id': 'preview-task',
+                      'subjectId': 42,
+                      'episodeId': 8,
+                      'title': '下一话',
+                      'status': 'downloading',
+                      'progress': .42,
+                      'downloadSpeedBytesPerSecond': 3355443,
+                    },
+                  ],
+                  'files': [],
+                },
               ),
             ),
           ),
@@ -61,7 +83,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
       await windowManager.show();
       await playback.player.setVolume(0);
-      await playback.openLocal(mediaPath);
+      await playback.openLocal(mediaPath, subjectId: 42, episodeId: 7);
       for (
         var i = 0;
         i < 50 && playback.player.state.duration.inSeconds == 0;
@@ -153,6 +175,31 @@ void main() {
         final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
         await File(outputPath).writeAsBytes(bytes!.buffer.asUint8List());
         image.dispose();
+      }
+      if (outputPath.isNotEmpty) {
+        for (final width in [960.0, 1360.0]) {
+          await windowManager.setSize(Size(width, 760));
+          await tester.pump(const Duration(milliseconds: 300));
+          await tester.tap(find.byTooltip('播放设置'));
+          await tester.pump(const Duration(milliseconds: 200));
+          final boundary =
+              capture.currentContext!.findRenderObject()!
+                  as RenderRepaintBoundary;
+          final image = await boundary.toImage(pixelRatio: 1);
+          final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+          await File('$outputPath-settings-${width.toInt()}.png')
+              .writeAsBytes(bytes!.buffer.asUint8List());
+          image.dispose();
+          await tester.tap(find.byTooltip('延后 0.5 秒'));
+          await tester.pump();
+          expect(playback.subtitleDelay, .5);
+          await tester.tap(find.text('重置'));
+          await tester.pump();
+          expect(playback.subtitleDelay, 0);
+          await tester.tap(find.byTooltip('关闭播放菜单'));
+          await tester.pump();
+          expect(tester.takeException(), isNull);
+        }
       }
       await tester.pumpWidget(const SizedBox.shrink());
       await playback.close();
