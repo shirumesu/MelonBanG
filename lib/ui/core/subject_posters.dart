@@ -39,16 +39,10 @@ class SubjectPosters extends StatelessWidget {
       tracking: tracking,
     );
     if (horizontal) {
-      return SizedBox(
-        height: ranked ? 330 : 292,
-        child: ListView.separated(
-          padding: const EdgeInsets.fromLTRB(2, 3, 2, 10),
-          scrollDirection: Axis.horizontal,
-          itemCount: items.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 16),
-          itemBuilder: (_, i) =>
-              SizedBox(width: ranked ? 180 : 188, child: poster(i)),
-        ),
+      return _HorizontalPosters(
+        ranked: ranked,
+        itemCount: items.length,
+        itemBuilder: poster,
       );
     }
     return LayoutBuilder(
@@ -66,6 +60,120 @@ class SubjectPosters extends StatelessWidget {
       ),
     );
   }
+}
+
+class _HorizontalPosters extends StatefulWidget {
+  const _HorizontalPosters({
+    required this.ranked,
+    required this.itemCount,
+    required this.itemBuilder,
+  });
+  final bool ranked;
+  final int itemCount;
+  final Widget Function(int) itemBuilder;
+
+  @override
+  State<_HorizontalPosters> createState() => _HorizontalPostersState();
+}
+
+class _HorizontalPostersState extends State<_HorizontalPosters> {
+  final _scroll = ScrollController();
+  bool _back = false, _forward = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_updateButtons);
+  }
+
+  void _updateButtons() {
+    if (!mounted ||
+        !_scroll.hasClients ||
+        !_scroll.position.hasContentDimensions) {
+      return;
+    }
+    final back = _scroll.position.extentBefore > .5;
+    final forward = _scroll.position.extentAfter > .5;
+    if (back != _back || forward != _forward) {
+      setState(() {
+        _back = back;
+        _forward = forward;
+      });
+    }
+  }
+
+  void _page(int direction) {
+    final position = _scroll.position;
+    final stride = (widget.ranked ? 180.0 : 188.0) + 16;
+    final count = (position.viewportDimension / stride).floor().clamp(
+      1,
+      widget.itemCount,
+    );
+    final target = (position.pixels + direction * count * stride).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    final duration = motionDuration(context, 220);
+    if (duration == Duration.zero) {
+      _scroll.jumpTo(target);
+    } else {
+      _scroll.animateTo(target, duration: duration, curve: Curves.easeOutCubic);
+    }
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: widget.ranked ? 330 : 292,
+    child: NotificationListener<ScrollMetricsNotification>(
+      onNotification: (_) {
+        _updateButtons();
+        return false;
+      },
+      child: Stack(
+        children: [
+          ListView.separated(
+            controller: _scroll,
+            padding: const EdgeInsets.fromLTRB(2, 3, 2, 10),
+            scrollDirection: Axis.horizontal,
+            itemCount: widget.itemCount,
+            separatorBuilder: (_, _) => const SizedBox(width: 16),
+            itemBuilder: (_, i) => SizedBox(
+              width: widget.ranked ? 180 : 188,
+              child: widget.itemBuilder(i),
+            ),
+          ),
+          if (_back || _forward)
+            for (final direction in [-1, 1])
+              Positioned(
+                left: direction < 0 ? 6 : null,
+                right: direction > 0 ? 6 : null,
+                top: widget.ranked ? 102 : 114,
+                child: Material(
+                  color: Theme.of(context).colorScheme.surface,
+                  shape: const CircleBorder(),
+                  elevation: 2,
+                  shadowColor: Theme.of(context).shadowColor,
+                  child: IconButton(
+                    tooltip: direction < 0 ? '向左翻页' : '向右翻页',
+                    onPressed: (direction < 0 ? _back : _forward)
+                        ? () => _page(direction)
+                        : null,
+                    icon: Icon(
+                      direction < 0 ? Icons.chevron_left : Icons.chevron_right,
+                    ),
+                  ),
+                ),
+              ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _SubjectPoster extends StatefulWidget {

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:melonbang/data/json.dart';
 import 'package:melonbang/ui/acquisition/downloads_page.dart';
 import 'package:melonbang/ui/core/theme.dart';
+import 'package:melonbang/ui/core/subject_posters.dart';
 import 'package:melonbang/ui/core/action_feedback.dart';
 import 'package:melonbang/ui/discovery/discovery_pages.dart';
 import 'package:melonbang/ui/tracking/subject_page.dart';
@@ -22,6 +23,60 @@ Future<void> showPage(WidgetTester tester, Widget page) async {
 }
 
 void main() {
+  testWidgets(
+    'horizontal posters page both ways and update their boundaries',
+    (tester) async {
+      for (final ranked in [false, true]) {
+        Json? opened;
+        Widget posters(int count) => Center(
+          child: SizedBox(
+            width: 430,
+            child: SubjectPosters(
+              items: List.generate(
+                count,
+                (i) => {'subjectId': i, 'name': 'Poster $i'},
+              ),
+              horizontal: true,
+              ranked: ranked,
+              onOpen: (item) => opened = item,
+            ),
+          ),
+        );
+        await showPage(tester, posters(10));
+        await tester.pumpAndSettle();
+        IconButton arrow(String tooltip) => tester.widget<IconButton>(
+          find.byWidgetPredicate(
+            (widget) => widget is IconButton && widget.tooltip == tooltip,
+          ),
+        );
+        expect(arrow('向左翻页').onPressed, isNull);
+        expect(arrow('向右翻页').onPressed, isNotNull);
+        await tester.tap(find.byTooltip('向右翻页'));
+        await tester.pumpAndSettle();
+        expect(arrow('向左翻页').onPressed, isNotNull);
+        expect(opened, isNull);
+        for (var i = 0; i < 8 && arrow('向右翻页').onPressed != null; i++) {
+          await tester.tap(find.byTooltip('向右翻页'));
+          await tester.pumpAndSettle();
+        }
+        expect(arrow('向右翻页').onPressed, isNull);
+        expect(find.text('Poster 9').hitTestable(), findsOneWidget);
+        await tester.tap(find.byTooltip('向左翻页'));
+        await tester.pumpAndSettle();
+        expect(arrow('向右翻页').onPressed, isNotNull);
+        await showPage(tester, posters(1));
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('向左翻页'), findsNothing);
+        expect(find.byTooltip('向右翻页'), findsNothing);
+        expect(tester.takeException(), isNull);
+      }
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+    }),
+  );
+
   testWidgets(
     'calendar days support keyboard selection and opening a result',
     (tester) async {

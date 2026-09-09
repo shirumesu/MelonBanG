@@ -138,11 +138,36 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
     }
 
+    Finder arrow(String tooltip) => find
+        .byWidgetPredicate(
+          (widget) => widget is IconButton && widget.tooltip == tooltip,
+        )
+        .first;
+
     for (final width in [1360.0, 960.0]) {
       await windowManager.setSize(Size(width, width == 960 ? 640 : 1000));
       await tester.pump(const Duration(milliseconds: 500));
       state.navigate('home');
       await snapshot('home-${width.toInt()}');
+      for (
+        var i = 0;
+        i < 4 && tester.widget<IconButton>(arrow('向右翻页')).onPressed != null;
+        i++
+      ) {
+        await tester.tap(arrow('向右翻页'));
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+      await snapshot('home-scroll-right-${width.toInt()}');
+      expect(tester.widget<IconButton>(arrow('向右翻页')).onPressed, isNull);
+      for (
+        var i = 0;
+        i < 4 && tester.widget<IconButton>(arrow('向左翻页')).onPressed != null;
+        i++
+      ) {
+        await tester.tap(arrow('向左翻页'));
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+      expect(tester.widget<IconButton>(arrow('向左翻页')).onPressed, isNull);
       expect(find.text('打开视频'), findsNothing);
       await tester.tap(find.byTooltip('收起侧栏'));
       await snapshot('collapsed-${width.toInt()}');
