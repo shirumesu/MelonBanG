@@ -7,11 +7,13 @@ import 'package:url_launcher/url_launcher.dart';
 import 'json.dart';
 import 'network.dart';
 import 'credentials.dart';
+import 'store.dart';
 
 class AccountRepository {
   AccountRepository(
     this.api,
     this.credentials, {
+    this.store,
     Future<void> Function(Uri)? launch,
   }) : launch =
            launch ??
@@ -22,9 +24,12 @@ class AccountRepository {
            });
   final ApiClient api;
   final Credentials credentials;
+  final AppStore? store;
   final Future<void> Function(Uri) launch;
   Json? _bundle;
-  Json? get session => _bundle == null ? null : object(_bundle!['user']);
+  Json? _profile;
+  Json? get session => _bundle == null ? _profile : object(_bundle!['user']);
+  bool get needsAuthorization => _restoreNeedsAuthorization;
   String get userId => '${session?['userId'] ?? 'local'}';
   HttpServer? _callback;
   Completer<String>? _authorization;
@@ -34,12 +39,29 @@ class AccountRepository {
   bool _closed = false;
   bool _restoreNeedsAuthorization = false;
   Future<void> initialize() async {
+    _profile = await store?.get('account', 'profile');
     try {
       final saved = await credentials.read('account', allowInteraction: false);
-      if (saved != null) _bundle = object(jsonDecode(saved));
+      if (saved != null) {
+        _bundle = object(jsonDecode(saved));
+        await _rememberProfile();
+      } else {
+        _profile = null;
+        await store?.remove('account', 'profile');
+      }
     } on CredentialInteractionRequired {
       _restoreNeedsAuthorization = true;
     }
+  }
+
+  Future<void> _rememberProfile() async {
+    final user = object(_bundle!['user']);
+    // Only public identity belongs in SQLite; tokens stay in native storage.
+    _profile = {
+      for (final key in ['userId', 'username', 'nickname', 'avatarUrl'])
+        if (user.containsKey(key)) key: user[key],
+    };
+    await store?.put('account', 'profile', _profile!);
   }
 
   Future<Json> configuration({bool allowInteraction = true}) async => object(
@@ -71,14 +93,30 @@ class AccountRepository {
     final generation = ++_signInGeneration;
     await _cancelPendingSignIn();
     if (_restoreNeedsAuthorization) {
-      final saved = await credentials.read('account');
+      final saved = _bundle == null ? await credentials.read('account') : null;
       if (_closed || generation != _signInGeneration) throw StateError('登录已取消');
-      _restoreNeedsAuthorization = false;
       if (saved != null) {
         _bundle = object(jsonDecode(saved));
-        return session!;
+        await _rememberProfile();
+      } else if (_bundle == null) {
+        _profile = null;
+        await store?.remove('account', 'profile');
       }
     }
+    if (_closed || generation != _signInGeneration) throw StateError('登录已取消');
+    if (_bundle != null) {
+      // An expired session needs both the token and its OAuth configuration.
+      // Authorize that read within this gesture, before background sync begins.
+      if (_restoreNeedsAuthorization ||
+          number(_bundle!['expiresAt']) <=
+              DateTime.now().millisecondsSinceEpoch + 60000) {
+        await configuration();
+      }
+      if (_closed || generation != _signInGeneration) throw StateError('登录已取消');
+      _restoreNeedsAuthorization = false;
+      return session!;
+    }
+    _restoreNeedsAuthorization = false;
     final config = await configuration();
     if (_closed || generation != _signInGeneration) {
       throw StateError('登录已取消');
@@ -191,6 +229,9 @@ class AccountRepository {
   }
 
   Future<String> accessToken() async {
+    if (!_closed && _bundle == null && needsAuthorization) {
+      throw const CredentialInteractionRequired();
+    }
     if (_closed || _bundle == null) throw StateError('请先登录 Bangumi');
     if (number(_bundle!['expiresAt']) >
         DateTime.now().millisecondsSinceEpoch + 60000) {
@@ -210,6 +251,7 @@ class AccountRepository {
       await credentials.write('account', jsonEncode(bundle));
       if (!valid()) throw StateError('账号已经切换');
       _bundle = bundle;
+      await _rememberProfile();
     });
     _credentialWrites = writing.catchError((Object _) {});
     return writing;
@@ -217,7 +259,15 @@ class AccountRepository {
 
   Future<String> _renew() async {
     final old = _bundle!;
-    final config = await configuration(allowInteraction: false);
+    final Json config;
+    try {
+      config = await configuration(allowInteraction: false);
+    } on CredentialInteractionRequired {
+      if (!_closed && identical(_bundle, old)) {
+        _restoreNeedsAuthorization = true;
+      }
+      rethrow;
+    }
     if (_closed || !identical(_bundle, old)) throw StateError('账号已经切换');
     final token = await _token(config, {
       'grant_type': 'refresh_token',
@@ -285,11 +335,13 @@ class AccountRepository {
   Future<void> signOut() async {
     await cancelSignIn();
     _bundle = null;
+    _profile = null;
     _refresh = null;
     _restoreNeedsAuthorization = false;
-    final deleting = _credentialWrites.then(
-      (_) => credentials.write('account', null),
-    );
+    final deleting = _credentialWrites.then((_) async {
+      await credentials.write('account', null);
+      await store?.remove('account', 'profile');
+    });
     _credentialWrites = deleting.catchError((Object _) {});
     await deleting;
   }

@@ -18,10 +18,14 @@ class SettingsPage extends StatefulWidget {
     required this.onThemeChanged,
     this.onBack,
     this.showSidebar = true,
+    this.needsAuthorization = false,
+    this.accountBusy = false,
   });
   final Json? account;
   final Json sync;
   final bool dark, showSidebar;
+  final bool needsAuthorization;
+  final bool accountBusy;
   final String? dataDirectory;
   final Widget connectionSettings, bitTorrentSettings;
   final VoidCallback onAccountAction, onCancelSignIn;
@@ -150,7 +154,9 @@ class _SettingsPageState extends State<SettingsPage> {
                                   ),
                                 ),
                                 if (widget.account != null)
-                                  const MelonBadge('已连接'),
+                                  MelonBadge(
+                                    widget.needsAuthorization ? '待解锁' : '已连接',
+                                  ),
                               ],
                             ),
                             const SizedBox(height: 20),
@@ -158,18 +164,26 @@ class _SettingsPageState extends State<SettingsPage> {
                               spacing: 12,
                               children: [
                                 FilledButton.icon(
-                                  onPressed: widget.onAccountAction,
+                                  onPressed: widget.accountBusy
+                                      ? null
+                                      : widget.onAccountAction,
                                   icon: const Icon(
                                     Icons.account_circle_outlined,
                                     size: 18,
                                   ),
                                   label: Text(
-                                    widget.account == null
+                                    widget.accountBusy
+                                        ? '连接中…'
+                                        : widget.needsAuthorization
+                                        ? '解锁同步'
+                                        : widget.account == null
                                         ? '登录 Bangumi'
                                         : '退出登录',
                                   ),
                                 ),
-                                if (widget.account == null)
+                                if (widget.accountBusy &&
+                                    (widget.account == null ||
+                                        widget.needsAuthorization))
                                   TextButton(
                                     onPressed: widget.onCancelSignIn,
                                     child: const Text('取消登录'),
@@ -190,7 +204,9 @@ class _SettingsPageState extends State<SettingsPage> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              widget.account == null
+                              widget.needsAuthorization
+                                  ? '登录凭据待授权，本地追番和播放记录仍可使用。点击「解锁同步」恢复连接。'
+                                  : widget.account == null
                                   ? '登录后可同步到 Bangumi，未登录也能记录追番。'
                                   : '${number(widget.sync['pendingMutationCount']).toInt()} 项修改等待同步',
                               style: TextStyle(

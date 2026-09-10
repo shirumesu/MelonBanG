@@ -12,3 +12,7 @@ PRODUCT_BUNDLE_IDENTIFIER = org.melonbang.melonbang
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 org.melonbang. All rights reserved.
+
+// Keep development identities machine-local. CI can supply its own signing file.
+CODE_SIGN_STYLE = Manual
+#include? "Signing.local.xcconfig"

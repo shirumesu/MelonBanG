@@ -16,4 +16,5 @@ build/
 *.iml
 .idea/
 .metadata.*
+macos/Runner/Configs/Signing.local.xcconfig
 vendor/media_kit_video/macos/Headers/

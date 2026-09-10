@@ -51,6 +51,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   String? error;
   bool trendingLoading = true;
   bool closing = false, sidebarVisible = true, windowFullScreen = false;
+  bool accountBusy = false;
   final homeFeedback = ActionFeedback();
   final syncFeedback = ActionFeedback();
   Json? account, subject, playerSubject;
@@ -728,6 +729,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           onBack: () => navigate('home'),
           account: account,
           sync: sync,
+          needsAuthorization: widget.service.account.needsAuthorization,
+          accountBusy: accountBusy,
           dark: dark,
           dataDirectory: widget.service.dataDirectory,
           connectionSettings: ConnectionSettings(services: widget.service),
@@ -739,13 +742,22 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
             await widget.service.account.cancelSignIn();
           }),
           onAccountAction: () => perform(() async {
-            if (account == null) {
-              await widget.service.account.signIn();
-              await widget.service.tracking.refresh();
-            } else {
-              await widget.service.account.signOut();
+            if (accountBusy) return;
+            setState(() => accountBusy = true);
+            try {
+              if (widget.service.account.session == null ||
+                  widget.service.account.needsAuthorization) {
+                await widget.service.account.signIn();
+                await refreshPersonal();
+                await widget.service.tracking.refresh();
+              } else {
+                await widget.service.account.signOut();
+              }
+            } finally {
+              // A network failure must not hide a successfully restored login.
+              if (mounted) setState(() => accountBusy = false);
+              await refreshPersonal();
             }
-            await refreshPersonal();
           }),
         );
       default:

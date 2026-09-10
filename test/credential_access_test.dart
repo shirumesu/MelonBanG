@@ -3,10 +3,15 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:melonbang/app_services.dart';
 import 'package:melonbang/data/account.dart';
 import 'package:melonbang/data/credentials.dart';
 import 'package:melonbang/data/network.dart';
+import 'package:melonbang/data/store.dart';
+import 'package:melonbang/data/catalog.dart';
+import 'package:melonbang/data/tracking.dart';
 import 'package:melonbang/ui/core/theme.dart';
 import 'package:melonbang/ui/settings/connection_settings.dart';
 import 'package:melonbang/ui/settings/settings_page.dart';
@@ -67,38 +72,107 @@ void main() {
     },
   );
 
+  test('one login gesture unlocks saved account and configuration for quiet refresh', () async {
+    final storage = ObservedCredentials()..locked = true;
+    storage.values['account'] = jsonEncode({
+      'user': {'userId': '7'},
+      'expiresAt': 0,
+      'refresh_token': 'test',
+    });
+    var refreshes = 0;
+    final api = ApiClient(
+      client: MockClient((request) async {
+        expect(request.url.path, '/oauth/access_token');
+        refreshes++;
+        return http.Response(
+          jsonEncode({'access_token': 'renewed', 'expires_in': 3600}),
+          200,
+        );
+      }),
+    );
+    final account = AccountRepository(
+      api,
+      CachedCredentials(storage),
+      launch: (_) async => fail('Saved login should be restored'),
+    );
+    try {
+      await account.initialize();
+      expect(account.session, isNull);
+      expect(storage.reads, [('account', false)]);
+      expect((await account.signIn())['userId'], '7');
+      expect(await account.accessToken(), 'renewed');
+      expect(await account.accessToken(), 'renewed');
+      expect(refreshes, 1);
+      expect(account.needsAuthorization, isFalse);
+      expect(storage.reads, [
+        ('account', false),
+        ('account', true),
+        ('oauth', true),
+      ]);
+    } finally {
+      await account.close();
+      api.close();
+    }
+  });
+
   test(
-    'startup defers locked account until login and refresh never prompts',
+    'locked restart preserves local account data without exposing tokens',
     () async {
-      final storage = ObservedCredentials()..locked = true;
+      final store = await AppStore.open(':memory:');
+      final storage = ObservedCredentials();
       storage.values['account'] = jsonEncode({
-        'user': {'userId': '7'},
+        'user': {
+          'userId': '7',
+          'nickname': 'Test',
+          'access_token': 'must-not-copy',
+        },
+        'access_token': 'secret',
+        'refresh_token': 'refresh-secret',
         'expiresAt': 0,
-        'refresh_token': 'test',
       });
-      final api = ApiClient();
-      final account = AccountRepository(
+      final api = ApiClient(
+        client: MockClient((_) async => fail('Locked account must not sync')),
+      );
+      final first = AccountRepository(api, storage, store: store);
+      await first.initialize();
+      expect(await store.get('account', 'profile'), {
+        'userId': '7',
+        'nickname': 'Test',
+      });
+      await store.put('collection:7', '1', {
+        'subjectId': 1,
+        'status': 'watching',
+      });
+      await store.enqueue('7', 'subject:1', {
+        'subjectId': 1,
+        'status': 'watching',
+      });
+      await first.close();
+      storage.locked = true;
+      final restarted = AccountRepository(
         api,
         CachedCredentials(storage),
-        launch: (_) async => fail('Saved login should be restored'),
+        store: store,
       );
+      final catalog = CatalogRepository(api, store);
+      final tracking = TrackingRepository(store, restarted, catalog);
       try {
-        await account.initialize();
-        expect(account.session, isNull);
-        expect(storage.reads, [('account', false)]);
-        expect((await account.signIn())['userId'], '7');
-        await expectLater(
-          account.accessToken(),
-          throwsA(isA<CredentialInteractionRequired>()),
-        );
-        expect(storage.reads, [
-          ('account', false),
-          ('account', true),
-          ('oauth', false),
-        ]);
+        await restarted.initialize();
+        expect(restarted.needsAuthorization, isTrue);
+        expect(restarted.userId, '7');
+        expect((await tracking.collection()).single['subjectId'], 1);
+        await tracking.flush();
+        expect((await store.pending('7')).length, 1);
+        await restarted.signOut();
+        expect(restarted.session, isNull);
+        expect(await store.get('account', 'profile'), isNull);
+        expect((await store.list('collection:7')).length, 1);
       } finally {
-        await account.close();
+        await tracking.close();
+        await restarted.close();
+        await catalog.close();
         api.close();
+        await store.close();
       }
     },
   );

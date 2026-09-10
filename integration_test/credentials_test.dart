@@ -12,6 +12,47 @@ import 'package:melonbang/data/network.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  const rebuildProfile = String.fromEnvironment('CREDENTIAL_REBUILD_PROFILE');
+  const rebuildPhase = String.fromEnvironment('CREDENTIAL_REBUILD_PHASE');
+  testWidgets('credentials remain quietly readable across signed rebuilds', (
+    tester,
+  ) async {
+    final credentials = platformCredentials(rebuildProfile);
+    if (rebuildPhase == 'write') {
+      expect(
+        await credentials.read('account', allowInteraction: false),
+        isNull,
+      );
+      await credentials.write(
+        'account',
+        jsonEncode({
+          'user': {'userId': 'rebuild-test'},
+          'access_token': 'test-only',
+          'expiresAt': DateTime.now().millisecondsSinceEpoch + 3600000,
+        }),
+      );
+      await credentials.write('oauth', 'test-only-configuration');
+    } else {
+      expect(rebuildPhase, 'read');
+      final api = ApiClient();
+      final account = AccountRepository(api, credentials);
+      try {
+        await account.initialize();
+        expect(account.needsAuthorization, isFalse);
+        expect(account.userId, 'rebuild-test');
+        expect(await account.accessToken(), 'test-only');
+        expect(
+          await credentials.read('oauth', allowInteraction: false),
+          'test-only-configuration',
+        );
+      } finally {
+        await account.close();
+        api.close();
+        await credentials.write('account', null);
+        await credentials.write('oauth', null);
+      }
+    }
+  }, skip: rebuildProfile.isEmpty);
   testWidgets('native credentials persist, isolate profiles, and delete', (
     tester,
   ) async {
