@@ -315,11 +315,11 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ),
             ],
           ),
-          if (task['errorMessage'] != null)
+          if (task['errorMessage'] != null || task['persistenceError'] != null)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Text(
-                '${task['errorMessage']}',
+                '${task['errorMessage'] ?? task['persistenceError']}',
                 style: const TextStyle(color: coral, fontSize: 12),
               ),
             ),

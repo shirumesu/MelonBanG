@@ -28,6 +28,8 @@ class TrackingRepository {
   set lastSyncedAt(String? value) => _currentSync.syncedAt = value;
   final changes = StreamController<void>.broadcast();
   void start() {
+    if (_closed || _retry != null) return;
+    unawaited(flush());
     _retry = Timer.periodic(
       const Duration(seconds: 30),
       (_) => unawaited(flush()),
@@ -81,6 +83,7 @@ class TrackingRepository {
     final current =
         await store.get(_collection(user), '$subjectId') ??
         await catalog.subject(subjectId);
+    if (_closed || user != account.userId) throw StateError('账号已经切换');
     final mutation = {
       'kind': 'subject',
       'subjectId': subjectId,
@@ -90,15 +93,12 @@ class TrackingRepository {
     await store.mutate(
       _collection(user),
       '$subjectId',
-      {
-        ...current,
-        'subjectId': subjectId,
-        'status': status?.key ?? current['status'] ?? 'wish',
-        'userScore': score ?? current['userScore'],
-      },
+      {'subjectId': subjectId, 'status': ?status?.key, 'userScore': ?score},
       user,
       'subject:$subjectId',
       mutation,
+      defaults: {...current, 'status': current['status'] ?? 'wish'},
+      initialMutation: const {'status': 'wish'},
     );
     _changed();
     unawaited(flush());
@@ -110,6 +110,7 @@ class TrackingRepository {
     EpisodeStatus status,
   ) async {
     if (episodeId <= 0 || subjectId <= 0) throw const FormatException('章节编号无效');
+    if (_closed) throw StateError('收藏服务已关闭');
     final user = account.userId;
     await store.mutate(
       _episodes(user),

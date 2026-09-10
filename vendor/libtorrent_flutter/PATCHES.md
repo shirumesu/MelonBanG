@@ -24,8 +24,8 @@ bridge from the app bundle's Frameworks directory, independent of the working
 directory. Re-run `pod install` after changing the native bridge or Homebrew
 dependencies. Builds target the host architecture.
 
-The application detaches handles with `deleteFiles:false` before upstream dispose,
-because the upstream `disposeAll` deletes torrent files by default. Verify changes
+Engine `dispose` destroys the session without calling the destructive upstream
+`disposeAll`; explicit torrent removal still supports file deletion. Verify changes
 with integration_test/torrent_test.dart, including restart after stopping its local
 seeder and tracker. Native libraries remain independent from application services.
 
@@ -50,3 +50,18 @@ The session connection cap is four times the per-torrent cap, with a floor of 20
 Dart and native bridge must be rebuilt together because the metadata export is a
 new C symbol. The native torrent test covers stopped offline recovery, native
 pause/queue state, settings persistence, and corrupted local pieces.
+
+## Desktop polling and file metadata
+
+Status snapshots are emitted on every poll, including idle seeders, so application
+seeding limits do not depend on changing peers or rates. Every native field is
+refreshed, including total upload and errors. File queries populate size and
+verified downloaded bytes using libtorrent's piece-granularity `file_progress`.
+The C file-info struct and Dart FFI layout must be rebuilt together.
+
+Session creation now leaves libtorrent's transport, connection, piece-picking and
+socket settings at upstream defaults. The application no longer inherits the
+streaming adapter's aggressive timeouts, predictive announcements and qBittorrent
+fingerprint. Explicit settings and the established native disk backend remain.
+Native tests cover idle accounting, file metadata, transient SQLite write failures,
+same-torrent removal/re-import, local upload/download integrity and restart.

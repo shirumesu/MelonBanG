@@ -118,6 +118,7 @@ class Playback extends ChangeNotifier {
       error = e.toString();
       session = null;
       uri = null;
+      await player.stop();
       rethrow;
     } finally {
       opening = false;

@@ -12,6 +12,8 @@ class SourceRepository {
   final DownloadRepository downloads;
   final _candidates = <String, Json>{};
   Future<Json> search(int subjectId, String keyword, {int? episodeId}) async {
+    keyword = keyword.trim();
+    if (keyword.isEmpty) return {'candidates': <Json>[], 'providers': <Json>[]};
     final candidates = <Json>[];
     final providers = <Json>[];
     final sources = [
@@ -66,6 +68,10 @@ class SourceRepository {
         }
       }),
     );
+    // Keep recent searches from both acquisition entry points without growing forever.
+    while (_candidates.length > 1000) {
+      _candidates.remove(_candidates.keys.first);
+    }
     return {'candidates': candidates, 'providers': providers};
   }
 
@@ -96,15 +102,19 @@ List<Json> parseRss(String xml, {required Uri base}) {
   final document = XmlDocument.parse(xml);
   final results = <Json>[];
   for (final item in document.findAllElements('item')) {
-    final enclosure = item.getElement('enclosure')?.getAttribute('url');
+    final attachment = item.getElement('enclosure');
+    final enclosure = attachment?.getAttribute('url')?.trim();
     final link = item.getElement('link')?.innerText.trim();
     final magnet = RegExp(r'magnet:\?[^\s<>"\x27]+')
         .firstMatch(item.innerText)
         ?.group(0);
     final raw =
-        enclosure ??
+        (_isTorrentLocator(enclosure) ||
+                attachment?.getAttribute('type') == 'application/x-bittorrent'
+            ? enclosure
+            : null) ??
         magnet ??
-        (link?.endsWith('.torrent') == true ? link : null);
+        (_isTorrentLocator(link) ? link : null);
     if (raw == null) continue;
     final locator = raw.startsWith('magnet:')
         ? raw
@@ -116,4 +126,11 @@ List<Json> parseRss(String xml, {required Uri base}) {
     });
   }
   return results;
+}
+
+bool _isTorrentLocator(String? value) {
+  if (value == null) return false;
+  final uri = Uri.tryParse(value);
+  return uri != null &&
+      (uri.scheme == 'magnet' || uri.path.toLowerCase().endsWith('.torrent'));
 }

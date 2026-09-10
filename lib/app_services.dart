@@ -34,7 +34,11 @@ class AppServices {
   Future<void>? _starting;
   Future<void>? _closing;
   final _dispose = <Future<void> Function()>[];
-  Future<void> start() => _starting ??= _start();
+  Future<void> start() {
+    if (_closing != null) return Future.error(StateError('应用服务已关闭'));
+    return _starting ??= _start();
+  }
+
   Future<void> _start() async {
     dataDirectory =
         directory ??
@@ -47,6 +51,7 @@ class AppServices {
     account = AccountRepository(api, credentials!);
     _dispose.add(account.close);
     catalog = CatalogRepository(api, store);
+    _dispose.add(catalog.close);
     tracking = TrackingRepository(store, account, catalog);
     _dispose.add(tracking.close);
     downloads = DownloadRepository(store, p.join(dataDirectory!, 'downloads'));

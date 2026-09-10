@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:xml/xml.dart';
+import 'package:html/parser.dart' as html;
+import 'package:protobuf/protobuf.dart';
 
 import 'credentials.dart';
 import 'json.dart';
@@ -56,39 +58,46 @@ class DanmakuRepository {
       method: 'POST',
       body: <String, String>{'keyword': title},
     );
-    final html = utf8.decode(response.bodyBytes);
-    final results =
-        RegExp(
-              r'''<img[^>]*alt=["']([^"']+)["'][^>]*>[\s\S]{0,2000}?<a[^>]*href=["'][^"']*animeRef\.php\?sn=(\d+)''',
-              caseSensitive: false,
-            )
-            .allMatches(html)
-            .where((m) => normalized(m[1]!) == normalized(title))
-            .toList();
-    if (results.length != 1) throw StateError('动画疯没有唯一匹配，请手动输入 sn');
+    final document = html.parse(utf8.decode(response.bodyBytes));
+    final matches = <String>{};
+    for (final link in document.querySelectorAll('a[href]')) {
+      final uri = Uri.tryParse(link.attributes['href']!);
+      if (uri == null || !uri.path.endsWith('animeRef.php')) continue;
+      var container = link.parent;
+      while (container != null && container.localName != 'li') {
+        container = container.parent;
+      }
+      container ??= link.parent;
+      final titles = [
+        link.text,
+        ...?container
+            ?.querySelectorAll('img[alt]')
+            .map((image) => image.attributes['alt']!),
+      ];
+      if (titles.any((value) => normalized(value) == normalized(title))) {
+        final sn = uri.queryParameters['sn'];
+        if (sn != null) matches.add(sn);
+      }
+    }
+    if (matches.length != 1) throw StateError('动画疯没有唯一匹配，请手动输入 sn');
     final page = await api.send(
-      Uri.https('ani.gamer.com.tw', '/animeRef.php', {
-        'sn': results.single[2]!,
-      }),
+      Uri.https('ani.gamer.com.tw', '/animeRef.php', {'sn': matches.single}),
     );
-    final links = RegExp(
-      r'''<a[^>]*href=["'][^"']*animeVideo\.php\?sn=(\d+)["'][^>]*>([\s\S]*?)</a>''',
-      caseSensitive: false,
-    ).allMatches(utf8.decode(page.bodyBytes));
-    final episodes = links
-        .where(
-          (m) =>
-              double.tryParse(
-                RegExp(
-                      r'\d+(?:\.\d+)?',
-                    ).firstMatch(m[2]!.replaceAll(RegExp('<[^>]*>'), ''))?[0] ??
-                    '',
-              ) ==
-              episode,
-        )
-        .toList();
+    final episodes = <String>{};
+    for (final link
+        in html
+            .parse(utf8.decode(page.bodyBytes))
+            .querySelectorAll('a[href]')) {
+      final uri = Uri.tryParse(link.attributes['href']!);
+      if (uri == null || !uri.path.endsWith('animeVideo.php')) continue;
+      final sort = double.tryParse(
+        RegExp(r'\d+(?:\.\d+)?').firstMatch(link.text)?[0] ?? '',
+      );
+      final sn = uri.queryParameters['sn'];
+      if (sort == episode && sn != null) episodes.add(sn);
+    }
     if (episodes.length != 1) throw StateError('动画疯未匹配到对应章节');
-    return 'sn=${episodes.single[1]}';
+    return 'sn=${episodes.single}';
   }
 
   Future<void> configure(String appId, String appSecret) => credentials.write(
@@ -300,7 +309,7 @@ class DanmakuRepository {
 }
 
 String _color(int value) =>
-    '#${value.toRadixString(16).padLeft(6, '0').substring(0, 6)}';
+    '#${(value & 0xffffff).toRadixString(16).padLeft(6, '0')}';
 String? _mode(int value) => switch (value) {
   1 || 2 || 3 => 'scroll',
   4 => 'bottom',
@@ -352,76 +361,39 @@ List<Json> parseBilibiliXml(String xml) => normalizeComments(
 /// Decode only the fields needed from DmSegMobileReply / DanmakuElem.
 List<Json> parseBilibiliSegment(Uint8List bytes) {
   final rows = <Json>[];
-  final outer = _Proto(bytes);
-  while (!outer.done) {
-    final tag = outer.integer();
-    if (tag == 10) {
-      final entry = _Proto(outer.bytes());
-      final row = <String, dynamic>{'color': '#ffffff'};
-      while (!entry.done) {
-        final tag = entry.integer();
+  try {
+    final outer = CodedBufferReader(bytes);
+    while (!outer.isAtEnd()) {
+      final tag = outer.readTag();
+      if (tag != 10) {
+        if (!outer.skipField(tag)) {
+          throw const FormatException('Invalid protobuf field');
+        }
+        continue;
+      }
+      final entry = CodedBufferReader(outer.readBytes());
+      final row = <String, dynamic>{'color': '#ffffff', 'timeSeconds': 0.0};
+      while (!entry.isAtEnd()) {
+        final tag = entry.readTag();
         switch (tag) {
           case 16:
-            row['timeSeconds'] = entry.integer() / 1000;
+            row['timeSeconds'] = entry.readInt32() / 1000;
           case 24:
-            row['mode'] = _mode(entry.integer());
+            row['mode'] = _mode(entry.readInt32());
           case 40:
-            row['color'] = _color(entry.integer());
+            row['color'] = _color(entry.readUint32());
           case 58:
-            row['text'] = utf8.decode(entry.bytes(), allowMalformed: true);
+            row['text'] = entry.readString();
           default:
-            entry.skip(tag & 7);
+            if (!entry.skipField(tag)) {
+              throw const FormatException('Invalid protobuf field');
+            }
         }
       }
       rows.add(row);
-    } else {
-      outer.skip(tag & 7);
     }
+  } on InvalidProtocolBufferException catch (e) {
+    throw FormatException('Invalid danmaku protobuf: $e');
   }
   return normalizeComments(rows);
-}
-
-class _Proto {
-  _Proto(this.data);
-  final Uint8List data;
-  int offset = 0;
-  bool get done => offset >= data.length;
-  int integer() {
-    var value = 0;
-    for (var shift = 0; shift < 70; shift += 7) {
-      if (done) throw const FormatException('Truncated protobuf');
-      final b = data[offset++];
-      value |= (b & 127) << shift;
-      if (b < 128) return value;
-    }
-    throw const FormatException('Invalid protobuf integer');
-  }
-
-  Uint8List bytes() {
-    final length = integer();
-    if (length < 0 || offset + length > data.length) {
-      throw const FormatException('Truncated protobuf field');
-    }
-    final result = Uint8List.sublistView(data, offset, offset + length);
-    offset += length;
-    return result;
-  }
-
-  void skip(int wire) {
-    switch (wire) {
-      case 0:
-        integer();
-      case 1:
-        offset += 8;
-      case 2:
-        bytes();
-      case 5:
-        offset += 4;
-      default:
-        throw const FormatException('Unsupported protobuf wire');
-    }
-    if (offset > data.length) {
-      throw const FormatException('Truncated protobuf field');
-    }
-  }
 }

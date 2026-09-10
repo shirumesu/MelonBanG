@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -14,7 +15,11 @@ class ApiException implements Exception {
 }
 
 class ApiClient {
-  ApiClient({http.Client? client}) : client = client ?? http.Client();
+  ApiClient({http.Client? client, this.timeout = const Duration(seconds: 20)})
+    : client = client ?? http.Client();
+  final Duration timeout;
+  final _active = <Completer<void>>{};
+  bool _closed = false;
   final http.Client client;
   Future<http.Response> send(
     Uri uri, {
@@ -22,7 +27,13 @@ class ApiClient {
     Object? body,
     Map<String, String> headers = const {},
   }) async {
-    final request = http.Request(method, uri);
+    if (_closed) throw StateError('网络服务已关闭');
+    final abort = Completer<void>();
+    final request = http.AbortableRequest(
+      method,
+      uri,
+      abortTrigger: abort.future,
+    );
     request.headers.addAll({
       'Accept': 'application/json',
       'User-Agent': 'Melonbang/1.0 (Flutter; ${Platform.operatingSystem})',
@@ -34,13 +45,23 @@ class ApiClient {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
     }
-    final response = await http.Response.fromStream(
-      await client.send(request).timeout(const Duration(seconds: 20)),
-    ).timeout(const Duration(seconds: 20));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(response.statusCode, uri.host);
+    _active.add(abort);
+    try {
+      final receiving = client.send(request).then(http.Response.fromStream);
+      final response = await receiving.timeout(
+        timeout,
+        onTimeout: () {
+          if (!abort.isCompleted) abort.complete();
+          throw TimeoutException('${uri.host} 请求超时', timeout);
+        },
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw ApiException(response.statusCode, uri.host);
+      }
+      return response;
+    } finally {
+      _active.remove(abort);
     }
-    return response;
   }
 
   Future<dynamic> json(
@@ -67,5 +88,12 @@ class ApiClient {
     Map<String, String> headers = const {},
   }) async =>
       object(await json(uri, method: method, body: body, headers: headers));
-  void close() => client.close();
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    for (final abort in _active) {
+      if (!abort.isCompleted) abort.complete();
+    }
+    client.close();
+  }
 }

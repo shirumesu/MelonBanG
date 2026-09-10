@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -20,9 +21,10 @@ class DownloadRepository {
   final _handles = <String, int>{};
   final _files = <String, List<Json>>{};
   final _adding = <String, Future<Json>>{};
+  final _removing = <String, Future<void>>{};
   StreamSubscription<dynamic>? _subscription;
   Future<void>? _initializing;
-  Future<void> _writes = Future.value();
+  Future<void>? _writes;
   Future<void>? _closing;
   bool _closed = false;
   BitTorrentSettings settings = const BitTorrentSettings();
@@ -33,6 +35,7 @@ class DownloadRepository {
   int _lastTick = 0, _lastSaved = 0;
 
   Future<void> saveSettings(BitTorrentSettings value) async {
+    _requireOpen();
     value.validate();
     await store.put('settings', 'bittorrent', value.toJson());
     settings = value;
@@ -48,6 +51,7 @@ class DownloadRepository {
   }
 
   Future<void> initialize() async {
+    _requireOpen();
     settings = BitTorrentSettings.fromJson(
       await store.get('settings', 'bittorrent') ?? {},
     );
@@ -156,7 +160,11 @@ class DownloadRepository {
                 'name': file.name,
                 'path': p.join('${task['savePath']}', file.path),
                 'size': file.size,
-                'progress': !checking && info.isFinished ? 1.0 : 0.0,
+                'progress': checking
+                    ? 0.0
+                    : file.size == 0
+                    ? 1.0
+                    : (file.downloadedBytes / file.size).clamp(0.0, 1.0),
                 'mediaKind': file.isStreamable ? 'video' : 'other',
               },
             )
@@ -178,7 +186,12 @@ class DownloadRepository {
     final periodic = now - _lastSaved >= 5000;
     for (final task in _tasks.values) {
       if (periodic || before[task['id']] != task['status']) {
-        unawaited(_persist('${task['id']}', task));
+        unawaited(
+          _persist('${task['id']}', task).catchError((Object _) {
+            // The error is visible on the task; the next snapshot retries saving.
+            _emit();
+          }),
+        );
       }
     }
     if (periodic) _lastSaved = now;
@@ -299,11 +312,15 @@ class DownloadRepository {
     if (_closed) throw StateError('下载器已关闭');
     if (bytes.isEmpty) throw const FormatException('种子文件为空');
     final fingerprint = torrentInfoHash(bytes);
-    final metadata = p.join(directory, 'metadata');
-    await Directory(metadata).create(recursive: true);
-    final file = File(p.join(metadata, '$fingerprint.torrent'));
-    await file.writeAsBytes(bytes, flush: true);
-    return _add('torrent', file.path, fingerprint, name, subjectId, episodeId);
+    return _add(
+      'torrent',
+      p.join(directory, 'metadata', '$fingerprint.torrent'),
+      fingerprint,
+      name,
+      subjectId,
+      episodeId,
+      metadataBytes: bytes,
+    );
   }
 
   Future<Json> _add(
@@ -312,11 +329,20 @@ class DownloadRepository {
     String fingerprint,
     String title,
     int? subjectId,
-    int? episodeId,
-  ) => _adding.putIfAbsent(
+    int? episodeId, {
+    Uint8List? metadataBytes,
+  }) => _adding.putIfAbsent(
     fingerprint,
-    () => _create(kind, input, fingerprint, title, subjectId, episodeId)
-        .whenComplete(() {
+    () =>
+        _create(
+          kind,
+          input,
+          fingerprint,
+          title,
+          subjectId,
+          episodeId,
+          metadataBytes: metadataBytes,
+        ).whenComplete(() {
           _adding.remove(fingerprint);
         }),
   );
@@ -327,8 +353,11 @@ class DownloadRepository {
     String fingerprint,
     String title,
     int? subjectId,
-    int? episodeId,
-  ) async {
+    int? episodeId, {
+    Uint8List? metadataBytes,
+  }) async {
+    if (_closed) throw StateError('下载器已关闭');
+    await _removing[fingerprint];
     if (_closed) throw StateError('下载器已关闭');
     final existing = _tasks.values
         .where((t) => t['fingerprint'] == fingerprint)
@@ -336,6 +365,11 @@ class DownloadRepository {
     if (existing != null) return existing;
     await _engine();
     if (_closed) throw StateError('下载器已关闭');
+    if (metadataBytes != null) {
+      final pending = File('$input.pending');
+      await pending.writeAsBytes(metadataBytes, flush: true);
+      await pending.rename(input);
+    }
     final id = newId();
     final savePath = p.join(directory, id);
     await Directory(savePath).create(recursive: true);
@@ -364,6 +398,7 @@ class DownloadRepository {
   }
 
   Future<void> stopSeeding(String id) async {
+    _requireOpen();
     final task = _tasks[id];
     if (task == null) throw StateError('下载任务不存在');
     if (task['complete'] != true) throw StateError('文件尚未下载完成');
@@ -375,6 +410,7 @@ class DownloadRepository {
   }
 
   Future<void> pause(String id) async {
+    _requireOpen();
     final task = _tasks[id];
     if (task == null) throw StateError('下载任务不存在');
     task['manualPaused'] = true;
@@ -384,6 +420,7 @@ class DownloadRepository {
   }
 
   Future<void> resume(String id) async {
+    _requireOpen();
     final task = _tasks[id];
     if (task == null) throw StateError('下载任务不存在');
     await _engine();
@@ -396,7 +433,20 @@ class DownloadRepository {
     _emit();
   }
 
-  Future<void> remove(String id) async {
+  Future<void> remove(String id) {
+    _requireOpen();
+    final task = _tasks[id];
+    if (task == null) return Future.value();
+    final fingerprint = '${task['fingerprint']}';
+    return _removing.putIfAbsent(
+      fingerprint,
+      () => _remove(id).whenComplete(() {
+        _removing.remove(fingerprint);
+      }),
+    );
+  }
+
+  Future<void> _remove(String id) async {
     final task = _tasks.remove(id);
     if (task == null) return;
     final handle = _handles.remove(id);
@@ -419,6 +469,12 @@ class DownloadRepository {
     _emit();
   }
 
+  void _requireOpen() {
+    if (_closed) throw StateError('下载器已关闭');
+  }
+
+  bool contains(String id) => _tasks.containsKey(id);
+
   Json media(String id, {String? fileId}) {
     final task = _tasks[id];
     if (task == null) throw StateError('下载任务不存在');
@@ -438,7 +494,9 @@ class DownloadRepository {
             .toList()
           ..sort((a, b) => number(b['size']).compareTo(number(a['size'])));
     if (files.isEmpty) throw StateError('尚未获取到视频文件');
-    if (number(task['progress']) < 1) throw StateError('请等待下载完成后播放');
+    if (number(task['progress']) < 1 || task['status'] == 'checking') {
+      throw StateError('请等待下载完成后播放');
+    }
     final file = files.first;
     return {
       ...file,
@@ -465,8 +523,19 @@ class DownloadRepository {
   }
 
   Future<void> _persist(String id, Json task) {
-    final saved = Map<String, dynamic>.from(task);
-    return _writes = _writes.then((_) => store.put('downloads', id, saved));
+    final saved = object(jsonDecode(jsonEncode(task)))
+      ..remove('persistenceError');
+    final writing = (_writes ?? Future<void>.value()).then((_) async {
+      try {
+        await store.put('downloads', id, saved);
+        task.remove('persistenceError');
+      } catch (e) {
+        task['persistenceError'] = '下载记录保存失败，将自动重试：$e';
+        rethrow;
+      }
+    });
+    _writes = writing.catchError((Object _) {});
+    return writing;
   }
 
   Future<void> close() => _closing ??= _close();
@@ -481,22 +550,31 @@ class DownloadRepository {
         }
       }),
     );
-    if (_initializing != null) {
-      await _initializing;
-      await _subscription?.cancel();
-      for (final task in _tasks.values) {
-        await _persist('${task['id']}', task);
+    await Future.wait(
+      _removing.values.toList().map((operation) async {
+        try {
+          await operation;
+        } catch (_) {
+          /* The caller receives removal failures. */
+        }
+      }),
+    );
+    try {
+      if (_initializing != null) {
+        await _initializing;
+        await _subscription?.cancel();
+        for (final task in _tasks.values) {
+          await _persist('${task['id']}', task);
+        }
       }
       await _writes;
-      final engine = lt.LibtorrentFlutter.instance;
-      // The upstream disposeAll deletes files. Detach all handles without
-      // deleting data first, so closing the app preserves downloaded episodes.
-      for (final handle in _handles.values.toSet()) {
-        engine.removeTorrent(handle, deleteFiles: false);
+    } finally {
+      await _subscription?.cancel();
+      if (_initializing != null && lt.LibtorrentFlutter.isInitialized) {
+        _handles.clear();
+        await lt.LibtorrentFlutter.instance.dispose();
       }
-      _handles.clear();
-      await engine.dispose();
+      await changes.close();
     }
-    await changes.close();
   }
 }

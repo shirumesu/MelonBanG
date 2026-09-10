@@ -74,7 +74,18 @@ class PlaybackLibrary {
   Future<Json> episode(int subjectId, int episodeId) async {
     final localFile = await store.get('episode_files', '$subjectId:$episodeId');
     if (localFile?['downloadId'] case final String downloadId) {
-      return fromDownload(downloadId, fileId: localFile!['fileId'] as String?);
+      if (downloads.contains(downloadId)) {
+        return fromDownload(
+          downloadId,
+          fileId: localFile!['fileId'] as String?,
+        );
+      }
+      await store.remove('episode_files', '$subjectId:$episodeId');
+      final replacement = downloads.episodeMedia(subjectId, episodeId);
+      return fromDownload(
+        '${replacement['downloadId']}',
+        fileId: '${replacement['id']}',
+      );
     }
     if (localFile != null && await File('${localFile['path']}').exists()) {
       return local(
@@ -95,13 +106,18 @@ class PlaybackLibrary {
     double duration,
     bool ended,
   ) async {
-    if (!position.isFinite || position < 0 || !duration.isFinite) return;
+    if (!position.isFinite ||
+        position < 0 ||
+        !duration.isFinite ||
+        duration <= 0) {
+      return;
+    }
     if (session['subjectId'] == null || session['episodeId'] == null) return;
     await store.put(
       'playback_progress',
       '${session['subjectId']}:${session['episodeId']}',
       {
-        'positionSeconds': ended ? 0 : position,
+        'positionSeconds': ended ? 0 : position.clamp(0, duration),
         'durationSeconds': duration,
         'completed': ended,
       },
@@ -168,11 +184,13 @@ class PlaybackLibrary {
     if (session == null) return;
     final ticket = Object();
     _loads[provider] = ticket;
+    _comments.remove(provider);
     _sourceState(session, provider, {
       'status': 'loading',
+      'count': 0,
       'errorMessage': null,
     });
-    changes.add(session);
+    _merge();
     try {
       final comments = await fetch();
       if (!identical(current, session) || _loads[provider] != ticket) return;

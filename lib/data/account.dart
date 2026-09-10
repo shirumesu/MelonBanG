@@ -29,6 +29,7 @@ class AccountRepository {
   HttpServer? _callback;
   Completer<String>? _authorization;
   Future<String>? _refresh;
+  Future<void> _credentialWrites = Future.value();
   int _signInGeneration = 0;
   bool _closed = false;
   bool _restoreNeedsAuthorization = false;
@@ -152,9 +153,13 @@ class AccountRepository {
           'avatarUrl': object(me['avatar'])['medium'],
         },
       };
-      _bundle = bundle;
-      await credentials.write('account', jsonEncode(bundle));
-      if (_closed || !identical(_bundle, bundle)) throw StateError('登录已取消');
+      await _saveBundle(
+        bundle,
+        () =>
+            !_closed &&
+            generation == _signInGeneration &&
+            _authorization == authorization,
+      );
       return session!;
     } finally {
       await server.close(force: true);
@@ -186,7 +191,7 @@ class AccountRepository {
   }
 
   Future<String> accessToken() async {
-    if (_bundle == null) throw StateError('请先登录 Bangumi');
+    if (_closed || _bundle == null) throw StateError('请先登录 Bangumi');
     if (number(_bundle!['expiresAt']) >
         DateTime.now().millisecondsSinceEpoch + 60000) {
       return '${_bundle!['access_token']}';
@@ -199,15 +204,27 @@ class AccountRepository {
     return _refresh = refreshing;
   }
 
+  Future<void> _saveBundle(Json bundle, bool Function() valid) {
+    final writing = _credentialWrites.then((_) async {
+      if (!valid()) throw StateError('账号已经切换');
+      await credentials.write('account', jsonEncode(bundle));
+      if (!valid()) throw StateError('账号已经切换');
+      _bundle = bundle;
+    });
+    _credentialWrites = writing.catchError((Object _) {});
+    return writing;
+  }
+
   Future<String> _renew() async {
     final old = _bundle!;
-    final token = await _token(await configuration(allowInteraction: false), {
+    final config = await configuration(allowInteraction: false);
+    if (_closed || !identical(_bundle, old)) throw StateError('账号已经切换');
+    final token = await _token(config, {
       'grant_type': 'refresh_token',
       'refresh_token': '${old['refresh_token']}',
     });
-    if (_closed || !identical(_bundle, old)) throw StateError('账号已经切换');
-    _bundle = {...token, 'user': old['user']};
-    await credentials.write('account', jsonEncode(_bundle));
+    final bundle = <String, dynamic>{...old, ...token, 'user': old['user']};
+    await _saveBundle(bundle, () => !_closed && identical(_bundle, old));
     return '${token['access_token']}';
   }
 
@@ -217,14 +234,36 @@ class AccountRepository {
     Json? body,
   }) async {
     final user = userId;
-    final token = await accessToken();
-    if (_closed || user != userId) throw StateError('账号已经切换');
-    return api.json(
-      Uri.parse('https://api.bgm.tv$path'),
-      method: method,
-      body: body,
-      headers: {'Authorization': 'Bearer $token'},
-    );
+    final generation = _signInGeneration;
+    var token = await accessToken();
+    for (var attempt = 0; ; attempt++) {
+      if (_closed || user != userId || generation != _signInGeneration) {
+        throw StateError('账号已经切换');
+      }
+      try {
+        final result = await api.json(
+          Uri.parse('https://api.bgm.tv$path'),
+          method: method,
+          body: body,
+          headers: {'Authorization': 'Bearer $token'},
+        );
+        if (_closed || user != userId || generation != _signInGeneration) {
+          throw StateError('账号已经切换');
+        }
+        return result;
+      } on ApiException catch (e) {
+        if (e.status != 401 ||
+            attempt != 0 ||
+            _closed ||
+            user != userId ||
+            generation != _signInGeneration) {
+          rethrow;
+        }
+        // A concurrent request may already have replaced the rejected token.
+        if (_bundle?['access_token'] == token) _bundle!['expiresAt'] = 0;
+        token = await accessToken();
+      }
+    }
   }
 
   Future<void> cancelSignIn() async {
@@ -247,11 +286,17 @@ class AccountRepository {
     await cancelSignIn();
     _bundle = null;
     _refresh = null;
-    await credentials.write('account', null);
+    _restoreNeedsAuthorization = false;
+    final deleting = _credentialWrites.then(
+      (_) => credentials.write('account', null),
+    );
+    _credentialWrites = deleting.catchError((Object _) {});
+    await deleting;
   }
 
   Future<void> close() async {
     _closed = true;
     await cancelSignIn();
+    await _credentialWrites;
   }
 }

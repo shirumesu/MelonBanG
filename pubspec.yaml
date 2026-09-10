@@ -28,6 +28,8 @@ dependencies:
   libtorrent_flutter:
     path: vendor/libtorrent_flutter
   ffi: ^2.2.0
+  protobuf: ^6.0.0
+  html: ^0.15.7
 
 dev_dependencies:
   integration_test:

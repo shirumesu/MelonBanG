@@ -110,6 +110,9 @@ objects directly; no subprocess, IPC dispatcher, legacy component, or transcode
 pipeline is involved. Native libraries and their licenses are listed in
 [THIRD_PARTY.md](THIRD_PARTY.md).
 
+Backend ownership, persistence guarantees, and verification boundaries are documented
+in [Backend contracts](docs/backend.md).
+
 ## Data and connections
 
 The app uses a fresh `native` directory under the operating system's application
@@ -134,7 +137,8 @@ offline recovery, and restored local files are checked before playback/transfer.
 Task changes are saved immediately and transfer counters every five seconds and
 on orderly shutdown. Force-quitting can lose the most recent counter interval.
 Completed tasks have a Stop Seeding action that preserves downloaded files and
-persists independently of global sharing limits. Explicit Resume clears this stop
+persists independently of global sharing limits. File sizes and individual progress
+come from native verified pieces; idle seeding still counts toward the time limit. Explicit Resume clears this stop
 and returns the task to the configured queue and limits. File summaries appear
 below the task title; View Files opens the full list and per-file playback.
 

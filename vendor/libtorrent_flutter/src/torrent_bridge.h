@@ -66,6 +66,7 @@ typedef struct {
     char    path[1024];
     int64_t size;
     int32_t is_streamable;
+    int64_t downloaded_bytes;
 } lt_file_info;
 
 typedef struct {

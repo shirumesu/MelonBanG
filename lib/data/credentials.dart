@@ -197,7 +197,6 @@ class WindowsCredentials implements Credentials {
       _crypt(Uint8List.fromList(utf8.encode(value)), false),
       flush: true,
     );
-    if (await file.exists()) await file.delete();
     await pending.rename(file.path);
   }
 }
