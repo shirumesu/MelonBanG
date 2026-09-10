@@ -111,6 +111,9 @@ typedef struct {
 typedef void (*lt_alert_callback)(int alert_type, lt_torrent_id id,
                                   const char* message, void* user_data);
 
+/* Export complete metadata for offline recovery. */
+TORRENT_API int lt_save_metadata(lt_session_t session, lt_torrent_id id, const char* path);
+
 /* session */
 /* Android/OpenSSL trust-store setup. Call before lt_create_session(). */
 TORRENT_API void lt_set_ssl_cert_path(const char* path);
@@ -131,14 +134,15 @@ TORRENT_API void lt_poll_alerts(lt_session_t session,
                                 lt_alert_callback cb, void* user_data);
 
 /* torrent management */
+/* Add flags: 1=stream-only, 2=start paused, 4=stop after local verification. */
 TORRENT_API lt_torrent_id lt_add_magnet(lt_session_t session,
                                         const char* magnet_uri,
                                         const char* save_path,
-                                        int stream_only);
+                                        int add_flags);
 TORRENT_API lt_torrent_id lt_add_torrent_file(lt_session_t session,
                                               const char* file_path,
                                               const char* save_path,
-                                              int stream_only);
+                                              int add_flags);
 TORRENT_API void lt_remove_torrent(lt_session_t session,
                                    lt_torrent_id id, int delete_files);
 TORRENT_API void lt_pause_torrent(lt_session_t session, lt_torrent_id id);

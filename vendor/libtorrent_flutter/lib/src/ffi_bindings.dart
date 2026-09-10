@@ -340,6 +340,8 @@ class TorrentBridgeBindings {
   late final LtDestroySession destroySession;
   late final LtPollAlerts pollAlerts;
   late final LtSetAlertCallback setAlertCallback;
+  late final int Function(Pointer<LtSessionOpaque>, int, Pointer<Utf8>)
+      saveMetadata;
   late final LtAddMagnet addMagnet;
   late final LtAddTorrentFile addTorrentFile;
   late final LtRemoveTorrent removeTorrent;
@@ -380,6 +382,10 @@ class TorrentBridgeBindings {
     setAlertCallback = _lib
         .lookup<NativeFunction<_SetAlertCallbackN>>('lt_set_alert_callback')
         .asFunction<LtSetAlertCallback>();
+    saveMetadata = _lib.lookupFunction<
+        Int32 Function(Pointer<LtSessionOpaque>, Int64, Pointer<Utf8>),
+        int Function(
+            Pointer<LtSessionOpaque>, int, Pointer<Utf8>)>('lt_save_metadata');
     addMagnet = _lib
         .lookup<NativeFunction<_AddMagnetN>>('lt_add_magnet')
         .asFunction<LtAddMagnet>();

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:libtorrent_flutter/libtorrent_flutter.dart';
 import 'package:melonbang/data/downloads.dart';
+import 'package:melonbang/data/bittorrent_settings.dart';
 import 'package:melonbang/data/json.dart';
 import 'package:melonbang/data/store.dart';
 
@@ -137,10 +139,25 @@ void main() {
           onDone: socket.destroy,
         );
       });
+      final portProbe = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final incomingPort = portProbe.port;
+      await portProbe.close();
       final store = await AppStore.open('${directory.path}/test.sqlite');
       var downloads = DownloadRepository(store, '${directory.path}/downloads');
       try {
         await downloads.initialize();
+        await downloads.saveSettings(
+          BitTorrentSettings(
+            listenPort: incomingPort,
+            dht: false,
+            upnp: false,
+            ipv6: false,
+          ),
+        );
+
         final added = await Future.wait([
           downloads.addTorrent(metadata, 'Fixture'),
           downloads.addTorrent(metadata, 'Fixture'),
@@ -165,24 +182,133 @@ void main() {
         );
         expect(objects(downloads.snapshot()['tasks']), hasLength(1));
         LibtorrentFlutter.instance.configureSession(
-          const BtConfig(
+          BtConfig(
+            peersListenPort: incomingPort,
             disableDht: true,
             disableUpnp: true,
             disableUtp: true,
-            enableIpv6: true,
+            enableIpv6: false,
           ),
         );
         Json current = {};
         for (var i = 0; i < 150; i++) {
           await tester.pump(const Duration(milliseconds: 200));
           current = objects(downloads.snapshot()['tasks']).single;
-          if (current['status'] == 'completed') break;
+          if (current['status'] == 'seeding') break;
         }
-        expect(current['status'], 'completed', reason: current.toString());
+        expect(current['status'], 'seeding', reason: current.toString());
         expect(servedBytes, greaterThanOrEqualTo(payload.length));
         final media = downloads.media('${task['id']}');
         final file = File('${media['path']}');
         expect(sha1.convert(await file.readAsBytes()), sha1.convert(payload));
+        // A real incoming leecher requests a verified piece from the app.
+        final leecher = await Socket.connect(
+          InternetAddress.loopbackIPv4,
+          incomingPort,
+        );
+        sockets.add(leecher);
+        final uploadedPiece = Completer<Uint8List>();
+        var incoming = <int>[], receivedHandshake = false, requested = false;
+        leecher.listen(
+          (chunk) {
+            incoming.addAll(chunk);
+            if (!receivedHandshake) {
+              if (incoming.length < 68) return;
+              incoming = incoming.sublist(68);
+              receivedHandshake = true;
+            }
+            while (incoming.length >= 4) {
+              final length = ByteData.sublistView(
+                Uint8List.fromList(incoming.sublist(0, 4)),
+              ).getUint32(0);
+              if (incoming.length < length + 4) return;
+              final message = incoming.sublist(4, length + 4);
+              incoming = incoming.sublist(length + 4);
+              if (message.isEmpty) continue;
+              if (message[0] == 1 && !requested) {
+                requested = true;
+                leecher.add([
+                  ...integer(13),
+                  6,
+                  ...integer(0),
+                  ...integer(0),
+                  ...integer(pieceLength),
+                ]);
+              } else if (message[0] == 7 && !uploadedPiece.isCompleted) {
+                uploadedPiece.complete(Uint8List.fromList(message.sublist(9)));
+              }
+            }
+          },
+          onError: (Object e) {
+            if (!uploadedPiece.isCompleted) uploadedPiece.completeError(e);
+          },
+        );
+        leecher.add([
+          19,
+          ...ascii.encode('BitTorrent protocol'),
+          ...List.filled(8, 0),
+          ...hash,
+          ...ascii.encode('-MB0001-098765432109'),
+          ...integer(2),
+          5,
+          0,
+          ...integer(1),
+          2,
+        ]);
+        expect(
+          await uploadedPiece.future.timeout(const Duration(seconds: 20)),
+          payload.sublist(0, pieceLength),
+        );
+        leecher.destroy();
+        await tester.pump(const Duration(seconds: 2));
+        expect(
+          number(
+            objects(downloads.snapshot()['tasks']).single['uploadedBytes'],
+          ),
+          greaterThanOrEqualTo(pieceLength),
+        );
+        final uploadedBytes = number(
+          objects(downloads.snapshot()['tasks']).single['uploadedBytes'],
+        );
+        await downloads.saveSettings(
+          const BitTorrentSettings(seedRatio: 0.25, dht: false, upnp: false),
+        );
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          objects(downloads.snapshot()['tasks']).single['seedStopReason'],
+          'ratio',
+        );
+        expect(
+          LibtorrentFlutter.instance.torrents.values.single.isPaused,
+          isTrue,
+        );
+        expect(
+          number(objects(downloads.snapshot()['tasks']).single['seedSeconds']),
+          greaterThan(0),
+        );
+        await downloads.saveSettings(
+          const BitTorrentSettings(seedMode: 'off', dht: false, upnp: false),
+        );
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          objects(downloads.snapshot()['tasks']).single['status'],
+          'completed',
+        );
+        expect(
+          LibtorrentFlutter.instance.torrents.values.single.isPaused,
+          isTrue,
+        );
+        expect(LibtorrentFlutter.instance.torrents.values.single.numPeers, 0);
+        // Exercise the metadata persistence used by magnets, then restore offline.
+        final cachedMetadata =
+            '${directory.path}/downloads/metadata/cached.torrent';
+        expect(
+          LibtorrentFlutter.instance.saveMetadata(
+            LibtorrentFlutter.instance.torrents.keys.single,
+            cachedMetadata,
+          ),
+          isTrue,
+        );
         await downloads.pause('${task['id']}');
         await downloads.close();
         expect(
@@ -196,6 +322,15 @@ void main() {
         await peer.close();
         await tracker.close(force: true);
         final transferredBeforeRestart = servedBytes;
+        final savedTask = (await store.get('downloads', '${task['id']}'))!;
+        final seedSeconds = number(savedTask['seedSeconds']);
+        await store.put('downloads', '${task['id']}', {
+          ...savedTask,
+          'kind': 'magnet',
+          'input': 'magnet:?xt=urn:btih:$hexHash',
+          'metadataPath': cachedMetadata,
+        });
+
         downloads = DownloadRepository(store, '${directory.path}/downloads');
         await downloads.initialize();
         expect(
@@ -203,10 +338,33 @@ void main() {
           sha1.convert(payload),
           reason: 'Reattaching must not alter existing file contents',
         );
+        for (var i = 0; i < 100; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+          if (objects(downloads.snapshot()['tasks']).single['status'] ==
+              'paused') {
+            break;
+          }
+        }
         expect(
           objects(downloads.snapshot()['tasks']).single['status'],
           'paused',
         );
+        expect(downloads.settings.seedMode, 'off');
+        expect(
+          number(
+            objects(downloads.snapshot()['tasks']).single['uploadedBytes'],
+          ),
+          uploadedBytes,
+        );
+        expect(
+          number(objects(downloads.snapshot()['tasks']).single['seedSeconds']),
+          seedSeconds,
+        );
+        expect(
+          LibtorrentFlutter.instance.torrents.values.single.isPaused,
+          isTrue,
+        );
+
         await downloads.resume('${task['id']}');
         for (var i = 0; i < 100; i++) {
           await tester.pump(const Duration(milliseconds: 100));
@@ -227,6 +385,25 @@ void main() {
           reason: 'Restart must reuse verified local pieces without a seeder',
         );
         expect(downloads.media('${task['id']}')['path'], file.path);
+        await downloads.close();
+        downloads = DownloadRepository(store, '${directory.path}/downloads');
+        await downloads.initialize();
+        for (var i = 0; i < 100; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+          if (objects(downloads.snapshot()['tasks']).single['status'] ==
+              'completed') {
+            break;
+          }
+        }
+        expect(
+          objects(downloads.snapshot()['tasks']).single['status'],
+          'completed',
+        );
+        expect(
+          LibtorrentFlutter.instance.torrents.values.single.isPaused,
+          isTrue,
+        );
+        expect(LibtorrentFlutter.instance.torrents.values.single.numPeers, 0);
         await downloads.close();
         await file.writeAsBytes([
           ...Uint8List(pieceLength),
@@ -254,6 +431,101 @@ void main() {
         }
         await peer.close();
         await tracker.close(force: true);
+        await directory.delete(recursive: true);
+      }
+    },
+  );
+  testWidgets(
+    'queue limits, manual pauses and startup policy reach native handles',
+    (tester) async {
+      final directory = await Directory.systemTemp.createTemp(
+        'melonbang-queue-',
+      );
+      final store = await AppStore.open('${directory.path}/test.sqlite');
+      var downloads = DownloadRepository(store, '${directory.path}/downloads');
+      try {
+        await downloads.initialize();
+        await downloads.saveSettings(
+          const BitTorrentSettings(activeDownloads: 1, dht: false, upnp: false),
+        );
+        final tasks = <Json>[];
+        for (var i = 0; i < 3; i++) {
+          tasks.add(
+            await downloads.addTorrent(
+              bencode(<String, Object>{
+                'info': <String, Object>{
+                  'name': 'queued-$i.mkv',
+                  'length': 16384,
+                  'piece length': 16384,
+                  'pieces': Uint8List.fromList(
+                    sha1.convert(Uint8List(16384)).bytes,
+                  ),
+                  'private': 1,
+                },
+              }),
+              'Queued $i',
+            ),
+          );
+        }
+        await tester.pump(const Duration(seconds: 2));
+        expect(
+          LibtorrentFlutter.instance.torrents.values.where((t) => !t.isPaused),
+          hasLength(1),
+        );
+        expect(
+          objects(downloads.snapshot()['tasks'])
+              .where((t) => t['status'] == 'queued'),
+          hasLength(2),
+        );
+        await downloads.pause('${tasks.first['id']}');
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          LibtorrentFlutter.instance.torrents.values
+              .singleWhere((t) => !t.isPaused)
+              .name,
+          'queued-1.mkv',
+        );
+        await downloads.saveSettings(
+          const BitTorrentSettings(
+            activeDownloads: 2,
+            dht: false,
+            upnp: false,
+            resumeOnStartup: false,
+          ),
+        );
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          LibtorrentFlutter.instance.torrents.values.where((t) => !t.isPaused),
+          hasLength(2),
+        );
+        await downloads.close();
+        downloads = DownloadRepository(store, '${directory.path}/downloads');
+        await downloads.initialize();
+        await tester.pump(const Duration(seconds: 2));
+        expect(
+          objects(downloads.snapshot()['tasks'])
+              .every((t) => t['status'] == 'paused'),
+          isTrue,
+        );
+        expect(
+          LibtorrentFlutter.instance.torrents.values.every(
+            (t) => t.isPaused && t.numPeers == 0,
+          ),
+          isTrue,
+        );
+        await downloads.resume('${tasks.last['id']}');
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          LibtorrentFlutter.instance.torrents.values
+              .singleWhere((t) => !t.isPaused)
+              .name,
+          'queued-2.mkv',
+        );
+        await downloads.remove('${tasks.last['id']}');
+        expect(objects(downloads.snapshot()['tasks']), hasLength(2));
+      } finally {
+        await downloads.close();
+        await store.close();
         await directory.delete(recursive: true);
       }
     },

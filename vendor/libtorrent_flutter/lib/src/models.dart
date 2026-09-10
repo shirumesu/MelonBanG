@@ -236,7 +236,7 @@ class BtConfig {
   /// Percentage of cache preloaded on stream start (0–100, default 50).
   final int preloadCache;
 
-  /// Max concurrent piece requests per reader (default 25).
+  /// Maximum peer connections per torrent (default 25).
   final int connectionsLimit;
 
   /// Seconds of inactivity before a reader-less torrent is paused (default 30).
@@ -269,7 +269,7 @@ class BtConfig {
   /// Upload rate limit in KB/s (0 = unlimited).
   final int uploadRateLimit;
 
-  /// Port for incoming peer connections (0 = default).
+  /// Port for incoming peer connections (0 = automatically allocated).
   final int peersListenPort;
 
   /// Enable responsive mode for readers (lower latency, more aggressive).

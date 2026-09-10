@@ -226,7 +226,7 @@ void main() {
           )
           .toList();
       expect(playButtons.first.onPressed, isNull);
-      await tester.tap(find.byTooltip('暂停 / 继续').first);
+      await tester.tap(find.byTooltip('暂停 / 继续下载').first);
       expect(paused?['id'], 'pending');
       await tester.tap(find.byTooltip('播放').last);
       await tester.tap(find.byTooltip('播放此文件').last);

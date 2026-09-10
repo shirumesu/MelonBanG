@@ -267,12 +267,24 @@ class LibtorrentFlutter {
   ///
   /// Returns the torrent ID. [savePath] defaults to the path set in init().
   /// Set [streamOnly] to true to prevent background downloading.
-  int addMagnet(String magnetUri, [String? savePath, bool streamOnly = false]) {
+  /// [startPaused] prevents peer connections before queue admission.
+  /// [stopWhenReady] checks local files and stops before transferring data.
+  int addMagnet(String magnetUri,
+      [String? savePath,
+      bool streamOnly = false,
+      bool startPaused = false,
+      bool stopWhenReady = false]) {
     final enhanced = TrackerManager.injectTrackers(magnetUri);
     final m = enhanced.toNativeUtf8();
     final s = (savePath ?? _defaultSavePath).toNativeUtf8();
     try {
-      final id = _b.addMagnet(_session, m, s, streamOnly ? 1 : 0);
+      final id = _b.addMagnet(
+          _session,
+          m,
+          s,
+          (streamOnly ? 1 : 0) |
+              (startPaused ? 2 : 0) |
+              (stopWhenReady ? 4 : 0));
       if (id < 0) throw Exception(_b.lastError().toDartString());
       return id;
     } finally {
@@ -286,11 +298,19 @@ class LibtorrentFlutter {
     String filePath, [
     String? savePath,
     bool streamOnly = false,
+    bool startPaused = false,
+    bool stopWhenReady = false,
   ]) {
     final f = filePath.toNativeUtf8();
     final s = (savePath ?? _defaultSavePath).toNativeUtf8();
     try {
-      final id = _b.addTorrentFile(_session, f, s, streamOnly ? 1 : 0);
+      final id = _b.addTorrentFile(
+          _session,
+          f,
+          s,
+          (streamOnly ? 1 : 0) |
+              (startPaused ? 2 : 0) |
+              (stopWhenReady ? 4 : 0));
       if (id < 0) throw Exception(_b.lastError().toDartString());
       return id;
     } finally {
@@ -311,6 +331,16 @@ class LibtorrentFlutter {
 
   /// Resume a paused torrent.
   void resumeTorrent(int id) => _b.resumeTorrent(_session, id);
+
+  /// Save complete torrent metadata for offline restoration.
+  bool saveMetadata(int id, String path) {
+    final nativePath = path.toNativeUtf8();
+    try {
+      return _b.saveMetadata(_session, id, nativePath) == 1;
+    } finally {
+      malloc.free(nativePath);
+    }
+  }
 
   /// Recheck torrent integrity.
   void recheckTorrent(int id) => _b.recheckTorrent(_session, id);

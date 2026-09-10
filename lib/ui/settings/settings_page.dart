@@ -12,6 +12,7 @@ class SettingsPage extends StatefulWidget {
     required this.dark,
     required this.dataDirectory,
     required this.connectionSettings,
+    required this.bitTorrentSettings,
     required this.onAccountAction,
     required this.onCancelSignIn,
     required this.onThemeChanged,
@@ -22,7 +23,7 @@ class SettingsPage extends StatefulWidget {
   final Json sync;
   final bool dark, showSidebar;
   final String? dataDirectory;
-  final Widget connectionSettings;
+  final Widget connectionSettings, bitTorrentSettings;
   final VoidCallback onAccountAction, onCancelSignIn;
   final VoidCallback? onBack;
   final ValueChanged<bool> onThemeChanged;
@@ -32,12 +33,13 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   int selected = 0;
-  static const categories = ['账户与同步', '界面与外观', '服务连接', '播放', '应用数据'];
+  static const categories = ['账户与同步', '界面与外观', '服务连接', '播放', '下载与做种', '应用数据'];
   static const icons = [
     Icons.person_outline,
     Icons.palette_outlined,
     Icons.dns_outlined,
     Icons.play_circle_outline,
+    Icons.swap_vert,
     Icons.folder_outlined,
   ];
   @override
@@ -259,6 +261,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ],
                   ),
+                  PageScroll(children: [widget.bitTorrentSettings]),
                   PageScroll(
                     children: [
                       const SectionTitle(title: '应用数据'),
