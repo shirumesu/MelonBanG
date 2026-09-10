@@ -147,9 +147,10 @@ address (default `http://127.0.0.1:14567/callback`), and Dandanplay App ID/Secre
 Credentials and tokens use the current Windows user's DPAPI key or the macOS login
 Keychain. Credential profiles are isolated by the application data directory.
 Startup attempts account recovery without a system password dialog. If Keychain
-access requires authorization, click Login to restore the saved account. Background
-token renewal also avoids dialogs; if OAuth configuration needs authorization,
-edit the Bangumi service connection once before retrying synchronization.
+access requires authorization, use Unlock Sync to restore the saved account and
+its OAuth configuration in one interaction. A cached public account profile keeps
+local collections available while credentials are locked; tokens stay in native
+storage. Synchronization failures do not hide a successfully restored login.
 Opening Settings does not read service secrets: each service has its own Edit and
 Save actions. Successful credential reads are cached in memory for the process,
 and failed reads can be retried. Writes update the cache only after storage succeeds.
@@ -157,7 +158,11 @@ Windows uses DPAPI with UI forbidden and does not require a Keychain equivalent.
 macOS uses a scoped SecKeychain interaction switch because the existing login
 Keychain is file-based; SecItem authentication-context flags do not suppress its
 access-control dialogs. Ad-hoc rebuilds may still require fresh authorization
-when a credential is explicitly used; no plaintext fallback is used.
+when a credential is explicitly used. Self-signed builds can also need renewed
+Keychain authorization; Apple-issued development signing is recommended for
+credential continuity across builds. See
+[macOS signing and account recovery](docs/macos-signing.md) for setup, migration,
+and distribution details. No plaintext account-credential fallback is used.
 No configuration secrets are bundled into the executable or stored in Git.
 
 Public anime data comes from Melon API; personal writes go to Bangumi. Account

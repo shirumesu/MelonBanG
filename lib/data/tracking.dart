@@ -186,7 +186,7 @@ class TrackingRepository {
   }
 
   Future<void> refreshEpisodes(int subjectId) async {
-    if (account.session == null) return;
+    if (account.session == null || account.needsAuthorization) return;
     final requestedAt = DateTime.now().millisecondsSinceEpoch;
     final user = account.userId;
     for (var offset = 0; ; offset += 100) {
@@ -230,7 +230,7 @@ class TrackingRepository {
       _flushing ??= _flush().whenComplete(() => _flushing = null);
   Future<void> _flush() async {
     final user = account.userId;
-    if (user == 'local' || _closed) return;
+    if (user == 'local' || _closed || account.needsAuthorization) return;
     final attempted = <int>{};
     final blocked = <String>{};
     String? error;
