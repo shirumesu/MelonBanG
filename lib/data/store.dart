@@ -135,9 +135,25 @@ class AppStore {
     Json value,
     String account,
     String entity,
-    Json mutation,
-  ) async {
+    Json mutation, {
+    Json? defaults,
+    Json? initialMutation,
+  }) async {
     await database.transaction((tx) async {
+      if (defaults != null) {
+        final rows = await tx.query(
+          'documents',
+          where: 'scope=? AND id=?',
+          whereArgs: [scope, id],
+        );
+        if (rows.isEmpty) mutation = {...?initialMutation, ...mutation};
+        value = {
+          ...defaults,
+          if (rows.isNotEmpty)
+            ...object(jsonDecode(rows.single['body'] as String)),
+          ...value,
+        };
+      }
       await tx.insert('documents', {
         'scope': scope,
         'id': id,

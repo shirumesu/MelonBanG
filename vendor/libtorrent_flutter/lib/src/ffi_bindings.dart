@@ -62,6 +62,8 @@ final class LtFileInfo extends Struct {
   external int size;
   @Int32()
   external int isStreamable;
+  @Int64()
+  external int downloadedBytes;
 }
 
 // ─── lt_stream_status ─────────────────────────────────────────────────────────

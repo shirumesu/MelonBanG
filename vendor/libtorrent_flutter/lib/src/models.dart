@@ -143,11 +143,16 @@ class FileInfo {
   final String name;
   final String path;
   final int size;
+  final int downloadedBytes;
   final bool isStreamable;
 
   const FileInfo({
-    required this.index, required this.name, required this.path,
-    required this.size, required this.isStreamable,
+    required this.index,
+    required this.name,
+    required this.path,
+    required this.size,
+    required this.isStreamable,
+    this.downloadedBytes = 0,
   });
 
   @override

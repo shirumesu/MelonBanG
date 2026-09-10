@@ -29,6 +29,7 @@ void main() {
         await expectLater(services.start(), throwsStateError);
         await services.close();
         await services.close();
+        await expectLater(services.start(), throwsStateError);
         final reopened = await AppStore.open(
           p.join(directory.path, 'melonbang.sqlite'),
         );

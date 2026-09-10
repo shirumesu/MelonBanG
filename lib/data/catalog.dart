@@ -12,13 +12,16 @@ class CatalogRepository {
   final AppStore store;
   final String origin;
   final _requests = <String, Future<dynamic>>{};
+  bool _closed = false;
   Future<dynamic> _cached(
     String key,
     String path, {
     Duration ttl = const Duration(minutes: 5),
     bool refresh = false,
   }) async {
+    if (_closed) throw StateError('番剧服务已关闭');
     final cached = await store.get('catalog', key);
+    if (_closed) throw StateError('番剧服务已关闭');
     if (!refresh &&
         cached != null &&
         DateTime.now().millisecondsSinceEpoch - number(cached['savedAt']) <
@@ -29,6 +32,7 @@ class CatalogRepository {
       return await _requests.putIfAbsent(key, () async {
         try {
           final value = await api.json(Uri.parse('$origin$path'));
+          if (_closed) throw StateError('番剧服务已关闭');
           await store.put('catalog', key, {
             'value': value,
             'savedAt': DateTime.now().millisecondsSinceEpoch,
@@ -130,5 +134,18 @@ class CatalogRepository {
         )
         .toList();
     return data;
+  }
+
+  Future<void> close() async {
+    _closed = true;
+    await Future.wait(
+      _requests.values.toList().map((request) async {
+        try {
+          await request;
+        } catch (_) {
+          /* Request callers receive failures. */
+        }
+      }),
+    );
   }
 }

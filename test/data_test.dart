@@ -366,6 +366,77 @@ void main() {
     },
   );
 
+  test('failed replacement danmaku does not retain comments from the previous episode', () async {
+    final api = ApiClient();
+    final danmaku = ControlledDanmaku(api, MemoryCredentials());
+    final downloads = DownloadRepository(store, '${directory.path}/downloads');
+    final library = PlaybackLibrary(
+      store,
+      downloads,
+      danmaku,
+      CatalogRepository(api, store),
+    );
+    final file = await File('${directory.path}/video.mkv').writeAsBytes([0]);
+    await library.local(file.path);
+    danmaku.responses['old'] = Completer<List<Json>>()
+      ..complete([
+        {'timeSeconds': 1, 'text': 'Old episode', 'mode': 'scroll'},
+      ]);
+    await library.loadSource('bilibili', 'old');
+    final next = Completer<List<Json>>();
+    danmaku.responses['next'] = next;
+    final loading = library.loadSource('bilibili', 'next');
+    next.completeError(StateError('Provider unavailable'));
+    await loading;
+    expect(objects(library.current!['danmaku']), isEmpty);
+    expect(
+      objects(library.current!['danmakuSources'])
+          .firstWhere((s) => s['id'] == 'bilibili')['status'],
+      'error',
+    );
+    await library.close();
+    await downloads.close();
+    api.close();
+  });
+
+  test(
+    'RSS ignores artwork enclosures and accepts torrent URLs with queries',
+    () {
+      final results = parseRss(
+        '<rss><channel><item><title>Episode</title><enclosure type="image/jpeg" url="cover.jpg"/><link>/file.torrent?token=test</link></item></channel></rss>',
+        base: Uri.parse('https://example.com/rss'),
+      );
+      expect(
+        results.single['locator'],
+        'https://example.com/file.torrent?token=test',
+      );
+    },
+  );
+
+  test(
+    'Bahamut matching uses decoded DOM titles and deduplicates episode links',
+    () async {
+      final api = ApiClient(
+        client: MockClient(
+          (request) async => http.Response(
+            request.url.path == '/search.php'
+                ? '<ul><li><a href="animeRef.php?sn=42"><img alt="A &amp; B"></a><a href="animeRef.php?sn=42">A &amp; B</a></li></ul>'
+                : '<a data-title="episode" href="animeVideo.php?sn=7&amp;ref=series"><span>1</span></a><a href="animeVideo.php?sn=7">1</a>',
+            200,
+          ),
+        ),
+      );
+      expect(
+        await DanmakuRepository(
+          api,
+          MemoryCredentials(),
+        ).automaticLocator('bahamut', 'A & B', 1),
+        'sn=7',
+      );
+      api.close();
+    },
+  );
+
   test(
     'RSS enclosures preserve magnets, resolve torrents, and decode titles',
     () {

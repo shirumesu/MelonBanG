@@ -199,6 +199,16 @@ void main() {
         expect(current['status'], 'seeding', reason: current.toString());
         expect(servedBytes, greaterThanOrEqualTo(payload.length));
         final media = downloads.media('${task['id']}');
+        expect(media['size'], payload.length);
+        expect(media['progress'], 1.0);
+        final idleSeedSeconds = number(
+          objects(downloads.snapshot()['tasks']).single['seedSeconds'],
+        );
+        await tester.pump(const Duration(seconds: 3));
+        expect(
+          number(objects(downloads.snapshot()['tasks']).single['seedSeconds']),
+          greaterThan(idleSeedSeconds + 1),
+        );
         final file = File('${media['path']}');
         expect(sha1.convert(await file.readAsBytes()), sha1.convert(payload));
         // A real incoming leecher requests a verified piece from the app.
@@ -266,6 +276,27 @@ void main() {
             objects(downloads.snapshot()['tasks']).single['uploadedBytes'],
           ),
           greaterThanOrEqualTo(pieceLength),
+        );
+        await store.database.execute(
+          "CREATE TRIGGER fail_download_write BEFORE INSERT ON documents WHEN NEW.scope='downloads' BEGIN SELECT RAISE(FAIL, 'disk unavailable'); END",
+        );
+        await expectLater(
+          downloads.pause('${task['id']}'),
+          throwsA(isA<Exception>()),
+        );
+        expect(
+          objects(downloads.snapshot()['tasks']).single['persistenceError'],
+          isNotNull,
+        );
+        await store.database.execute('DROP TRIGGER fail_download_write');
+        await downloads.resume('${task['id']}');
+        expect(
+          objects(downloads.snapshot()['tasks']).single['persistenceError'],
+          isNull,
+        );
+        expect(
+          (await store.get('downloads', '${task['id']}'))?['manualPaused'],
+          false,
         );
         final uploadedBytes = number(
           objects(downloads.snapshot()['tasks']).single['uploadedBytes'],
@@ -562,8 +593,19 @@ void main() {
               .name,
           'queued-2.mkv',
         );
-        await downloads.remove('${tasks.last['id']}');
-        expect(objects(downloads.snapshot()['tasks']), hasLength(2));
+        final metadata = await File('${tasks.last['input']}').readAsBytes();
+        final removing = downloads.remove('${tasks.last['id']}');
+        final adding = downloads.addTorrent(metadata, 'Readded');
+        await removing;
+        final replacement = await adding;
+        expect(replacement['id'], isNot(tasks.last['id']));
+        expect(await File('${replacement['input']}').exists(), isTrue);
+        expect(objects(downloads.snapshot()['tasks']), hasLength(3));
+        await downloads.close();
+        await expectLater(
+          downloads.resume('${replacement['id']}'),
+          throwsStateError,
+        );
       } finally {
         await downloads.close();
         await store.close();

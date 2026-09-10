@@ -1966,135 +1966,12 @@ TORRENT_API lt_session_t lt_create_session(const char* iface, int dl, int ul) {
         sp.set_bool(lt::settings_pack::validate_https_trackers, true);
 #endif
 
-        // ── connection speed — get peers fast ──
-        sp.set_int (lt::settings_pack::connection_speed,          200);
-        sp.set_int (lt::settings_pack::torrent_connect_boost,     200);
-        sp.set_bool(lt::settings_pack::smooth_connects,           false);
-        // Session-wide cap. Per-torrent cap (default 25) is what actually
-        // governs streaming fanout — see set_max_connections() in
-        // lt_start_stream. Keep this comfortably above per-torrent * active.
-        sp.set_int (lt::settings_pack::connections_limit,         200);
-        sp.set_int (lt::settings_pack::min_reconnect_time,        5);
-        sp.set_int (lt::settings_pack::max_failcount,             3);
-        sp.set_int (lt::settings_pack::peer_connect_timeout,      5);
-        sp.set_int (lt::settings_pack::handshake_timeout,         5);
-
-        // ── timeouts — detect slow/stalled peers quickly for streaming ──
-        sp.set_int (lt::settings_pack::piece_timeout,             5);
-        sp.set_int (lt::settings_pack::request_timeout,           5);
-        sp.set_int (lt::settings_pack::peer_timeout,              15);
-        sp.set_int (lt::settings_pack::inactivity_timeout,        15);
-
-        // ── request pipeline — short queue time = fast seek response ──
-        // request_queue_time is SECONDS of outstanding requests per peer.
-        // At 3s, after a priority change peers take up to 3s to drain the
-        // pipe before serving new pieces. 1s = 3x faster seek response.
-        sp.set_int (lt::settings_pack::request_queue_time,        1);
-        sp.set_int (lt::settings_pack::max_out_request_queue,     500);
-        sp.set_int (lt::settings_pack::max_allowed_in_request_queue, 2000);
-
-        // ── piece picking — WE control priorities ──
-        sp.set_bool(lt::settings_pack::auto_sequential,           false);
-        // piece_extent_affinity=true: keep a peer downloading the same
-        // file region instead of jumping. Reduces piece-completion variance
-        // (= stutter). Designed exactly for streaming.
-        sp.set_bool(lt::settings_pack::piece_extent_affinity,     true);
-        // strict_end_game_mode=false: enables block-level duplication on
-        // the trailing edge of in-progress pieces. With strict=true and a
-        // 2-piece window, end-game NEVER triggers — peers sit waiting on a
-        // single slow block. false = duplicate the last blocks across peers.
-        sp.set_bool(lt::settings_pack::strict_end_game_mode,      false);
-        sp.set_bool(lt::settings_pack::prioritize_partial_pieces, true);
-        sp.set_int (lt::settings_pack::initial_picker_threshold,  0);
-
-        // ── disk I/O ──
-        sp.set_int (lt::settings_pack::aio_threads,               4);
-        sp.set_int (lt::settings_pack::hashing_threads,           2);
-        // 64MB lets the disk pipeline absorb burst writes when many peers
-        // deliver simultaneously (common right after a seek).
-        sp.set_int (lt::settings_pack::max_queued_disk_bytes,     64 * 1024 * 1024);
-        sp.set_int (lt::settings_pack::disk_io_read_mode,         lt::settings_pack::enable_os_cache);
-        sp.set_int (lt::settings_pack::disk_io_write_mode,        lt::settings_pack::enable_os_cache);
-        sp.set_int (lt::settings_pack::file_pool_size,            100);
-        sp.set_bool(lt::settings_pack::no_atime_storage,          true);
-
-        // ── upload — unlimited unchoke so peers reciprocate (tit-for-tat) ──
-        sp.set_int (lt::settings_pack::unchoke_slots_limit,       -1);
-        sp.set_int (lt::settings_pack::active_seeds,              0);
-        sp.set_int (lt::settings_pack::suggest_mode,              lt::settings_pack::suggest_read_cache);
-
-        // ── DHT + discovery ──
-        sp.set_bool(lt::settings_pack::enable_dht,                true);
-        sp.set_bool(lt::settings_pack::enable_lsd,                true);
-        sp.set_bool(lt::settings_pack::enable_upnp,               true);
-        sp.set_bool(lt::settings_pack::enable_natpmp,             true);
-        sp.set_str (lt::settings_pack::dht_bootstrap_nodes,
-            "dht.libtorrent.org:25401,"
-            "router.bittorrent.com:6881,"
-            "dht.transmissionbt.com:6881,"
-            "router.utorrent.com:6881");
-        sp.set_int (lt::settings_pack::dht_announce_interval,     60);
-        sp.set_bool(lt::settings_pack::announce_to_all_trackers,  true);
-        sp.set_bool(lt::settings_pack::announce_to_all_tiers,     true);
-
-        // ── general ──
-        sp.set_int (lt::settings_pack::active_downloads,          1);
-        sp.set_int (lt::settings_pack::active_limit,              10);
-        sp.set_int (lt::settings_pack::alert_queue_size,          10000);
-        sp.set_bool(lt::settings_pack::close_redundant_connections, true);
-        sp.set_int (lt::settings_pack::peer_turnover,             5);
-        sp.set_int (lt::settings_pack::peer_turnover_interval,    30);
+        // Use libtorrent's tested desktop defaults for transport, disk and
+        // piece picking. Application queue policy is applied per torrent.
         sp.set_bool(lt::settings_pack::no_recheck_incomplete_resume, false);
-        sp.set_bool(lt::settings_pack::allow_multiple_connections_per_ip, true);
-        sp.set_bool(lt::settings_pack::rate_limit_ip_overhead,    false);
-        // whole_pieces_threshold=0: parallelize block requests across peers
-        // for every piece. At 20s, a 4MB piece comes from ONE peer (~800ms
-        // at 5MB/s). Parallel across 10 peers = ~80ms. Single biggest
-        // seek-latency win.
-        sp.set_int (lt::settings_pack::whole_pieces_threshold,    0);
-        sp.set_int (lt::settings_pack::max_peerlist_size,         8000);
-        sp.set_bool(lt::settings_pack::dont_count_slow_torrents,  true);
-
-        // ── encryption (MSE/PE) ──
-        // pe_enabled (vs pe_forced) keeps plaintext as a fallback so we don't
-        // lose peers that don't speak MSE; the encrypted handshake is still
-        // tried first, which is what defeats most ISP DPI throttling.
-        sp.set_int (lt::settings_pack::in_enc_policy,  lt::settings_pack::pe_enabled);
-        sp.set_int (lt::settings_pack::out_enc_policy, lt::settings_pack::pe_enabled);
-        // both = negotiate full RC4 stream encryption when the peer supports
-        // it (header-only is the libtorrent default and is weaker against
-        // DPI). This is the actual ISP-throttling-bypass knob.
-        sp.set_int (lt::settings_pack::allowed_enc_level, lt::settings_pack::pe_both);
-        sp.set_bool(lt::settings_pack::prefer_rc4,         false);
-        sp.set_int (lt::settings_pack::mixed_mode_algorithm, lt::settings_pack::peer_proportional);
-
-        // ── reciprocity boost ──
-        // Announce pieces ~500 ms before they finish hashing so peers can
-        // start requesting from us before we've even completed the piece.
-        // This raises our reciprocity score and gets us better unchoke
-        // priority from them on the next round — measurably helps streaming
-        // on mid-swarm torrents. Value is in MILLISECONDS, not seconds.
-        // 500 ms is enough for ~3-5× a typical WAN round-trip without
-        // announcing pieces that may still fail the hash check.
-        sp.set_int (lt::settings_pack::predictive_piece_announce, 500);
-
-        // ── tracker discovery ──
-        // UDP trackers answer ~10× faster than HTTP and have lower overhead
-        // for the tracker operator (=> more reliable scrape data). Try them
-        // first when both are available.
-        sp.set_bool(lt::settings_pack::prefer_udp_trackers, true);
-
-        // port of btserver.go — spoof as qBittorrent 4.3.9
-        sp.set_str (lt::settings_pack::user_agent,                 "qBittorrent/4.3.9");
-        sp.set_str (lt::settings_pack::peer_fingerprint,           "-qB4390-");
-        sp.set_str (lt::settings_pack::handshake_client_version,   "qBittorrent/4.3.9");
-
-        // buffers
-        sp.set_int (lt::settings_pack::send_buffer_watermark,     2 * 1024 * 1024);
-        sp.set_int (lt::settings_pack::send_buffer_low_watermark, 64 * 1024);
-        sp.set_int (lt::settings_pack::send_buffer_watermark_factor, 150);
-        sp.set_int (lt::settings_pack::recv_socket_buffer_size,   1024 * 1024);
-        sp.set_int (lt::settings_pack::send_socket_buffer_size,   1024 * 1024);
+        sp.set_str(lt::settings_pack::user_agent, "Melonbang/1.0");
+        sp.set_str(lt::settings_pack::peer_fingerprint, "-MB1000-");
+        sp.set_str(lt::settings_pack::handshake_client_version, "Melonbang/1.0");
 
         // Pin the disk I/O backend explicitly instead of trusting the 2.1.x
         // default (pread_disk_io). The pread backend is new in 2.1.0 and has
@@ -2406,10 +2283,14 @@ TORRENT_API int lt_get_files(lt_session_t session, lt_torrent_id id,
             return 0;
         }
         const lt::file_storage& fs = ti->files();
+        std::vector<std::int64_t> progress;
+        it->second.file_progress(progress, lt::torrent_handle::piece_granularity);
         int n = 0;
         for (int i = 0; i < fs.num_files() && n < max; ++i, ++n) {
             lt::file_index_t fi{i};
             out[n].index = i;
+            out[n].size = fs.file_size(fi);
+            out[n].downloaded_bytes = i < static_cast<int>(progress.size()) ? progress[i] : 0;
             std::string nm = std::string(fs.file_name(fi));
             out[n].is_streamable = is_streamable(nm) ? 1 : 0;
             std::string pt = fs.file_path(fi);
@@ -2918,6 +2799,10 @@ TORRENT_API void lt_configure_session(lt_session_t session,
         sp.set_int(lt::settings_pack::active_seeds, 0);
     }
 
+    if (!cfg.disable_upload) {
+        sp.set_int(lt::settings_pack::unchoke_slots_limit, 8);
+    }
+
     // port of: bt.config.EstablishedConnsPerTorrent = settings.BTsets.ConnectionsLimit
     sp.set_int(lt::settings_pack::connections_limit, std::max(200, cfg.connections_limit * 4));
 
@@ -2945,10 +2830,6 @@ TORRENT_API void lt_configure_session(lt_session_t session,
         sp.set_int(lt::settings_pack::upload_rate_limit, 0);
     }
 
-    // port of: userAgent spoofing — TorrServer pretends to be qBittorrent 4.3.9
-    sp.set_str(lt::settings_pack::user_agent, "qBittorrent/4.3.9");
-    sp.set_str(lt::settings_pack::peer_fingerprint, "-qB4390-");
-    sp.set_str(lt::settings_pack::handshake_client_version, "qBittorrent/4.3.9");
 
     try {
         sw->session.apply_settings(sp);

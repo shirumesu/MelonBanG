@@ -29,7 +29,15 @@ class _Credentials extends MemoryCredentials {
 class _Downloads extends DownloadRepository {
   _Downloads(super.store, super.directory);
   bool verified = true;
+  bool removed = false;
   late String mediaPath;
+  @override
+  bool contains(String id) => id == 'task' && !removed;
+  @override
+  Json episodeMedia(int subjectId, int episodeId) => {
+    'downloadId': 'replacement',
+    'id': '0',
+  };
   @override
   Json media(String id, {String? fileId}) {
     if (!verified) throw StateError('请等待下载完成后播放');
@@ -170,10 +178,22 @@ void main() {
         CatalogRepository(api, store),
       );
       try {
-        await library.fromDownload('task');
+        final session = await library.fromDownload('task');
+        await library.save(session, 20, 100, false);
+        await library.save(session, 0, 0, false);
+        expect((await library.progress(42, 7))?['positionSeconds'], 20);
+        await library.save(session, 120, 100, false);
+        expect((await library.progress(42, 7))?['positionSeconds'], 100);
         expect((await library.episode(42, 7))['episodeId'], 7);
         downloads.verified = false;
         await expectLater(library.episode(42, 7), throwsStateError);
+        downloads.verified = true;
+        downloads.removed = true;
+        expect((await library.episode(42, 7))['episodeId'], 7);
+        expect(
+          (await store.get('episode_files', '42:7'))?['downloadId'],
+          'replacement',
+        );
       } finally {
         await library.close();
         await downloads.close();
