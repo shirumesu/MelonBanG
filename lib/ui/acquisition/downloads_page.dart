@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/json.dart';
+import '../../data/bittorrent_settings.dart';
 import '../core/page_widgets.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -35,9 +36,18 @@ class _DownloadsPageState extends State<DownloadsPage> {
     final visible = tasks
         .where(
           (t) => switch (filter) {
-            '下载中' => ['metadata', 'downloading', 'ready'].contains(t['status']),
+            '下载中' =>
+              [
+                    'metadata',
+                    'downloading',
+                    'ready',
+                    'checking',
+                    'queued',
+                  ].contains(t['status']) &&
+                  number(t['progress']) < 1,
             '已暂停' => ['paused', 'failed'].contains(t['status']),
-            '已完成' => t['status'] == 'completed',
+            '已完成' => number(t['progress']) >= 1,
+            '做种中' => t['status'] == 'seeding',
             _ => true,
           },
         )
@@ -72,7 +82,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      '${tasks.length} 个任务 · ${tasks.where((t) => t['status'] == 'completed').length} 个已完成',
+                      '${tasks.length} 个任务 · ${tasks.where((t) => number(t['progress']) >= 1).length} 个已完成',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -125,7 +135,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
           spacing: 8,
           runSpacing: 6,
           children: [
-            for (final label in ['全部', '下载中', '已暂停', '已完成'])
+            for (final label in ['全部', '下载中', '做种中', '已暂停', '已完成'])
               ChoiceChip(
                 label: Text(label),
                 selected: filter == label,
@@ -217,7 +227,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       spacing: 12,
                       children: [
                         Text(
-                          _status('${task['status']}'),
+                          downloadStatus(task),
                           style: const TextStyle(
                             color: mint,
                             fontSize: 11,
@@ -225,7 +235,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                           ),
                         ),
                         Text(
-                          '${(number(task['downloadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} MB/s · ${number(task['peerCount']).toInt()} 个连接',
+                          '↓ ${(number(task['downloadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} · ↑ ${(number(task['uploadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} MiB/s · ${number(task['peerCount']).toInt()} 个连接 · 分享率 ${number(task['totalBytes']) > 0 ? (number(task['uploadedBytes']) / number(task['totalBytes'])).toStringAsFixed(2) : '0.00'}',
                           style: TextStyle(
                             color: Theme.of(context)
                                 .colorScheme
@@ -233,6 +243,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
                             fontSize: 11,
                           ),
                         ),
+                        if (number(task['progress']) >= 1)
+                          Text(
+                            '已上传 ${(number(task['uploadedBytes']) / 1048576).toStringAsFixed(1)} MiB · 累计做种 ${(number(task['seedSeconds']) / 60).floor()} 分钟',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(fontSize: 11),
+                          ),
                       ],
                     ),
                   ],
@@ -240,7 +256,11 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ),
               const SizedBox(width: 10),
               IconButton(
-                tooltip: '暂停 / 继续',
+                tooltip: task['status'] == 'completed'
+                    ? '已按做种设置停止'
+                    : number(task['progress']) >= 1
+                    ? '暂停 / 继续做种'
+                    : '暂停 / 继续下载',
                 onPressed: task['status'] == 'completed'
                     ? null
                     : () => widget.onTogglePause(task),
@@ -297,14 +317,4 @@ class _DownloadsPageState extends State<DownloadsPage> {
       ),
     );
   }
-
-  String _status(String status) => switch (status) {
-    'metadata' => '解析资源',
-    'downloading' => '下载中',
-    'ready' => '下载中 · 已就绪',
-    'completed' => '已完成',
-    'paused' => '已暂停',
-    'failed' => '需要重试',
-    _ => status,
-  };
 }

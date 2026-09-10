@@ -6,6 +6,7 @@ import 'package:libtorrent_flutter/libtorrent_flutter.dart' as lt;
 import 'package:path/path.dart' as p;
 
 import 'json.dart';
+import 'bittorrent_settings.dart';
 import 'store.dart';
 import 'torrent_identity.dart';
 
@@ -24,8 +25,44 @@ class DownloadRepository {
   Future<void> _writes = Future.value();
   Future<void>? _closing;
   bool _closed = false;
+  BitTorrentSettings settings = const BitTorrentSettings();
+  final _verifying = <String>{};
+  final _running = <String>{};
+  final _uploaded = <String, int>{};
+  final _clock = Stopwatch()..start();
+  int _lastTick = 0, _lastSaved = 0;
+
+  Future<void> saveSettings(BitTorrentSettings value) async {
+    value.validate();
+    await store.put('settings', 'bittorrent', value.toJson());
+    settings = value;
+    if (_initializing != null) {
+      await _initializing;
+      lt.LibtorrentFlutter.instance.configureSession(settings.engineConfig);
+      _schedule();
+    }
+    for (final task in _tasks.values) {
+      await _persist('${task['id']}', task);
+    }
+    _emit();
+  }
+
   Future<void> initialize() async {
-    for (final task in await store.list('downloads')) {
+    settings = BitTorrentSettings.fromJson(
+      await store.get('settings', 'bittorrent') ?? {},
+    );
+    settings.validate();
+    final restored = await store.list('downloads');
+    restored.sort(
+      (a, b) => number(a['createdAt']).compareTo(number(b['createdAt'])),
+    );
+    for (final task in restored) {
+      task['manualPaused'] ??= task['status'] == 'paused';
+      if (!settings.resumeOnStartup) task['manualPaused'] = true;
+      task['peerCount'] = 0;
+      task['downloadSpeedBytesPerSecond'] = 0;
+      task['uploadSpeedBytesPerSecond'] = 0;
+      _files['${task['id']}'] = objects(task['files']);
       try {
         task['fingerprint'] = task['kind'] == 'magnet'
             ? magnetInfoHash(Uri.parse('${task['input']}'))
@@ -38,75 +75,196 @@ class DownloadRepository {
     if (_tasks.isNotEmpty) await _engine();
     for (final task in _tasks.values.toList()) {
       try {
-        _attach(task);
+        _attach(task, restoring: true);
       } catch (e) {
         task['status'] = 'failed';
         task['errorMessage'] = e.toString();
       }
     }
+    _schedule();
     _emit();
   }
 
   Future<void> _engine() => _initializing ??= () async {
     await Directory(directory).create(recursive: true);
+    await Directory(p.join(directory, 'metadata')).create(recursive: true);
     await lt.LibtorrentFlutter.init(
       defaultSavePath: directory,
       fetchTrackers: false,
     );
-    _subscription = lt.LibtorrentFlutter.instance.torrentUpdates.listen((
-      snapshot,
-    ) {
-      for (final entry in _handles.entries.toList()) {
-        final info = snapshot[entry.value];
-        final task = _tasks[entry.key];
-        if (info == null || task == null) continue;
-        task.addAll({
-          'title': info.name.isEmpty ? task['title'] : info.name,
-          'status': info.errorMsg.isNotEmpty
-              ? 'failed'
-              : info.isPaused
-              ? 'paused'
-              : info.isFinished
-              ? 'completed'
-              : info.hasMetadata
-              ? 'downloading'
-              : 'metadata',
-          'progress': info.progress,
-          'downloadSpeedBytesPerSecond': info.downloadRate,
-          'peerCount': info.numPeers,
-          'errorMessage': info.errorMsg.isEmpty ? null : info.errorMsg,
-          'totalBytes': info.totalWanted,
-          'downloadedBytes': info.totalDone,
-        });
-        if (info.hasMetadata) {
-          _files[entry.key] = lt.LibtorrentFlutter.instance
-              .getFiles(entry.value)
-              .map(
-                (file) => {
-                  'id': '${file.index}',
-                  'downloadId': entry.key,
-                  'name': file.name,
-                  'path': p.join('${task['savePath']}', file.path),
-                  'size': file.size,
-                  'progress': info.isFinished ? 1.0 : 0.0,
-                  'mediaKind': file.isStreamable ? 'video' : 'other',
-                },
-              )
-              .toList();
-        }
-        _persist(entry.key, task);
-      }
-      _emit();
-    });
+    lt.LibtorrentFlutter.instance.configureSession(settings.engineConfig);
+    _lastTick = _clock.elapsedMilliseconds;
+    _subscription = lt.LibtorrentFlutter.instance.torrentUpdates.listen(
+      _update,
+    );
   }();
-  void _attach(Json task) {
+
+  void _update(Map<int, lt.TorrentInfo> snapshot) {
+    if (_closed) return;
+    final now = _clock.elapsedMilliseconds;
+    final elapsed = (now - _lastTick) / 1000;
+    _lastTick = now;
+    final before = {for (final t in _tasks.values) t['id']: t['status']};
+    for (final entry in _handles.entries.toList()) {
+      final id = entry.key, info = snapshot[entry.value];
+      final task = _tasks[id];
+      if (info == null || task == null) continue;
+      final checking =
+          info.state == lt.TorrentState.checkingFiles ||
+          info.state == lt.TorrentState.checkingResume;
+      if (task['status'] == 'seeding' && info.isFinished && !info.isPaused) {
+        task['seedSeconds'] = number(task['seedSeconds']) + elapsed;
+      }
+      final previousUpload = _uploaded[id] ?? 0;
+      task['uploadedBytes'] =
+          number(task['uploadedBytes']).toInt() +
+          (info.totalUploaded - previousUpload).clamp(0, info.totalUploaded);
+      _uploaded[id] = info.totalUploaded;
+      task.addAll({
+        'title': info.name.isEmpty ? task['title'] : info.name,
+        'progress': checking ? 0.0 : info.progress,
+        'downloadSpeedBytesPerSecond': info.downloadRate,
+        'uploadSpeedBytesPerSecond': info.uploadRate,
+        'peerCount': info.numPeers,
+        'seedCount': info.numSeeds,
+        'errorMessage': info.errorMsg.isEmpty ? null : info.errorMsg,
+        'totalBytes': info.totalWanted,
+        'downloadedBytes': info.totalDone,
+        'complete': !checking && info.isFinished,
+      });
+      if (info.errorMsg.isNotEmpty) {
+        task['status'] = 'failed';
+        _verifying.remove(id);
+        task['manualPaused'] = true;
+      } else if (checking || (_verifying.contains(id) && !info.hasMetadata)) {
+        task['status'] = 'checking';
+      } else {
+        _verifying.remove(id);
+        task['status'] = info.isFinished
+            ? 'seeding'
+            : info.hasMetadata
+            ? 'downloading'
+            : 'metadata';
+      }
+      if (info.hasMetadata) {
+        _files[id] = lt.LibtorrentFlutter.instance
+            .getFiles(entry.value)
+            .map(
+              (file) => <String, dynamic>{
+                'id': '${file.index}',
+                'downloadId': id,
+                'name': file.name,
+                'path': p.join('${task['savePath']}', file.path),
+                'size': file.size,
+                'progress': !checking && info.isFinished ? 1.0 : 0.0,
+                'mediaKind': file.isStreamable ? 'video' : 'other',
+              },
+            )
+            .toList();
+        task['files'] = _files[id];
+        if (task['kind'] == 'magnet' && task['metadataPath'] == null) {
+          final path = p.join(
+            directory,
+            'metadata',
+            '${task['fingerprint']}.torrent',
+          );
+          if (lt.LibtorrentFlutter.instance.saveMetadata(entry.value, path)) {
+            task['metadataPath'] = path;
+          }
+        }
+      }
+    }
+    _schedule();
+    final periodic = now - _lastSaved >= 5000;
+    for (final task in _tasks.values) {
+      if (periodic || before[task['id']] != task['status']) {
+        unawaited(_persist('${task['id']}', task));
+      }
+    }
+    if (periodic) _lastSaved = now;
+    _emit();
+  }
+
+  void _schedule() {
+    if (_handles.isEmpty) return;
+    final engine = lt.LibtorrentFlutter.instance;
+    var downloading = 0, seeding = 0;
+    for (final task in _tasks.values) {
+      final id = '${task['id']}', handle = _handles[id];
+      if (handle == null || _verifying.contains(id)) continue;
+      var run = false;
+      if (task['errorMessage'] != null) {
+        task['status'] = 'failed';
+      } else if (task['manualPaused'] == true) {
+        task['status'] = 'paused';
+      } else if (task['complete'] == true) {
+        final reason = settings.stopReason(task);
+        task['seedStopReason'] = reason;
+        if (reason != null) {
+          task['status'] = 'completed';
+        } else {
+          run = seeding++ < settings.activeSeeds;
+          task['status'] = run ? 'seeding' : 'queued';
+        }
+      } else {
+        task['seedStopReason'] = null;
+        run = downloading++ < settings.activeDownloads;
+        if (!run) {
+          task['status'] = 'queued';
+        } else if ([
+          'queued',
+          'paused',
+          'failed',
+          'completed',
+        ].contains(task['status'])) {
+          task['status'] = 'metadata';
+        }
+      }
+      if (run && !_running.contains(id)) {
+        engine.resumeTorrent(handle);
+        _running.add(id);
+      } else if (!run && _running.remove(id)) {
+        engine.pauseTorrent(handle);
+      }
+      if (!run) {
+        task['downloadSpeedBytesPerSecond'] = 0;
+        task['uploadSpeedBytesPerSecond'] = 0;
+        task['peerCount'] = 0;
+      }
+    }
+  }
+
+  void _attach(Json task, {bool restoring = false}) {
     final id = '${task['id']}';
     final engine = lt.LibtorrentFlutter.instance;
-    final handle = task['kind'] == 'magnet'
-        ? engine.addMagnet('${task['input']}', '${task['savePath']}')
-        : engine.addTorrentFile('${task['input']}', '${task['savePath']}');
+    final metadata = task['metadataPath'];
+    final localMetadata = metadata != null && File('$metadata').existsSync();
+    // Verify restored local data without entering a network transfer state.
+    final verify = restoring && (task['kind'] == 'torrent' || localMetadata);
+    final handle = task['kind'] == 'magnet' && !localMetadata
+        ? engine.addMagnet(
+            '${task['input']}',
+            '${task['savePath']}',
+            false,
+            !verify,
+            verify,
+          )
+        : engine.addTorrentFile(
+            localMetadata ? '$metadata' : '${task['input']}',
+            '${task['savePath']}',
+            false,
+            !verify,
+            verify,
+          );
     _handles[id] = handle;
-    if (task['status'] == 'paused') engine.pauseTorrent(handle);
+    if (verify) {
+      _verifying.add(id);
+      task['status'] = 'checking';
+      task['progress'] = 0.0;
+      for (final file in _files[id] ?? <Json>[]) {
+        file['progress'] = 0.0;
+      }
+    }
   }
 
   Json snapshot() => {
@@ -181,6 +339,7 @@ class DownloadRepository {
     if (_closed) throw StateError('下载器已关闭');
     final task = <String, dynamic>{
       'id': id,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
       'kind': kind,
       'input': input,
       'fingerprint': fingerprint,
@@ -195,23 +354,30 @@ class DownloadRepository {
     };
     _attach(task);
     _tasks[id] = task;
+    _schedule();
     await _persist(id, task);
     _emit();
     return task;
   }
 
   Future<void> pause(String id) async {
-    lt.LibtorrentFlutter.instance.pauseTorrent(_handles[id]!);
-    _tasks[id]!['status'] = 'paused';
-    await _persist(id, _tasks[id]!);
+    final task = _tasks[id];
+    if (task == null) throw StateError('下载任务不存在');
+    task['manualPaused'] = true;
+    _schedule();
+    await _persist(id, task);
     _emit();
   }
 
   Future<void> resume(String id) async {
-    if (!_handles.containsKey(id)) _attach(_tasks[id]!);
-    lt.LibtorrentFlutter.instance.resumeTorrent(_handles[id]!);
-    _tasks[id]!['status'] = 'downloading';
-    await _persist(id, _tasks[id]!);
+    final task = _tasks[id];
+    if (task == null) throw StateError('下载任务不存在');
+    await _engine();
+    if (!_handles.containsKey(id)) _attach(task, restoring: true);
+    task['manualPaused'] = false;
+    task['errorMessage'] = null;
+    _schedule();
+    await _persist(id, task);
     _emit();
   }
 
@@ -223,8 +389,18 @@ class DownloadRepository {
       lt.LibtorrentFlutter.instance.removeTorrent(handle, deleteFiles: true);
     }
     _files.remove(id);
+    _running.remove(id);
+    _verifying.remove(id);
+    _uploaded.remove(id);
+    _schedule();
     await _writes;
     await store.remove('downloads', id);
+    final metadata =
+        task['metadataPath'] ??
+        (task['kind'] == 'torrent' ? task['input'] : null);
+    if (metadata != null && await File('$metadata').exists()) {
+      await File('$metadata').delete();
+    }
     _emit();
   }
 
@@ -293,6 +469,9 @@ class DownloadRepository {
     if (_initializing != null) {
       await _initializing;
       await _subscription?.cancel();
+      for (final task in _tasks.values) {
+        await _persist('${task['id']}', task);
+      }
       await _writes;
       final engine = lt.LibtorrentFlutter.instance;
       // The upstream disposeAll deletes files. Detach all handles without

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../app_services.dart';
+import '../../data/bittorrent_settings.dart';
 
 /// Searches keep their own episode context without navigating away from playback.
 class PlayerLibraryPanel extends StatefulWidget {
@@ -474,11 +475,11 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                   '${(progress * 100).round()}%',
                   style: const TextStyle(fontSize: 11),
                 ),
-                if (progress < 1 || task['status'] == 'failed')
+                if (task['status'] != 'completed')
                   IconButton(
                     tooltip: ['paused', 'failed'].contains(task['status'])
-                        ? '继续下载'
-                        : '暂停下载',
+                        ? (progress >= 1 ? '继续做种' : '继续下载')
+                        : (progress >= 1 ? '暂停做种' : '暂停下载'),
                     onPressed: () => toggleTask(task),
                     icon: Icon(
                       ['paused', 'failed'].contains(task['status'])
@@ -505,7 +506,11 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
             ),
             const SizedBox(height: 7),
             Text(
-              '${taskStatus(task)}${task['status'] == 'downloading' ? ' · ${(number(task['downloadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} MB/s' : ''}',
+              '${taskStatus(task)}${task['status'] == 'seeding'
+                  ? ' · ↑ ${(number(task['uploadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} MiB/s'
+                  : task['status'] == 'downloading'
+                  ? ' · ${(number(task['downloadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} MB/s'
+                  : ''}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             if (task['errorMessage'] != null)
@@ -544,11 +549,4 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
   }
 }
 
-String taskStatus(Json task) => switch (task['status']) {
-  'metadata' => '解析资源',
-  'downloading' || 'ready' => '下载中',
-  'paused' => '已暂停',
-  'completed' => '已缓存',
-  'failed' => '下载失败',
-  _ => '等待下载',
-};
+String taskStatus(Json task) => downloadStatus(task);

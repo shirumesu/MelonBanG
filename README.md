@@ -116,6 +116,24 @@ The app uses a fresh `native` directory under the operating system's application
 support directory. Its path is shown in Settings. `MELONBANG_DATA_DIR` can select
 another directory. Earlier runtime databases are not opened or migrated.
 
+Settings → Downloads and seeding controls the persistent BitTorrent policy.
+Defaults: at most 3 downloads and 2 seeders, unlimited download speed, 1024 KiB/s
+aggregate upload speed, 50 peers per task (200 globally), automatic listen port,
+DHT/IPv6/automatic port mapping enabled, and negotiated encryption. Completed
+jobs seed until either uploaded bytes reach the content size (ratio 1.0) or
+active seeding time reaches 60 minutes. Users can instead stop at completion or
+seed indefinitely. Downloading still uploads pieces in all three modes.
+
+The cache list distinguishes checking, queued, downloading, seeding, manually
+paused, and completed/stopped tasks, and shows upload speed and sharing totals.
+Settings apply to existing jobs; manually paused jobs stay paused. Startup resumes
+eligible work by default and can be configured to leave all jobs paused. Seeding
+only runs while the app runs. Sharing counters survive restart; older versions
+have no historical sharing counters to migrate. Magnet metadata is cached for
+offline recovery, and restored local files are checked before playback/transfer.
+Task changes are saved immediately and transfer counters every five seconds and
+on orderly shutdown. Force-quitting can lose the most recent counter interval.
+
 Settings provides fields for Bangumi OAuth Client ID, Client Secret, callback
 address (default `http://127.0.0.1:14567/callback`), and Dandanplay App ID/Secret.
 Credentials and tokens use the current Windows user's DPAPI key or the macOS login
@@ -141,6 +159,7 @@ flutter analyze
 flutter test
 flutter test integration_test/app_test.dart -d windows
 flutter test integration_test/torrent_test.dart -d windows
+flutter test integration_test/bittorrent_settings_test.dart -d windows
 flutter test integration_test/native_player_test.dart -d windows --dart-define=TEST_MEDIA=<absolute-video-path>
 flutter test integration_test/navigation_test.dart -d windows --dart-define=TEST_MEDIA=<absolute-video-path>
 ./scripts/verify-window.ps1

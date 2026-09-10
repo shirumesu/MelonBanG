@@ -19,6 +19,7 @@ import 'ui/discovery/discovery_pages.dart';
 import 'ui/player/playback.dart';
 import 'ui/player/player_page.dart';
 import 'ui/settings/connection_settings.dart';
+import 'ui/settings/bittorrent_settings.dart';
 import 'ui/settings/settings_page.dart';
 import 'ui/tracking/subject_page.dart';
 import 'ui/tracking/tracking_page.dart';
@@ -531,11 +532,15 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                             .length,
                         downloadCount: objects(downloads['tasks'])
                             .where(
-                              (task) => [
-                                'metadata',
-                                'downloading',
-                                'ready',
-                              ].contains(task['status']),
+                              (task) =>
+                                  [
+                                    'metadata',
+                                    'downloading',
+                                    'ready',
+                                    'queued',
+                                    'checking',
+                                  ].contains(task['status']) &&
+                                  number(task['progress']) < 1,
                             )
                             .length,
                         onNavigate: navigate,
@@ -723,6 +728,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           dark: dark,
           dataDirectory: widget.service.dataDirectory,
           connectionSettings: ConnectionSettings(services: widget.service),
+          bitTorrentSettings: BitTorrentSettingsPanel(
+            downloads: widget.service.downloads,
+          ),
           onThemeChanged: setDark,
           onCancelSignIn: () => perform(() async {
             await widget.service.account.cancelSignIn();

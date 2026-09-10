@@ -29,6 +29,9 @@
 #include <openssl/ssl.h>
 #endif
 
+#include <libtorrent/create_torrent.hpp>
+#include <fstream>
+#include <filesystem>
 #include <libtorrent/session.hpp>
 #include <libtorrent/session_params.hpp>
 #include <libtorrent/settings_pack.hpp>
@@ -221,7 +224,16 @@ static void fill_status(lt_torrent_status& out, int64_t id,
                         const lt::torrent_status& st)
 {
     out.id    = id;
-    out.state = static_cast<int32_t>(st.state);
+    // The C ABI enum is compact; libtorrent retains deprecated numeric slots.
+    switch (st.state) {
+        case lt::torrent_status::checking_files: out.state = LT_STATE_CHECKING_FILES; break;
+        case lt::torrent_status::downloading_metadata: out.state = LT_STATE_DOWNLOADING_META; break;
+        case lt::torrent_status::downloading: out.state = LT_STATE_DOWNLOADING; break;
+        case lt::torrent_status::finished: out.state = LT_STATE_FINISHED; break;
+        case lt::torrent_status::seeding: out.state = LT_STATE_SEEDING; break;
+        case lt::torrent_status::checking_resume_data: out.state = LT_STATE_CHECKING_RESUME; break;
+        default: out.state = LT_STATE_UNKNOWN; break;
+    }
 
     if ((st.state == lt::torrent_status::finished ||
          st.state == lt::torrent_status::seeding) && st.progress < 0.999f)
@@ -2180,7 +2192,7 @@ TORRENT_API void lt_poll_alerts(lt_session_t session,
 
 TORRENT_API lt_torrent_id lt_add_magnet(lt_session_t session,
                                         const char* uri, const char* path,
-                                        int stream_only) {
+                                        int add_flags) {
     if (!session || !uri || !path) { set_err("null arg"); return -1; }
     auto* sw = to_sw(session);
     try {
@@ -2188,7 +2200,9 @@ TORRENT_API lt_torrent_id lt_add_magnet(lt_session_t session,
         lt::add_torrent_params atp = lt::parse_magnet_uri(uri, ec);
         if (ec) { set_err(ec.message()); return -1; }
         atp.save_path = path;
-        atp.flags &= ~lt::torrent_flags::paused;
+        if (add_flags & 2) atp.flags |= lt::torrent_flags::paused;
+        else atp.flags &= ~lt::torrent_flags::paused;
+        if (add_flags & 4) atp.flags |= lt::torrent_flags::stop_when_ready;
         atp.flags &= ~lt::torrent_flags::auto_managed;
 
         // Trackerless magnet (only an info-hash, no &tr=...)? Seed it with a
@@ -2210,20 +2224,20 @@ TORRENT_API lt_torrent_id lt_add_magnet(lt_session_t session,
             for (auto* t : kDefaultTrackers) atp.trackers.emplace_back(t);
         }
 
-        if (stream_only) {
+        if (add_flags & 1) {
             atp.storage_mode = lt::storage_mode_sparse;
             atp.flags |= lt::torrent_flags::stop_when_ready;
         }
 
         lt::torrent_handle h = sw->session.add_torrent(std::move(atp), ec);
         if (ec) { set_err(ec.message()); return -1; }
-        h.resume();
+        h.set_max_connections(sw->bt_config.connections_limit);
 
         int64_t id = sw->next_id.fetch_add(1);
         {
             std::lock_guard<std::mutex> lk(sw->mu);
             sw->handles[id] = h;
-            if (stream_only) sw->ephemeral_torrents.insert(id);
+            if (add_flags & 1) sw->ephemeral_torrents.insert(id);
         }
         set_err(""); return id;
     } catch (const std::exception& e) { set_err(e.what()); return -1; }
@@ -2231,7 +2245,7 @@ TORRENT_API lt_torrent_id lt_add_magnet(lt_session_t session,
 
 TORRENT_API lt_torrent_id lt_add_torrent_file(lt_session_t session,
                                               const char* fp, const char* path,
-                                              int stream_only) {
+                                              int add_flags) {
     if (!session || !fp || !path) { set_err("null arg"); return -1; }
     auto* sw = to_sw(session);
     try {
@@ -2240,23 +2254,25 @@ TORRENT_API lt_torrent_id lt_add_torrent_file(lt_session_t session,
         if (ec) { set_err(ec.message()); return -1; }
         lt::add_torrent_params atp;
         atp.ti = ti; atp.save_path = path;
-        atp.flags &= ~lt::torrent_flags::paused;
+        if (add_flags & 2) atp.flags |= lt::torrent_flags::paused;
+        else atp.flags &= ~lt::torrent_flags::paused;
+        if (add_flags & 4) atp.flags |= lt::torrent_flags::stop_when_ready;
         atp.flags &= ~lt::torrent_flags::auto_managed;
 
-        if (stream_only) {
+        if (add_flags & 1) {
             atp.storage_mode = lt::storage_mode_sparse;
             atp.flags |= lt::torrent_flags::stop_when_ready;
         }
 
         lt::torrent_handle h = sw->session.add_torrent(std::move(atp), ec);
         if (ec) { set_err(ec.message()); return -1; }
-        h.resume();
+        h.set_max_connections(sw->bt_config.connections_limit);
 
         int64_t id = sw->next_id.fetch_add(1);
         {
             std::lock_guard<std::mutex> lk(sw->mu);
             sw->handles[id] = h;
-            if (stream_only) sw->ephemeral_torrents.insert(id);
+            if (add_flags & 1) sw->ephemeral_torrents.insert(id);
         }
         set_err(""); return id;
     } catch (const std::exception& e) { set_err(e.what()); return -1; }
@@ -2300,6 +2316,28 @@ TORRENT_API void lt_recheck_torrent(lt_session_t session, lt_torrent_id id) {
     auto it = sw->handles.find(id);
     if (it != sw->handles.end() && it->second.is_valid())
         try { it->second.force_recheck(); } catch (...) {}
+}
+
+// Persist magnet metadata so paused/completed tasks can recover offline.
+TORRENT_API int lt_save_metadata(lt_session_t session, lt_torrent_id id,
+                                  const char* path) {
+    if (!session || !path) return 0;
+    auto* sw = to_sw(session);
+    std::lock_guard<std::mutex> lk(sw->mu);
+    try {
+        auto it = sw->handles.find(id);
+        if (it == sw->handles.end()) return 0;
+        auto ti = it->second.torrent_file();
+        if (!ti) return 0;
+        lt::create_torrent creator(*ti);
+        for (const auto& tracker : it->second.trackers())
+            creator.add_tracker(tracker.url, tracker.tier);
+        const auto bytes = creator.generate_buf();
+        std::ofstream file(std::filesystem::u8path(path), std::ios::binary);
+        file.write(bytes.data(), bytes.size());
+        file.close();
+        return file ? 1 : 0;
+    } catch (...) { return 0; }
 }
 
 // ── status queries ──────────────────────────────────────────────────────────────
@@ -2858,23 +2896,13 @@ TORRENT_API void lt_configure_session(lt_session_t session,
     // apply to libtorrent session — port of btserver.go configure()
     lt::settings_pack sp;
 
-    // port of: bt.config.DisableIPv6 = !settings.BTsets.EnableIPv6
-    if (!cfg.enable_ipv6) {
-        sp.set_str(lt::settings_pack::listen_interfaces, "0.0.0.0:6881");
-    }
-
-    // port of: bt.config.DisableTCP / DisableUTP
-    // libtorrent doesn't have direct disable flags — use listen_interfaces
-    // If both disabled, that's invalid, so skip
-    if (cfg.disable_tcp && !cfg.disable_utp) {
-        // UTP only — listen on UDP only (libtorrent uses same interfaces for both)
-        // libtorrent doesn't directly support TCP-only disable, we approximate
-        // by removing TCP from outgoing
-    }
-    if (cfg.disable_utp && !cfg.disable_tcp) {
-        sp.set_bool(lt::settings_pack::enable_outgoing_utp, false);
-        sp.set_bool(lt::settings_pack::enable_incoming_utp, false);
-    }
+    const auto port = std::to_string(cfg.peers_listen_port);
+    sp.set_str(lt::settings_pack::listen_interfaces,
+        "0.0.0.0:" + port + (cfg.enable_ipv6 ? ",[::]:" + port : ""));
+    sp.set_bool(lt::settings_pack::enable_outgoing_tcp, !cfg.disable_tcp);
+    sp.set_bool(lt::settings_pack::enable_incoming_tcp, !cfg.disable_tcp);
+    sp.set_bool(lt::settings_pack::enable_outgoing_utp, !cfg.disable_utp);
+    sp.set_bool(lt::settings_pack::enable_incoming_utp, !cfg.disable_utp);
 
     // port of: bt.config.NoDefaultPortForwarding = settings.BTsets.DisableUPNP
     sp.set_bool(lt::settings_pack::enable_upnp,  !cfg.disable_upnp);
@@ -2891,7 +2919,7 @@ TORRENT_API void lt_configure_session(lt_session_t session,
     }
 
     // port of: bt.config.EstablishedConnsPerTorrent = settings.BTsets.ConnectionsLimit
-    sp.set_int(lt::settings_pack::connections_limit, cfg.connections_limit * 20);
+    sp.set_int(lt::settings_pack::connections_limit, std::max(200, cfg.connections_limit * 4));
 
     // port of: bt.config.TotalHalfOpenConns = 500
     // (already hardcoded in lt_create_session, re-apply for safety)
@@ -2925,6 +2953,12 @@ TORRENT_API void lt_configure_session(lt_session_t session,
     try {
         sw->session.apply_settings(sp);
     } catch (...) {}
+
+    {
+        std::lock_guard<std::mutex> lk(sw->mu);
+        for (auto& kv : sw->handles)
+            kv.second.set_max_connections(cfg.connections_limit);
+    }
 
     // Re-apply stream-local settings to active streams as well. Without
     // this, configureSession() only affects streams created AFTER the call,
