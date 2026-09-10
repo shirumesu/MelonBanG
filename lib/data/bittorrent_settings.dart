@@ -121,6 +121,7 @@ String downloadStatus(Json task) => switch (task['status']) {
   'downloading' || 'ready' => '下载中',
   'seeding' => '做种中',
   'completed' => switch (task['seedStopReason']) {
+    'manual' => '已完成 · 已手动停止做种',
     'ratio' => '已完成 · 达到分享率',
     'time' => '已完成 · 达到做种时限',
     _ => '已完成 · 已停止做种',

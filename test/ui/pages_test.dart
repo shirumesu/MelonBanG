@@ -215,6 +215,7 @@ void main() {
           onExplore: () {},
           onTogglePause: (value) => paused = value,
           onRemove: (_) {},
+          onStopSeeding: (_) {},
           onPlay: (id, fileId) => plays.add((id, fileId)),
         ),
       );
@@ -229,6 +230,8 @@ void main() {
       await tester.tap(find.byTooltip('暂停 / 继续下载').first);
       expect(paused?['id'], 'pending');
       await tester.tap(find.byTooltip('播放').last);
+      await tester.tap(find.byTooltip('查看文件').last);
+      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('播放此文件').last);
       expect(plays, [('done', null), ('done', 'b')]);
     },

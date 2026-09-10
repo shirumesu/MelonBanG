@@ -385,6 +385,36 @@ void main() {
           reason: 'Restart must reuse verified local pieces without a seeder',
         );
         expect(downloads.media('${task['id']}')['path'], file.path);
+        await downloads.saveSettings(
+          const BitTorrentSettings(
+            seedMode: 'unlimited',
+            dht: false,
+            upnp: false,
+          ),
+        );
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          objects(downloads.snapshot()['tasks']).single['status'],
+          'seeding',
+        );
+        await downloads.stopSeeding('${task['id']}');
+        await downloads.saveSettings(
+          const BitTorrentSettings(
+            seedMode: 'unlimited',
+            activeSeeds: 3,
+            dht: false,
+            upnp: false,
+          ),
+        );
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          objects(downloads.snapshot()['tasks']).single['seedStopReason'],
+          'manual',
+        );
+        expect(
+          LibtorrentFlutter.instance.torrents.values.single.isPaused,
+          isTrue,
+        );
         await downloads.close();
         downloads = DownloadRepository(store, '${directory.path}/downloads');
         await downloads.initialize();
@@ -404,6 +434,17 @@ void main() {
           isTrue,
         );
         expect(LibtorrentFlutter.instance.torrents.values.single.numPeers, 0);
+        expect(
+          objects(downloads.snapshot()['tasks']).single['seedStopReason'],
+          'manual',
+        );
+        await downloads.resume('${task['id']}');
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          objects(downloads.snapshot()['tasks']).single['status'],
+          'seeding',
+        );
+        await downloads.stopSeeding('${task['id']}');
         await downloads.close();
         await file.writeAsBytes([
           ...Uint8List(pieceLength),

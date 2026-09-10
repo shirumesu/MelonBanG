@@ -31,13 +31,22 @@ class AccountRepository {
   Future<String>? _refresh;
   int _signInGeneration = 0;
   bool _closed = false;
+  bool _restoreNeedsAuthorization = false;
   Future<void> initialize() async {
-    final saved = await credentials.read('account');
-    if (saved != null) _bundle = object(jsonDecode(saved));
+    try {
+      final saved = await credentials.read('account', allowInteraction: false);
+      if (saved != null) _bundle = object(jsonDecode(saved));
+    } on CredentialInteractionRequired {
+      _restoreNeedsAuthorization = true;
+    }
   }
 
-  Future<Json> configuration() async =>
-      object(jsonDecode(await credentials.read('oauth') ?? '{}'));
+  Future<Json> configuration({bool allowInteraction = true}) async => object(
+    jsonDecode(
+      await credentials.read('oauth', allowInteraction: allowInteraction) ??
+          '{}',
+    ),
+  );
   Future<void> configure({
     required String clientId,
     required String clientSecret,
@@ -60,6 +69,15 @@ class AccountRepository {
   Future<Json> signIn() async {
     final generation = ++_signInGeneration;
     await _cancelPendingSignIn();
+    if (_restoreNeedsAuthorization) {
+      final saved = await credentials.read('account');
+      if (_closed || generation != _signInGeneration) throw StateError('登录已取消');
+      _restoreNeedsAuthorization = false;
+      if (saved != null) {
+        _bundle = object(jsonDecode(saved));
+        return session!;
+      }
+    }
     final config = await configuration();
     if (_closed || generation != _signInGeneration) {
       throw StateError('登录已取消');
@@ -183,7 +201,7 @@ class AccountRepository {
 
   Future<String> _renew() async {
     final old = _bundle!;
-    final token = await _token(await configuration(), {
+    final token = await _token(await configuration(allowInteraction: false), {
       'grant_type': 'refresh_token',
       'refresh_token': '${old['refresh_token']}',
     });
