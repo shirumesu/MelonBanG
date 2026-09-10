@@ -16,11 +16,12 @@ class DownloadsPage extends StatefulWidget {
     required this.onExplore,
     required this.onTogglePause,
     required this.onRemove,
+    required this.onStopSeeding,
     required this.onPlay,
   });
   final Json downloads;
   final VoidCallback onAddMagnet, onAddTorrent, onOpenVideo, onExplore;
-  final ValueChanged<Json> onTogglePause, onRemove;
+  final ValueChanged<Json> onTogglePause, onRemove, onStopSeeding;
   final void Function(String, String?) onPlay;
   @override
   State<DownloadsPage> createState() => _DownloadsPageState();
@@ -161,10 +162,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   Widget _task(BuildContext context, Json task) {
     final progress = number(task['progress']).clamp(0.0, 1.0).toDouble();
+    final canStop =
+        progress >= 1 && ['seeding', 'queued'].contains(task['status']);
+    final canResume =
+        ['paused', 'failed'].contains(task['status']) ||
+        (task['status'] == 'completed' && task['seedingStopped'] == true);
+    final stoppedByPolicy = task['status'] == 'completed' && !canResume;
     final files = objects(widget.downloads['files'])
-        .where(
-          (f) => f['downloadId'] == task['id'] && f['mediaKind'] == 'video',
-        )
+        .where((f) => f['downloadId'] == task['id'])
         .toList();
     return MelonPanel(
       padding: const EdgeInsets.all(18),
@@ -199,7 +204,20 @@ class _DownloadsPageState extends State<DownloadsPage> {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    if (files.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 5),
+                        child: Text(
+                          files.length == 1
+                              ? '${files.single['name']}'
+                              : '${files.length} 个文件 · ${files.first['name']}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(fontSize: 11),
+                        ),
+                      ),
+                    const SizedBox(height: 10),
                     Row(
                       children: [
                         Expanded(
@@ -255,17 +273,29 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 ),
               ),
               const SizedBox(width: 10),
+              if (files.isNotEmpty)
+                IconButton(
+                  tooltip: '查看文件',
+                  onPressed: () => _showFiles(context, task, files),
+                  icon: const Icon(Icons.folder_open_outlined, size: 20),
+                ),
               IconButton(
-                tooltip: task['status'] == 'completed'
+                tooltip: canStop
+                    ? '停止做种'
+                    : stoppedByPolicy
                     ? '已按做种设置停止'
-                    : number(task['progress']) >= 1
-                    ? '暂停 / 继续做种'
+                    : canResume && progress >= 1
+                    ? '继续做种'
                     : '暂停 / 继续下载',
-                onPressed: task['status'] == 'completed'
+                onPressed: stoppedByPolicy
                     ? null
+                    : canStop
+                    ? () => widget.onStopSeeding(task)
                     : () => widget.onTogglePause(task),
                 icon: Icon(
-                  ['paused', 'failed'].contains(task['status'])
+                  canStop
+                      ? Icons.stop_circle_outlined
+                      : canResume
                       ? Icons.play_arrow
                       : Icons.pause,
                   size: 20,
@@ -293,28 +323,66 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 style: const TextStyle(color: coral, fontSize: 12),
               ),
             ),
-          if (files.isNotEmpty) ...[
-            const Divider(),
-            for (final file in files)
-              ListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.only(left: 4),
-                leading: const Icon(Icons.video_file_outlined, size: 18),
-                title: Text(
-                  '${file['name']}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                trailing: IconButton(
-                  tooltip: '播放此文件',
-                  onPressed: number(file['progress']) >= 1
-                      ? () => widget.onPlay('${task['id']}', '${file['id']}')
-                      : null,
-                  icon: const Icon(Icons.play_arrow, size: 20),
-                ),
-              ),
-          ],
         ],
       ),
     );
   }
+
+  Future<void> _showFiles(
+    BuildContext context,
+    Json task,
+    List<Json> files,
+  ) => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('任务文件'),
+      content: SizedBox(
+        width: 560,
+        child: ListView.separated(
+          shrinkWrap: true,
+          itemCount: files.length,
+          separatorBuilder: (_, _) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final file = files[index];
+            final playable =
+                file['mediaKind'] == 'video' && number(file['progress']) >= 1;
+            return ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                file['mediaKind'] == 'video'
+                    ? Icons.video_file_outlined
+                    : Icons.insert_drive_file_outlined,
+                size: 20,
+              ),
+              title: Text(
+                '${file['name']}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              subtitle: Text(
+                '${(number(file['size']) / 1048576).toStringAsFixed(1)} MiB · ${(number(file['progress']) * 100).toStringAsFixed(0)}%',
+              ),
+              trailing: file['mediaKind'] != 'video'
+                  ? null
+                  : IconButton(
+                      tooltip: '播放此文件',
+                      onPressed: playable
+                          ? () {
+                              Navigator.pop(context);
+                              widget.onPlay('${task['id']}', '${file['id']}');
+                            }
+                          : null,
+                      icon: const Icon(Icons.play_arrow, size: 20),
+                    ),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
+    ),
+  );
 }

@@ -708,8 +708,11 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           onOpenVideo: () => openVideo(),
           onExplore: () => navigate('home'),
           onRemove: confirmRemoval,
+          onStopSeeding: (task) => perform(
+            () => widget.service.downloads.stopSeeding('${task['id']}'),
+          ),
           onTogglePause: (task) => perform(() async {
-            if (['paused', 'failed'].contains(task['status'])) {
+            if (['paused', 'failed', 'completed'].contains(task['status'])) {
               await widget.service.downloads.resume('${task['id']}');
             } else {
               await widget.service.downloads.pause('${task['id']}');

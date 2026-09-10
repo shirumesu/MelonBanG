@@ -14,12 +14,12 @@ class DelayedConfiguration extends MemoryCredentials {
   final requested = Completer<void>();
   final release = Completer<void>();
   @override
-  Future<String?> read(String key) async {
+  Future<String?> read(String key, {bool allowInteraction = true}) async {
     if (key == 'oauth') {
       requested.complete();
       await release.future;
     }
-    return super.read(key);
+    return super.read(key, allowInteraction: allowInteraction);
   }
 }
 

@@ -36,6 +36,21 @@ class MainFlutterWindow: NSWindow {
     var status: OSStatus
     switch call.method {
     case "read":
+      // Login keychain items use the file-based API; SecItem's authentication
+      // context does not suppress its UI. Scope the legacy switch to this call.
+      let quiet = arguments["allowInteraction"] as? Bool == false
+      var previousInteraction: DarwinBoolean = true
+      if quiet {
+        status = SecKeychainGetUserInteractionAllowed(&previousInteraction)
+        if status == errSecSuccess { status = SecKeychainSetUserInteractionAllowed(false) }
+        if status != errSecSuccess {
+          result(FlutterError(code: "keychain_\(status)", message: "Cannot read credentials without interaction", details: nil))
+          return
+        }
+      }
+      defer {
+        if quiet { SecKeychainSetUserInteractionAllowed(previousInteraction.boolValue) }
+      }
       var lookup = query
       lookup[kSecReturnData as String] = true
       lookup[kSecMatchLimit as String] = kSecMatchLimitOne

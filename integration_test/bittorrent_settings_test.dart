@@ -6,6 +6,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:melonbang/data/downloads.dart';
+import 'package:melonbang/app_services.dart';
+import 'package:melonbang/ui/settings/connection_settings.dart';
 import 'package:melonbang/data/store.dart';
 import 'package:melonbang/ui/core/theme.dart';
 import 'package:melonbang/ui/acquisition/downloads_page.dart';
@@ -122,10 +124,28 @@ void main() {
               home: Scaffold(
                 body: DownloadsPage(
                   downloads: {
+                    'files': [
+                      {
+                        'id': '1',
+                        'downloadId': 'seed',
+                        'name': 'Episode 01.mkv',
+                        'mediaKind': 'video',
+                        'size': 1073741824,
+                        'progress': 1,
+                      },
+                      {
+                        'id': '2',
+                        'downloadId': 'seed',
+                        'name': 'Episode 01.zh.ass',
+                        'mediaKind': 'other',
+                        'size': 65536,
+                        'progress': 1,
+                      },
+                    ],
                     'tasks': [
                       {
                         'id': 'seed',
-                        'title': '示例番剧 · 第 01 话',
+                        'title': '示例番剧 · 第 01 话 [1080p / 多音轨 / 简繁字幕]',
                         'status': 'seeding',
                         'progress': 1,
                         'totalBytes': 1073741824,
@@ -159,6 +179,7 @@ void main() {
                   onExplore: () {},
                   onTogglePause: (task) => pausedId = '${task['id']}',
                   onRemove: (_) {},
+                  onStopSeeding: (task) => pausedId = '${task['id']}',
                   onPlay: (_, _) {},
                 ),
               ),
@@ -167,14 +188,58 @@ void main() {
         );
         await tester.pumpAndSettle();
         await snapshot('bittorrent-tasks');
-        await tester.tap(find.byTooltip('暂停 / 继续做种'));
+        await tester.tap(find.byTooltip('查看文件'));
+        await tester.pumpAndSettle();
+        expect(find.text('Episode 01.zh.ass'), findsOneWidget);
+        await snapshot('bittorrent-files');
+        await tester.tap(find.text('关闭'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('停止做种'));
         expect(pausedId, 'seed');
         expect(find.text('已完成 · 达到分享率'), findsOneWidget);
         await tester.tap(find.widgetWithText(ChoiceChip, '做种中'));
         await tester.pumpAndSettle();
-        expect(find.text('示例番剧 · 第 01 话'), findsOneWidget);
+        expect(find.text('示例番剧 · 第 01 话 [1080p / 多音轨 / 简繁字幕]'), findsOneWidget);
         expect(find.text('示例番剧 · 第 02 话'), findsNothing);
         expect(tester.takeException(), isNull);
+        final services = AppServices(
+          directory: '${directory.path}/connections',
+        );
+        try {
+          await services.start();
+          await tester.pumpWidget(
+            RepaintBoundary(
+              key: capture,
+              child: MaterialApp(
+                theme: appTheme(false),
+                home: Scaffold(
+                  body: SettingsPage(
+                    account: null,
+                    sync: const {},
+                    dark: false,
+                    dataDirectory: null,
+                    connectionSettings: ConnectionSettings(services: services),
+                    bitTorrentSettings: const SizedBox(),
+                    onAccountAction: () {},
+                    onCancelSignIn: () {},
+                    onThemeChanged: (_) {},
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('服务连接'));
+          await tester.pumpAndSettle();
+          await snapshot('credentials-collapsed');
+          await tester.tap(find.text('编辑 Bangumi'));
+          await tester.pumpAndSettle();
+          await snapshot('credentials-edit');
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox());
+          await services.close();
+        }
       } finally {
         await tester.pumpWidget(const SizedBox());
         await downloads.close();

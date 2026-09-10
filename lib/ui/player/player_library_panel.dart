@@ -158,7 +158,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
 
   Future<void> toggleTask(Json task) async {
     try {
-      if (['paused', 'failed'].contains(task['status'])) {
+      if (['paused', 'failed', 'completed'].contains(task['status'])) {
         await widget.service.downloads.resume('${task['id']}');
       } else {
         await widget.service.downloads.pause('${task['id']}');
@@ -475,14 +475,20 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                   '${(progress * 100).round()}%',
                   style: const TextStyle(fontSize: 11),
                 ),
-                if (task['status'] != 'completed')
+                if (task['status'] != 'completed' ||
+                    task['seedingStopped'] == true)
                   IconButton(
-                    tooltip: ['paused', 'failed'].contains(task['status'])
+                    tooltip:
+                        [
+                          'paused',
+                          'failed',
+                          'completed',
+                        ].contains(task['status'])
                         ? (progress >= 1 ? '继续做种' : '继续下载')
                         : (progress >= 1 ? '暂停做种' : '暂停下载'),
                     onPressed: () => toggleTask(task),
                     icon: Icon(
-                      ['paused', 'failed'].contains(task['status'])
+                      ['paused', 'failed', 'completed'].contains(task['status'])
                           ? Icons.play_arrow
                           : Icons.pause,
                       size: 18,

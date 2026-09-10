@@ -195,6 +195,9 @@ class DownloadRepository {
       var run = false;
       if (task['errorMessage'] != null) {
         task['status'] = 'failed';
+      } else if (task['seedingStopped'] == true && task['complete'] == true) {
+        task['status'] = 'completed';
+        task['seedStopReason'] = 'manual';
       } else if (task['manualPaused'] == true) {
         task['status'] = 'paused';
       } else if (task['complete'] == true) {
@@ -360,6 +363,17 @@ class DownloadRepository {
     return task;
   }
 
+  Future<void> stopSeeding(String id) async {
+    final task = _tasks[id];
+    if (task == null) throw StateError('下载任务不存在');
+    if (task['complete'] != true) throw StateError('文件尚未下载完成');
+    task['seedingStopped'] = true;
+    task['manualPaused'] = false;
+    _schedule();
+    await _persist(id, task);
+    _emit();
+  }
+
   Future<void> pause(String id) async {
     final task = _tasks[id];
     if (task == null) throw StateError('下载任务不存在');
@@ -375,6 +389,7 @@ class DownloadRepository {
     await _engine();
     if (!_handles.containsKey(id)) _attach(task, restoring: true);
     task['manualPaused'] = false;
+    task['seedingStopped'] = false;
     task['errorMessage'] = null;
     _schedule();
     await _persist(id, task);

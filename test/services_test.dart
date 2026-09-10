@@ -8,7 +8,8 @@ import 'package:path/path.dart' as p;
 
 class UnavailableCredentials implements Credentials {
   @override
-  Future<String?> read(String key) async => throw StateError('Unavailable');
+  Future<String?> read(String key, {bool allowInteraction = true}) async =>
+      throw StateError('Unavailable');
   @override
   Future<void> write(String key, String? value) async {}
 }

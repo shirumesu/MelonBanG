@@ -8,14 +8,61 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
 abstract interface class Credentials {
-  Future<String?> read(String key);
+  Future<String?> read(String key, {bool allowInteraction = true});
   Future<void> write(String key, String? value);
 }
 
 Credentials platformCredentials(String directory) {
-  if (Platform.isWindows) return WindowsCredentials(directory);
-  if (Platform.isMacOS) return MacOSCredentials(directory);
+  if (Platform.isWindows) {
+    return CachedCredentials(WindowsCredentials(directory));
+  }
+  if (Platform.isMacOS) return CachedCredentials(MacOSCredentials(directory));
   throw UnsupportedError('Unsupported credential platform');
+}
+
+class CredentialInteractionRequired implements Exception {
+  const CredentialInteractionRequired();
+  @override
+  String toString() => '凭据需要授权，请点击登录，或在服务连接中编辑对应配置后重试。';
+}
+
+/// Cache successful reads only, and serialize reads/writes for each credential.
+class CachedCredentials implements Credentials {
+  CachedCredentials(this.storage);
+  final Credentials storage;
+  final _values = <String, String?>{};
+  final _pending = <String, Future<void>>{};
+
+  Future<T> _serial<T>(String key, Future<T> Function() operation) {
+    final previous = _pending[key] ?? Future<void>.value();
+    final result = previous.then((_) => operation());
+    final settled = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _pending[key] = settled;
+    settled.then((_) {
+      if (identical(_pending[key], settled)) _pending.remove(key);
+    });
+    return result;
+  }
+
+  @override
+  Future<String?> read(String key, {bool allowInteraction = true}) => _serial(
+    key,
+    () async {
+      if (_values.containsKey(key)) return _values[key];
+      final value = await storage.read(key, allowInteraction: allowInteraction);
+      _values[key] = value;
+      return value;
+    },
+  );
+
+  @override
+  Future<void> write(String key, String? value) => _serial(key, () async {
+    await storage.write(key, value);
+    _values[key] = value;
+  });
 }
 
 /// Store secrets in the login keychain, isolated by application data directory.
@@ -28,8 +75,21 @@ class MacOSCredentials implements Credentials {
   final String _service;
 
   @override
-  Future<String?> read(String key) =>
-      _channel.invokeMethod<String>('read', {'service': _service, 'key': key});
+  Future<String?> read(String key, {bool allowInteraction = true}) async {
+    try {
+      return await _channel.invokeMethod<String>('read', {
+        'service': _service,
+        'key': key,
+        'allowInteraction': allowInteraction,
+      });
+    } on PlatformException catch (e) {
+      if (e.code == 'keychain_-25308' ||
+          (!allowInteraction && e.code == 'keychain_-25293')) {
+        throw const CredentialInteractionRequired();
+      }
+      rethrow;
+    }
+  }
 
   @override
   Future<void> write(String key, String? value) => _channel.invokeMethod<void>(
@@ -102,7 +162,7 @@ class WindowsCredentials implements Credentials {
   }
 
   @override
-  Future<String?> read(String key) async {
+  Future<String?> read(String key, {bool allowInteraction = true}) async {
     await _writes[key];
     final file = _file(key);
     return await file.exists()
