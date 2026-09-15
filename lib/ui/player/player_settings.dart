@@ -290,7 +290,16 @@ class _PlayerSettingsState extends State<PlayerSettings> {
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: Text('${source['label']}'),
-            subtitle: Text('${source['count']} 条 · ${source['status']}'),
+            subtitle: Text(
+              '${source['count']} 条 · ${switch (source['status']) {
+                'idle' => '等待匹配',
+                'loading' => '匹配中',
+                'ready' => '已加载',
+                'unmatched' => '未匹配',
+                'error' => '加载失败',
+                _ => '',
+              }}',
+            ),
             value: source['enabled'] == true,
             onChanged: (value) => loadDanmaku(
               () async =>

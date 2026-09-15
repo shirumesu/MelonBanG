@@ -100,8 +100,12 @@ without requiring an additional state-management framework. Keep `test/` and
 - Play original video files through media_kit: native ASS subtitles, audio and
   subtitle selection, external subtitles, subtitle delay, seeks, resume, fullscreen,
   and keyboard controls. Video, controls, and danmaku share one Flutter scene.
-- Match danmaku through Dandanplay, Bilibili, or Bahamut, select matches manually,
-  toggle individual sources, and import local comment JSON.
+- Automatically match danmaku when playback opens: Dandanplay uses the file's
+  first-16-MiB MD5, filename, size, and optional duration; Bilibili searches official
+  bangumi only; Bahamut searches the main episode list with simplified/traditional
+  title conversion. Bilibili and Bahamut need an associated catalog episode.
+  Missing or ambiguous matches stay empty. Saved manual choices take priority;
+  individual sources can be toggled and local comment JSON can be imported.
 
 Application services run in the Flutter process. `lib/data` contains Dart HTTP
 clients, SQLite repositories, OAuth callbacks, operating-system credential storage,

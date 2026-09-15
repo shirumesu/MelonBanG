@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
+import 'package:pinyin/pinyin.dart' show ChineseHelper;
 import 'package:xml/xml.dart';
 import 'package:html/parser.dart' as html;
 import 'package:protobuf/protobuf.dart';
@@ -17,87 +18,113 @@ class DanmakuRepository {
   final ApiClient api;
   final Credentials credentials;
 
-  Future<String> automaticLocator(
+  Future<String?> automaticLocator(
     String provider,
     String title,
-    double episode,
-  ) async {
-    String normalized(String value) => value
-        .replaceAll(RegExp('<[^>]*>'), '')
-        .toLowerCase()
-        .replaceAll(RegExp(r'[\s\p{P}\p{S}]', unicode: true), '');
-    if (provider == 'bilibili') {
-      const headers = {'Referer': 'https://www.bilibili.com/'};
-      final result = await api.map(
-        Uri.https('api.bilibili.com', '/x/web-interface/wbi/search/type', {
-          'search_type': 'media_bangumi',
-          'keyword': title,
-        }),
-        headers: headers,
-      );
-      final candidates = objects(object(result['data'])['result'])
-          .where((r) => normalized('${r['title']}') == normalized(title))
-          .toList();
-      if (candidates.length != 1) {
-        throw StateError('Bilibili 没有唯一匹配，请手动输入 EP 或 BV');
+    double episode, {
+    Iterable<String> alternativeTitles = const [],
+  }) async {
+    if (!['bilibili', 'bahamut'].contains(provider)) {
+      throw ArgumentError.value(provider);
+    }
+    if (!episode.isFinite || episode <= 0) return null;
+    final titles = {
+      title,
+      ...alternativeTitles,
+    }.map((value) => value.trim()).where((value) => value.isNotEmpty).toSet();
+    if (titles.isEmpty) return null;
+    final normalizedTitles = titles.map(_normalizedTitle).toSet();
+    final queries = titles
+        .map(
+          provider == 'bahamut'
+              ? ChineseHelper.convertToTraditionalChinese
+              : ChineseHelper.convertToSimplifiedChinese,
+        )
+        .toSet();
+    final candidates = <String>{};
+    const headers = {'Referer': 'https://www.bilibili.com/'};
+    for (final query in queries) {
+      if (provider == 'bilibili') {
+        final result = await api.map(
+          Uri.https('api.bilibili.com', '/x/web-interface/search/type', {
+            'search_type': 'media_bangumi',
+            'keyword': query,
+          }),
+          headers: headers,
+        );
+        _checkBilibili(result);
+        final data = object(result['data']);
+        if (data['result'] is! List && data['numResults'] != 0) {
+          throw StateError('Bilibili 番剧搜索暂不可用');
+        }
+        for (final item in objects(data['result'])) {
+          if (normalizedTitles.contains(_normalizedTitle('${item['title']}'))) {
+            final id = _positiveId(item['season_id']);
+            if (id != null) candidates.add(id);
+          }
+        }
+      } else {
+        final response = await api.send(
+          Uri.https('ani.gamer.com.tw', '/search.php', {'keyword': query}),
+        );
+        final document = html.parse(utf8.decode(response.bodyBytes));
+        for (final link in document.querySelectorAll('a[href]')) {
+          final uri = Uri.tryParse(link.attributes['href']!);
+          if (uri == null || !uri.path.endsWith('animeRef.php')) continue;
+          final names = [
+            if (link.querySelector('.theme-name') case final name?) name.text,
+            ...link
+                .querySelectorAll('img[alt]')
+                .map((img) => img.attributes['alt']!),
+            if (link.children.isEmpty) link.text,
+          ];
+          if (names.any(
+            (name) => normalizedTitles.contains(_normalizedTitle(name)),
+          )) {
+            final sn = _positiveId(uri.queryParameters['sn']);
+            if (sn != null) candidates.add(sn);
+          }
+        }
       }
+    }
+    if (candidates.length != 1) return null;
+    if (provider == 'bilibili') {
       final season = await api.map(
         Uri.https('api.bilibili.com', '/pgc/view/web/season', {
-          'season_id': '${candidates.single['season_id']}',
+          'season_id': candidates.single,
         }),
         headers: headers,
       );
+      _checkBilibili(season);
+      if (season['result'] is! Map) throw StateError('Bilibili 番剧详情暂不可用');
       final episodes = objects(object(season['result'])['episodes'])
-          .where((e) => double.tryParse('${e['title']}') == episode)
-          .toList();
-      if (episodes.length != 1) throw StateError('Bilibili 未匹配到对应章节');
-      return 'ep${episodes.single['id']}';
+          .where((item) => _episodeNumber('${item['title']}') == episode)
+          .map((item) => _positiveId(item['id']))
+          .whereType<String>()
+          .toSet();
+      return episodes.length == 1 ? 'ep${episodes.single}' : null;
     }
-    final response = await api.send(
-      Uri.https('ani.gamer.com.tw', '/search.php'),
-      method: 'POST',
-      body: <String, String>{'keyword': title},
-    );
-    final document = html.parse(utf8.decode(response.bodyBytes));
-    final matches = <String>{};
-    for (final link in document.querySelectorAll('a[href]')) {
-      final uri = Uri.tryParse(link.attributes['href']!);
-      if (uri == null || !uri.path.endsWith('animeRef.php')) continue;
-      var container = link.parent;
-      while (container != null && container.localName != 'li') {
-        container = container.parent;
-      }
-      container ??= link.parent;
-      final titles = [
-        link.text,
-        ...?container
-            ?.querySelectorAll('img[alt]')
-            .map((image) => image.attributes['alt']!),
-      ];
-      if (titles.any((value) => normalized(value) == normalized(title))) {
-        final sn = uri.queryParameters['sn'];
-        if (sn != null) matches.add(sn);
-      }
-    }
-    if (matches.length != 1) throw StateError('动画疯没有唯一匹配，请手动输入 sn');
     final page = await api.send(
-      Uri.https('ani.gamer.com.tw', '/animeRef.php', {'sn': matches.single}),
+      Uri.https('ani.gamer.com.tw', '/animeRef.php', {'sn': candidates.single}),
     );
+    final document = html.parse(utf8.decode(page.bodyBytes));
     final episodes = <String>{};
-    for (final link
-        in html
-            .parse(utf8.decode(page.bodyBytes))
-            .querySelectorAll('a[href]')) {
-      final uri = Uri.tryParse(link.attributes['href']!);
-      if (uri == null || !uri.path.endsWith('animeVideo.php')) continue;
-      final sort = double.tryParse(
-        RegExp(r'\d+(?:\.\d+)?').firstMatch(link.text)?[0] ?? '',
-      );
-      final sn = uri.queryParameters['sn'];
-      if (sort == episode && sn != null) episodes.add(sn);
+    // Main episodes have their own list; dubbed versions and specials reuse numbers.
+    for (final heading in document.querySelectorAll('.season > p')) {
+      if (heading.text.trim() != '本篇') continue;
+      final list = heading.nextElementSibling;
+      if (list?.localName != 'ul') continue;
+      for (final link in list!.querySelectorAll('a[href]')) {
+        final uri = Uri.tryParse(link.attributes['href']!);
+        final sn = _positiveId(
+          link.attributes['data-ani-video-sn'] ?? uri?.queryParameters['sn'],
+        );
+        if (_episodeNumber(link.text) == episode && sn != null) {
+          episodes.add(sn);
+        }
+      }
     }
-    if (episodes.length != 1) throw StateError('动画疯未匹配到对应章节');
-    return 'sn=${episodes.single}';
+    return episodes.length == 1 ? 'sn=${episodes.single}' : null;
   }
 
   Future<void> configure(String appId, String appSecret) => credentials.write(
@@ -150,7 +177,7 @@ class DanmakuRepository {
         .toList();
   }
 
-  Future<int> matchFile(String path, double duration) async {
+  Future<int?> matchFile(String path, double duration) async {
     final file = File(path);
     final handle = await file.open();
     late List<int> prefix;
@@ -162,20 +189,23 @@ class DanmakuRepository {
     final value = await _dandan(
       '/api/v2/match',
       body: {
-        'fileName': p.basename(path),
+        'fileName': p.basenameWithoutExtension(path),
         'fileHash': md5.convert(prefix).toString(),
         'fileSize': await file.length(),
-        'videoDuration': duration.round(),
+        'videoDuration': duration.isFinite && duration > 0
+            ? duration.round()
+            : 0,
         'matchMode': 'hashAndFileName',
       },
     );
-    final matches = objects(value['matches']);
-    if (value['success'] != true ||
-        value['isMatched'] != true ||
-        matches.length != 1) {
-      throw StateError('没有唯一匹配，请手动搜索并选择章节');
+    if (value['success'] != true) {
+      throw StateError('弹弹play匹配失败：${value['errorMessage'] ?? '未知错误'}');
     }
-    return number(matches.first['episodeId']).toInt();
+    final matches = objects(value['matches']);
+    if (value['isMatched'] != true || matches.length != 1) return null;
+    final id = _positiveId(matches.single['episodeId']);
+    if (id == null) throw StateError('弹弹play返回了无效章节');
+    return int.parse(id);
   }
 
   Future<List<Json>> dandan(int episodeId) async {
@@ -305,6 +335,28 @@ class DanmakuRepository {
         },
       ),
     );
+  }
+}
+
+String _normalizedTitle(String value) =>
+    ChineseHelper.convertToSimplifiedChinese(
+      html.parseFragment(value).text ?? '',
+    ).toLowerCase().replaceAll(RegExp(r'[\s\p{P}\p{S}]', unicode: true), '');
+
+String? _positiveId(dynamic value) {
+  final id = int.tryParse('$value');
+  return id != null && id > 0 ? '$id' : null;
+}
+
+double? _episodeNumber(String value) {
+  final match = RegExp(r'^(?:第\s*)?(\d+(?:\.\d+)?)(?:\s*[話话集])?$')
+      .firstMatch(value.trim());
+  return match == null ? null : double.tryParse(match[1]!);
+}
+
+void _checkBilibili(Json value) {
+  if (value['code'] != 0) {
+    throw StateError('Bilibili 番剧请求失败：${value['message'] ?? value['code']}');
   }
 }
 

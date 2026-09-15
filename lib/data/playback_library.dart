@@ -124,9 +124,12 @@ class PlaybackLibrary {
     );
   }
 
-  Future<void> autoMatch(double duration) async {
+  Future<void> autoMatch(double duration, {String? sessionId}) async {
     final session = current;
-    if (session == null) return;
+    if (session == null || (sessionId != null && session['id'] != sessionId)) {
+      return;
+    }
+    Future<Json>? detailRequest;
     final enabled = objects(session['danmakuSources'])
         .where((s) => s['enabled'] == true)
         .map((s) => '${s['id']}');
@@ -141,22 +144,30 @@ class PlaybackLibrary {
             return _fetch(provider, '${saved['locator']}');
           }
           if (provider == 'dandanplay') {
-            return danmaku.dandan(
-              await danmaku.matchFile('${session['path']}', duration),
-            );
+            final id = await danmaku.matchFile('${session['path']}', duration);
+            return id == null ? null : danmaku.dandan(id);
           }
           if (session['subjectId'] == null || session['episodeId'] == null) {
-            throw StateError('请关联番剧章节，或手动选择弹幕来源');
+            return null;
           }
-          final detail = await catalog.subject(session['subjectId'] as int);
+          final detail = await (detailRequest ??= catalog.subject(
+            session['subjectId'] as int,
+          ));
           final episode = objects(detail['episodes'])
-              .firstWhere((e) => e['episodeId'] == session['episodeId']);
+              .where((e) => e['episodeId'] == session['episodeId'])
+              .firstOrNull;
+          if (episode == null) return null;
           final locator = await danmaku.automaticLocator(
             provider,
             titleOf(detail),
             number(episode['sort']),
+            alternativeTitles: [
+              detail['nameCn'],
+              detail['displayName'],
+              detail['name'],
+            ].whereType<String>(),
           );
-          return _fetch(provider, locator);
+          return locator == null ? null : _fetch(provider, locator);
         }),
       ),
     );
@@ -177,7 +188,7 @@ class PlaybackLibrary {
 
   Future<void> _load(
     String provider,
-    Future<List<Json>> Function() fetch, {
+    Future<List<Json>?> Function() fetch, {
     String? locator,
   }) async {
     final session = current;
@@ -200,10 +211,10 @@ class PlaybackLibrary {
         });
         if (!identical(current, session) || _loads[provider] != ticket) return;
       }
-      _comments[provider] = comments;
+      _comments[provider] = comments ?? [];
       _sourceState(session, provider, {
-        'status': 'ready',
-        'count': comments.length,
+        'status': comments == null ? 'unmatched' : 'ready',
+        'count': comments?.length ?? 0,
       });
     } catch (e) {
       if (!identical(current, session) || _loads[provider] != ticket) return;

@@ -30,6 +30,7 @@ dependencies:
   ffi: ^2.2.0
   protobuf: ^6.0.0
   html: ^0.15.7
+  pinyin: ^3.3.0
 
 dev_dependencies:
   integration_test:

@@ -114,6 +114,14 @@ class Playback extends ChangeNotifier {
         await player.seek(Duration(milliseconds: (resume * 1000).round()));
       }
       await player.play();
+      if (!_closed && service.library.current?['id'] == next['id']) {
+        unawaited(
+          service.library.autoMatch(
+            player.state.duration.inMilliseconds / 1000,
+            sessionId: next['id'] as String,
+          ),
+        );
+      }
     } catch (e) {
       error = e.toString();
       session = null;
