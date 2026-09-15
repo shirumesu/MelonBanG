@@ -61,6 +61,7 @@ class DownloadRepository {
       (a, b) => number(a['createdAt']).compareTo(number(b['createdAt'])),
     );
     for (final task in restored) {
+      task['coverUrl'] ??= await _cachedCover(task['subjectId'] as int?);
       task['manualPaused'] ??= task['status'] == 'paused';
       if (!settings.resumeOnStartup) task['manualPaused'] = true;
       task['peerCount'] = 0;
@@ -87,6 +88,13 @@ class DownloadRepository {
     }
     _schedule();
     _emit();
+  }
+
+  Future<String?> _cachedCover(int? subjectId) async {
+    if (subjectId == null) return null;
+    final cached = await store.get('catalog', 'detail:$subjectId');
+    final cover = object(object(cached?['value'])['data'])['coverUrl'];
+    return cover is String && cover.isNotEmpty ? cover : null;
   }
 
   Future<void> _engine() => _initializing ??= () async {
@@ -287,7 +295,12 @@ class DownloadRepository {
     'tasks': _tasks.values.map((t) => Map<String, dynamic>.from(t)).toList(),
     'files': _files.values.expand((v) => v).toList(),
   };
-  Future<Json> addMagnet(String input, {int? subjectId, int? episodeId}) async {
+  Future<Json> addMagnet(
+    String input, {
+    int? subjectId,
+    int? episodeId,
+    String? coverUrl,
+  }) async {
     if (_closed) throw StateError('下载器已关闭');
     final uri = Uri.tryParse(input.trim());
     if (uri?.scheme != 'magnet') {
@@ -300,6 +313,7 @@ class DownloadRepository {
       uri.queryParameters['dn'] ?? '正在获取种子信息',
       subjectId,
       episodeId,
+      coverUrl: coverUrl,
     );
   }
 
@@ -308,6 +322,7 @@ class DownloadRepository {
     String name, {
     int? subjectId,
     int? episodeId,
+    String? coverUrl,
   }) async {
     if (_closed) throw StateError('下载器已关闭');
     if (bytes.isEmpty) throw const FormatException('种子文件为空');
@@ -320,6 +335,7 @@ class DownloadRepository {
       subjectId,
       episodeId,
       metadataBytes: bytes,
+      coverUrl: coverUrl,
     );
   }
 
@@ -331,6 +347,7 @@ class DownloadRepository {
     int? subjectId,
     int? episodeId, {
     Uint8List? metadataBytes,
+    String? coverUrl,
   }) => _adding.putIfAbsent(
     fingerprint,
     () =>
@@ -342,6 +359,7 @@ class DownloadRepository {
           subjectId,
           episodeId,
           metadataBytes: metadataBytes,
+          coverUrl: coverUrl,
         ).whenComplete(() {
           _adding.remove(fingerprint);
         }),
@@ -355,6 +373,7 @@ class DownloadRepository {
     int? subjectId,
     int? episodeId, {
     Uint8List? metadataBytes,
+    String? coverUrl,
   }) async {
     if (_closed) throw StateError('下载器已关闭');
     await _removing[fingerprint];
@@ -363,6 +382,8 @@ class DownloadRepository {
         .where((t) => t['fingerprint'] == fingerprint)
         .firstOrNull;
     if (existing != null) return existing;
+    final resolvedCover = coverUrl ?? await _cachedCover(subjectId);
+    if (_closed) throw StateError('下载器已关闭');
     await _engine();
     if (_closed) throw StateError('下载器已关闭');
     if (metadataBytes != null) {
@@ -384,6 +405,7 @@ class DownloadRepository {
       'savePath': savePath,
       'subjectId': subjectId,
       'episodeId': episodeId,
+      'coverUrl': resolvedCover,
       'status': 'metadata',
       'progress': 0.0,
       'peerCount': 0,
