@@ -421,8 +421,9 @@ void main() {
           (request) async => http.Response(
             request.url.path == '/search.php'
                 ? '<ul><li><a href="animeRef.php?sn=42"><img alt="A &amp; B"></a><a href="animeRef.php?sn=42">A &amp; B</a></li></ul>'
-                : '<a data-title="episode" href="animeVideo.php?sn=7&amp;ref=series"><span>1</span></a><a href="animeVideo.php?sn=7">1</a>',
+                : '<section class="season"><p>本篇</p><ul><li><a href="?sn=7&amp;ref=series" data-ani-video-sn="7"><span>1</span></a><a href="?sn=7">1</a></li></ul></section>',
             200,
+            headers: {'content-type': 'text/html; charset=utf-8'},
           ),
         ),
       );
