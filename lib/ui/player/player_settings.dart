@@ -295,7 +295,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
                 'idle' => '等待匹配',
                 'loading' => '匹配中',
                 'ready' => '已加载',
-                'unmatched' => '未匹配',
+                'unmatched' => source['statusMessage'] ?? '未匹配',
                 'error' => '加载失败',
                 _ => '',
               }}',

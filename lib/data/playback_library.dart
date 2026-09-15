@@ -147,16 +147,13 @@ class PlaybackLibrary {
             final id = await danmaku.matchFile('${session['path']}', duration);
             return id == null ? null : danmaku.dandan(id);
           }
-          if (session['subjectId'] == null || session['episodeId'] == null) {
-            return null;
+          if (session['subjectId'] == null) {
+            throw const _Unmatched('缺少番剧信息');
           }
           final detail = await (detailRequest ??= catalog.subject(
             session['subjectId'] as int,
           ));
-          final episode = objects(detail['episodes'])
-              .where((e) => e['episodeId'] == session['episodeId'])
-              .firstOrNull;
-          if (episode == null) return null;
+          final episode = _matchingEpisode(session, detail);
           final locator = await danmaku.automaticLocator(
             provider,
             titleOf(detail),
@@ -200,6 +197,7 @@ class PlaybackLibrary {
       'status': 'loading',
       'count': 0,
       'errorMessage': null,
+      'statusMessage': null,
     });
     _merge();
     try {
@@ -215,12 +213,20 @@ class PlaybackLibrary {
       _sourceState(session, provider, {
         'status': comments == null ? 'unmatched' : 'ready',
         'count': comments?.length ?? 0,
+        'statusMessage': comments == null
+            ? switch (provider) {
+                'bilibili' => '未匹配到官方番剧或章节',
+                'bahamut' => '未匹配到动画疯番剧或章节',
+                _ => '文件未匹配到唯一章节',
+              }
+            : null,
       });
     } catch (e) {
       if (!identical(current, session) || _loads[provider] != ticket) return;
       _sourceState(session, provider, {
-        'status': 'error',
-        'errorMessage': e.toString(),
+        'status': e is _Unmatched ? 'unmatched' : 'error',
+        'statusMessage': e is _Unmatched ? e.message : null,
+        'errorMessage': e is _Unmatched ? null : e.toString(),
       });
     }
     _merge();
@@ -254,4 +260,29 @@ class PlaybackLibrary {
     current = null;
     await changes.close();
   }
+}
+
+class _Unmatched implements Exception {
+  const _Unmatched(this.message);
+  final String message;
+}
+
+Json _matchingEpisode(Json session, Json detail) {
+  final episodes = objects(detail['episodes']);
+  final episodeId = session['episodeId'];
+  Iterable<Json> matches;
+  if (episodeId != null) {
+    matches = episodes.where((episode) => episode['episodeId'] == episodeId);
+  } else {
+    // Infer only the danmaku lookup; progress/file associations require explicit identity.
+    final filename = p.basenameWithoutExtension('${session['path']}');
+    final numbers = RegExp(r'\s-\s(\d+(?:\.\d+)?)(?:v\d+)?(?=\s*(?:\[|\(|$))')
+        .allMatches(filename)
+        .toList();
+    if (numbers.length != 1) throw const _Unmatched('缺少章节信息，无法从文件名识别集数');
+    final sort = double.parse(numbers.single[1]!);
+    matches = episodes.where((episode) => number(episode['sort']) == sort);
+  }
+  if (matches.length != 1) throw const _Unmatched('未找到唯一对应的番剧章节');
+  return matches.single;
 }
