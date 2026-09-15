@@ -10,6 +10,7 @@ import 'app_services.dart';
 import 'ui/acquisition/download_dialogs.dart';
 import 'ui/acquisition/downloads_page.dart';
 import 'ui/acquisition/resources_page.dart';
+import 'data/resource_metadata.dart';
 import 'ui/core/action_feedback.dart';
 import 'ui/core/app_chrome.dart';
 import 'ui/core/motion.dart';
@@ -333,7 +334,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
 
   Future<void> findResources({Json? episode}) async {
     resourceEpisode = episode?['episodeId'] as int?;
-    resourceSearch.text = '${subject?['name'] ?? titleOf(subject ?? {})}';
+    resourceSearch.text = titleOf(subject ?? {});
     _navigation++;
     setState(() {
       route = 'resources';
@@ -343,20 +344,46 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     await searchResources();
   }
 
-  Future<void> searchResources() async {
-    if (resourceSearch.text.trim().isEmpty || subject == null) return;
+  Future<void> searchResources({
+    List<String>? names,
+    String episodeKeyword = '',
+  }) async {
+    if (subject == null) return;
+    final searchNames = names ?? resourceNames(subject!);
+    if (resourceSearch.text.trim().isEmpty && searchNames.isEmpty) return;
     final ticket = ++_resourceRequest;
     final navigation = _navigation;
     final subjectId = subject!['subjectId'] as int;
     final episodeId = resourceEpisode;
     final keyword = resourceSearch.text.trim();
-    setState(() => busy = true);
+    setState(() {
+      busy = true;
+      candidates = [];
+      providers = [];
+    });
     await perform(() async {
       final data = object(
         await widget.service.sources.search(
           subjectId,
           keyword,
           episodeId: episodeId,
+          alternativeNames: searchNames,
+          episodeKeyword: episodeKeyword,
+          coverUrl: subject!['coverUrl'] as String?,
+          isCurrent: () =>
+              mounted &&
+              ticket == _resourceRequest &&
+              navigation == _navigation,
+          onUpdate: (data) {
+            if (mounted &&
+                ticket == _resourceRequest &&
+                navigation == _navigation) {
+              setState(() {
+                candidates = objects(data['candidates']);
+                providers = objects(data['providers']);
+              });
+            }
+          },
         ),
       );
       if (mounted && ticket == _resourceRequest && navigation == _navigation) {
@@ -695,7 +722,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           providers: providers,
           candidates: candidates,
           busy: busy,
-          onSearch: searchResources,
+          key: ValueKey('resources:${subject?["subjectId"]}:$resourceEpisode'),
+          onSearch: (names, episode) =>
+              searchResources(names: names, episodeKeyword: episode),
           onDownload: (candidate) => perform(() async {
             await widget.service.sources.enqueue('${candidate['candidateId']}');
             navigate('downloads');

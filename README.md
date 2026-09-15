@@ -93,7 +93,15 @@ without requiring an additional state-management framework. Keep `test/` and
 - Discover, search, browse the release calendar, and inspect anime and episodes.
 - Keep local collections and chapter states without an account. Bangumi login
   enables account-scoped synchronization, with a durable queue for offline edits.
-- Search RSS resources, import magnets or torrent files, pause and resume native
+- Search resources with the Chinese name, original name and available aliases in
+  parallel. Each completed query appears immediately; duplicate aliases within a
+  provider keep one result. Filter by title or release group, and optionally append
+  an episode keyword (such as `01` or `S01E01`) to every search name. Group labels
+  come from DMHY/Mikan page metadata; joint releases retain their original names.
+  Episode keywords are search terms, not inferred chapter bindings. Download covers
+  use the associated catalogue subject; existing tasks recover covers from cached
+  subject details. Unassociated torrents retain a placeholder.
+- Import magnets or torrent files, pause and resume native
   downloads, and play completed episodes. Closing the app preserves downloaded data.
   Multi-video torrents require selecting a file in the cache list; individual files
   are not automatically assigned to the chapter used to find the collection.

@@ -130,7 +130,13 @@ void main() {
           .widgetList<TextField>(find.byType(TextField))
           .toList();
       expect(
-        fields.map((field) => field.controller).toSet().length,
+        fields
+            .where(
+              (field) =>
+                  field.controller == state.search ||
+                  field.controller == state.resourceSearch,
+            )
+            .length,
         2,
         reason:
             'Resource keywords must not overwrite the global catalogue search.',

@@ -19,7 +19,12 @@ class TestDownloads extends DownloadRepository {
   bool fail = true;
   Json get state => {'tasks': queued, 'files': <Json>[]};
   @override
-  Future<Json> addMagnet(String input, {int? subjectId, int? episodeId}) async {
+  Future<Json> addMagnet(
+    String input, {
+    int? subjectId,
+    int? episodeId,
+    String? coverUrl,
+  }) async {
     if (fail) throw StateError('Test download unavailable');
     final task = <String, dynamic>{
       'id': 'task-${queued.length}',

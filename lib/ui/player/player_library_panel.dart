@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 
 import '../../app_services.dart';
 import '../../data/bittorrent_settings.dart';
+import '../../data/resource_metadata.dart';
+import '../acquisition/resource_widgets.dart';
+import '../core/subject_posters.dart';
 
 /// Searches keep their own episode context without navigating away from playback.
 class PlayerLibraryPanel extends StatefulWidget {
@@ -38,6 +41,8 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
   int? selectedEpisode;
   bool searching = false;
   String? error;
+  String groupFilter = '';
+  List<String> defaultQueries = [];
   List<Json> candidates = [], providers = [];
   List<Json> get episodes => objects(widget.subject?['episodes']);
   List<Json> get tasks => widget.subjectId == null
@@ -93,7 +98,14 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
     final episode = episodes
         .where((e) => e['episodeId'] == selectedEpisode)
         .firstOrNull;
-    final name = '${item['name'] ?? titleOf(item)}';
+    final name = titleOf(item);
+    defaultQueries = resourceNames(item)
+        .map(
+          (name) => episode == null
+              ? name
+              : '$name ${number(episode['sort']).toInt().toString().padLeft(2, '0')}',
+        )
+        .toList();
     query.text = episode == null
         ? name
         : '$name ${number(episode['sort']).toInt().toString().padLeft(2, '0')}';
@@ -116,6 +128,19 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
         id,
         keyword,
         episodeId: episode,
+        alternativeNames: defaultQueries.contains(keyword)
+            ? defaultQueries
+            : [],
+        coverUrl: widget.subject?['coverUrl'] as String?,
+        isCurrent: () => mounted && ticket == request,
+        onUpdate: (result) {
+          if (mounted && ticket == request) {
+            setState(() {
+              candidates = objects(result['candidates']);
+              providers = objects(result['providers']);
+            });
+          }
+        },
       );
       if (mounted && ticket == request) {
         setState(() {
@@ -371,20 +396,13 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
       ),
     ),
     const SizedBox(height: 12),
-    if (searching) const LinearProgressIndicator(),
-    for (final provider in providers)
-      Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Text(
-          '${provider['providerName']} · ${provider['status'] == 'error' ? '搜索失败，可重试' : '${provider['resultCount']} 条'}',
-          style: TextStyle(
-            fontSize: 11,
-            color: provider['status'] == 'error'
-                ? Theme.of(context).colorScheme.error
-                : Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ),
+    ResourceProgress(providers: providers, busy: searching),
+    const SizedBox(height: 12),
+    TextField(
+      onChanged: (value) => setState(() => groupFilter = value),
+      decoration: const InputDecoration(labelText: '筛选字幕组 / 联合发布'),
+    ),
+    const SizedBox(height: 12),
     if (!searching && candidates.isEmpty)
       Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -393,51 +411,56 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ),
-    for (final candidate in candidates)
-      Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SelectableText(
-              '${candidate['title']}',
-              style: const TextStyle(fontSize: 12),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '${candidate['providerName']}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed:
-                    adding.contains(candidate['candidateId']) ||
-                        added.contains(candidate['candidateId'])
-                    ? null
-                    : () => enqueue(candidate),
-                icon: adding.contains(candidate['candidateId'])
-                    ? const SizedBox.square(
-                        dimension: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(
-                        added.contains(candidate['candidateId'])
-                            ? Icons.check
-                            : Icons.download,
-                        size: 16,
-                      ),
-                label: Text(
-                  added.contains(candidate['candidateId']) ? '已加入缓存' : '下载',
+    for (final candidate in candidates.where(
+      (e) => matchesResource(e, '', groupFilter),
+    ))
+      ResourceArrival(
+        key: ValueKey(candidate['candidateId']),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SelectableText(
+                '${candidate['title']}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                resourceDetails(candidate),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed:
+                      adding.contains(candidate['candidateId']) ||
+                          added.contains(candidate['candidateId'])
+                      ? null
+                      : () => enqueue(candidate),
+                  icon: adding.contains(candidate['candidateId'])
+                      ? const SizedBox.square(
+                          dimension: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          added.contains(candidate['candidateId'])
+                              ? Icons.check
+                              : Icons.download,
+                          size: 16,
+                        ),
+                  label: Text(
+                    added.contains(candidate['candidateId']) ? '已加入缓存' : '下载',
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
   ];
@@ -461,6 +484,21 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
           children: [
             Row(
               children: [
+                if (task['coverUrl'] != null) ...[
+                  SizedBox(
+                    width: 28,
+                    height: 38,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(5),
+                      child: SubjectCover(
+                        url: task['coverUrl'],
+                        title: '${task['title'] ?? ''}',
+                        id: number(task['subjectId']).toInt(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 Expanded(
                   child: Text(
                     episode == null
