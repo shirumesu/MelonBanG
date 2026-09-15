@@ -40,6 +40,18 @@ const seasonPage = '''
 <p>特別篇</p><ul><li><a href="?sn=207">1</a></li></ul>
 </section>''';
 
+class EpisodeDownload extends DownloadRepository {
+  EpisodeDownload(super.store, super.directory);
+  late String path;
+  @override
+  Json media(String id, {String? fileId}) => {
+    'id': fileId ?? '0',
+    'path': path,
+    'subjectId': 42,
+    'episodeId': null,
+  };
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory directory;
@@ -376,6 +388,84 @@ void main() {
       objects(library.current!['danmakuSources']).map((s) => s['status']),
       ['ready', 'unmatched', 'unmatched'],
     );
+  });
+
+  test('download filename resolves danmaku episode without creating a file association', () async {
+    var searches = 0;
+    final api = ApiClient(
+      client: MockClient((request) async {
+        switch (request.url.path) {
+          case '/v1/subjects/42':
+            return jsonResponse({
+              'data': {
+                'nameCn': '葬送的芙莉莲',
+                'episodes': [
+                  {'episodeId': 7, 'ep': 1},
+                  {'episodeId': 8, 'ep': 2},
+                ],
+              },
+            });
+          case '/search.php':
+            searches++;
+            return http.Response.bytes(utf8.encode(searchPage), 200);
+          case '/animeRef.php':
+            return http.Response.bytes(utf8.encode(seasonPage), 200);
+          case '/ajax/danmuGet.php':
+            expect(request.bodyFields['sn'], '7');
+            return jsonResponse([
+              {'time': 10, 'text': 'First episode', 'position': 0},
+            ]);
+          default:
+            throw StateError('Unexpected request ${request.url}');
+        }
+      }),
+    );
+    final store = await AppStore.open('${directory.path}/test.sqlite');
+    final downloads = EpisodeDownload(store, '${directory.path}/downloads');
+    final library = PlaybackLibrary(
+      store,
+      downloads,
+      DanmakuRepository(api, credentials),
+      CatalogRepository(api, store),
+    );
+    addTearDown(() async {
+      await library.close();
+      await downloads.close();
+      api.close();
+      await store.close();
+    });
+    Future<void> open(String name) async {
+      downloads.path = (await File('${directory.path}/$name').writeAsBytes([1]))
+          .path;
+      await library.fromDownload('task', fileId: '0');
+      library.enable('dandanplay', false);
+      library.enable('bilibili', false);
+      await library.autoMatch(100);
+    }
+
+    await open('[Group] Series - 01 [WebRip 1080p HEVC-10bit AAC ASSx2].mkv');
+    expect(
+      objects(library.current!['danmaku']).single['text'],
+      'First episode',
+    );
+    expect(library.current!['episodeId'], isNull);
+    expect(await store.get('episode_files', '42:7'), isNull);
+    expect(searches, 1);
+    await open('[Group] Series - 01v2 [1080p].mkv');
+    expect(objects(library.current!['danmaku']), hasLength(1));
+    for (final name in [
+      'Series 1080p.mkv',
+      'Series - 01-02.mkv',
+      'Series - 99.mkv',
+    ]) {
+      final before = searches;
+      await open(name);
+      expect(objects(library.current!['danmaku']), isEmpty);
+      expect(searches, before);
+      final source = objects(library.current!['danmakuSources']).last;
+      expect(source['status'], 'unmatched');
+      expect(source['statusMessage'], isNotEmpty);
+    }
   });
 
   test(

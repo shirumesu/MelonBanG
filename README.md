@@ -103,7 +103,9 @@ without requiring an additional state-management framework. Keep `test/` and
 - Automatically match danmaku when playback opens: Dandanplay uses the file's
   first-16-MiB MD5, filename, size, and optional duration; Bilibili searches official
   bangumi only; Bahamut searches the main episode list with simplified/traditional
-  title conversion. Bilibili and Bahamut need an associated catalog episode.
+  title conversion. Bilibili and Bahamut need a catalog subject and either an
+  associated episode or a clear filename episode number such as `Series - 01`.
+  Filename inference is used only for danmaku and does not bind playback progress.
   Missing or ambiguous matches stay empty. Saved manual choices take priority;
   individual sources can be toggled and local comment JSON can be imported.
 
