@@ -558,6 +558,16 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   Future<void> findResources({Json? episode}) async {
     if (route != 'resources') rememberLocation();
     resourceEpisode = episode?['episodeId'] as int?;
+    final episodeKeyword = resourceEpisodeKeyword(episode);
+    final formId = ResourcesPage.formStorageId(
+      subject?['subjectId'] as int?,
+      resourceEpisode,
+    );
+    final savedForm = pageStorage.readState(context, identifier: formId);
+    pageStorage.writeState(context, {
+      ...?savedForm as Map?,
+      'episode': episodeKeyword,
+    }, identifier: formId);
     resourceSearch.text = titleOf(subject ?? {});
     _navigation++;
     setState(() {
@@ -565,7 +575,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       candidates = [];
       providers = [];
     });
-    await searchResources();
+    await searchResources(episodeKeyword: episodeKeyword);
   }
 
   Future<void> searchResources({

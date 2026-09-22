@@ -257,14 +257,16 @@ class _SubjectPageState extends State<SubjectPage> {
                   TextButton.icon(
                     onPressed: episodes.isEmpty ? null : _episodes,
                     icon: const Icon(Icons.grid_view_rounded, size: 16),
-                    label: Text('全部 ${episodes.length} 话'),
+                    label: Text(
+                      widget.loading ? '加载剧集…' : '全部 ${episodes.length} 话',
+                    ),
                   ),
                 ],
               ),
               if (widget.loading)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 18),
-                  child: Text('观看进度加载中…'),
+                  child: Text('正在加载剧集…'),
                 )
               else if (nearby.isEmpty)
                 const Padding(
@@ -289,7 +291,7 @@ class _SubjectPageState extends State<SubjectPage> {
               const SizedBox(height: 12),
               SelectableText(
                 key: const PageStorageKey('subject-summary'),
-                '${item['summary'] ?? '暂无简介'}',
+                '${item['summary'] ?? (widget.loading ? '正在加载简介…' : '暂无简介')}',
                 style: const TextStyle(fontSize: 13, height: 1.8),
               ),
               if (objects(item['characters']).isNotEmpty) ...[
@@ -411,7 +413,7 @@ class _SubjectPageState extends State<SubjectPage> {
         const SizedBox(height: 14),
         Text(
           widget.loading
-              ? '观看进度加载中…'
+              ? '正在加载番剧详情…'
               : '已看 $watched 话 / 预定全 ${item['episodeTotal'] ?? episodes.length} 话',
           style: TextStyle(
             fontSize: 13,

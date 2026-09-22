@@ -100,16 +100,11 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
         .where((e) => e['episodeId'] == selectedEpisode)
         .firstOrNull;
     final name = titleOf(item);
-    defaultQueries = resourceNames(item)
-        .map(
-          (name) => episode == null
-              ? name
-              : '$name ${number(episode['sort']).toInt().toString().padLeft(2, '0')}',
-        )
-        .toList();
-    query.text = episode == null
-        ? name
-        : '$name ${number(episode['sort']).toInt().toString().padLeft(2, '0')}';
+    final episodeKeyword = resourceEpisodeKeyword(episode);
+    String withEpisode(String name) =>
+        [name, episodeKeyword].where((part) => part.isNotEmpty).join(' ');
+    defaultQueries = resourceNames(item).map(withEpisode).toList();
+    query.text = withEpisode(name);
   }
 
   Future<void> search() async {

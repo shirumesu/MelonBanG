@@ -78,6 +78,11 @@ TorrentInfo _toTorrentInfo(LtTorrentStatus s) => TorrentInfo(
   isFinished: s.isFinished != 0,
   hasMetadata: s.hasMetadata != 0,
   queuePosition: s.queuePosition,
+  knownPeers: s.knownPeers,
+  trackerCount: s.trackerCount,
+  workingTrackers: s.workingTrackers,
+  failedTrackers: s.failedTrackers,
+  dhtNodes: s.dhtNodes,
 );
 
 FileInfo _toFileInfo(LtFileInfo f) => FileInfo(

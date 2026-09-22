@@ -65,6 +65,15 @@ class DownloadRepository {
       task['manualPaused'] ??= task['status'] == 'paused';
       if (!settings.resumeOnStartup) task['manualPaused'] = true;
       task['peerCount'] = 0;
+      for (final key in [
+        'knownPeerCount',
+        'trackerCount',
+        'workingTrackers',
+        'failedTrackers',
+        'dhtNodes',
+      ]) {
+        task.remove(key);
+      }
       task['downloadSpeedBytesPerSecond'] = 0;
       task['uploadSpeedBytesPerSecond'] = 0;
       _files['${task['id']}'] = objects(task['files']);
@@ -139,6 +148,11 @@ class DownloadRepository {
         'uploadSpeedBytesPerSecond': info.uploadRate,
         'peerCount': info.numPeers,
         'seedCount': info.numSeeds,
+        'knownPeerCount': info.knownPeers,
+        'trackerCount': info.trackerCount,
+        'workingTrackers': info.workingTrackers,
+        'failedTrackers': info.failedTrackers,
+        'dhtNodes': info.dhtNodes,
         'errorMessage': info.errorMsg.isEmpty ? null : info.errorMsg,
         'totalBytes': info.totalWanted,
         'downloadedBytes': info.totalDone,

@@ -20,6 +20,8 @@ class TrackingRepository {
   Timer? _retry;
   bool _closed = false;
   final _syncStatus = <String, _SyncStatus>{};
+  final _episodeRefreshes = <String, Future<void>>{};
+  final _episodeRefreshedAt = <String, DateTime>{};
   _SyncStatus get _currentSync =>
       _syncStatus.putIfAbsent(account.userId, _SyncStatus.new);
   String? get lastSyncError => _currentSync.error;
@@ -58,7 +60,7 @@ class TrackingRepository {
         await publish(detail);
         return detail;
       }),
-      refreshEpisodes(id).catchError((Object e) {
+      refreshEpisodes(id, useCache: true).catchError((Object e) {
         if (user == account.userId) lastSyncError = e.toString();
       }),
     ]);
@@ -198,10 +200,32 @@ class TrackingRepository {
     }
   }
 
-  Future<void> refreshEpisodes(int subjectId) async {
+  Future<void> refreshEpisodes(int subjectId, {bool useCache = false}) async {
     if (account.session == null || account.needsAuthorization) return;
-    final requestedAt = DateTime.now().millisecondsSinceEpoch;
     final user = account.userId;
+    final key = '$user:$subjectId';
+    final active = _episodeRefreshes[key];
+    if (active != null) return active;
+    final refreshedAt = _episodeRefreshedAt[key];
+    if (useCache &&
+        refreshedAt != null &&
+        DateTime.now().difference(refreshedAt) < const Duration(minutes: 1)) {
+      return;
+    }
+    final request = _refreshEpisodes(subjectId, user);
+    _episodeRefreshes[key] = request;
+    try {
+      await request;
+      if (!_closed && user == account.userId) {
+        _episodeRefreshedAt[key] = DateTime.now();
+      }
+    } finally {
+      _episodeRefreshes.remove(key);
+    }
+  }
+
+  Future<void> _refreshEpisodes(int subjectId, String user) async {
+    final requestedAt = DateTime.now().millisecondsSinceEpoch;
     for (var offset = 0; ; offset += 100) {
       final response = object(
         await account.request(
@@ -323,6 +347,15 @@ class TrackingRepository {
     _closed = true;
     _retry?.cancel();
     await _flushing;
+    await Future.wait(
+      _episodeRefreshes.values.toList().map((request) async {
+        try {
+          await request;
+        } catch (_) {
+          // The refresh caller owns error reporting.
+        }
+      }),
+    );
     await changes.close();
   }
 }

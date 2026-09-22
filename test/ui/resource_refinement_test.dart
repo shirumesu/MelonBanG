@@ -8,7 +8,7 @@ import 'package:melonbang/ui/core/theme.dart';
 
 void main() {
   testWidgets(
-    'unknown annotations remain visible by default and originals survive filtering and enrichment',
+    'unknown annotations are opt-in and originals survive filtering and enrichment',
     (tester) async {
       tester.view.physicalSize = const Size(1200, 1100);
       tester.view.devicePixelRatio = 1;
@@ -58,7 +58,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isTrue);
+      expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
       expect(find.byType(ResourceResultRow), findsNWidgets(3));
       await tester.tap(find.byKey(const ValueKey('resource-original:unknown')));
       await tester.pumpAndSettle();
@@ -79,14 +79,11 @@ void main() {
       expect(find.widgetWithText(MenuItemButton, 'A'), findsNothing);
       await tester.tap(find.widgetWithText(MenuItemButton, 'B'));
       await tester.pumpAndSettle();
-      expect(find.byType(ResourceResultRow), findsNWidgets(2));
-      expect(find.text('[Another] Anime [01][HEVC]'), findsOneWidget);
-      await tester.tap(find.text('含未确认'));
-      await tester.pumpAndSettle();
       expect(find.byType(ResourceResultRow), findsOneWidget);
       expect(find.text('[Another] Anime [01][HEVC]'), findsNothing);
       await tester.tap(find.text('含未确认'));
       await tester.pumpAndSettle();
+      expect(find.byType(ResourceResultRow), findsNWidgets(2));
       expect(find.text('[Another] Anime [01][HEVC]'), findsOneWidget);
       update(
         () => candidates[1] = {
@@ -109,6 +106,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(downloaded, same(candidates[1]));
       expect(downloaded!['episodeId'], 909);
+      await tester.tap(find.text('清除'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+      expect(find.byType(ResourceResultRow), findsNWidgets(3));
       expect(tester.takeException(), isNull);
     },
   );

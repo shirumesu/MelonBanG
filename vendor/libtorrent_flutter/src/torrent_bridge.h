@@ -58,6 +58,11 @@ typedef struct {
     int32_t       is_finished;
     int32_t       has_metadata;
     int32_t       queue_position;
+    int32_t       known_peers;
+    int32_t       tracker_count;
+    int32_t       working_trackers;
+    int32_t       failed_trackers;
+    int32_t       dht_nodes;
 } lt_torrent_status;
 
 typedef struct {

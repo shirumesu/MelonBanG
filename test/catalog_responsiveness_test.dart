@@ -69,6 +69,61 @@ void main() {
     return account;
   }
 
+  test(
+    'server stale snapshots do not become fresh for another local hour',
+    () async {
+      var requests = 0;
+      final catalog = catalogFor(
+        client((_) async {
+          requests++;
+          return jsonResponse({
+            ...subjectResponse(
+              requests == 1 ? 'Server stale detail' : 'Fresh detail',
+            ),
+            'cache': requests == 1
+                ? {'stale': true}
+                : {
+                    'expiresAt': DateTime.now()
+                        .add(const Duration(hours: 1))
+                        .toIso8601String(),
+                  },
+          });
+        }),
+      );
+      expect((await catalog.subject(42))['name'], 'Server stale detail');
+      final available = <Json>[];
+      expect(
+        (await catalog.subject(42, onCached: available.add))['name'],
+        'Fresh detail',
+      );
+      expect(available.single['name'], 'Server stale detail');
+      await catalog.subject(42);
+      expect(requests, 2);
+    },
+  );
+
+  test(
+    'server expiry is honored even while the local snapshot is recent',
+    () async {
+      await store.put('catalog', 'detail:42', {
+        'savedAt': DateTime.now().millisecondsSinceEpoch,
+        'value': {
+          ...subjectResponse('Expired at server'),
+          'cache': {'expiresAt': '2020-01-01T00:00:00Z'},
+        },
+      });
+      final catalog = catalogFor(
+        client((_) async => jsonResponse(subjectResponse('Refreshed'))),
+      );
+      final available = <Json>[];
+      expect(
+        (await catalog.subject(42, onCached: available.add))['name'],
+        'Refreshed',
+      );
+      expect(available.single['name'], 'Expired at server');
+    },
+  );
+
   setUp(() async {
     pendingResponses.clear();
     disposals.clear();
@@ -338,6 +393,71 @@ void main() {
       );
     },
   );
+
+  test(
+    'reopening a detail coalesces progress and reuses its recent sync',
+    () async {
+      final progressRequested = Completer<void>();
+      final progressResponse = delayedResponse();
+      var progressRequests = 0;
+      final api = client((request) async {
+        if (request.url.host == 'api.bgm.tv') {
+          progressRequests++;
+          if (!progressRequested.isCompleted) progressRequested.complete();
+          return progressResponse.future;
+        }
+        return jsonResponse(subjectResponse('Detail'));
+      });
+      final account = await signedIn(api);
+      final tracking = TrackingRepository(store, account, catalogFor(api));
+      disposals.add(tracking.close);
+      final first = tracking.subject(42);
+      await progressRequested.future;
+      final reopened = tracking.subject(42);
+      progressResponse.complete(
+        jsonResponse({
+          'total': 1,
+          'data': [
+            {
+              'episode': {'id': 7},
+              'type': 2,
+            },
+          ],
+        }),
+      );
+      for (final detail in await Future.wait([first, reopened])) {
+        expect(objects(detail['episodes']).single['status'], 'watched');
+      }
+      expect(progressRequests, 1);
+      await tracking.subject(42);
+      expect(progressRequests, 1);
+      await tracking.refreshEpisodes(42);
+      expect(
+        progressRequests,
+        2,
+        reason: 'Explicit synchronization stays fresh',
+      );
+    },
+  );
+
+  test('failed episode synchronization is retried on the next visit', () async {
+    var progressRequests = 0;
+    final api = client((request) async {
+      if (request.url.host == 'api.bgm.tv') {
+        progressRequests++;
+        if (progressRequests == 1) return http.Response('', 503);
+        return jsonResponse({'total': 0, 'data': []});
+      }
+      return jsonResponse(subjectResponse('Detail'));
+    });
+    final account = await signedIn(api);
+    final tracking = TrackingRepository(store, account, catalogFor(api));
+    disposals.add(tracking.close);
+    expect((await tracking.subject(42))['name'], 'Detail');
+    expect(tracking.lastSyncError, contains('503'));
+    await tracking.subject(42);
+    expect(progressRequests, 2);
+  });
 
   test('expired detail publishes local progress before either remote request finishes', () async {
     await store.put('catalog', 'detail:42', {

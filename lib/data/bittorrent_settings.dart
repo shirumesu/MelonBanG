@@ -118,7 +118,10 @@ String downloadStatus(Json task) => switch (task['status']) {
   'metadata' => '获取种子信息',
   'checking' => '校验本地文件',
   'queued' => number(task['progress']) >= 1 ? '等待做种' : '排队中',
-  'downloading' || 'ready' => '下载中',
+  'downloading' || 'ready' =>
+    task['peerCount'] == 0 && number(task['downloadSpeedBytesPerSecond']) == 0
+        ? '寻找下载节点'
+        : '下载中',
   'seeding' => '做种中',
   'completed' => switch (task['seedStopReason']) {
     'manual' => '已完成 · 已手动停止做种',
