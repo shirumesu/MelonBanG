@@ -37,6 +37,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
   final episodeQuery = TextEditingController();
   final queryFocus = FocusNode(), episodeFocus = FocusNode();
   final excluded = <String>{}, expandedTitles = <String>{};
+  final excludedProviders = <String>{};
   final downloadPhases = <String, ResourceDownloadPhase>{};
   final downloadErrors = <String, String>{};
   final annotations = <String, ResourceTitleInfo>{};
@@ -78,6 +79,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
       multipleNames = true;
       aliasesExpanded = false;
       excluded.clear();
+      excludedProviders.clear();
       expandedTitles.clear();
       annotations.clear();
       restoringForm = false;
@@ -97,6 +99,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
     multipleNames = saved['multipleNames'] as bool? ?? true;
     aliasesExpanded = saved['aliasesExpanded'] as bool? ?? false;
     excluded.addAll((saved['excluded'] as List? ?? []).whereType<String>());
+    excludedProviders.addAll(
+      (saved['excludedProviders'] as List? ?? []).whereType<String>(),
+    );
     expandedTitles.addAll(
       (saved['expandedTitles'] as List? ?? []).whereType<String>(),
     );
@@ -113,6 +118,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
       'multipleNames': multipleNames,
       'aliasesExpanded': aliasesExpanded,
       'excluded': excluded.toList(),
+      'excludedProviders': excludedProviders.toList(),
       'expandedTitles': expandedTitles.toList(),
     }, identifier: activeStorageId);
   }
@@ -156,6 +162,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
     quality = 'all';
     group = '';
     includeUnknown = true;
+    excludedProviders.clear();
   });
 
   Future<void> download(Json candidate) async {
@@ -207,12 +214,14 @@ class _ResourcesPageState extends State<ResourcesPage> {
         .toList();
     final visible = annotated
         .where(
-          (entry) => matchesResourceSelection(
-            entry.$2,
-            quality: quality,
-            group: group,
-            includeUnknown: includeUnknown,
-          ),
+          (entry) =>
+              !excludedProviders.contains(resourceProviderKey(entry.$1)) &&
+              matchesResourceSelection(
+                entry.$2,
+                quality: quality,
+                group: group,
+                includeUnknown: includeUnknown,
+              ),
         )
         .toList();
     final groups = {
@@ -225,6 +234,12 @@ class _ResourcesPageState extends State<ResourcesPage> {
     final providersFailed =
         widget.providers.isNotEmpty &&
         widget.providers.every((e) => e['status'] == 'error');
+    final allProvidersExcluded =
+        widget.providers.isNotEmpty &&
+        widget.providers.every(
+          (provider) =>
+              excludedProviders.contains(resourceProviderKey(provider)),
+        );
     final small = Theme.of(context).textTheme.bodySmall;
     return PageScroll(
       children: [
@@ -383,7 +398,16 @@ class _ResourcesPageState extends State<ResourcesPage> {
               ),
               if (widget.providers.isNotEmpty || searchBusy) ...[
                 const SizedBox(height: 8),
-                ResourceProgress(providers: widget.providers, busy: searchBusy),
+                ResourceProgress(
+                  providers: widget.providers,
+                  busy: searchBusy,
+                  excludedProviders: excludedProviders,
+                  onProviderSelected: (id, selected) => changeForm(
+                    () => selected
+                        ? excludedProviders.remove(id)
+                        : excludedProviders.add(id),
+                  ),
+                ),
               ],
             ],
           ),
@@ -446,7 +470,10 @@ class _ResourcesPageState extends State<ResourcesPage> {
                   ),
                 ),
               ),
-              if (quality != 'all' || group.isNotEmpty || !includeUnknown)
+              if (quality != 'all' ||
+                  group.isNotEmpty ||
+                  !includeUnknown ||
+                  excludedProviders.isNotEmpty)
                 TextButton(onPressed: clearFilters, child: const Text('清除')),
             ],
           ),
@@ -544,20 +571,29 @@ class _ResourcesPageState extends State<ResourcesPage> {
               ),
             ),
         ],
-        if (visible.isEmpty && (!searchBusy || widget.candidates.isNotEmpty))
+        if (visible.isEmpty &&
+            (allProvidersExcluded ||
+                !searchBusy ||
+                widget.candidates.isNotEmpty))
           EmptyState(
-            text: widget.candidates.isNotEmpty
+            text: allProvidersExcluded
+                ? '已取消选择全部资源站'
+                : widget.candidates.isNotEmpty
                 ? '没有符合筛选条件的资源'
                 : providersFailed
                 ? '资源站暂时无法连接'
                 : '没有找到资源，试试其他名称或清空集数关键词',
-            action: widget.candidates.isNotEmpty
+            action: allProvidersExcluded
+                ? () => changeForm(excludedProviders.clear)
+                : widget.candidates.isNotEmpty
                 ? clearFilters
                 : () {
                     if (!providersFailed) episodeQuery.clear();
                     search();
                   },
-            actionLabel: widget.candidates.isNotEmpty
+            actionLabel: allProvidersExcluded
+                ? '显示全部来源'
+                : widget.candidates.isNotEmpty
                 ? '清除筛选'
                 : !providersFailed && episodeQuery.text.isNotEmpty
                 ? '清空集数并搜索'

@@ -153,49 +153,71 @@ class AppSidebar extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(8, 0, 0, 24),
-          child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xff6fd9b1), mint],
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Tooltip(
+            message: '返回探索首页',
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: controlBorderRadius,
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                key: const ValueKey('brand-home'),
+                onTap: () => onNavigate('home'),
+                child: Semantics(
+                  button: true,
+                  label: 'melonbang，返回探索首页',
+                  excludeSemantics: true,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xff6fd9b1), mint],
+                            ),
+                            borderRadius: controlBorderRadius,
+                          ),
+                          child: const Icon(
+                            Icons.spa_rounded,
+                            color: Color(0xff08321f),
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 11),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'melonbang',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              Text(
+                                'ANIME TRACKER',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  letterSpacing: 1.6,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  borderRadius: controlBorderRadius,
-                ),
-                child: const Icon(
-                  Icons.spa_rounded,
-                  color: Color(0xff08321f),
-                  size: 20,
                 ),
               ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'melonbang',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    Text(
-                      'ANIME TRACKER',
-                      style: TextStyle(
-                        fontSize: 9,
-                        letterSpacing: 1.6,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
         Padding(

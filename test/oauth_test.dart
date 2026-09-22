@@ -7,15 +7,18 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:melonbang/data/account.dart';
 import 'package:melonbang/data/network.dart';
+import 'package:melonbang/data/credentials.dart';
+import 'package:melonbang/data/service_configuration.dart';
 
 import 'support/memory_credentials.dart';
 
-class DelayedConfiguration extends MemoryCredentials {
+class DelayedAccount extends MemoryCredentials {
   final requested = Completer<void>();
   final release = Completer<void>();
   @override
   Future<String?> read(String key, {bool allowInteraction = true}) async {
-    if (key == 'oauth') {
+    if (!allowInteraction) throw const CredentialInteractionRequired();
+    if (key == 'account') {
       requested.complete();
       await release.future;
     }
@@ -24,10 +27,36 @@ class DelayedConfiguration extends MemoryCredentials {
 }
 
 void main() {
+  test('legacy service secrets cannot enable an unconfigured build', () async {
+    final credentials = MemoryCredentials();
+    credentials.values['oauth'] = jsonEncode({
+      'clientId': 'legacy-id',
+      'clientSecret': 'legacy-secret',
+      'redirectUri': 'http://127.0.0.1:14567/callback',
+    });
+    final api = ApiClient();
+    final account = AccountRepository(
+      api,
+      credentials,
+      configuration: const ServiceConfiguration(
+        bangumiClientId: '',
+        bangumiClientSecret: '',
+      ),
+      launch: (_) async => fail('An unconfigured build must not open OAuth'),
+    );
+    try {
+      await expectLater(account.signIn(), throwsStateError);
+      expect(account.session, isNull);
+    } finally {
+      await account.close();
+      api.close();
+    }
+  });
+
   test(
-    'cancel during configuration loading prevents opening a login browser',
+    'cancel during account unlock prevents opening a login browser',
     () async {
-      final credentials = DelayedConfiguration();
+      final credentials = DelayedAccount();
       final api = ApiClient();
       var launches = 0;
       final account = AccountRepository(
@@ -37,7 +66,7 @@ void main() {
           launches++;
         },
       );
-      await account.configure(clientId: 'id', clientSecret: 'secret');
+      await account.initialize();
       final result = expectLater(account.signIn(), throwsStateError);
       await credentials.requested.future;
       await account.cancelSignIn();
@@ -86,6 +115,11 @@ void main() {
       final account = AccountRepository(
         api,
         credentials,
+        configuration: ServiceConfiguration(
+          bangumiClientId: 'id',
+          bangumiClientSecret: 'secret',
+          bangumiRedirectUri: 'http://127.0.0.1:$port/callback',
+        ),
         launch: (url) async {
           final callback = Uri.parse(url.queryParameters['redirect_uri']!);
           final client = http.Client();
@@ -110,11 +144,6 @@ void main() {
           );
           client.close();
         },
-      );
-      await account.configure(
-        clientId: 'id',
-        clientSecret: 'secret',
-        redirectUri: 'http://127.0.0.1:$port/callback',
       );
       expect((await account.signIn())['userId'], '1');
       expect(await account.accessToken(), 'token');
@@ -141,14 +170,14 @@ void main() {
       final account = AccountRepository(
         api,
         credentials,
+        configuration: ServiceConfiguration(
+          bangumiClientId: 'id',
+          bangumiClientSecret: 'secret',
+          bangumiRedirectUri: 'http://127.0.0.1:$port/callback',
+        ),
         launch: (_) async {
           launched.complete();
         },
-      );
-      await account.configure(
-        clientId: 'id',
-        clientSecret: 'secret',
-        redirectUri: 'http://127.0.0.1:$port/callback',
       );
       final result = expectLater(account.signIn(), throwsStateError);
       await launched.future;

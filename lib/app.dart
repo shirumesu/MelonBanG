@@ -20,7 +20,6 @@ import 'ui/core/theme.dart';
 import 'ui/discovery/discovery_pages.dart';
 import 'ui/player/playback.dart';
 import 'ui/player/player_page.dart';
-import 'ui/settings/connection_settings.dart';
 import 'ui/settings/bittorrent_settings.dart';
 import 'ui/settings/settings_page.dart';
 import 'ui/tracking/subject_page.dart';
@@ -60,6 +59,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   bool dark = false, ready = false, busy = false, fullScreen = false;
   String? error;
   bool trendingLoading = true;
+  bool todayLoading = true;
+  String? todayError;
+  String? todayDate;
   bool closing = false, sidebarVisible = true, windowFullScreen = false;
   bool accountBusy = false;
   final homeFeedback = ActionFeedback();
@@ -79,6 +81,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   Json downloads = {}, sync = {};
   int? resourceEpisode;
   int _navigation = 0;
+  int? _subjectRequest;
   int _personalRequest = 0, _resourceRequest = 0, _playbackRequest = 0;
   Future<void> _playbackOperations = Future.value();
   Future<void> _fullScreenOperations = Future.value();
@@ -150,31 +153,50 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     if (!mounted) return null;
     setState(() {
       trendingLoading = true;
+      todayLoading = true;
       error = null;
+      todayError = null;
+      if (todayDate != null &&
+          todayDate != widget.service.catalog.scheduleDate) {
+        today = [];
+      }
     });
+    void showTrending(List<Json> value) {
+      if (mounted) setState(() => trending = value);
+    }
+
+    void showToday(Json value) {
+      if (mounted) {
+        setState(() {
+          today = objects(value['items']);
+          todayDate = value['date'] as String?;
+        });
+      }
+    }
+
     var trendingFailed = false, todayFailed = false;
     await Future.wait([
       widget.service.catalog
-          .trending(refresh: refresh)
-          .then((value) {
-            if (mounted) setState(() => trending = objects(value));
-          })
+          .trending(refresh: refresh, limit: 8, onCached: showTrending)
+          .then(showTrending)
           .catchError((Object e) {
             trendingFailed = true;
             if (mounted) setState(() => error = e.toString());
+          })
+          .whenComplete(() {
+            if (mounted) setState(() => trendingLoading = false);
           }),
       widget.service.catalog
-          .today(refresh: refresh)
-          .then((value) {
-            if (mounted) {
-              setState(() => today = objects(object(value)['items']));
-            }
-          })
-          .catchError((Object _) {
+          .today(refresh: refresh, onCached: showToday)
+          .then(showToday)
+          .catchError((Object e) {
             todayFailed = true;
+            if (mounted) setState(() => todayError = e.toString());
+          })
+          .whenComplete(() {
+            if (mounted) setState(() => todayLoading = false);
           }),
     ]);
-    if (mounted) setState(() => trendingLoading = false);
     if (trendingFailed && todayFailed) return '刷新失败，仍显示上次内容。';
     if (trendingFailed) return '今日放送已更新，本季热度刷新失败。';
     if (todayFailed) return '本季热度已更新，今日放送刷新失败。';
@@ -213,7 +235,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     providers: providers,
     searchError: searchError,
     resultQuery: resultQuery,
-    pending: busy,
+    pending: busy || (route == 'subject' && _subjectRequest == _navigation),
     resourceQueryNames: resourceQueryNames,
     resourceQueryEpisode: resourceQueryEpisode,
   );
@@ -347,8 +369,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       return;
     }
     leavePlayer();
-    final ticket = ++_navigation;
     if (route != 'subject' || subject?['subjectId'] != id) rememberLocation();
+    final ticket = ++_navigation;
+    _subjectRequest = ticket;
     setState(() {
       route = 'subject';
       subject = item;
@@ -359,11 +382,22 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     });
     try {
       unawaited(perform(refreshPlaybackAvailability));
-      final detail = object(await widget.service.tracking.subject(id as int));
+      final detail = await widget.service.tracking.subject(
+        id as int,
+        onAvailable: (value) {
+          if (mounted && ticket == _navigation) {
+            setState(() {
+              subject = value;
+              busy = false;
+            });
+          }
+        },
+      );
       if (mounted && ticket == _navigation) setState(() => subject = detail);
     } catch (e) {
-      showError(e);
+      if (mounted && ticket == _navigation) showError(e);
     } finally {
+      if (_subjectRequest == ticket) _subjectRequest = null;
       if (mounted && ticket == _navigation) setState(() => busy = false);
     }
   }
@@ -630,6 +664,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       busy = false;
     });
     if (ready && target == 'home') {
+      unawaited(loadHome());
       unawaited(perform(refreshPlaybackAvailability));
     }
     if (ready && target == 'calendar' && calendar.isEmpty) {
@@ -638,7 +673,11 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   }
 
   Future<void> loadCalendar() => perform(() async {
-    final value = await widget.service.catalog.calendar();
+    final value = await widget.service.catalog.calendar(
+      onCached: (value) {
+        if (mounted) setState(() => calendar = value);
+      },
+    );
     if (mounted) setState(() => calendar = objects(value));
   });
 
@@ -905,6 +944,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
               .where((item) => item['status'] == 'watching')
               .toList(),
           trendingLoading: trendingLoading,
+          todayLoading: todayLoading,
+          todayError: todayError,
           error: error,
           onExplore: focusSearch,
           feedback: homeFeedback,
@@ -1006,7 +1047,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           accountBusy: accountBusy,
           dark: dark,
           dataDirectory: widget.service.dataDirectory,
-          connectionSettings: ConnectionSettings(services: widget.service),
           bitTorrentSettings: BitTorrentSettingsPanel(
             downloads: widget.service.downloads,
           ),

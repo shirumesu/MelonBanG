@@ -1,13 +1,141 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:melonbang/data/json.dart';
+import 'package:melonbang/ui/acquisition/resource_widgets.dart';
 import 'package:melonbang/ui/acquisition/resources_page.dart';
 import 'package:melonbang/ui/core/selection_controls.dart';
 import 'package:melonbang/ui/core/theme.dart';
 
 void main() {
+  testWidgets('provider chips filter locally and preserve other selections', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final query = TextEditingController(text: 'Anime');
+    addTearDown(query.dispose);
+    var searches = 0;
+    final candidates = <Json>[
+      {
+        'candidateId': 'garden',
+        'providerId': 'dmhy',
+        'providerName': '动漫花园',
+        'title': 'Garden [1080p]',
+        'releaseGroups': ['A'],
+      },
+      {
+        'candidateId': 'garden-low',
+        'providerId': 'dmhy',
+        'providerName': '动漫花园',
+        'title': 'Garden [720p]',
+        'releaseGroups': ['A'],
+      },
+      {
+        'candidateId': 'mikan',
+        'providerId': 'mikan',
+        'providerName': '蜜柑计划',
+        'title': 'Mikan [1080p]',
+        'releaseGroups': ['A'],
+      },
+    ];
+    late StateSetter update;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: appTheme(false),
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (_, setState) {
+              update = setState;
+              return ResourcesPage(
+                subject: const {'subjectId': 42, 'name': 'Anime'},
+                resourceSearch: query,
+                resourceEpisode: null,
+                providers: [
+                  {
+                    'providerId': 'dmhy',
+                    'providerName': '动漫花园',
+                    'status': 'ready',
+                    'resultCount': candidates.length - 1,
+                  },
+                  {
+                    'providerId': 'mikan',
+                    'providerName': '蜜柑计划',
+                    'status': 'ready',
+                    'resultCount': 1,
+                  },
+                ],
+                candidates: List.of(candidates),
+                busy: false,
+                onSearch: (_, _) async => searches++,
+                onDownload: (_) async {},
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final dmhy = find.byKey(const ValueKey('resource-provider:dmhy'));
+    final mikan = find.byKey(const ValueKey('resource-provider:mikan'));
+    expect(tester.widget<FilterChip>(dmhy).selected, isTrue);
+    expect(tester.widget<FilterChip>(mikan).selected, isTrue);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(MelonSegmentedControl<String>),
+        matching: find.text('1080p'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(dmhy);
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilterChip>(dmhy).selected, isFalse);
+    expect(
+      find.byKey(const ValueKey('resource-original:garden')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('resource-original:mikan')),
+      findsOneWidget,
+    );
+    expect(find.text('动漫花园 · 2 条'), findsOneWidget);
+    expect(find.text('1 / 3 条'), findsOneWidget);
+
+    update(
+      () => candidates.add({...candidates.first, 'candidateId': 'garden-late'}),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ResourceResultRow), findsOneWidget);
+    expect(find.text('动漫花园 · 3 条'), findsOneWidget);
+    await tester.tap(mikan);
+    await tester.pumpAndSettle();
+    expect(find.text('已取消选择全部资源站'), findsOneWidget);
+    expect(find.byType(ResourceResultRow), findsNothing);
+    await tester.tap(find.text('显示全部来源'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ResourceResultRow), findsNWidgets(3));
+    expect(
+      find.byKey(const ValueKey('resource-original:garden-low')),
+      findsNothing,
+    );
+
+    Focus.of(tester.element(find.text('动漫花园 · 3 条'))).requestFocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilterChip>(dmhy).selected, isFalse);
+    expect(find.byType(ResourceResultRow), findsOneWidget);
+    await tester.tap(find.text('清除'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilterChip>(dmhy).selected, isTrue);
+    expect(find.byType(ResourceResultRow), findsNWidgets(4));
+    expect(searches, 0);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'incremental rows preserve focus; quality/group filters and episode keyword reach search',
     (tester) async {
@@ -260,10 +388,24 @@ void main() {
                   },
                   resourceSearch: query,
                   resourceEpisode: null,
-                  providers: const [],
+                  providers: const [
+                    {
+                      'providerId': 'dmhy',
+                      'providerName': '动漫花园',
+                      'status': 'ready',
+                      'resultCount': 1,
+                    },
+                    {
+                      'providerId': 'mikan',
+                      'providerName': '蜜柑计划',
+                      'status': 'ready',
+                      'resultCount': 0,
+                    },
+                  ],
                   candidates: const [
                     {
                       'candidateId': 'saved',
+                      'providerId': 'dmhy',
                       'title': '[字幕组] Anime [01][1080p]',
                       'releaseGroups': ['字幕组'],
                     },
@@ -303,6 +445,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('resource-aliases-toggle')));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilterChip, '日本語'));
+    await tester.tap(find.byKey(const ValueKey('resource-provider:mikan')));
     await tester.tap(find.byKey(const ValueKey('resource-original:saved')));
     await tester.pumpAndSettle();
     update(() => visible = false);
@@ -330,6 +473,14 @@ void main() {
       '字幕组',
     );
     expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+    expect(
+      tester
+          .widget<FilterChip>(
+            find.byKey(const ValueKey('resource-provider:mikan')),
+          )
+          .selected,
+      isFalse,
+    );
     expect(find.text('[字幕组] Anime [01][1080p]'), findsOneWidget);
     expect(
       tester
@@ -368,6 +519,14 @@ void main() {
       isEmpty,
     );
     expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isTrue);
+    expect(
+      tester
+          .widget<FilterChip>(
+            find.byKey(const ValueKey('resource-provider:mikan')),
+          )
+          .selected,
+      isTrue,
+    );
     expect(find.byType(SelectableText), findsNothing);
     expect(find.widgetWithText(FilterChip, '日本語'), findsNothing);
     expect(tester.takeException(), isNull);

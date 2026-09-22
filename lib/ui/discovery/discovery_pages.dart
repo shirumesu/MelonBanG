@@ -24,10 +24,12 @@ class HomePage extends StatelessWidget {
     this.watching = const [],
     this.resumable = const [],
     this.onResume,
+    this.todayLoading = false,
+    this.todayError,
   });
-  final bool dark, trendingLoading;
+  final bool dark, trendingLoading, todayLoading;
   final List<Json> today, trending, watching, resumable;
-  final String? error;
+  final String? error, todayError;
   final VoidCallback onExplore, onCalendar, onRefresh;
   final ActionFeedback feedback;
   final ValueChanged<Json> onOpenSubject;
@@ -101,14 +103,27 @@ class HomePage extends StatelessWidget {
         ),
       SectionTitle(
         title: '今日更新',
-        subtitle: '${today.length} 部放送',
+        subtitle: todayLoading && today.isEmpty ? null : '${today.length} 部放送',
         icon: Icons.auto_awesome_outlined,
         trailing: TextButton(
           onPressed: onCalendar,
           child: const Text('新番时间表 →'),
         ),
       ),
-      if (today.isEmpty)
+      if (todayLoading && today.isEmpty)
+        const MelonPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('正在加载今日放送…'),
+              SizedBox(height: 12),
+              LinearProgressIndicator(),
+            ],
+          ),
+        )
+      else if (todayError != null && today.isEmpty)
+        EmptyState(text: '暂时无法加载今日放送', detail: todayError, action: onRefresh)
+      else if (today.isEmpty)
         const EmptyState(text: '今日暂无放送数据')
       else
         BroadcastTimeline(items: today, onOpen: onOpenSubject),

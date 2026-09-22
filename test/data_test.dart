@@ -19,9 +19,10 @@ import 'package:melonbang/data/store.dart';
 import 'package:melonbang/data/tracking.dart';
 
 import 'support/memory_credentials.dart';
+import 'support/service_configuration.dart';
 
 class ControlledDanmaku extends DanmakuRepository {
-  ControlledDanmaku(super.api, super.credentials);
+  ControlledDanmaku(super.api);
   final responses = <String, Completer<List<Json>>>{};
   @override
   Future<List<Json>> bilibili(String locator) => responses[locator]!.future;
@@ -315,7 +316,7 @@ void main() {
     'late danmaku matches cannot replace the latest selection or new session',
     () async {
       final api = ApiClient();
-      final danmaku = ControlledDanmaku(api, MemoryCredentials());
+      final danmaku = ControlledDanmaku(api);
       final downloads = DownloadRepository(
         store,
         '${directory.path}/downloads',
@@ -368,7 +369,7 @@ void main() {
 
   test('failed replacement danmaku does not retain comments from the previous episode', () async {
     final api = ApiClient();
-    final danmaku = ControlledDanmaku(api, MemoryCredentials());
+    final danmaku = ControlledDanmaku(api);
     final downloads = DownloadRepository(store, '${directory.path}/downloads');
     final library = PlaybackLibrary(
       store,
@@ -430,7 +431,7 @@ void main() {
       expect(
         await DanmakuRepository(
           api,
-          MemoryCredentials(),
+          configuration: testServiceConfiguration,
         ).automaticLocator('bahamut', 'A & B', 1),
         'sn=7',
       );

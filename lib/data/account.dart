@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'json.dart';
 import 'network.dart';
 import 'credentials.dart';
+import 'service_configuration.dart';
 import 'store.dart';
 
 class AccountRepository {
@@ -14,6 +15,7 @@ class AccountRepository {
     this.api,
     this.credentials, {
     this.store,
+    this.configuration = const ServiceConfiguration(),
     Future<void> Function(Uri)? launch,
   }) : launch =
            launch ??
@@ -25,6 +27,7 @@ class AccountRepository {
   final ApiClient api;
   final Credentials credentials;
   final AppStore? store;
+  final ServiceConfiguration configuration;
   final Future<void> Function(Uri) launch;
   Json? _bundle;
   Json? _profile;
@@ -64,29 +67,23 @@ class AccountRepository {
     await store?.put('account', 'profile', _profile!);
   }
 
-  Future<Json> configuration({bool allowInteraction = true}) async => object(
-    jsonDecode(
-      await credentials.read('oauth', allowInteraction: allowInteraction) ??
-          '{}',
-    ),
-  );
-  Future<void> configure({
-    required String clientId,
-    required String clientSecret,
-    String redirectUri = 'http://127.0.0.1:14567/callback',
-  }) async {
-    final uri = Uri.parse(redirectUri);
-    if (uri.scheme != 'http' || uri.host != '127.0.0.1' || !uri.hasPort) {
+  Json _oauthConfiguration() {
+    if (!configuration.hasBangumi) {
+      throw StateError('此版本尚未启用 Bangumi 登录，请使用已配置的应用版本。');
+    }
+    final uri = Uri.parse(configuration.bangumiRedirectUri.trim());
+    if (uri.scheme != 'http' ||
+        uri.host != '127.0.0.1' ||
+        !uri.hasPort ||
+        uri.port <= 0 ||
+        uri.port > 65535) {
       throw const FormatException('回调地址需为 http://127.0.0.1:端口/路径');
     }
-    await credentials.write(
-      'oauth',
-      jsonEncode({
-        'clientId': clientId.trim(),
-        'clientSecret': clientSecret.trim(),
-        'redirectUri': uri.toString(),
-      }),
-    );
+    return {
+      'clientId': configuration.bangumiClientId.trim(),
+      'clientSecret': configuration.bangumiClientSecret.trim(),
+      'redirectUri': uri.toString(),
+    };
   }
 
   Future<Json> signIn() async {
@@ -105,25 +102,13 @@ class AccountRepository {
     }
     if (_closed || generation != _signInGeneration) throw StateError('登录已取消');
     if (_bundle != null) {
-      // An expired session needs both the token and its OAuth configuration.
-      // Authorize that read within this gesture, before background sync begins.
-      if (_restoreNeedsAuthorization ||
-          number(_bundle!['expiresAt']) <=
-              DateTime.now().millisecondsSinceEpoch + 60000) {
-        await configuration();
-      }
-      if (_closed || generation != _signInGeneration) throw StateError('登录已取消');
       _restoreNeedsAuthorization = false;
       return session!;
     }
     _restoreNeedsAuthorization = false;
-    final config = await configuration();
+    final config = _oauthConfiguration();
     if (_closed || generation != _signInGeneration) {
       throw StateError('登录已取消');
-    }
-    if ('${config['clientId'] ?? ''}'.isEmpty ||
-        '${config['clientSecret'] ?? ''}'.isEmpty) {
-      throw StateError('请先在设置中填写 Bangumi OAuth 应用信息。');
     }
     final redirect = Uri.parse('${config['redirectUri']}');
     final state = newId();
@@ -259,15 +244,7 @@ class AccountRepository {
 
   Future<String> _renew() async {
     final old = _bundle!;
-    final Json config;
-    try {
-      config = await configuration(allowInteraction: false);
-    } on CredentialInteractionRequired {
-      if (!_closed && identical(_bundle, old)) {
-        _restoreNeedsAuthorization = true;
-      }
-      rethrow;
-    }
+    final config = _oauthConfiguration();
     if (_closed || !identical(_bundle, old)) throw StateError('账号已经切换');
     final token = await _token(config, {
       'grant_type': 'refresh_token',

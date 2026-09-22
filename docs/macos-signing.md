@@ -53,10 +53,10 @@ outside Git rather than copying the local development identity into the reposito
 
 ## Account behavior
 
-Account tokens, OAuth secrets and the Xcode-managed signing identity stay in the
-system Keychain as separate items. Startup and background renewal do not open
-password dialogs. Settings reads a service's secrets only when that service is
-explicitly edited; successful reads are cached for the process.
+Account tokens and the Xcode-managed signing identity stay in the system Keychain
+as separate items. Application registrations come from Flutter build definitions;
+see the service configuration example in the README. Startup and background
+renewal do not open password dialogs. Successful token reads are cached for the process.
 
 A temporarily inaccessible token produces a pending-authorization state. A cached
 public account profile keeps the same local collection scope available; no token
@@ -66,8 +66,8 @@ without that profile needs one successful recovery before offline identity can b
 retained. Explicit logout removes the active profile and token while keeping the
 account's local collection history.
 
-Unlock Sync restores the token and authorizes the OAuth configuration needed for
-renewal in the same interaction. The shell updates its account state before
+Unlock Sync restores the account token. Renewal uses the registration supplied
+at build time. The shell updates its account state before
 attempting network synchronization, and retains it if synchronization fails.
 Repeated clicks cannot start overlapping login flows. The operating system may
 still request access to each old Keychain item when moving to an Apple-issued
@@ -95,7 +95,7 @@ flutter test integration_test/credentials_test.dart -d macos \
 ```
 
 With an Apple-issued signing identity, the second build must restore the account
-and read OAuth configuration with interaction disabled; it removes the test items afterward. Other cases verify
+with interaction disabled; it removes the test items afterward. Other cases verify
 profile isolation and deferred ACL authorization. `account_recovery_test.dart`
 checks the real shell with controlled credential/network failures, including a
 successful unlock followed by failed collection synchronization.

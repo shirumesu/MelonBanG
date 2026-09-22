@@ -15,16 +15,7 @@ import 'package:melonbang/data/playback_library.dart';
 import 'package:melonbang/data/store.dart';
 import 'package:melonbang/data/torrent_identity.dart';
 
-import 'support/memory_credentials.dart';
-
-class _Credentials extends MemoryCredentials {
-  _Credentials() {
-    values['dandanplay'] = jsonEncode({
-      'appId': 'test-app',
-      'appSecret': 'test-secret',
-    });
-  }
-}
+import 'support/service_configuration.dart';
 
 class _Downloads extends DownloadRepository {
   _Downloads(super.store, super.directory);
@@ -126,7 +117,10 @@ void main() {
         );
       }),
     );
-    final repository = DanmakuRepository(api, _Credentials());
+    final repository = DanmakuRepository(
+      api,
+      configuration: testServiceConfiguration,
+    );
     expect((await repository.dandan(7)).single['text'], 'Hello');
     expect(requests, 1);
     api.close();
@@ -143,7 +137,10 @@ void main() {
           ),
         ),
       );
-      final repository = DanmakuRepository(api, _Credentials());
+      final repository = DanmakuRepository(
+        api,
+        configuration: testServiceConfiguration,
+      );
       await expectLater(repository.dandan(7), throwsStateError);
       api.close();
     },
@@ -174,7 +171,7 @@ void main() {
       final library = PlaybackLibrary(
         store,
         downloads,
-        DanmakuRepository(api, _Credentials()),
+        DanmakuRepository(api, configuration: testServiceConfiguration),
         CatalogRepository(api, store),
       );
       try {

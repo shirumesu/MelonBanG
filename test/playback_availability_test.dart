@@ -10,7 +10,7 @@ import 'package:melonbang/data/network.dart';
 import 'package:melonbang/data/playback_library.dart';
 import 'package:melonbang/data/store.dart';
 
-import 'support/memory_credentials.dart';
+import 'support/service_configuration.dart';
 
 class _Downloads extends DownloadRepository {
   _Downloads(super.store, super.directory);
@@ -73,7 +73,7 @@ void main() {
     library = PlaybackLibrary(
       store,
       downloads,
-      DanmakuRepository(api, MemoryCredentials()),
+      DanmakuRepository(api, configuration: testServiceConfiguration),
       CatalogRepository(api, store),
     );
   });

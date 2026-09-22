@@ -44,15 +44,28 @@ class TrackingRepository {
     'lastSyncError': lastSyncError,
     'lastSyncedAt': lastSyncedAt,
   };
-  Future<Json> subject(int id) async {
+  Future<Json> subject(int id, {void Function(Json)? onAvailable}) async {
     final user = account.userId;
-    final detail = await catalog.subject(id);
-    if (user != account.userId) throw StateError('账号已经切换');
-    try {
-      await refreshEpisodes(id);
-    } catch (e) {
-      if (user == account.userId) lastSyncError = e.toString();
+    Future<void> publish(Json detail) async {
+      if (onAvailable != null) {
+        onAvailable(await _withProgress(detail, user, id));
+      }
     }
+
+    // Public detail and personal progress are independent network requests.
+    final values = await Future.wait<dynamic>([
+      catalog.subject(id, onCached: publish).then((detail) async {
+        await publish(detail);
+        return detail;
+      }),
+      refreshEpisodes(id).catchError((Object e) {
+        if (user == account.userId) lastSyncError = e.toString();
+      }),
+    ]);
+    return _withProgress(object(values[0]), user, id);
+  }
+
+  Future<Json> _withProgress(Json detail, String user, int id) async {
     if (user != account.userId) throw StateError('账号已经切换');
     final item = await store.get(_collection(user), '$id');
     final progress = await store.list(_episodes(user));

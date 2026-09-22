@@ -19,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../test/support/memory_credentials.dart';
+import '../test/support/service_configuration.dart';
 
 class _LockedCredentials extends MemoryCredentials {
   final authorized = Completer<void>();
@@ -64,13 +65,10 @@ void main() {
       'refresh_token': 'test',
       'expiresAt': 0,
     });
-    storage.values['oauth'] = jsonEncode({
-      'clientId': 'test',
-      'clientSecret': 'test',
-    });
     var refreshes = 0, syncs = 0;
     final services = AppServices(
       directory: directory.path,
+      configuration: testServiceConfiguration,
       credentials: CachedCredentials(storage),
       api: ApiClient(
         client: MockClient((request) async {
@@ -141,11 +139,7 @@ void main() {
       }
       expect(refreshes, 1);
       expect(syncs, 1);
-      expect(storage.reads, [
-        ('account', false),
-        ('account', true),
-        ('oauth', true),
-      ]);
+      expect(storage.reads, [('account', false), ('account', true)]);
       expect(find.text('已连接'), findsOneWidget);
       expect(find.text('退出登录'), findsOneWidget);
       expect(find.text('登录 Bangumi'), findsNothing);
