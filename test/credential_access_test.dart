@@ -13,10 +13,10 @@ import 'package:melonbang/data/store.dart';
 import 'package:melonbang/data/catalog.dart';
 import 'package:melonbang/data/tracking.dart';
 import 'package:melonbang/ui/core/theme.dart';
-import 'package:melonbang/ui/settings/connection_settings.dart';
 import 'package:melonbang/ui/settings/settings_page.dart';
 
 import 'support/memory_credentials.dart';
+import 'support/service_configuration.dart';
 
 class ObservedCredentials extends MemoryCredentials {
   final reads = <(String, bool)>[];
@@ -72,48 +72,54 @@ void main() {
     },
   );
 
-  test('one login gesture unlocks saved account and configuration for quiet refresh', () async {
-    final storage = ObservedCredentials()..locked = true;
-    storage.values['account'] = jsonEncode({
-      'user': {'userId': '7'},
-      'expiresAt': 0,
-      'refresh_token': 'test',
-    });
-    var refreshes = 0;
-    final api = ApiClient(
-      client: MockClient((request) async {
-        expect(request.url.path, '/oauth/access_token');
-        refreshes++;
-        return http.Response(
-          jsonEncode({'access_token': 'renewed', 'expires_in': 3600}),
-          200,
-        );
-      }),
-    );
-    final account = AccountRepository(
-      api,
-      CachedCredentials(storage),
-      launch: (_) async => fail('Saved login should be restored'),
-    );
-    try {
-      await account.initialize();
-      expect(account.session, isNull);
-      expect(storage.reads, [('account', false)]);
-      expect((await account.signIn())['userId'], '7');
-      expect(await account.accessToken(), 'renewed');
-      expect(await account.accessToken(), 'renewed');
-      expect(refreshes, 1);
-      expect(account.needsAuthorization, isFalse);
-      expect(storage.reads, [
-        ('account', false),
-        ('account', true),
-        ('oauth', true),
-      ]);
-    } finally {
-      await account.close();
-      api.close();
-    }
-  });
+  test(
+    'one login gesture unlocks only the saved account for quiet refresh',
+    () async {
+      final storage = ObservedCredentials()..locked = true;
+      storage.values['account'] = jsonEncode({
+        'user': {'userId': '7'},
+        'expiresAt': 0,
+        'refresh_token': 'test',
+      });
+      var refreshes = 0;
+      final api = ApiClient(
+        client: MockClient((request) async {
+          expect(request.url.path, '/oauth/access_token');
+          final form = Uri.splitQueryString(request.body);
+          expect(form['client_id'], testServiceConfiguration.bangumiClientId);
+          expect(
+            form['client_secret'],
+            testServiceConfiguration.bangumiClientSecret,
+          );
+          refreshes++;
+          return http.Response(
+            jsonEncode({'access_token': 'renewed', 'expires_in': 3600}),
+            200,
+          );
+        }),
+      );
+      final account = AccountRepository(
+        api,
+        CachedCredentials(storage),
+        configuration: testServiceConfiguration,
+        launch: (_) async => fail('Saved login should be restored'),
+      );
+      try {
+        await account.initialize();
+        expect(account.session, isNull);
+        expect(storage.reads, [('account', false)]);
+        expect((await account.signIn())['userId'], '7');
+        expect(await account.accessToken(), 'renewed');
+        expect(await account.accessToken(), 'renewed');
+        expect(refreshes, 1);
+        expect(account.needsAuthorization, isFalse);
+        expect(storage.reads, [('account', false), ('account', true)]);
+      } finally {
+        await account.close();
+        api.close();
+      }
+    },
+  );
 
   test(
     'locked restart preserves local account data without exposing tokens',
@@ -152,6 +158,7 @@ void main() {
       final restarted = AccountRepository(
         api,
         CachedCredentials(storage),
+        configuration: testServiceConfiguration,
         store: store,
       );
       final catalog = CatalogRepository(api, store);
@@ -178,79 +185,59 @@ void main() {
   );
 
   for (final platform in [TargetPlatform.macOS, TargetPlatform.windows]) {
-    testWidgets('settings read only the edited service on $platform', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(1200, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      final directory = (await tester.runAsync(
-        () => Directory.systemTemp.createTemp('melonbang-credential-ui-'),
-      ))!;
-      final storage = ObservedCredentials();
-      storage.values['dandanplay'] = jsonEncode({
-        'appId': 'keep',
-        'appSecret': 'untouched',
-      });
-      final services = AppServices(
-        directory: directory.path,
-        credentials: CachedCredentials(storage),
-      );
-      try {
-        await tester.runAsync(services.start);
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: appTheme(false).copyWith(platform: platform),
-            home: Scaffold(
-              body: SettingsPage(
-                account: null,
-                sync: const {},
-                dark: false,
-                dataDirectory: null,
-                connectionSettings: ConnectionSettings(services: services),
-                bitTorrentSettings: const SizedBox(),
-                onAccountAction: () {},
-                onCancelSignIn: () {},
-                onThemeChanged: (_) {},
+    testWidgets(
+      'settings expose account actions without service secrets on $platform',
+      (tester) async {
+        tester.view.physicalSize = const Size(1200, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final directory = (await tester.runAsync(
+          () => Directory.systemTemp.createTemp('melonbang-credential-ui-'),
+        ))!;
+        final storage = ObservedCredentials();
+        final services = AppServices(
+          directory: directory.path,
+          credentials: CachedCredentials(storage),
+        );
+        try {
+          await tester.runAsync(services.start);
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: appTheme(false).copyWith(platform: platform),
+              home: Scaffold(
+                body: SettingsPage(
+                  account: null,
+                  sync: const {},
+                  dark: false,
+                  dataDirectory: null,
+                  bitTorrentSettings: const SizedBox(),
+                  onAccountAction: () {},
+                  onCancelSignIn: () {},
+                  onThemeChanged: (_) {},
+                ),
               ),
             ),
-          ),
-        );
-        await tester.pumpAndSettle();
-        expect(storage.reads, [('account', false)]);
-        await tester.tap(find.text('服务连接'));
-        await tester.pumpAndSettle();
-        expect(storage.reads, [('account', false)]);
-        await tester.tap(find.text('编辑 Bangumi'));
-        await tester.pumpAndSettle();
-        expect(storage.reads, [('account', false), ('oauth', true)]);
-        await tester.enterText(
-          find.widgetWithText(TextField, 'Bangumi Client ID'),
-          'new-client',
-        );
-        await tester.enterText(
-          find.widgetWithText(TextField, 'Bangumi Client Secret'),
-          'new-secret',
-        );
-        await tester.tap(find.text('保存 Bangumi'));
-        await tester.pumpAndSettle();
-        expect(jsonDecode(storage.values['oauth']!)['clientId'], 'new-client');
-        expect(
-          jsonDecode(storage.values['dandanplay']!)['appSecret'],
-          'untouched',
-        );
-        await tester.tap(find.text('已保存 · 编辑 Bangumi'));
-        await tester.pumpAndSettle();
-        expect(storage.reads.length, 2);
-        expect(tester.takeException(), isNull);
-      } finally {
-        await tester.pumpWidget(const SizedBox());
-        await tester.runAsync(() async {
-          await services.close();
-          await directory.delete(recursive: true);
-        });
-      }
-    });
+          );
+          await tester.pumpAndSettle();
+          expect(storage.reads, [('account', false)]);
+          expect(find.text('服务连接'), findsNothing);
+          expect(find.text('登录 Bangumi'), findsOneWidget);
+          for (final category in ['界面与外观', '播放', '下载与做种', '应用数据']) {
+            await tester.tap(find.text(category).first);
+            await tester.pumpAndSettle();
+          }
+          expect(storage.reads, [('account', false)]);
+          expect(find.byType(TextField), findsNothing);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox());
+          await tester.runAsync(() async {
+            await services.close();
+            await directory.delete(recursive: true);
+          });
+        }
+      },
+    );
   }
 }

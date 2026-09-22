@@ -13,6 +13,7 @@ import 'package:melonbang/data/store.dart';
 import 'package:melonbang/data/tracking.dart';
 
 import 'support/memory_credentials.dart';
+import 'support/service_configuration.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -110,7 +111,11 @@ void main() {
         'expiresAt': DateTime.now().millisecondsSinceEpoch + 3600000,
         'user': {'userId': '1'},
       });
-      final account = AccountRepository(api, credentials);
+      final account = AccountRepository(
+        api,
+        credentials,
+        configuration: testServiceConfiguration,
+      );
       await account.initialize();
       final tracking = TrackingRepository(
         store,
@@ -151,7 +156,11 @@ void main() {
         'access_token': 'old',
         'user': {'userId': '1'},
       });
-      final account = AccountRepository(api, credentials);
+      final account = AccountRepository(
+        api,
+        credentials,
+        configuration: testServiceConfiguration,
+      );
       await account.initialize();
       final tracking = TrackingRepository(
         store,
@@ -187,10 +196,6 @@ void main() {
     'refresh preserves a refresh token omitted in the rotated response',
     () async {
       final credentials = MemoryCredentials();
-      credentials.values['oauth'] = jsonEncode({
-        'clientId': 'id',
-        'clientSecret': 'secret',
-      });
       credentials.values['account'] = jsonEncode({
         'access_token': 'old',
         'refresh_token': 'reusable',
@@ -211,7 +216,11 @@ void main() {
           );
         }),
       );
-      final account = AccountRepository(api, credentials);
+      final account = AccountRepository(
+        api,
+        credentials,
+        configuration: testServiceConfiguration,
+      );
       addTearDown(() async {
         await account.close();
         api.close();
@@ -226,7 +235,6 @@ void main() {
     'concurrent unauthorized requests share one refresh and retry once',
     () async {
       final credentials = MemoryCredentials();
-      credentials.values['oauth'] = '{}';
       credentials.values['account'] = jsonEncode({
         'access_token': 'old',
         'refresh_token': 'refresh',
@@ -251,7 +259,11 @@ void main() {
           return http.Response('{}', 200);
         }),
       );
-      final account = AccountRepository(api, credentials);
+      final account = AccountRepository(
+        api,
+        credentials,
+        configuration: testServiceConfiguration,
+      );
       addTearDown(() async {
         await account.close();
         api.close();
@@ -267,7 +279,6 @@ void main() {
     'credential save failure cannot replace the current account token',
     () async {
       final credentials = _FailingCredentials();
-      credentials.values['oauth'] = '{}';
       credentials.values['account'] = jsonEncode({
         'access_token': 'old',
         'refresh_token': 'refresh',
@@ -284,7 +295,11 @@ void main() {
           );
         }),
       );
-      final account = AccountRepository(api, credentials);
+      final account = AccountRepository(
+        api,
+        credentials,
+        configuration: testServiceConfiguration,
+      );
       addTearDown(() async {
         await account.close();
         api.close();

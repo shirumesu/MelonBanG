@@ -1,0 +1,48 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.5'
+          cache: true
+      - name: Verify Dart application
+        shell: pwsh
+        run: |
+          flutter pub get
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency resolution failed.' }
+          flutter analyze
+          if ($LASTEXITCODE -ne 0) { throw 'Analysis failed.' }
+          flutter test
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
+      - name: Build configured portable app
+        shell: pwsh
+        env:
+          MELONBANG_SERVICES_JSON: ${{ secrets.MELONBANG_SERVICES_JSON }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:MELONBANG_SERVICES_JSON)) {
+            throw 'Set the MELONBANG_SERVICES_JSON repository secret using config/services.example.json.'
+          }
+          $configurationPath = Join-Path $env:RUNNER_TEMP 'melonbang-services.json'
+          try {
+            [System.IO.File]::WriteAllText($configurationPath, $env:MELONBANG_SERVICES_JSON)
+            ./scripts/build.ps1 -Archive -ConfigurationFile $configurationPath
+          } finally {
+            Remove-Item -LiteralPath $configurationPath -Force -ErrorAction SilentlyContinue
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: melonbang-windows-x64
+          path: dist/melonbang-windows-x64.zip
+          compression-level: 0
+          if-no-files-found: error

@@ -12,8 +12,10 @@ From this repository root:
 
 ```powershell
 flutter pub get
-flutter run -d windows
-flutter build windows --release
+Copy-Item config/services.example.json .env.services.json
+# Fill .env.services.json with your application registrations, then run:
+flutter run -d windows --dart-define-from-file=.env.services.json
+./scripts/build.ps1 -Archive
 ```
 
 The executable is `build/windows/x64/runner/Release/melonbang.exe`. Keep the whole
@@ -37,7 +39,9 @@ brew install --cask flutter
 brew install cocoapods cmake ninja libtorrent-rasterbar
 flutter doctor -v
 flutter pub get
-flutter run -d macos
+cp config/services.example.json .env.services.json
+# Fill .env.services.json with your application registrations, then run:
+flutter run -d macos --dart-define-from-file=.env.services.json
 ```
 
 Alternatively, set `export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
@@ -49,7 +53,7 @@ builds the patched torrent bridge using Homebrew's libtorrent 2.1 and embeds its
 native dependencies in the app. Flutter's project configuration selects arm64 for
 release/profile builds; this setup does not produce a universal binary.
 
-`flutter build macos --release` creates
+`flutter build macos --release --dart-define-from-file=.env.services.json` creates
 `build/macos/Build/Products/Release/melonbang.app`. Local builds are desktop apps
 without App Sandbox so downloaded and previously selected media remain accessible
 across restarts. App Store distribution and notarization require separate signing
@@ -78,8 +82,7 @@ and owns navigation, asynchronous request identity, and application shutdown.
 The player separates the video scene and keyboard/drag lifecycle (`player_page`),
 transport controls (`player_controls`), side-panel interactions (`player_settings`),
 and the media session (`playback`). Hiding the side panel or entering fullscreen
-preserves its selected tab and unfinished input. Connection settings own their
-form state and credential load/save lifecycle.
+preserves its selected tab and unfinished input.
 
 Split code when it has an independent responsibility or a reusable widget boundary.
 Small related views and their private widgets can share a file; cohesive repositories
@@ -156,17 +159,39 @@ come from native verified pieces; idle seeding still counts toward the time limi
 and returns the task to the configured queue and limits. File summaries appear
 below the task title; View Files opens the full list and per-file playback.
 
-Settings provides fields for Bangumi OAuth Client ID, Client Secret, callback
-address (default `http://127.0.0.1:14567/callback`), and Dandanplay App ID/Secret.
-Credentials and tokens use the current Windows user's DPAPI key or the macOS login
-Keychain. Credential profiles are isolated by the application data directory.
+Application registrations are build configuration. Copy
+[`config/services.example.json`](config/services.example.json) to the Git-ignored
+`.env.services.json`, fill the Bangumi Client ID/Secret and Dandanplay App ID/Secret,
+then pass `--dart-define-from-file=.env.services.json` to Flutter run/build.
+Register the exact Bangumi callback address from the file (default
+`http://127.0.0.1:14567/callback`). Restart the build/run after editing these values.
+The app has no service-secret editor; users only log in to their Bangumi account.
+Old `oauth` and `dandanplay` entries in native storage are ignored. Keep the same
+Bangumi registration for existing login sessions, or sign out and authorize again
+after changing it.
+
+`scripts/build.ps1` reads `.env.services.json` by default, accepts
+`-ConfigurationFile <path>`, and rejects absent or empty registrations for normal
+release builds. `-Development` permits a local build with optional services disabled.
+Without credentials, discovery, local tracking, downloads and other danmaku sources
+remain available. A plain `flutter run` also works with those limitations.
+
+For GitHub Actions, add the complete filled JSON as the repository Actions secret
+`MELONBANG_SERVICES_JSON`, then manually run the **Build Windows** workflow.
+It verifies the app, builds from a temporary configuration file, removes that file,
+and uploads the portable ZIP as a workflow artifact. It does not publish a release.
+CI secrets keep registration values out of tracked files and normal build logs;
+the resulting desktop binary still contains the values needed to contact providers.
+They cannot be treated as unextractable server secrets.
+
+Account tokens use the current Windows user's DPAPI key or the macOS login
+Keychain. Token profiles are isolated by the application data directory.
 Startup attempts account recovery without a system password dialog. If Keychain
-access requires authorization, use Unlock Sync to restore the saved account and
-its OAuth configuration in one interaction. A cached public account profile keeps
+access requires authorization, use Unlock Sync to restore the saved account.
+A cached public account profile keeps
 local collections available while credentials are locked; tokens stay in native
 storage. Synchronization failures do not hide a successfully restored login.
-Opening Settings does not read service secrets: each service has its own Edit and
-Save actions. Successful credential reads are cached in memory for the process,
+Opening Settings does not read secrets. Successful token reads are cached in memory for the process,
 and failed reads can be retried. Writes update the cache only after storage succeeds.
 Windows uses DPAPI with UI forbidden and does not require a Keychain equivalent.
 macOS uses a scoped SecKeychain interaction switch because the existing login
@@ -177,7 +202,7 @@ Keychain authorization; Apple-issued development signing is recommended for
 credential continuity across builds. See
 [macOS signing and account recovery](docs/macos-signing.md) for setup, migration,
 and distribution details. No plaintext account-credential fallback is used.
-No configuration secrets are bundled into the executable or stored in Git.
+No account tokens or registration secrets belong in Git.
 
 Public anime data comes from Melon API; personal writes go to Bangumi. Account
 queues are isolated by user ID. Guest collections remain local and are not

@@ -8,13 +8,10 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:melonbang/app_services.dart';
 import 'package:melonbang/data/danmaku_repository.dart';
-import 'package:melonbang/data/network.dart';
 import 'package:melonbang/ui/player/playback.dart';
 import 'package:melonbang/ui/player/player_page.dart';
 import 'package:melonbang/ui/player/player_settings.dart';
 import 'package:melonbang/ui/player/player_theme.dart';
-
-import '../support/memory_credentials.dart';
 
 class MemoryPlayer extends PlatformPlayer {
   MemoryPlayer() : super(configuration: const PlayerConfiguration()) {
@@ -80,7 +77,7 @@ class MemoryPlayback extends ChangeNotifier implements Playback {
 }
 
 class ControlledDanmaku extends DanmakuRepository {
-  ControlledDanmaku(ApiClient api) : super(api, MemoryCredentials());
+  ControlledDanmaku(super.api);
   final requests = <Completer<List<Json>>>[];
   @override
   Future<List<Json>> search(String title) {

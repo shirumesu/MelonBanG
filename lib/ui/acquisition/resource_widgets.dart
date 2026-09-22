@@ -90,14 +90,68 @@ class ResourceDownloadButton extends StatelessWidget {
   }
 }
 
+String resourceProviderKey(Json provider) =>
+    '${provider['providerId'] ?? provider['providerName'] ?? ''}';
+
 class ResourceProgress extends StatelessWidget {
   const ResourceProgress({
     super.key,
     required this.providers,
     required this.busy,
+    this.excludedProviders = const {},
+    this.onProviderSelected,
   });
   final List<Json> providers;
   final bool busy;
+  final Set<String> excludedProviders;
+  final void Function(String, bool)? onProviderSelected;
+
+  Widget providerChip(BuildContext context, Json provider) {
+    final id = resourceProviderKey(provider);
+    final selected = !excludedProviders.contains(id);
+    final label =
+        '${provider['providerName']} · ${resourceProviderLabel(provider)}';
+    final message =
+        '${provider['message'] ?? provider['metadataMessage'] ?? ''}';
+    final warning = ['error', 'partial'].contains(provider['status']);
+    if (onProviderSelected == null) {
+      return Tooltip(
+        message: message,
+        child: MelonBadge(label, color: warning ? gold : mint),
+      );
+    }
+    final scheme = Theme.of(context).colorScheme;
+    return FilterChip(
+      key: ValueKey('resource-provider:$id'),
+      tooltip: [
+        selected
+            ? '点击隐藏${provider['providerName']}的资源'
+            : '点击显示${provider['providerName']}的资源',
+        if (message.isNotEmpty) message,
+      ].join('\n'),
+      selected: selected,
+      showCheckmark: true,
+      checkmarkColor: scheme.primary,
+      backgroundColor: scheme.surfaceContainerHigh,
+      selectedColor: scheme.primary.withValues(alpha: .12),
+      labelStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
+        fontWeight: FontWeight.w600,
+        color: selected ? scheme.primary : scheme.onSurfaceVariant,
+      ),
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label),
+          if (warning) ...[
+            const SizedBox(width: 5),
+            Icon(Icons.warning_amber_rounded, size: 15, color: scheme.tertiary),
+          ],
+        ],
+      ),
+      onSelected: (value) => onProviderSelected!(id, value),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -106,17 +160,7 @@ class ResourceProgress extends StatelessWidget {
         spacing: 8,
         runSpacing: 8,
         children: [
-          for (final provider in providers)
-            Tooltip(
-              message:
-                  '${provider['message'] ?? provider['metadataMessage'] ?? ''}',
-              child: MelonBadge(
-                '${provider['providerName']} · ${resourceProviderLabel(provider)}',
-                color: ['error', 'partial'].contains(provider['status'])
-                    ? gold
-                    : mint,
-              ),
-            ),
+          for (final provider in providers) providerChip(context, provider),
         ],
       ),
       if (busy) ...[

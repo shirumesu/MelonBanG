@@ -225,7 +225,7 @@ void main() {
       final requested = Completer<void>();
       final response = Completer<http.Response>();
       await initialize((request) async {
-        requested.complete();
+        if (!requested.isCompleted) requested.complete();
         return response.future;
       });
       final result = expectLater(tracking.subject(42), throwsStateError);

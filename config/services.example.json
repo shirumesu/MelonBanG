@@ -1,0 +1,7 @@
+{
+  "BANGUMI_CLIENT_ID": "",
+  "BANGUMI_CLIENT_SECRET": "",
+  "BANGUMI_REDIRECT_URI": "http://127.0.0.1:14567/callback",
+  "DANDANPLAY_APP_ID": "",
+  "DANDANPLAY_APP_SECRET": ""
+}

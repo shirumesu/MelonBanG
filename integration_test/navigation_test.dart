@@ -126,7 +126,7 @@ void main() {
       state.navigate('settings');
       await update;
       await tester.pump(const Duration(milliseconds: 200));
-      expect(find.text('服务连接'), findsOneWidget);
+      expect(find.text('账户与同步'), findsNWidgets(2));
       expect(find.text('番剧详情'), findsNothing);
 
       await state.openSubject(<String, dynamic>{

@@ -7,7 +7,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:melonbang/data/downloads.dart';
 import 'package:melonbang/app_services.dart';
-import 'package:melonbang/ui/settings/connection_settings.dart';
 import 'package:melonbang/data/store.dart';
 import 'package:melonbang/ui/core/theme.dart';
 import 'package:melonbang/ui/acquisition/downloads_page.dart';
@@ -41,7 +40,6 @@ void main() {
                   sync: const {},
                   dark: false,
                   dataDirectory: directory.path,
-                  connectionSettings: const SizedBox(),
                   bitTorrentSettings: BitTorrentSettingsPanel(
                     downloads: downloads,
                   ),
@@ -218,7 +216,6 @@ void main() {
                     sync: const {},
                     dark: false,
                     dataDirectory: null,
-                    connectionSettings: ConnectionSettings(services: services),
                     bitTorrentSettings: const SizedBox(),
                     onAccountAction: () {},
                     onCancelSignIn: () {},
@@ -229,12 +226,9 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          await tester.tap(find.text('服务连接'));
-          await tester.pumpAndSettle();
-          await snapshot('credentials-collapsed');
-          await tester.tap(find.text('编辑 Bangumi'));
-          await tester.pumpAndSettle();
-          await snapshot('credentials-edit');
+          expect(find.text('服务连接'), findsNothing);
+          expect(find.text('登录 Bangumi'), findsOneWidget);
+          await snapshot('account-settings');
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox());

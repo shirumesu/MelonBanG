@@ -31,7 +31,6 @@ void main() {
           'expiresAt': DateTime.now().millisecondsSinceEpoch + 3600000,
         }),
       );
-      await credentials.write('oauth', 'test-only-configuration');
     } else {
       expect(rebuildPhase, 'read');
       final api = ApiClient();
@@ -41,15 +40,10 @@ void main() {
         expect(account.needsAuthorization, isFalse);
         expect(account.userId, 'rebuild-test');
         expect(await account.accessToken(), 'test-only');
-        expect(
-          await credentials.read('oauth', allowInteraction: false),
-          'test-only-configuration',
-        );
       } finally {
         await account.close();
         api.close();
         await credentials.write('account', null);
-        await credentials.write('oauth', null);
       }
     }
   }, skip: rebuildProfile.isEmpty);

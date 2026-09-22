@@ -10,12 +10,12 @@ import 'package:media_kit/media_kit.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:melonbang/data/network.dart';
-
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:melonbang/app_services.dart';
 import 'package:melonbang/ui/player/playback.dart';
 
 import '../test/support/memory_credentials.dart';
+import '../test/support/service_configuration.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -51,10 +51,6 @@ void main() {
       var matches = 0;
       final matching = Completer<http.Response>();
       final credentials = MemoryCredentials();
-      credentials.values['dandanplay'] = jsonEncode({
-        'appId': 'test-app',
-        'appSecret': 'test-secret',
-      });
       final api = ApiClient(
         client: MockClient((request) async {
           if (request.url.path == '/api/v2/match') {
@@ -78,6 +74,7 @@ void main() {
       final services = AppServices(
         directory: directory.path,
         api: api,
+        configuration: testServiceConfiguration,
         credentials: credentials,
       );
       await services.start();

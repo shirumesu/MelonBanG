@@ -15,7 +15,7 @@ import 'package:melonbang/data/network.dart';
 import 'package:melonbang/data/playback_library.dart';
 import 'package:melonbang/data/store.dart';
 
-import 'support/memory_credentials.dart';
+import 'support/service_configuration.dart';
 
 http.Response jsonResponse(Object value) =>
     http.Response.bytes(utf8.encode(jsonEncode(value)), 200);
@@ -55,14 +55,9 @@ class EpisodeDownload extends DownloadRepository {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory directory;
-  late MemoryCredentials credentials;
+
   setUp(() async {
     directory = await Directory.systemTemp.createTemp('melonbang-match-');
-    credentials = MemoryCredentials();
-    credentials.values['dandanplay'] = jsonEncode({
-      'appId': 'test-app',
-      'appSecret': 'test-secret',
-    });
   });
   tearDown(() => directory.delete(recursive: true));
 
@@ -93,7 +88,10 @@ void main() {
       );
       addTearDown(api.close);
       expect(
-        await DanmakuRepository(api, credentials).matchFile(file.path, 1500.8),
+        await DanmakuRepository(
+          api,
+          configuration: testServiceConfiguration,
+        ).matchFile(file.path, 1500.8),
         7,
       );
     },
@@ -115,7 +113,10 @@ void main() {
         client: MockClient((_) async => jsonResponse(response)),
       );
       addTearDown(api.close);
-      final repository = DanmakuRepository(api, credentials);
+      final repository = DanmakuRepository(
+        api,
+        configuration: testServiceConfiguration,
+      );
       expect(await repository.matchFile(file.path, 0), isNull);
       response = {
         'success': true,
@@ -154,7 +155,10 @@ void main() {
         }),
       );
       addTearDown(api.close);
-      final repository = DanmakuRepository(api, credentials);
+      final repository = DanmakuRepository(
+        api,
+        configuration: testServiceConfiguration,
+      );
       expect(await repository.automaticLocator('bahamut', '葬送的芙莉莲', 1), 'sn=7');
       expect(await repository.automaticLocator('bahamut', '葬送的芙莉莲', 3), isNull);
       expect(
@@ -181,7 +185,7 @@ void main() {
       expect(
         await DanmakuRepository(
           api,
-          credentials,
+          configuration: testServiceConfiguration,
         ).automaticLocator('bahamut', '葬送的芙莉莲', 1),
         isNull,
       );
@@ -231,7 +235,10 @@ void main() {
         }),
       );
       addTearDown(api.close);
-      final repository = DanmakuRepository(api, credentials);
+      final repository = DanmakuRepository(
+        api,
+        configuration: testServiceConfiguration,
+      );
       expect(
         await repository.automaticLocator(
           'bilibili',
@@ -260,7 +267,10 @@ void main() {
         }),
       );
       addTearDown(api.close);
-      final repository = DanmakuRepository(api, credentials);
+      final repository = DanmakuRepository(
+        api,
+        configuration: testServiceConfiguration,
+      );
       expect(await repository.automaticLocator('bilibili', '作品', 1), isNull);
       data = {
         'result': [
@@ -278,12 +288,14 @@ void main() {
   );
 
   test('autoMatch merges independent sources and keeps misses empty', () async {
+    var dandanplayUnavailable = false;
     final paths = <String>[];
     final api = ApiClient(
       client: MockClient((request) async {
         paths.add(request.url.path);
         switch (request.url.path) {
           case '/api/v2/match':
+            if (dandanplayUnavailable) throw StateError('Provider unavailable');
             return jsonResponse({
               'success': true,
               'isMatched': true,
@@ -344,7 +356,7 @@ void main() {
     final library = PlaybackLibrary(
       store,
       downloads,
-      DanmakuRepository(api, credentials),
+      DanmakuRepository(api, configuration: testServiceConfiguration),
       CatalogRepository(api, store),
     );
     addTearDown(() async {
@@ -365,14 +377,14 @@ void main() {
       ['ready', 'unmatched', 'ready'],
     );
     expect(paths.where((p) => p == '/v1/subjects/42'), hasLength(1));
-    final savedCredentials = credentials.values.remove('dandanplay');
+    dandanplayUnavailable = true;
     await library.autoMatch(1500);
     expect(objects(library.current!['danmaku']).single['text'], 'Bahamut');
     expect(
       objects(library.current!['danmakuSources']).map((s) => s['status']),
       ['error', 'unmatched', 'ready'],
     );
-    credentials.values['dandanplay'] = savedCredentials!;
+    dandanplayUnavailable = false;
     final oldId = library.current!['id'] as String;
     await library.local(file.path);
     paths.clear();
@@ -425,7 +437,7 @@ void main() {
     final library = PlaybackLibrary(
       store,
       downloads,
-      DanmakuRepository(api, credentials),
+      DanmakuRepository(api, configuration: testServiceConfiguration),
       CatalogRepository(api, store),
     );
     addTearDown(() async {
@@ -497,7 +509,7 @@ void main() {
       final library = PlaybackLibrary(
         store,
         downloads,
-        DanmakuRepository(api, credentials),
+        DanmakuRepository(api, configuration: testServiceConfiguration),
         CatalogRepository(api, store),
       );
       addTearDown(() async {

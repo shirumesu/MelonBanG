@@ -532,13 +532,8 @@ void main() {
       expect(find.text('完整缓存'), findsNothing);
       state.navigate('settings');
       await snapshot('settings-${width.toInt()}');
-      await tester.tap(find.text('服务连接'));
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.tap(find.text('编辑 Bangumi'));
-      await tester.pump(const Duration(milliseconds: 300));
-      final input = find.widgetWithText(TextField, 'Bangumi Client ID');
-      await tester.enterText(input, 'draft-client');
-      await snapshot('connections-${width.toInt()}');
+      expect(find.text('服务连接'), findsNothing);
+      expect(find.text('登录 Bangumi'), findsOneWidget);
       await tester.tap(find.text('界面与外观'));
       await tester.pump();
       await snapshot('appearance-${width.toInt()}');
@@ -549,16 +544,15 @@ void main() {
       await tester.tap(find.byType(Switch));
       await tester.pump();
       await snapshot('appearance-dark-${width.toInt()}');
-      await tester.tap(find.text('服务连接'));
+      await tester.tap(find.text('账户与同步'));
       await tester.pump();
-      expect(find.text('draft-client'), findsOneWidget);
       final sidebarToggle = tester.widget<IconButton>(
         find.widgetWithIcon(IconButton, Icons.view_sidebar_outlined),
       );
       expect(sidebarToggle.onPressed, isNull);
-      expect(find.text('服务连接'), findsNWidgets(2));
-      expect(find.text('draft-client'), findsOneWidget);
-      await snapshot('connections-dark-${width.toInt()}');
+      expect(find.text('账户与同步'), findsNWidgets(2));
+      expect(find.text('登录 Bangumi'), findsOneWidget);
+      await snapshot('account-dark-${width.toInt()}');
       state.navigate('home');
       await tester.pump(const Duration(milliseconds: 300));
       await homeTop();

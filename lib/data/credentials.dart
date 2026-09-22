@@ -23,7 +23,7 @@ Credentials platformCredentials(String directory) {
 class CredentialInteractionRequired implements Exception {
   const CredentialInteractionRequired();
   @override
-  String toString() => '凭据需要授权，请点击登录，或在服务连接中编辑对应配置后重试。';
+  String toString() => '登录凭据需要授权，请在账户设置中点击「解锁同步」后重试。';
 }
 
 /// Cache successful reads only, and serialize reads/writes for each credential.

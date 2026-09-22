@@ -9,14 +9,17 @@ import 'package:xml/xml.dart';
 import 'package:html/parser.dart' as html;
 import 'package:protobuf/protobuf.dart';
 
-import 'credentials.dart';
+import 'service_configuration.dart';
 import 'json.dart';
 import 'network.dart';
 
 class DanmakuRepository {
-  DanmakuRepository(this.api, this.credentials);
+  DanmakuRepository(
+    this.api, {
+    this.configuration = const ServiceConfiguration(),
+  });
   final ApiClient api;
-  final Credentials credentials;
+  final ServiceConfiguration configuration;
 
   Future<String?> automaticLocator(
     String provider,
@@ -127,19 +130,12 @@ class DanmakuRepository {
     return episodes.length == 1 ? 'sn=${episodes.single}' : null;
   }
 
-  Future<void> configure(String appId, String appSecret) => credentials.write(
-    'dandanplay',
-    jsonEncode({'appId': appId.trim(), 'appSecret': appSecret.trim()}),
-  );
   Future<Json> _dandan(String path, {Json? body}) async {
-    final config = object(
-      jsonDecode(await credentials.read('dandanplay') ?? '{}'),
-    );
-    final appId = '${config['appId'] ?? ''}';
-    final appSecret = '${config['appSecret'] ?? ''}';
-    if (appId.isEmpty || appSecret.isEmpty) {
-      throw StateError('请先在设置中填写弹弹play应用凭据');
+    if (!configuration.hasDandanplay) {
+      throw StateError('此版本尚未启用弹弹play，请使用其他弹幕来源或已配置的应用版本。');
     }
+    final appId = configuration.dandanplayAppId.trim();
+    final appSecret = configuration.dandanplayAppSecret.trim();
     final uri = Uri.parse('https://api.dandanplay.net$path');
     final timestamp = '${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
     final signature = base64Encode(
