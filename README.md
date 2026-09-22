@@ -80,7 +80,8 @@ dependencies, so all builds use the same checked-in patches.
 Pages receive data and action callbacks; `app.dart` connects them to repositories
 and owns navigation, asynchronous request identity, and application shutdown.
 The player separates the video scene and keyboard/drag lifecycle (`player_page`),
-transport controls (`player_controls`), side-panel interactions (`player_settings`),
+transport controls (`player_controls`), side-panel interactions (`player_library_panel`),
+track and provider settings (`player_settings`),
 and the media session (`playback`). Hiding the side panel or entering fullscreen
 preserves its selected tab and unfinished input.
 
@@ -98,8 +99,10 @@ without requiring an additional state-management framework. Keep `test/` and
   enables account-scoped synchronization, with a durable queue for offline edits.
 - Search resources with the Chinese name, original name and available aliases in
   parallel. Each completed query appears immediately; duplicate aliases within a
-  provider keep one result. Filter by title or release group, and optionally append
-  an episode keyword (such as `01` or `S01E01`) to every search name. Group labels
+  provider keep one result. Filter by provider, quality or release group. Chapter
+  shortcuts prefill an editable episode keyword (such as `01`) for every search
+  name; leave it blank to find batches. Unconfirmed quality/group matches are
+  excluded unless enabled. Group labels
   come from DMHY/Mikan page metadata; joint releases retain their original names.
   Episode keywords are search terms, not inferred chapter bindings. Download covers
   use the associated catalogue subject; existing tasks recover covers from cached
@@ -109,7 +112,7 @@ without requiring an additional state-management framework. Keep `test/` and
   Multi-video torrents require selecting a file in the cache list; individual files
   are not automatically assigned to the chapter used to find the collection.
 - Play original video files through media_kit: native ASS subtitles, audio and
-  subtitle selection, external subtitles, subtitle delay, seeks, resume, fullscreen,
+  subtitle selection, automatic sidecar subtitles, subtitle delay, seeks, resume, fullscreen,
   and keyboard controls. Video, controls, and danmaku share one Flutter scene.
 - Automatically match danmaku when playback opens: Dandanplay uses the file's
   first-16-MiB MD5, filename, size, and optional duration; Bilibili searches official
@@ -127,8 +130,10 @@ objects directly; no subprocess, IPC dispatcher, legacy component, or transcode
 pipeline is involved. Native libraries and their licenses are listed in
 [THIRD_PARTY.md](THIRD_PARTY.md).
 
-Backend ownership, persistence guarantees, and verification boundaries are documented
-in [Backend contracts](docs/backend.md).
+Engineering contracts and design decisions live in the
+[project Spec](https://github.com/shirumesu/geispec/blob/main/projects/melonbang/INDEX.md).
+See [Backend contracts](https://github.com/shirumesu/geispec/blob/main/projects/melonbang/topics/backend/README.md)
+for service ownership, persistence guarantees, and verification boundaries.
 
 ## Data and connections
 
@@ -200,7 +205,7 @@ access-control dialogs. Ad-hoc rebuilds may still require fresh authorization
 when a credential is explicitly used. Self-signed builds can also need renewed
 Keychain authorization; Apple-issued development signing is recommended for
 credential continuity across builds. See
-[macOS signing and account recovery](docs/macos-signing.md) for setup, migration,
+[macOS signing and account recovery](https://github.com/shirumesu/geispec/blob/main/projects/melonbang/topics/desktop/notes/keychain-signing-partitions.md) for setup, migration,
 and distribution details. No plaintext account-credential fallback is used.
 No account tokens or registration secrets belong in Git.
 
