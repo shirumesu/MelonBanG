@@ -33,6 +33,7 @@ void main() {
       );
       final slowSearch = Completer<void>();
       final slowDetail = Completer<void>();
+      final slowReturningDetail = Completer<void>();
       final api = ApiClient(
         client: MockClient((request) async {
           if (request.url.host == 'share.dmhy.org' ||
@@ -48,6 +49,7 @@ void main() {
           }
           final id = int.tryParse(request.url.pathSegments.last);
           if (id == 3) await slowDetail.future;
+          if (id == 4) await slowReturningDetail.future;
           return http.Response(
             jsonEncode(
               id == null
@@ -79,6 +81,7 @@ void main() {
       addTearDown(() async {
         if (!slowSearch.isCompleted) slowSearch.complete();
         if (!slowDetail.isCompleted) slowDetail.complete();
+        if (!slowReturningDetail.isCompleted) slowReturningDetail.complete();
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump(const Duration(milliseconds: 500));
         await services.close();
@@ -95,6 +98,14 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
       final dynamic state = tester.state(find.byType(MelonApp));
+      await state.playback.player.setVolume(20.0);
+      await tester.pump(const Duration(milliseconds: 100));
+      await state.playback.toggleMute();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(state.playback.player.state.volume, 0);
+      await state.playback.toggleMute();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(state.playback.player.state.volume, 20);
       await state.playback.player.setVolume(0.0);
       await state.openSubject(<String, dynamic>{
         'subjectId': 1,
@@ -295,6 +306,27 @@ void main() {
       expect(state.playback.session['subjectId'], 2);
       expect(services.library.current?['id'], state.playback.session['id']);
       expect(state.playerSubject['subjectId'], 2);
+      await state.startPlayback(
+        () => services.library.local(media, subjectId: 4, episodeId: 40),
+      );
+      expect(state.playerSubject, isNull);
+      state.navigate('home');
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(state.route, 'home');
+      state.goBack();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(state.route, 'player');
+      expect(state.playerSubject, isNull);
+      slowReturningDetail.complete();
+      for (var i = 0; i < 20 && state.playerSubject == null; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(
+        state.playerSubject?['subjectId'],
+        4,
+        reason: 'Leaving and returning must retain metadata for the same playback session.',
+      );
+      expect(find.textContaining('Episode 4'), findsOneWidget);
       await (state.startPlayback(
         () => services.library.local(media, subjectId: 3, episodeId: 30),
       ) as Future<void>).timeout(const Duration(seconds: 3));
@@ -311,6 +343,15 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
       expect(state.playerSubject['subjectId'], 2);
+      await state.playback.player.seek(Duration.zero);
+      await state.playback.player.play();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(state.playback.player.state.playing, isTrue);
+      state.goBack();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(state.route, 'subject');
+      expect(state.subject?['subjectId'], 2);
+      expect(state.playback.player.state.playing, isFalse);
       expect(tester.takeException(), isNull);
     },
   );

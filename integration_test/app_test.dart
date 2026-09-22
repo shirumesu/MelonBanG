@@ -40,7 +40,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
     }
     expect(find.text('本季热度'), findsOneWidget);
-    expect(find.text('继续播放'), findsOneWidget);
+    expect(find.text('正在追'), findsOneWidget);
     expect(tester.takeException(), isNull);
     const path = String.fromEnvironment('TEST_CAPTURE');
     if (path.isNotEmpty) {

@@ -16,8 +16,10 @@ class SubjectPage extends StatefulWidget {
     required this.onOpenEpisode,
     required this.onPlayEpisode,
     required this.onOpenSubject,
+    this.loading = false,
   });
   final Json? subject;
+  final bool loading;
   final ValueChanged<Json> onUpdateTracking;
   final ValueChanged<Json?> onFindResources;
   final ValueChanged<Json> onOpenEpisode, onPlayEpisode, onOpenSubject;
@@ -51,6 +53,11 @@ class _SubjectPageState extends State<SubjectPage> {
     final next =
         episodes.where((e) => e['status'] != 'watched').firstOrNull ??
         episodes.firstOrNull;
+    final playLabel = widget.loading
+        ? '加载剧集…'
+        : next == null
+        ? '暂无剧集'
+        : '${watched == episodes.length ? '重看' : '播放'} EP${next['sort']}';
     return PageScroll(
       children: [
         const SizedBox(height: 10),
@@ -111,7 +118,9 @@ class _SubjectPageState extends State<SubjectPage> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        '已看 EP${watched.toString().padLeft(2, '0')} / 预定全 ${item['episodeTotal'] ?? episodes.length} 话',
+                        widget.loading
+                            ? '观看进度加载中…'
+                            : '已看 $watched 话 / 预定全 ${item['episodeTotal'] ?? episodes.length} 话',
                         style: TextStyle(
                           fontSize: 13,
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -132,8 +141,8 @@ class _SubjectPageState extends State<SubjectPage> {
                                 TextSpan(
                                   text: scoreLabel(item['score']),
                                   style: const TextStyle(
-                                    fontSize: 46,
-                                    fontWeight: FontWeight.w800,
+                                    fontSize: 34,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                                 TextSpan(
@@ -198,16 +207,14 @@ class _SubjectPageState extends State<SubjectPage> {
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           FilledButton.icon(
-                            onPressed: next == null
+                            onPressed: next == null || widget.loading
                                 ? null
                                 : () => widget.onPlayEpisode(next),
                             icon: const Icon(
                               Icons.play_arrow_rounded,
                               size: 19,
                             ),
-                            label: Text(
-                              '继续播放${next == null ? '' : ' EP${next['sort']}'}',
-                            ),
+                            label: Text(playLabel),
                           ),
                           OutlinedButton.icon(
                             onPressed: episodes.isEmpty ? null : _episodes,
@@ -270,6 +277,7 @@ class _SubjectPageState extends State<SubjectPage> {
               ),
               const SizedBox(height: 14),
               SelectableText(
+                key: const PageStorageKey('subject-summary'),
                 '${item['summary'] ?? '暂无简介'}',
                 style: const TextStyle(fontSize: 13, height: 1.85),
               ),

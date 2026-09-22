@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -45,6 +46,14 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   final playerPageKey = GlobalKey();
   final search = TextEditingController();
   final resourceSearch = TextEditingController();
+  final searchFocus = FocusNode(debugLabel: 'Catalogue search');
+  final pageStorage = PageStorageBucket();
+  final List<_PageLocation> history = [];
+  String selectedSection = 'home';
+  String? searchError;
+  String resultQuery = '';
+  List<String>? resourceQueryNames;
+  String resourceQueryEpisode = '';
   late final Playback playback;
   final subscriptions = <StreamSubscription<dynamic>>[];
   String route = 'home', collectionFilter = 'watching';
@@ -175,8 +184,108 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     }
   });
 
-  void goBack() =>
-      navigate(route == 'resources' && subject != null ? 'subject' : 'home');
+  _PageLocation get location => _PageLocation(
+    route: route,
+    accountId: widget.service.account.userId,
+    section: selectedSection,
+    subject: subject,
+    resourceEpisode: resourceEpisode,
+    resourceQuery: resourceSearch.text,
+    query: search.text,
+    results: results,
+    candidates: candidates,
+    providers: providers,
+    searchError: searchError,
+    resultQuery: resultQuery,
+    pending: busy,
+    resourceQueryNames: resourceQueryNames,
+    resourceQueryEpisode: resourceQueryEpisode,
+  );
+
+  void rememberLocation() => history.add(location);
+
+  void leavePlayer() {
+    if (route != 'player') return;
+    _playbackRequest++;
+    if (fullScreen) unawaited(setFullScreen(false));
+    windowFullScreen = false;
+    _playbackOperations = _playbackOperations.then(
+      (_) => perform(() async {
+        await playback.player.pause();
+        await playback.saveProgress();
+      }),
+    );
+  }
+
+  void goBack() {
+    leavePlayer();
+    if (history.isEmpty) {
+      navigate('home');
+      return;
+    }
+    final previous = history.removeLast();
+    _navigation++;
+    setState(() {
+      route = previous.route;
+      selectedSection = previous.section;
+      subject = previous.subject;
+      resourceEpisode = previous.resourceEpisode;
+      resourceSearch.text = previous.resourceQuery;
+      search.text = previous.query;
+      results = previous.results;
+      candidates = previous.candidates;
+      providers = previous.providers;
+      searchError = previous.searchError;
+      resultQuery = previous.resultQuery;
+      resourceQueryNames = previous.resourceQueryNames;
+      resourceQueryEpisode = previous.resourceQueryEpisode;
+      busy = false;
+    });
+    if (previous.pending ||
+        (route == 'subject' &&
+            previous.accountId != widget.service.account.userId)) {
+      switch (route) {
+        case 'subject':
+          if (subject != null) unawaited(openSubject(subject!));
+        case 'search':
+          unawaited(searchSubjects(query: previous.resultQuery));
+        case 'resources':
+          unawaited(
+            searchResources(
+              names: resourceQueryNames,
+              episodeKeyword: resourceQueryEpisode,
+            ),
+          );
+      }
+    }
+  }
+
+  String get pageIdentity => switch (route) {
+    'subject' => 'subject:${subject?['subjectId']}',
+    'resources' => 'resources:${subject?['subjectId']}:$resourceEpisode',
+    'search' => 'search:$resultQuery',
+    _ => route,
+  };
+
+  void focusSearch() {
+    if (fullScreen) unawaited(setFullScreen(false));
+    final needsNavigation = route == 'player' || route == 'settings';
+    void focus() {
+      if (!mounted) return;
+      searchFocus.requestFocus();
+      search.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: search.text.length,
+      );
+    }
+
+    if (needsNavigation) {
+      navigate('home');
+      WidgetsBinding.instance.addPostFrameCallback((_) => focus());
+    } else {
+      focus();
+    }
+  }
 
   Future<void> refreshPersonal() async {
     final ticket = ++_personalRequest;
@@ -217,7 +326,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       showError('该日程尚未关联番剧条目。');
       return;
     }
+    leavePlayer();
     final ticket = ++_navigation;
+    if (route != 'subject' || subject?['subjectId'] != id) rememberLocation();
     setState(() {
       route = 'subject';
       subject = item;
@@ -267,7 +378,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   }
 
   void playEpisode(Json episode) {
-    final subjectId = playerSubject?['subjectId'] as int?;
+    final subjectId = playback.session?['subjectId'] as int?;
     if (subjectId == null) return;
     unawaited(
       startPlayback(
@@ -283,6 +394,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     if (!mounted || closing || ticket != _playbackRequest) return;
     final sessionId = playback.session?['id'];
     final subjectId = playback.session?['subjectId'] as int?;
+    if (route != 'player') rememberLocation();
     _navigation++;
     setState(() {
       route = 'player';
@@ -293,9 +405,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     unawaited(
       perform(() async {
         final detail = await widget.service.tracking.subject(subjectId);
-        if (mounted &&
-            ticket == _playbackRequest &&
-            sessionId == playback.session?['id']) {
+        if (mounted && sessionId == playback.session?['id']) {
           setState(() => playerSubject = detail);
         }
       }),
@@ -333,6 +443,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   }
 
   Future<void> findResources({Json? episode}) async {
+    if (route != 'resources') rememberLocation();
     resourceEpisode = episode?['episodeId'] as int?;
     resourceSearch.text = titleOf(subject ?? {});
     _navigation++;
@@ -358,6 +469,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     final keyword = resourceSearch.text.trim();
     setState(() {
       busy = true;
+      resourceQueryNames = searchNames;
+      resourceQueryEpisode = episodeKeyword;
       candidates = [];
       providers = [];
     });
@@ -398,38 +511,54 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     }
   }
 
-  Future<void> searchSubjects() async {
-    if (!ready || search.text.trim().isEmpty) return;
+  Future<void> searchSubjects({String? query}) async {
+    final requestedQuery = query ?? search.text.trim();
+    if (!ready || requestedQuery.isEmpty) return;
+    if (route != 'search') rememberLocation();
     final ticket = ++_navigation;
     setState(() {
       route = 'search';
       busy = true;
       results = [];
+      searchError = null;
+      resultQuery = requestedQuery;
     });
-    await perform(() async {
-      final value = await widget.service.catalog.search(search.text.trim());
+    try {
+      final value = await widget.service.catalog.search(resultQuery);
       if (mounted && ticket == _navigation) {
         setState(() => results = objects(value));
       }
-    });
+    } catch (_) {
+      if (mounted && ticket == _navigation) {
+        setState(() => searchError = '搜索暂时失败，请重试。');
+      }
+    }
     if (mounted && ticket == _navigation) setState(() => busy = false);
   }
 
   void navigate(String target) {
+    if (target == route) return;
+    leavePlayer();
+    rememberLocation();
     _navigation++;
     setState(() {
       route = target;
+      if (['home', 'tracking', 'downloads'].contains(target)) {
+        selectedSection = target;
+      } else if (target == 'calendar') {
+        selectedSection = 'home';
+      }
       busy = false;
     });
     if (ready && target == 'calendar' && calendar.isEmpty) {
-      unawaited(
-        perform(() async {
-          final value = await widget.service.catalog.calendar();
-          if (mounted) setState(() => calendar = objects(value));
-        }),
-      );
+      unawaited(loadCalendar());
     }
   }
+
+  Future<void> loadCalendar() => perform(() async {
+    final value = await widget.service.catalog.calendar();
+    if (mounted) setState(() => calendar = objects(value));
+  });
 
   @override
   void onWindowClose() async {
@@ -511,6 +640,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     homeFeedback.dispose();
     syncFeedback.dispose();
     search.dispose();
+    searchFocus.dispose();
     resourceSearch.dispose();
     windowManager.removeListener(this);
     super.dispose();
@@ -527,113 +657,134 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       scaffoldMessengerKey: messages,
       navigatorKey: navigation,
       theme: appTheme(dark),
-      home: Scaffold(
-        body: Column(
-          children: [
-            if (!fullScreen)
-              AppTitleBar(
-                route: route,
-                immersive: route == 'player' && windowFullScreen,
-                dark: dark,
-                sidebarVisible: sidebarVisible,
-                onBack: route == 'home' ? null : goBack,
-                onToggleSidebar: () =>
-                    setState(() => sidebarVisible = !sidebarVisible),
-                onToggleTheme: () => setDark(!dark),
-              ),
-            Expanded(
-              child: Row(
-                children: [
-                  if (!fullScreen &&
-                      !(route == 'player' && windowFullScreen) &&
-                      route != 'settings' &&
-                      sidebarVisible)
-                    SizedBox(
-                      width: 236,
-                      child: AppSidebar(
-                        dark: dark,
-                        route: route,
-                        nickname: '${account?['nickname'] ?? '尚未登录'}',
-                        username: account?['username'] as String?,
-                        watchingCount: collection
-                            .where((item) => item['status'] == 'watching')
-                            .length,
-                        downloadCount: objects(downloads['tasks'])
-                            .where(
-                              (task) =>
-                                  [
-                                    'metadata',
-                                    'downloading',
-                                    'ready',
-                                    'queued',
-                                    'checking',
-                                  ].contains(task['status']) &&
-                                  number(task['progress']) < 1,
-                            )
-                            .length,
-                        onNavigate: navigate,
-                      ),
-                    ),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        if (!fullScreen &&
-                            route != 'settings' &&
-                            route != 'player')
-                          AppHeader(
+      home: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.keyF, meta: true):
+              focusSearch,
+          const SingleActivator(LogicalKeyboardKey.keyF, control: true):
+              focusSearch,
+          const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
+              goBack,
+          const SingleActivator(LogicalKeyboardKey.bracketLeft, meta: true):
+              goBack,
+        },
+        child: Scaffold(
+          body: Column(
+            children: [
+              if (!fullScreen)
+                AppTitleBar(
+                  route: route,
+                  immersive: route == 'player' && windowFullScreen,
+                  dark: dark,
+                  sidebarVisible: sidebarVisible,
+                  onBack: history.isEmpty ? null : goBack,
+                  backLabel: '返回',
+                  onToggleSidebar: () =>
+                      setState(() => sidebarVisible = !sidebarVisible),
+                  onToggleTheme: () => setDark(!dark),
+                ),
+              Expanded(
+                child: Row(
+                  children: [
+                    if (!fullScreen &&
+                        !(route == 'player' && windowFullScreen) &&
+                        route != 'settings')
+                      MotionReveal(
+                        visible: sidebarVisible,
+                        axis: Axis.horizontal,
+                        child: SizedBox(
+                          width: 236,
+                          child: AppSidebar(
+                            dark: dark,
                             route: route,
-                            search: search,
-                            onSearch: searchSubjects,
-                            sync: sync,
-                            collectionCount: collection.length,
+                            selectedRoute: selectedSection,
+                            nickname: '${account?['nickname'] ?? '尚未登录'}',
+                            username: account?['username'] as String?,
+                            watchingCount: collection
+                                .where((item) => item['status'] == 'watching')
+                                .length,
+                            downloadCount: objects(downloads['tasks'])
+                                .where(
+                                  (task) =>
+                                      [
+                                        'metadata',
+                                        'downloading',
+                                        'ready',
+                                        'queued',
+                                        'checking',
+                                      ].contains(task['status']) &&
+                                      number(task['progress']) < 1,
+                                )
+                                .length,
+                            onNavigate: navigate,
                           ),
-                        if (!ready && error != null && !fullScreen)
-                          MaterialBanner(
-                            content: Text(error!),
-                            actions: [
-                              TextButton(
-                                onPressed: () => openVideo(),
-                                child: const Text('打开本地视频'),
-                              ),
-                            ],
-                          ),
-                        if (busy && !fullScreen)
-                          const LinearProgressIndicator(minHeight: 2),
-                        Expanded(
-                          child: route == 'player'
-                              ? PlayerPage(
-                                  key: playerPageKey,
-                                  playback: playback,
-                                  service: widget.service,
-                                  onError: showError,
-                                  onBack: goBack,
-                                  fullScreen: fullScreen,
-                                  windowFullScreen: windowFullScreen,
-                                  onWindowFullScreenChanged:
-                                      setWindowFullScreen,
-                                  downloads: downloads,
-                                  onPlayFile: (id, fileId) => startPlayback(
-                                    () => widget.service.library.fromDownload(
-                                      id,
-                                      fileId: fileId,
+                        ),
+                      ),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          if (!fullScreen &&
+                              route != 'settings' &&
+                              route != 'player')
+                            AppHeader(
+                              route: route,
+                              search: search,
+                              searchFocusNode: searchFocus,
+                              onSearch: searchSubjects,
+                              sync: sync,
+                              collectionCount: collection.length,
+                            ),
+                          if (!ready && error != null && !fullScreen)
+                            MaterialBanner(
+                              content: Text(error!),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => openVideo(),
+                                  child: const Text('打开本地视频'),
+                                ),
+                              ],
+                            ),
+                          if (busy && !fullScreen)
+                            const LinearProgressIndicator(minHeight: 2),
+                          Expanded(
+                            child: route == 'player'
+                                ? PlayerPage(
+                                    key: playerPageKey,
+                                    playback: playback,
+                                    service: widget.service,
+                                    onError: showError,
+                                    onBack: goBack,
+                                    fullScreen: fullScreen,
+                                    windowFullScreen: windowFullScreen,
+                                    onWindowFullScreenChanged:
+                                        setWindowFullScreen,
+                                    downloads: downloads,
+                                    onPlayFile: (id, fileId) => startPlayback(
+                                      () => widget.service.library.fromDownload(
+                                        id,
+                                        fileId: fileId,
+                                      ),
+                                    ),
+                                    onFullScreenChanged: setFullScreen,
+                                    subject: playerSubject,
+                                    onEpisode: playEpisode,
+                                  )
+                                : PageStorage(
+                                    bucket: pageStorage,
+                                    child: PageEntrance(
+                                      key: PageStorageKey(pageIdentity),
+                                      child: page(),
                                     ),
                                   ),
-                                  onFullScreenChanged: setFullScreen,
-                                  subject: playerSubject,
-                                  onEpisode: playEpisode,
-                                )
-                              : PageEntrance(
-                                  key: ValueKey(route),
-                                  child: page(),
-                                ),
-                        ),
-                      ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -666,7 +817,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
               .toList(),
           trendingLoading: trendingLoading,
           error: error,
-          onExplore: () => navigate('tracking'),
+          onExplore: focusSearch,
           feedback: homeFeedback,
           onCalendar: () => navigate('calendar'),
           onRefresh: refreshHome,
@@ -676,16 +827,15 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         return SearchPage(
           results: results,
           busy: busy,
+          error: searchError,
+          onRetry: searchSubjects,
           onOpenSubject: openSubject,
         );
       case 'calendar':
         return CalendarPage(
           calendar: calendar,
           onOpenSubject: openSubject,
-          onRetry: () {
-            navigate('home');
-            navigate('calendar');
-          },
+          onRetry: loadCalendar,
         );
       case 'tracking':
         return TrackingPage(
@@ -698,11 +848,13 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           signedIn: account != null,
           onSignIn: () => navigate('settings'),
           onSync: syncCollection,
+          onExplore: focusSearch,
         );
       case 'subject':
         final item = subject;
         return SubjectPage(
           subject: item,
+          loading: busy,
           onUpdateTracking: updateTracking,
           onFindResources: (episode) => findResources(episode: episode),
           onOpenEpisode: (episode) => openVideo(null, episode),
@@ -725,10 +877,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           key: ValueKey('resources:${subject?["subjectId"]}:$resourceEpisode'),
           onSearch: (names, episode) =>
               searchResources(names: names, episodeKeyword: episode),
-          onDownload: (candidate) => perform(() async {
+          onDownload: (candidate) async {
             await widget.service.sources.enqueue('${candidate['candidateId']}');
-            navigate('downloads');
-          }),
+          },
         );
       case 'downloads':
         return DownloadsPage(
@@ -754,8 +905,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         );
       case 'settings':
         return SettingsPage(
-          showSidebar: sidebarVisible,
-          onBack: () => navigate('home'),
+          onBack: goBack,
           account: account,
           sync: sync,
           needsAuthorization: widget.service.account.needsAuthorization,
@@ -837,6 +987,34 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       });
     }
   }
+}
+
+class _PageLocation {
+  const _PageLocation({
+    required this.route,
+    required this.accountId,
+    required this.section,
+    required this.subject,
+    required this.resourceEpisode,
+    required this.resourceQuery,
+    required this.query,
+    required this.results,
+    required this.candidates,
+    required this.providers,
+    required this.searchError,
+    required this.resultQuery,
+    required this.pending,
+    required this.resourceQueryNames,
+    required this.resourceQueryEpisode,
+  });
+  final String route, accountId, section, resourceQuery, query, resultQuery;
+  final bool pending;
+  final List<String>? resourceQueryNames;
+  final String resourceQueryEpisode;
+  final Json? subject;
+  final int? resourceEpisode;
+  final List<Json> results, candidates, providers;
+  final String? searchError;
 }
 
 Future<XFile?> selectVideo() => openFile(

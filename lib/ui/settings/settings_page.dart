@@ -17,13 +17,12 @@ class SettingsPage extends StatefulWidget {
     required this.onCancelSignIn,
     required this.onThemeChanged,
     this.onBack,
-    this.showSidebar = true,
     this.needsAuthorization = false,
     this.accountBusy = false,
   });
   final Json? account;
   final Json sync;
-  final bool dark, showSidebar;
+  final bool dark;
   final bool needsAuthorization;
   final bool accountBusy;
   final String? dataDirectory;
@@ -49,45 +48,44 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) => Row(
     children: [
-      if (widget.showSidebar)
-        Container(
-          width: 236,
-          decoration: BoxDecoration(gradient: sidebarSurface(context)),
-          child: Material(
-            type: MaterialType.transparency,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+      Container(
+        width: 236,
+        decoration: BoxDecoration(gradient: sidebarSurface(context)),
+        child: Material(
+          type: MaterialType.transparency,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(18),
+                child: TextButton.icon(
+                  onPressed: widget.onBack,
+                  icon: const Icon(Icons.arrow_back, size: 18),
+                  label: const Text('返回'),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(26, 0, 0, 24),
+                child: Text(
+                  '设置',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+                ),
+              ),
+              for (var i = 0; i < categories.length; i++)
                 Padding(
-                  padding: const EdgeInsets.all(18),
-                  child: TextButton.icon(
-                    onPressed: widget.onBack,
-                    icon: const Icon(Icons.arrow_back, size: 18),
-                    label: const Text('返回'),
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                  child: ListTile(
+                    selected: selected == i,
+                    leading: Icon(icons[i], size: 20),
+                    titleTextStyle: Theme.of(context).textTheme.titleSmall,
+                    title: Text(categories[i]),
+                    onTap: () => setState(() => selected = i),
                   ),
                 ),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(26, 0, 0, 24),
-                  child: Text(
-                    '设置',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
-                  ),
-                ),
-                for (var i = 0; i < categories.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-                    child: ListTile(
-                      selected: selected == i,
-                      leading: Icon(icons[i], size: 20),
-                      titleTextStyle: Theme.of(context).textTheme.titleSmall,
-                      title: Text(categories[i]),
-                      onTap: () => setState(() => selected = i),
-                    ),
-                  ),
-              ],
-            ),
+            ],
           ),
         ),
+      ),
       Expanded(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -107,6 +105,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 index: selected,
                 children: [
                   PageScroll(
+                    key: const PageStorageKey('settings-account'),
                     children: [
                       Text(
                         '管理你的 Bangumi 账户连接与数据同步。',
@@ -163,24 +162,34 @@ class _SettingsPageState extends State<SettingsPage> {
                             Wrap(
                               spacing: 12,
                               children: [
-                                FilledButton.icon(
-                                  onPressed: widget.accountBusy
-                                      ? null
-                                      : widget.onAccountAction,
-                                  icon: const Icon(
-                                    Icons.account_circle_outlined,
-                                    size: 18,
+                                if (widget.account != null &&
+                                    !widget.needsAuthorization)
+                                  OutlinedButton.icon(
+                                    onPressed: widget.accountBusy
+                                        ? null
+                                        : widget.onAccountAction,
+                                    icon: const Icon(Icons.logout, size: 18),
+                                    label: Text(
+                                      widget.accountBusy ? '退出中…' : '退出登录',
+                                    ),
+                                  )
+                                else
+                                  FilledButton.icon(
+                                    onPressed: widget.accountBusy
+                                        ? null
+                                        : widget.onAccountAction,
+                                    icon: const Icon(
+                                      Icons.account_circle_outlined,
+                                      size: 18,
+                                    ),
+                                    label: Text(
+                                      widget.accountBusy
+                                          ? '连接中…'
+                                          : widget.needsAuthorization
+                                          ? '解锁同步'
+                                          : '登录 Bangumi',
+                                    ),
                                   ),
-                                  label: Text(
-                                    widget.accountBusy
-                                        ? '连接中…'
-                                        : widget.needsAuthorization
-                                        ? '解锁同步'
-                                        : widget.account == null
-                                        ? '登录 Bangumi'
-                                        : '退出登录',
-                                  ),
-                                ),
                                 if (widget.accountBusy &&
                                     (widget.account == null ||
                                         widget.needsAuthorization))
@@ -229,6 +238,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     ],
                   ),
                   PageScroll(
+                    key: const PageStorageKey('settings-appearance'),
                     children: [
                       const SectionTitle(title: '主题模式'),
                       MelonPanel(
@@ -244,8 +254,12 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ],
                   ),
-                  PageScroll(children: [widget.connectionSettings]),
                   PageScroll(
+                    key: const PageStorageKey('settings-connections'),
+                    children: [widget.connectionSettings],
+                  ),
+                  PageScroll(
+                    key: const PageStorageKey('settings-playback'),
                     children: [
                       const SectionTitle(title: '播放快捷键'),
                       const MelonPanel(
@@ -277,8 +291,12 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ],
                   ),
-                  PageScroll(children: [widget.bitTorrentSettings]),
                   PageScroll(
+                    key: const PageStorageKey('settings-downloads'),
+                    children: [widget.bitTorrentSettings],
+                  ),
+                  PageScroll(
+                    key: const PageStorageKey('settings-data'),
                     children: [
                       const SectionTitle(title: '应用数据'),
                       MelonPanel(
@@ -289,6 +307,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             const SizedBox(height: 14),
                             SelectableText(
                               widget.dataDirectory ?? '正在准备…',
+                              key: const PageStorageKey('settings-data-path'),
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],

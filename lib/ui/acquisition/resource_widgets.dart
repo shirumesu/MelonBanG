@@ -2,8 +2,68 @@ import 'package:flutter/material.dart';
 
 import '../../data/json.dart';
 import '../../data/resource_metadata.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
+
+enum ResourceDownloadPhase { idle, adding, added, failed }
+
+class ResourceDownloadButton extends StatelessWidget {
+  const ResourceDownloadButton({
+    super.key,
+    required this.phase,
+    required this.onPressed,
+    this.error,
+  });
+  final ResourceDownloadPhase phase;
+  final VoidCallback onPressed;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = switch (phase) {
+      ResourceDownloadPhase.idle => '下载',
+      ResourceDownloadPhase.adding => '正在加入下载…',
+      ResourceDownloadPhase.added => '已加入下载',
+      ResourceDownloadPhase.failed =>
+        '添加失败，点击重试${error == null ? '' : '\n$error'}',
+    };
+    return Semantics(
+      liveRegion: phase != ResourceDownloadPhase.idle,
+      child: IconButton(
+        tooltip: label,
+        onPressed:
+            [
+              ResourceDownloadPhase.adding,
+              ResourceDownloadPhase.added,
+            ].contains(phase)
+            ? null
+            : onPressed,
+        icon: SizedBox.square(
+          dimension: 24,
+          child: AnimatedSwitcher(
+            duration: motionDuration(context, 150),
+            child: phase == ResourceDownloadPhase.adding
+                ? const Padding(
+                    key: ValueKey(ResourceDownloadPhase.adding),
+                    padding: EdgeInsets.all(3),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    switch (phase) {
+                      ResourceDownloadPhase.added => Icons.check_circle_outline,
+                      ResourceDownloadPhase.failed => Icons.refresh,
+                      _ => Icons.download_outlined,
+                    },
+                    key: ValueKey(phase),
+                    color: phase == ResourceDownloadPhase.failed ? gold : mint,
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class ResourceProgress extends StatelessWidget {
   const ResourceProgress({
@@ -39,7 +99,9 @@ class ResourceProgress extends StatelessWidget {
         const LinearProgressIndicator(minHeight: 2),
         const SizedBox(height: 8),
         Text(
-          providers.any((e) => e['status'] == 'loading')
+          providers.every((e) => number(e['resultCount']) == 0)
+              ? '正在查找资源，结果会陆续显示'
+              : providers.any((e) => e['status'] == 'loading')
               ? '已找到的资源可直接下载，其余结果陆续加入'
               : '正在补充字幕组信息，资源已可下载',
           style: Theme.of(context).textTheme.bodySmall,

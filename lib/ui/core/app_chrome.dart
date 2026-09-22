@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../data/json.dart';
+import 'motion.dart';
 import 'page_widgets.dart';
 import 'theme.dart';
 
@@ -26,9 +27,10 @@ class AppTitleBar extends StatelessWidget {
     required this.onToggleSidebar,
     required this.onToggleTheme,
     this.onBack,
+    this.backLabel = '返回',
     this.immersive = false,
   });
-  final String route;
+  final String route, backLabel;
   final bool dark, sidebarVisible, immersive;
   final VoidCallback onToggleSidebar, onToggleTheme;
   final VoidCallback? onBack;
@@ -45,12 +47,16 @@ class AppTitleBar extends StatelessWidget {
           const SizedBox(width: 8),
         if (!immersive) ...[
           IconButton(
-            tooltip: sidebarVisible ? '收起侧栏' : '展开侧栏',
-            onPressed: onToggleSidebar,
+            tooltip: route == 'settings'
+                ? '设置分类始终显示'
+                : sidebarVisible
+                ? '收起侧栏'
+                : '展开侧栏',
+            onPressed: route == 'settings' ? null : onToggleSidebar,
             icon: const Icon(Icons.view_sidebar_outlined, size: 18),
           ),
           IconButton(
-            tooltip: route == 'resources' ? '返回番剧' : '返回探索',
+            tooltip: backLabel,
             onPressed: onBack,
             icon: const Icon(Icons.arrow_back, size: 18),
           ),
@@ -131,10 +137,12 @@ class AppSidebar extends StatelessWidget {
     this.watchingCount = 0,
     this.downloadCount = 0,
     this.username,
+    this.selectedRoute,
   });
   final bool dark;
   final String route, nickname;
   final String? username;
+  final String? selectedRoute;
   final int watchingCount, downloadCount;
   final ValueChanged<String> onNavigate;
   @override
@@ -284,13 +292,21 @@ class AppSidebar extends StatelessWidget {
     IconData icon, [
     int? count,
   ]) {
+    final activeRoute = selectedRoute ?? route;
     final selected =
-        route == target ||
+        activeRoute == target ||
         (target == 'home' &&
-            ['subject', 'calendar', 'search', 'resources'].contains(route));
+            [
+              'subject',
+              'calendar',
+              'search',
+              'resources',
+            ].contains(activeRoute));
     return Padding(
       padding: const EdgeInsets.only(bottom: 5),
-      child: DecoratedBox(
+      child: AnimatedContainer(
+        duration: motionDuration(context, 160),
+        curve: Curves.easeOut,
         decoration: BoxDecoration(
           borderRadius: controlBorderRadius,
           gradient: selected ? navigationGradient : null,
@@ -336,9 +352,11 @@ class AppHeader extends StatelessWidget {
     required this.onSearch,
     this.sync = const {},
     this.collectionCount = 0,
+    this.searchFocusNode,
   });
   final String route;
   final TextEditingController search;
+  final FocusNode? searchFocusNode;
   final VoidCallback onSearch;
   final Json sync;
   final int collectionCount;
@@ -364,7 +382,7 @@ class AppHeader extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(switch (route) {
                       'home' => 'Bangumi 收藏与放送动态',
-                      'tracking' => '我的动画收藏 · 已缓存 $collectionCount 部',
+                      'tracking' => '我的动画收藏 · 共 $collectionCount 部',
                       _ => '下载与本地缓存',
                     }, style: Theme.of(context).textTheme.bodySmall),
                   ),
@@ -376,7 +394,9 @@ class AppHeader extends StatelessWidget {
               width: size.maxWidth < 800 ? 205 : 280,
               height: 40,
               child: TextField(
+                key: const PageStorageKey('catalogue-search-input'),
                 controller: search,
+                focusNode: searchFocusNode,
                 textAlignVertical: TextAlignVertical.center,
                 style: const TextStyle(fontSize: 13, height: 1.25),
                 onSubmitted: (_) => onSearch(),

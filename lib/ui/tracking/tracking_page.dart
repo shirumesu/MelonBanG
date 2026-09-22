@@ -19,6 +19,7 @@ class TrackingPage extends StatefulWidget {
     required this.signedIn,
     required this.onSignIn,
     required this.onOpenSubject,
+    this.onExplore,
   });
   final List<Json> collection;
   final String collectionFilter;
@@ -28,6 +29,7 @@ class TrackingPage extends StatefulWidget {
   final ActionFeedback feedback;
   final bool signedIn;
   final ValueChanged<Json> onOpenSubject;
+  final VoidCallback? onExplore;
   @override
   State<TrackingPage> createState() => _TrackingPageState();
 }
@@ -35,6 +37,38 @@ class TrackingPage extends StatefulWidget {
 class _TrackingPageState extends State<TrackingPage> {
   String query = '', quickFilter = '全部';
   bool sortByScore = false;
+  final search = TextEditingController();
+  bool restored = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (restored) return;
+    restored = true;
+    final saved = PageStorage.maybeOf(
+      context,
+    )?.readState(context, identifier: 'tracking-filters') as Json?;
+    if (saved == null) return;
+    query = saved['query'] as String;
+    search.text = query;
+    quickFilter = saved['quickFilter'] as String;
+    sortByScore = saved['sortByScore'] as bool;
+  }
+
+  void updateFilters(VoidCallback update) {
+    setState(update);
+    PageStorage.maybeOf(context)?.writeState(context, {
+      'query': query,
+      'quickFilter': quickFilter,
+      'sortByScore': sortByScore,
+    }, identifier: 'tracking-filters');
+  }
+
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final items = widget.collection
@@ -88,21 +122,23 @@ class _TrackingPageState extends State<TrackingPage> {
             SizedBox(
               width: 235,
               child: TextField(
+                key: const PageStorageKey('collection-search'),
+                controller: search,
                 decoration: const InputDecoration(
                   hintText: '在追番列表中搜索…',
                   prefixIcon: Icon(Icons.search, size: 18),
                 ),
-                onChanged: (value) => setState(() => query = value),
+                onChanged: (value) => updateFilters(() => query = value),
               ),
             ),
             for (final filter in ['全部', '有进度', '已评分'])
               ChoiceChip(
                 label: Text(filter),
                 selected: quickFilter == filter,
-                onSelected: (_) => setState(() => quickFilter = filter),
+                onSelected: (_) => updateFilters(() => quickFilter = filter),
               ),
             OutlinedButton.icon(
-              onPressed: () => setState(() => sortByScore = !sortByScore),
+              onPressed: () => updateFilters(() => sortByScore = !sortByScore),
               icon: const Icon(Icons.sort, size: 16),
               label: Text(sortByScore ? '按我的评分' : '默认顺序'),
             ),
@@ -131,7 +167,19 @@ class _TrackingPageState extends State<TrackingPage> {
           ),
         SectionTitle(title: '${items.length} 部收藏', color: mint),
         if (items.isEmpty)
-          const EmptyState(text: '当前筛选下没有收藏条目')
+          EmptyState(
+            text: widget.collection.isEmpty ? '还没有收藏的番剧' : '当前筛选下没有收藏条目',
+            actionLabel: query.isNotEmpty || quickFilter != '全部'
+                ? '清除筛选'
+                : '搜索番剧',
+            action: query.isNotEmpty || quickFilter != '全部'
+                ? () => updateFilters(() {
+                    query = '';
+                    search.clear();
+                    quickFilter = '全部';
+                  })
+                : widget.onExplore,
+          )
         else
           SubjectPosters(
             onOpen: widget.onOpenSubject,

@@ -112,6 +112,7 @@ class _ServiceConnectionState extends State<_ServiceConnection> {
   }) => Padding(
     padding: const EdgeInsets.only(top: 12),
     child: TextField(
+      key: PageStorageKey('connection-field:$label'),
       controller: controller,
       enabled: !busy,
       obscureText: obscure,
