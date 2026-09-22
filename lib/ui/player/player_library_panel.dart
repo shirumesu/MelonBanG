@@ -35,6 +35,7 @@ class PlayerLibraryPanel extends StatefulWidget {
 
 class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
   final query = TextEditingController();
+  final groupQuery = TextEditingController();
   final added = <String>{}, adding = <String>{};
   final localEpisodes = <int>{};
   int tab = 0, request = 0;
@@ -204,6 +205,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
   void dispose() {
     request++;
     query.dispose();
+    groupQuery.dispose();
     super.dispose();
   }
 
@@ -399,8 +401,21 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
     ResourceProgress(providers: providers, busy: searching),
     const SizedBox(height: 12),
     TextField(
+      controller: groupQuery,
       onChanged: (value) => setState(() => groupFilter = value),
-      decoration: const InputDecoration(labelText: '筛选字幕组 / 联合发布'),
+      decoration: InputDecoration(
+        labelText: '筛选字幕组 / 联合发布',
+        suffixIcon: groupFilter.isEmpty
+            ? null
+            : IconButton(
+                tooltip: '清除字幕组筛选',
+                onPressed: () => setState(() {
+                  groupQuery.clear();
+                  groupFilter = '';
+                }),
+                icon: const Icon(Icons.clear, size: 18),
+              ),
+      ),
     ),
     const SizedBox(height: 12),
     if (!searching && candidates.isEmpty)
@@ -408,6 +423,15 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Text(
           providers.isEmpty ? '输入作品名或集数查找资源' : '没有找到资源，试试原名或其他关键词',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ),
+    if (candidates.isNotEmpty &&
+        !candidates.any((e) => matchesResource(e, '', groupFilter)))
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Text(
+          '没有符合字幕组筛选的资源，试试清除筛选。',
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ),

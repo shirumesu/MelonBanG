@@ -18,6 +18,7 @@ class PlayerSettings extends StatefulWidget {
     required this.onClose,
     required this.onError,
     required this.onPresentationChanged,
+    this.closeFocusNode,
   });
   final Playback playback;
   final AppServices service;
@@ -25,6 +26,7 @@ class PlayerSettings extends StatefulWidget {
   final VoidCallback onClose;
   final ValueChanged<Object> onError;
   final VoidCallback onPresentationChanged;
+  final FocusNode? closeFocusNode;
   @override
   State<PlayerSettings> createState() => _PlayerSettingsState();
 }
@@ -33,9 +35,13 @@ class _PlayerSettingsState extends State<PlayerSettings> {
   final query = TextEditingController();
   String provider = 'bilibili';
   bool loading = false;
+  bool manualSearching = false, manualSearched = false;
+  String? manualError, loadError;
   List<Json> matches = [];
   String? _sessionId;
   int _searchRequest = 0;
+  int _loadRequest = 0;
+  bool get busy => loading || manualSearching;
   Playback get playback => widget.playback;
   Player get player => playback.player;
   @override
@@ -50,7 +56,10 @@ class _PlayerSettingsState extends State<PlayerSettings> {
     if (sessionId != _sessionId) {
       _sessionId = sessionId;
       _searchRequest++;
+      _loadRequest++;
       matches = [];
+      loading = manualSearching = manualSearched = false;
+      manualError = loadError = null;
     }
     if (mounted) setState(() {});
   }
@@ -96,6 +105,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
                 }, style: Theme.of(context).textTheme.titleSmall),
               ),
               IconButton(
+                focusNode: widget.closeFocusNode,
                 tooltip: '关闭播放菜单',
                 onPressed: widget.onClose,
                 icon: const Icon(Icons.close, size: 18),
@@ -272,7 +282,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
     ),
     const SizedBox(height: 12),
     FilledButton.icon(
-      onPressed: loading
+      onPressed: busy
           ? null
           : () => loadDanmaku(
               () => widget.service.library.autoMatch(
@@ -283,6 +293,14 @@ class _PlayerSettingsState extends State<PlayerSettings> {
       label: const Text('自动匹配弹幕'),
     ),
     if (loading) const LinearProgressIndicator(),
+    if (loadError != null)
+      Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(
+          loadError!,
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
+      ),
     for (final source in objects(playback.session?['danmakuSources']))
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -301,10 +319,12 @@ class _PlayerSettingsState extends State<PlayerSettings> {
               }}',
             ),
             value: source['enabled'] == true,
-            onChanged: (value) => loadDanmaku(
-              () async =>
-                  widget.service.library.enable('${source['id']}', value),
-            ),
+            onChanged: busy
+                ? null
+                : (value) => loadDanmaku(
+                    () async =>
+                        widget.service.library.enable('${source['id']}', value),
+                  ),
           ),
           if (source['errorMessage'] != null)
             Text(
@@ -327,6 +347,8 @@ class _PlayerSettingsState extends State<PlayerSettings> {
         provider = value!;
         _searchRequest++;
         matches = [];
+        manualSearching = manualSearched = false;
+        manualError = null;
       }),
     ),
     const SizedBox(height: 12),
@@ -336,49 +358,120 @@ class _PlayerSettingsState extends State<PlayerSettings> {
         hintText: provider == 'dandanplay' ? '番剧名称' : '剧集网址或编号',
       ),
       onSubmitted: (_) => manualDanmaku(),
+      onChanged: (_) => setState(() {
+        _searchRequest++;
+        manualSearching = manualSearched = false;
+        manualError = null;
+        matches = [];
+      }),
     ),
     const SizedBox(height: 10),
     OutlinedButton(
-      onPressed: manualDanmaku,
-      child: Text(provider == 'dandanplay' ? '搜索剧集' : '加载弹幕'),
+      onPressed: busy ? null : manualDanmaku,
+      child: Text(
+        manualSearching
+            ? '正在搜索…'
+            : provider == 'dandanplay'
+            ? '搜索剧集'
+            : '加载弹幕',
+      ),
     ),
+    if (manualSearching) const LinearProgressIndicator(),
+    if (manualError != null)
+      Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(
+          manualError!,
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
+      ),
+    if (manualSearched && matches.isEmpty)
+      const Padding(
+        padding: EdgeInsets.only(top: 8),
+        child: Text('没有找到匹配的剧集，试试原名或其他关键词。'),
+      ),
     for (final match in matches)
       ListTile(
         dense: true,
         title: Text('${match['animeTitle']}'),
         subtitle: Text('${match['episodeTitle']}'),
-        onTap: () => loadDanmaku(
-          () => widget.service.library.selectEpisode(match['episodeId'] as int),
-        ),
+        onTap: busy
+            ? null
+            : () => loadDanmaku(
+                () => widget.service.library.selectEpisode(
+                  match['episodeId'] as int,
+                ),
+              ),
       ),
     const SizedBox(height: 12),
     Text('已加载 ${playback.comments.length} 条弹幕'),
     TextButton(onPressed: loadLocalComments, child: const Text('导入弹幕 JSON')),
   ];
   Future<void> loadDanmaku(Future<void> Function() load) async {
-    setState(() => loading = true);
-    await perform(() async {
+    if (busy) return;
+    final ticket = ++_loadRequest;
+    final sessionId = playback.session?['id'];
+    setState(() {
+      loading = true;
+      loadError = null;
+    });
+    try {
       await load();
+      if (!mounted ||
+          ticket != _loadRequest ||
+          sessionId != playback.session?['id']) {
+        return;
+      }
       if (widget.service.library.current case final Json next) {
         playback.accept(next);
       }
-    });
-    if (mounted) setState(() => loading = false);
+    } catch (error) {
+      if (mounted && ticket == _loadRequest) {
+        setState(() => loadError = '弹幕加载失败，请重试：$error');
+      }
+    } finally {
+      if (mounted && ticket == _loadRequest) setState(() => loading = false);
+    }
   }
 
   Future<void> manualDanmaku() async {
-    if (query.text.trim().isEmpty) return;
+    if (busy) return;
+    final keyword = query.text.trim();
+    if (keyword.isEmpty) {
+      setState(
+        () => manualError =
+            '请先输入${provider == 'dandanplay' ? '番剧名称' : '剧集网址或编号'}。',
+      );
+      return;
+    }
     if (provider == 'dandanplay') {
       final ticket = ++_searchRequest;
       final sessionId = playback.session?['id'];
-      await perform(() async {
-        final result = await widget.service.danmaku.search(query.text.trim());
+      setState(() {
+        manualSearching = true;
+        manualSearched = false;
+        manualError = null;
+        matches = [];
+      });
+      try {
+        final result = await widget.service.danmaku.search(keyword);
         if (mounted &&
             ticket == _searchRequest &&
             sessionId == playback.session?['id']) {
-          setState(() => matches = objects(result));
+          setState(() {
+            matches = objects(result);
+            manualSearched = true;
+          });
         }
-      });
+      } catch (error) {
+        if (mounted && ticket == _searchRequest) {
+          setState(() => manualError = '搜索失败，请重试：$error');
+        }
+      } finally {
+        if (mounted && ticket == _searchRequest) {
+          setState(() => manualSearching = false);
+        }
+      }
     } else {
       await loadDanmaku(
         () => widget.service.library.loadSource(provider, query.text.trim()),

@@ -40,6 +40,7 @@ class SubjectPosters extends StatelessWidget {
     );
     if (horizontal) {
       return _HorizontalPosters(
+        storageId: key,
         ranked: ranked,
         itemCount: items.length,
         itemBuilder: poster,
@@ -47,6 +48,7 @@ class SubjectPosters extends StatelessWidget {
     }
     return LayoutBuilder(
       builder: (context, constraints) => GridView.builder(
+        key: const PageStorageKey('poster-grid'),
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         itemCount: items.length,
@@ -67,10 +69,12 @@ class _HorizontalPosters extends StatefulWidget {
     required this.ranked,
     required this.itemCount,
     required this.itemBuilder,
+    this.storageId,
   });
   final bool ranked;
   final int itemCount;
   final Widget Function(int) itemBuilder;
+  final Object? storageId;
 
   @override
   State<_HorizontalPosters> createState() => _HorizontalPostersState();
@@ -160,6 +164,10 @@ class _HorizontalPostersState extends State<_HorizontalPosters> {
           child: Stack(
             children: [
               ListView.separated(
+                key: PageStorageKey(
+                  widget.storageId ??
+                      (widget.ranked ? 'ranked-posters' : 'subject-posters'),
+                ),
                 controller: _scroll,
                 padding: const EdgeInsets.fromLTRB(2, 3, 2, 10),
                 scrollDirection: Axis.horizontal,
@@ -242,6 +250,7 @@ class _SubjectPoster extends StatefulWidget {
 class _SubjectPosterState extends State<_SubjectPoster> {
   bool hovered = false;
   bool focused = false;
+  bool pressed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -254,6 +263,7 @@ class _SubjectPosterState extends State<_SubjectPoster> {
       onTap: () => widget.onOpen(item),
       onHover: (value) => setState(() => hovered = value),
       onFocusChange: (value) => setState(() => focused = value),
+      onHighlightChanged: (value) => setState(() => pressed = value),
       overlayColor: const WidgetStatePropertyAll(Colors.transparent),
       borderRadius: posterBorderRadius,
       child: Column(
@@ -369,10 +379,13 @@ class _SubjectPosterState extends State<_SubjectPoster> {
                       ),
                     IgnorePointer(
                       child: AnimatedContainer(
-                        duration: motionDuration(context, 120),
+                        duration: motionDuration(context, pressed ? 80 : 120),
+                        curve: Curves.easeOut,
                         decoration: BoxDecoration(
                           borderRadius: posterBorderRadius,
-                          color: hovered
+                          color: pressed
+                              ? Colors.black.withValues(alpha: .12)
+                              : hovered
                               ? Colors.white.withValues(alpha: .06)
                               : Colors.transparent,
                           border: focused
@@ -427,7 +440,7 @@ class _SubjectPosterState extends State<_SubjectPoster> {
                 Text(
                   item['watchedEpisodes'] == null
                       ? '未记录进度'
-                      : '看到 EP${item['watchedEpisodes']}',
+                      : '已看 ${item['watchedEpisodes']} 话',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -533,6 +546,7 @@ class PosterPlaceholders extends StatelessWidget {
       child: SizedBox(
         height: 330,
         child: ListView.separated(
+          key: const PageStorageKey('poster-placeholders'),
           scrollDirection: Axis.horizontal,
           itemCount: 5,
           separatorBuilder: (_, _) => const SizedBox(width: 16),

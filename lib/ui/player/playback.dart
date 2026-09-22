@@ -27,6 +27,12 @@ class Playback extends ChangeNotifier {
         unawaited(saveProgress());
       }),
     );
+    _lastAudibleVolume = player.state.volume > 0 ? player.state.volume : 80;
+    _subscriptions.add(
+      player.stream.volume.listen((volume) {
+        if (volume > 0) _lastAudibleVolume = volume;
+      }),
+    );
     _timer = Timer.periodic(const Duration(seconds: 2), (_) {
       unawaited(saveProgress());
     });
@@ -53,6 +59,13 @@ class Playback extends ChangeNotifier {
   Future<void> _openQueue = Future.value();
   Future<void> _progressWrites = Future.value();
   Future<void>? _closing;
+  double _lastAudibleVolume = 80;
+
+  Future<void> toggleMute() async {
+    final volume = player.state.volume;
+    if (volume > 0) _lastAudibleVolume = volume;
+    await player.setVolume(volume == 0 ? _lastAudibleVolume : 0);
+  }
 
   Future<void> offsetSubtitle(double delta) async {
     subtitleDelay += delta;

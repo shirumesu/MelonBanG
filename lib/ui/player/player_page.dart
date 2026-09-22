@@ -48,7 +48,12 @@ class PlayerPage extends StatefulWidget {
 
 class _PlayerPageState extends State<PlayerPage> {
   final focus = FocusNode();
+  final menuCloseFocus = FocusNode();
+  final menuFocusNodes = {
+    for (final menu in PlayerMenu.values) menu: FocusNode(),
+  };
   bool panel = true, controls = true, nearPanel = false, panelFocused = false;
+  bool controlsHovered = false, controlsFocused = false, controlsPopup = false;
   bool titleVisible = false, panelBeforeImmersive = true;
   PlayerMenu? menu;
   PlayerMenu lastMenu = PlayerMenu.subtitles;
@@ -106,6 +111,10 @@ class _PlayerPageState extends State<PlayerPage> {
     playback.removeListener(refresh);
     unawaited(playingSubscription?.cancel());
     focus.dispose();
+    menuCloseFocus.dispose();
+    for (final node in menuFocusNodes.values) {
+      node.dispose();
+    }
     hideTimer?.cancel();
     titleTimer?.cancel();
     super.dispose();
@@ -116,24 +125,37 @@ class _PlayerPageState extends State<PlayerPage> {
     if (!controls) setState(() => controls = true);
     hideTimer?.cancel();
     hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && player.state.playing && dragging == null && menu == null) {
+      if (mounted &&
+          player.state.playing &&
+          dragging == null &&
+          menu == null &&
+          !controlsHovered &&
+          !controlsFocused &&
+          !controlsPopup) {
         setState(() => controls = false);
       }
     });
   }
 
   void toggleMenu(PlayerMenu value) {
+    if (menu == value) {
+      closeMenu();
+      return;
+    }
     setState(() {
-      menu = menu == value ? null : value;
+      menu = value;
       lastMenu = value;
     });
-    if (menu == null) focus.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && menu == value) menuCloseFocus.requestFocus();
+    });
     reveal();
   }
 
   void closeMenu() {
+    final trigger = menuFocusNodes[menu];
     setState(() => menu = null);
-    focus.requestFocus();
+    (trigger ?? focus).requestFocus();
     reveal();
   }
 
@@ -162,7 +184,21 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   KeyEventResult handleKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent || menu != null) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final keyboard = HardwareKeyboard.instance;
+    if (keyboard.isControlPressed ||
+        keyboard.isMetaPressed ||
+        keyboard.isAltPressed ||
+        keyboard.isShiftPressed) {
+      return KeyEventResult.ignored;
+    }
+    if (menu != null) {
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        closeMenu();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
     if (event.logicalKey == LogicalKeyboardKey.space) {
       unawaited(player.playOrPause());
     } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
@@ -179,7 +215,7 @@ class _PlayerPageState extends State<PlayerPage> {
         unawaited(widget.onWindowFullScreenChanged?.call(false));
       }
     } else if (event.logicalKey == LogicalKeyboardKey.keyM) {
-      unawaited(player.setVolume(player.state.volume == 0 ? 80 : 0));
+      unawaited(playback.toggleMute());
     } else {
       return KeyEventResult.ignored;
     }
@@ -225,7 +261,7 @@ class _PlayerPageState extends State<PlayerPage> {
             const Icon(Icons.play_circle_outline, size: 48),
             const SizedBox(height: 16),
             Text(playback.error ?? '选一部作品，开始观看'),
-            TextButton(onPressed: widget.onBack, child: const Text('返回探索')),
+            TextButton(onPressed: widget.onBack, child: const Text('返回')),
           ],
         ),
       );
@@ -251,20 +287,38 @@ class _PlayerPageState extends State<PlayerPage> {
                   Expanded(child: video(context)),
                   ExcludeFocus(
                     excluding: !panel,
-                    child: Offstage(
-                      offstage: !panel,
-                      child: SizedBox(
-                        width: math.min(panelWidth, constraints.maxWidth * .5),
-                        child: PlayerLibraryPanel(
-                          key: ValueKey(playback.session?['subjectId']),
-                          service: widget.service,
-                          subjectId: playback.session?['subjectId'] as int?,
-                          subject: widget.subject,
-                          episodeId: playback.session?['episodeId'] as int?,
-                          title: '${playback.session?['title'] ?? '播放器'}',
-                          downloads: widget.downloads,
-                          onEpisode: widget.onEpisode,
-                          onPlayFile: widget.onPlayFile ?? (_, _) {},
+                    child: IgnorePointer(
+                      ignoring: !panel,
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween(end: panel ? 1 : 0),
+                        duration: motionDuration(context, 220),
+                        curve: Curves.easeOutCubic,
+                        builder: (_, value, child) => Offstage(
+                          offstage: value == 0,
+                          child: ClipRect(
+                            child: Align(
+                              alignment: Alignment.centerRight,
+                              widthFactor: value,
+                              child: child,
+                            ),
+                          ),
+                        ),
+                        child: SizedBox(
+                          width: math.min(
+                            panelWidth,
+                            constraints.maxWidth * .5,
+                          ),
+                          child: PlayerLibraryPanel(
+                            key: ValueKey(playback.session?['subjectId']),
+                            service: widget.service,
+                            subjectId: playback.session?['subjectId'] as int?,
+                            subject: widget.subject,
+                            episodeId: playback.session?['episodeId'] as int?,
+                            title: '${playback.session?['title'] ?? '播放器'}',
+                            downloads: widget.downloads,
+                            onEpisode: widget.onEpisode,
+                            onPlayFile: widget.onPlayFile ?? (_, _) {},
+                          ),
                         ),
                       ),
                     ),
@@ -419,31 +473,53 @@ class _PlayerPageState extends State<PlayerPage> {
                     child: AnimatedOpacity(
                       opacity: controls || menu != null ? 1 : 0,
                       duration: motionDuration(context),
-                      child: PlayerControls(
-                        playback: playback,
-                        fullScreen: widget.fullScreen,
-                        windowFullScreen: widget.windowFullScreen,
-                        menu: menu,
-                        dragging: dragging,
-                        onDragStart: (value) {
-                          setState(() => dragging = value);
-                          hideTimer?.cancel();
-                        },
-                        onDragChanged: (value) =>
-                            setState(() => dragging = value),
-                        onDragEnd: (value) async {
-                          await player.seek(
-                            Duration(milliseconds: (value * 1000).round()),
-                          );
-                          if (mounted) setState(() => dragging = null);
+                      curve: Curves.easeOutCubic,
+                      child: MouseRegion(
+                        onEnter: (_) {
+                          controlsHovered = true;
                           reveal();
                         },
-                        onSeekRelative: seekRelative,
-                        onFocus: focus.requestFocus,
-                        onReveal: reveal,
-                        onFullscreen: fullscreen,
-                        onWindowFullScreen: windowFullscreen,
-                        onMenu: toggleMenu,
+                        onExit: (_) {
+                          controlsHovered = false;
+                          reveal();
+                        },
+                        child: Focus(
+                          canRequestFocus: false,
+                          onFocusChange: (value) {
+                            controlsFocused = value;
+                            reveal();
+                          },
+                          child: PlayerControls(
+                            playback: playback,
+                            fullScreen: widget.fullScreen,
+                            windowFullScreen: widget.windowFullScreen,
+                            menu: menu,
+                            dragging: dragging,
+                            onDragStart: (value) {
+                              setState(() => dragging = value);
+                              hideTimer?.cancel();
+                            },
+                            onDragChanged: (value) =>
+                                setState(() => dragging = value),
+                            onDragEnd: (value) async {
+                              await player.seek(
+                                Duration(milliseconds: (value * 1000).round()),
+                              );
+                              if (mounted) setState(() => dragging = null);
+                              reveal();
+                            },
+                            onSeekRelative: seekRelative,
+                            menuFocusNodes: menuFocusNodes,
+                            onPopupChanged: (value) {
+                              controlsPopup = value;
+                              reveal();
+                            },
+                            onReveal: reveal,
+                            onFullscreen: fullscreen,
+                            onWindowFullScreen: windowFullscreen,
+                            onMenu: toggleMenu,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -455,24 +531,37 @@ class _PlayerPageState extends State<PlayerPage> {
                 bottom: constraints.maxWidth < 624 ? 132 : 100,
                 child: ExcludeFocus(
                   excluding: menu == null,
-                  child: Offstage(
-                    offstage: menu == null,
-                    child: SizedBox(
-                      width: math.min(300, constraints.maxWidth - 24),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxHeight: math.max(120, constraints.maxHeight - 160),
+                  child: IgnorePointer(
+                    ignoring: menu == null,
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween(end: menu == null ? 0 : 1),
+                      duration: motionDuration(context),
+                      curve: Curves.easeOutCubic,
+                      builder: (_, value, child) => Offstage(
+                        offstage: value == 0,
+                        child: Opacity(
+                          opacity: value,
+                          child: Transform.translate(
+                            offset: Offset(0, 5 * (1 - value)),
+                            child: Transform.scale(
+                              scale: .98 + .02 * value,
+                              alignment: Alignment.bottomRight,
+                              child: child,
+                            ),
+                          ),
                         ),
-                        child: Focus(
-                          onKeyEvent: (_, event) {
-                            if (event is KeyDownEvent &&
-                                event.logicalKey == LogicalKeyboardKey.escape) {
-                              closeMenu();
-                              return KeyEventResult.handled;
-                            }
-                            return KeyEventResult.ignored;
-                          },
+                      ),
+                      child: SizedBox(
+                        width: math.min(300, constraints.maxWidth - 24),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: math.max(
+                              120,
+                              constraints.maxHeight - 160,
+                            ),
+                          ),
                           child: PlayerSettings(
+                            closeFocusNode: menuCloseFocus,
                             playback: playback,
                             service: widget.service,
                             menu: lastMenu,

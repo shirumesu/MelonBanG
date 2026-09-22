@@ -143,6 +143,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('old result'), findsNothing);
       expect(find.text('Subject 02 result'), findsNWidgets(2));
+      await tester.enterText(
+        find.widgetWithText(TextField, '筛选字幕组 / 联合发布'),
+        'missing group',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('没有符合字幕组筛选的资源，试试清除筛选。'), findsOneWidget);
+      await tester.tap(find.byTooltip('清除字幕组筛选'));
+      await tester.pumpAndSettle();
+      expect(find.text('Subject 02 result'), findsNWidgets(2));
       await tester.tap(find.widgetWithText(TextButton, '下载').first);
       await tester.pumpAndSettle();
       expect(find.textContaining('下载未能加入'), findsOneWidget);

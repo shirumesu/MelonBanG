@@ -51,21 +51,23 @@ class HomePage extends StatelessWidget {
         EmptyState(text: '暂时无法加载番剧', detail: error, action: onRefresh)
       else
         SubjectPosters(
+          key: const ValueKey('trending-posters'),
           onOpen: onOpenSubject,
           items: trending.take(8).toList(),
           horizontal: true,
           ranked: true,
         ),
       const SectionTitle(
-        title: '继续播放',
-        subtitle: '接着上次看',
+        title: '正在追',
+        subtitle: '我的在看收藏',
         icon: Icons.play_circle_outline,
         color: mint,
       ),
       if (watching.isEmpty)
-        EmptyState(text: '暂无在看收藏', action: onExplore, actionLabel: '查看追番')
+        EmptyState(text: '还没有在追的番剧', action: onExplore, actionLabel: '搜索番剧')
       else
         SubjectPosters(
+          key: const ValueKey('watching-posters'),
           onOpen: onOpenSubject,
           items: watching.take(12).toList(),
           horizontal: true,
@@ -94,15 +96,23 @@ class SearchPage extends StatelessWidget {
     required this.results,
     required this.busy,
     required this.onOpenSubject,
+    this.error,
+    this.onRetry,
   });
   final List<Json> results;
   final bool busy;
+  final String? error;
+  final VoidCallback? onRetry;
   final ValueChanged<Json> onOpenSubject;
   @override
   Widget build(BuildContext context) => PageScroll(
     children: [
       SectionTitle(title: '搜索结果 · ${results.length}', icon: Icons.search),
-      if (results.isEmpty && !busy)
+      if (results.isEmpty && busy)
+        const PosterPlaceholders()
+      else if (results.isEmpty && error != null)
+        EmptyState(text: error!, action: onRetry)
+      else if (results.isEmpty)
         const EmptyState(text: '没有找到匹配的番剧')
       else
         SubjectPosters(onOpen: onOpenSubject, items: results),
@@ -126,6 +136,26 @@ class CalendarPage extends StatefulWidget {
 
 class _CalendarPageState extends State<CalendarPage> {
   int selected = DateTime.now().weekday;
+  bool restored = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!restored) {
+      selected =
+          PageStorage.maybeOf(context)
+                  ?.readState(context, identifier: 'calendar-day')
+              as int? ??
+          selected;
+      restored = true;
+    }
+  }
+
+  void selectDay(int day) {
+    setState(() => selected = day);
+    PageStorage.maybeOf(context)
+        ?.writeState(context, day, identifier: 'calendar-day');
+  }
+
   @override
   Widget build(BuildContext context) {
     final days = {
@@ -139,6 +169,7 @@ class _CalendarPageState extends State<CalendarPage> {
           color: Theme.of(context).scaffoldBackgroundColor,
           height: 115,
           child: ListView.separated(
+            key: const PageStorageKey('calendar-days'),
             padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 14),
             scrollDirection: Axis.horizontal,
             itemCount: 7,
@@ -161,7 +192,7 @@ class _CalendarPageState extends State<CalendarPage> {
                       borderRadius: posterBorderRadius,
                     ),
                   ),
-                  onPressed: () => setState(() => selected = i + 1),
+                  onPressed: () => selectDay(i + 1),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [

@@ -76,6 +76,7 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
   Widget field(String key) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
     child: TextField(
+      key: PageStorageKey('bittorrent-field:$key'),
       controller: fields[key],
       enabled: !saving,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),

@@ -24,8 +24,8 @@ class ResourcesPage extends StatefulWidget {
   final int? resourceEpisode;
   final List<Json> providers, candidates;
   final bool busy;
-  final void Function(List<String>, String) onSearch;
-  final ValueChanged<Json> onDownload;
+  final Future<void> Function(List<String>, String) onSearch;
+  final Future<void> Function(Json) onDownload;
   @override
   State<ResourcesPage> createState() => _ResourcesPageState();
 }
@@ -35,7 +35,55 @@ class _ResourcesPageState extends State<ResourcesPage> {
   final titleFilter = TextEditingController(),
       groupFilter = TextEditingController();
   final excluded = <String>{};
-  bool multipleNames = true;
+  final downloadPhases = <String, ResourceDownloadPhase>{};
+  final downloadErrors = <String, String>{};
+  bool multipleNames = true, searching = false;
+  PageStorageBucket? storage;
+  bool formRestored = false, restoringForm = false;
+  bool get searchBusy => widget.busy || searching;
+
+  String get storageId =>
+      'resource-form:${widget.subject?['subjectId']}:${widget.resourceEpisode}';
+
+  @override
+  void initState() {
+    super.initState();
+    for (final controller in [episodeQuery, titleFilter, groupFilter]) {
+      controller.addListener(saveForm);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    storage = PageStorage.maybeOf(context);
+    if (formRestored) return;
+    formRestored = true;
+    final saved = storage?.readState(
+      context,
+      identifier: storageId,
+    ) as Map<String, dynamic>?;
+    if (saved == null) return;
+    restoringForm = true;
+    episodeQuery.text = saved['episode'] as String;
+    titleFilter.text = saved['title'] as String;
+    groupFilter.text = saved['group'] as String;
+    multipleNames = saved['multipleNames'] as bool;
+    excluded.addAll((saved['excluded'] as List).cast<String>());
+    restoringForm = false;
+  }
+
+  void saveForm() {
+    if (restoringForm) return;
+    storage?.writeState(context, {
+      'episode': episodeQuery.text,
+      'title': titleFilter.text,
+      'group': groupFilter.text,
+      'multipleNames': multipleNames,
+      'excluded': excluded.toList(),
+    }, identifier: storageId);
+  }
+
   @override
   void dispose() {
     episodeQuery.dispose();
@@ -44,14 +92,59 @@ class _ResourcesPageState extends State<ResourcesPage> {
     super.dispose();
   }
 
-  void search() => widget.onSearch(
-    multipleNames
-        ? resourceNames(widget.subject ?? {})
-              .where((e) => !excluded.contains(e))
-              .toList()
-        : [],
-    episodeQuery.text,
-  );
+  Future<void> search() async {
+    if (searchBusy) return;
+    setState(() => searching = true);
+    try {
+      await widget.onSearch(
+        multipleNames
+            ? resourceNames(widget.subject ?? {})
+                  .where((e) => !excluded.contains(e))
+                  .toList()
+            : [],
+        episodeQuery.text,
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('搜索失败，请重试。')));
+      }
+    } finally {
+      if (mounted) setState(() => searching = false);
+    }
+  }
+
+  void clearFilters() => setState(() {
+    titleFilter.clear();
+    groupFilter.clear();
+  });
+
+  Future<void> download(Json candidate) async {
+    final id = '${candidate['candidateId']}';
+    if ([
+      ResourceDownloadPhase.adding,
+      ResourceDownloadPhase.added,
+    ].contains(downloadPhases[id])) {
+      return;
+    }
+    setState(() {
+      downloadPhases[id] = ResourceDownloadPhase.adding;
+      downloadErrors.remove(id);
+    });
+    try {
+      await widget.onDownload(candidate);
+      if (mounted) {
+        setState(() => downloadPhases[id] = ResourceDownloadPhase.added);
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          downloadPhases[id] = ResourceDownloadPhase.failed;
+          downloadErrors[id] = error.toString().replaceFirst('Bad state: ', '');
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,6 +161,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
     final episode = objects(widget.subject?['episodes'])
         .where((e) => e['episodeId'] == widget.resourceEpisode)
         .firstOrNull;
+    final providersFailed =
+        widget.providers.isNotEmpty &&
+        widget.providers.every((e) => e['status'] == 'error');
     return PageScroll(
       children: [
         const SizedBox(height: 10),
@@ -120,6 +216,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                   Expanded(
                     flex: 3,
                     child: TextField(
+                      key: const PageStorageKey('resource-query'),
                       controller: widget.resourceSearch,
                       onSubmitted: (_) => search(),
                       decoration: const InputDecoration(
@@ -131,7 +228,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: TextField(
+                      key: const PageStorageKey('resource-episode'),
                       controller: episodeQuery,
+                      onChanged: (_) => setState(() {}),
                       onSubmitted: (_) => search(),
                       decoration: const InputDecoration(
                         labelText: '集数关键词',
@@ -140,7 +239,26 @@ class _ResourcesPageState extends State<ResourcesPage> {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  FilledButton(onPressed: search, child: const Text('搜索')),
+                  Tooltip(
+                    message: searchBusy ? '正在搜索资源…' : '搜索资源',
+                    child: FilledButton(
+                      onPressed: searchBusy ? null : search,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Opacity(
+                            opacity: searchBusy ? 0 : 1,
+                            child: const Text('搜索'),
+                          ),
+                          if (searchBusy)
+                            const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -152,8 +270,10 @@ class _ResourcesPageState extends State<ResourcesPage> {
                   FilterChip(
                     label: const Text('多个名称一起搜'),
                     selected: multipleNames,
-                    onSelected: (value) =>
-                        setState(() => multipleNames = value),
+                    onSelected: (value) {
+                      setState(() => multipleNames = value);
+                      saveForm();
+                    },
                   ),
                   if (multipleNames)
                     for (final name in names.where(
@@ -168,6 +288,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                           } else {
                             excluded.add(name);
                           }
+                          saveForm();
                         }),
                       ),
                 ],
@@ -177,12 +298,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
                 '集数关键词交给资源站搜索；留空可查看合集及其他命名。',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              if (widget.providers.isNotEmpty || widget.busy) ...[
+              if (widget.providers.isNotEmpty || searchBusy) ...[
                 const SizedBox(height: 16),
-                ResourceProgress(
-                  providers: widget.providers,
-                  busy: widget.busy,
-                ),
+                ResourceProgress(providers: widget.providers, busy: searchBusy),
               ],
             ],
           ),
@@ -201,6 +319,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                 children: [
                   Expanded(
                     child: TextField(
+                      key: const PageStorageKey('resource-title-filter'),
                       controller: titleFilter,
                       onChanged: (_) => setState(() {}),
                       decoration: const InputDecoration(
@@ -213,6 +332,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: TextField(
+                      key: const PageStorageKey('resource-group-filter'),
                       controller: groupFilter,
                       onChanged: (_) => setState(() {}),
                       decoration: const InputDecoration(
@@ -223,13 +343,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  TextButton(
-                    onPressed: () => setState(() {
-                      titleFilter.clear();
-                      groupFilter.clear();
-                    }),
-                    child: const Text('清除'),
-                  ),
+                  TextButton(onPressed: clearFilters, child: const Text('清除')),
                 ],
               ),
               if (groups.isNotEmpty) ...[
@@ -288,21 +402,36 @@ class _ResourcesPageState extends State<ResourcesPage> {
                       ),
                     ),
                     const SizedBox(width: 16),
-                    IconButton(
-                      tooltip: '下载',
-                      onPressed: () => widget.onDownload(candidate),
-                      icon: const Icon(Icons.download_outlined, color: mint),
+                    ResourceDownloadButton(
+                      phase:
+                          downloadPhases['${candidate['candidateId']}'] ??
+                          ResourceDownloadPhase.idle,
+                      error: downloadErrors['${candidate['candidateId']}'],
+                      onPressed: () => download(candidate),
                     ),
                   ],
                 ),
               ),
             ),
           ),
-        if (visible.isEmpty && (!widget.busy || widget.candidates.isNotEmpty))
+        if (visible.isEmpty && (!searchBusy || widget.candidates.isNotEmpty))
           EmptyState(
-            text: widget.candidates.isEmpty
-                ? '没有找到资源，试试其他名称或清空集数关键词'
-                : '没有符合筛选条件的资源，试试清除筛选',
+            text: widget.candidates.isNotEmpty
+                ? '没有符合筛选条件的资源'
+                : providersFailed
+                ? '资源站暂时无法连接'
+                : '没有找到资源，试试其他名称或清空集数关键词',
+            action: widget.candidates.isNotEmpty
+                ? clearFilters
+                : () {
+                    if (!providersFailed) episodeQuery.clear();
+                    search();
+                  },
+            actionLabel: widget.candidates.isNotEmpty
+                ? '清除筛选'
+                : !providersFailed && episodeQuery.text.isNotEmpty
+                ? '清空集数并搜索'
+                : '重新搜索',
           ),
       ],
     );

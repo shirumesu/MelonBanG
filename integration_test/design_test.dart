@@ -116,6 +116,7 @@ void main() {
     }
     final dynamic state = tester.state(find.byType(MelonApp));
     Future<void> snapshot(String name) async {
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(tester.takeException(), isNull, reason: name);
       const output = String.fromEnvironment('TEST_CAPTURE_DIR');
@@ -145,6 +146,38 @@ void main() {
         (widget) => widget is IconButton && widget.tooltip == tooltip,
       ),
     );
+
+    refreshGate = Completer<void>();
+    state.search.text = 'delayed';
+    final Future<void> delayedSearch = state.searchSubjects();
+    state.navigate('tracking');
+    state.goBack();
+    expect(state.route, 'search');
+    expect(state.busy, isTrue);
+    refreshGate.complete();
+    await delayedSearch;
+    for (var i = 0; i < 20 && state.busy == true; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    refreshGate = null;
+    expect(state.results.length, names.length);
+
+    refreshGate = Completer<void>();
+    final Future<void> delayedDetail = state.openSubject(<String, dynamic>{
+      'subjectId': 2,
+      'name': names[1],
+    });
+    state.navigate('tracking');
+    state.goBack();
+    expect(state.route, 'subject');
+    expect(state.busy, isTrue);
+    refreshGate.complete();
+    await delayedDetail;
+    for (var i = 0; i < 20 && state.busy == true; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    refreshGate = null;
+    expect((state.subject['episodes'] as List).length, 12);
 
     for (final width in [1360.0, 960.0]) {
       await windowManager.setSize(Size(width, width == 960 ? 640 : 1000));
@@ -178,6 +211,7 @@ void main() {
       await snapshot('collapsed-${width.toInt()}');
       await tester.tap(find.byTooltip('展开侧栏'));
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
       if (width == 1360) {
         refreshGate = Completer<void>();
         await tester.tap(find.text('刷新'));
@@ -206,7 +240,7 @@ void main() {
           .widgetList<SectionTitle>(find.byType(SectionTitle))
           .map((w) => w.title)
           .toList();
-      expect(sections.take(2), ['本季热度', '继续播放']);
+      expect(sections.take(2), ['本季热度', '正在追']);
       await tester.tap(find.text('追番').first);
       await snapshot('tracking-${width.toInt()}');
       await tester.tap(find.text('同步收藏'));
@@ -214,10 +248,45 @@ void main() {
       expect(find.text('登录 Bangumi 后可同步收藏。'), findsOneWidget);
       await snapshot('sync-sign-in-${width.toInt()}');
       await hoverSnapshot(
-        find.text('看到 EP5').first,
+        find.text('已看 5 话').first,
         'tracking-hover-${width.toInt()}',
       );
-      await tester.tap(find.text('看到 EP5').first);
+      final collectionSearch = find.widgetWithText(TextField, '在追番列表中搜索…');
+      Future<void> showCollectionSearch() async {
+        await tester.scrollUntilVisible(
+          collectionSearch,
+          -300,
+          scrollable: find
+              .descendant(
+                of: find.byKey(const PageStorageKey('page-scroll')),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+
+      await showCollectionSearch();
+      await tester.enterText(collectionSearch, names.first);
+      await tester.pump(const Duration(milliseconds: 250));
+      await tester.ensureVisible(find.text('已看 5 话').first);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('已看 5 话').first);
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(state.selectedSection, 'tracking');
+      await tester.tap(find.byTooltip('返回'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(state.route, 'tracking');
+      await showCollectionSearch();
+      expect(
+        tester.widget<TextField>(collectionSearch).controller!.text,
+        names.first,
+      );
+      await tester.enterText(collectionSearch, '');
+      await tester.pump();
+      await tester.ensureVisible(find.text('已看 5 话').first);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('已看 5 话').first);
       await tester.pump(const Duration(milliseconds: 500));
       await snapshot('subject-${width.toInt()}');
       await tester.ensureVisible(find.text('选集'));
@@ -259,9 +328,9 @@ void main() {
         find.text(names[1]),
         'calendar-hover-${width.toInt()}',
       );
-      await tester.tap(find.byTooltip('返回探索'));
+      await tester.tap(find.byTooltip('返回'));
       await tester.pump();
-      expect(find.text('本季热度'), findsOneWidget);
+      expect(state.route, 'subject');
       state.downloads = <String, dynamic>{
         'tasks': <Map<String, dynamic>>[
           {
@@ -296,6 +365,8 @@ void main() {
       await snapshot('settings-${width.toInt()}');
       await tester.tap(find.text('服务连接'));
       await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('编辑 Bangumi'));
+      await tester.pump(const Duration(milliseconds: 300));
       final input = find.widgetWithText(TextField, 'Bangumi Client ID');
       await tester.enterText(input, 'draft-client');
       await snapshot('connections-${width.toInt()}');
@@ -312,11 +383,11 @@ void main() {
       await tester.tap(find.text('服务连接'));
       await tester.pump();
       expect(find.text('draft-client'), findsOneWidget);
-      await tester.tap(find.byTooltip('收起侧栏'));
-      await tester.pump(const Duration(milliseconds: 200));
-      expect(find.text('draft-client'), findsOneWidget);
-      await tester.tap(find.byTooltip('展开侧栏'));
-      await tester.pump(const Duration(milliseconds: 200));
+      final sidebarToggle = tester.widget<IconButton>(
+        find.widgetWithIcon(IconButton, Icons.view_sidebar_outlined),
+      );
+      expect(sidebarToggle.onPressed, isNull);
+      expect(find.text('服务连接'), findsNWidgets(2));
       expect(find.text('draft-client'), findsOneWidget);
       await snapshot('connections-dark-${width.toInt()}');
       state.navigate('home');

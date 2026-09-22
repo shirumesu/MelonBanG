@@ -16,25 +16,27 @@ class PlayerControls extends StatelessWidget {
     required this.onDragChanged,
     required this.onDragEnd,
     required this.onSeekRelative,
-    required this.onFocus,
     required this.onReveal,
     required this.onFullscreen,
     required this.onMenu,
     required this.onWindowFullScreen,
     required this.windowFullScreen,
     required this.menu,
+    required this.menuFocusNodes,
+    required this.onPopupChanged,
   });
   final Playback playback;
   final bool fullScreen, windowFullScreen;
   final PlayerMenu? menu;
   final ValueChanged<PlayerMenu> onMenu;
+  final Map<PlayerMenu, FocusNode> menuFocusNodes;
+  final ValueChanged<bool> onPopupChanged;
   final VoidCallback onWindowFullScreen;
   final double? dragging;
   final ValueChanged<double> onDragStart;
   final ValueChanged<double> onDragChanged;
   final ValueChanged<double> onDragEnd;
   final ValueChanged<int> onSeekRelative;
-  final VoidCallback onFocus;
   final VoidCallback onReveal;
   final VoidCallback onFullscreen;
   Player get player => playback.player;
@@ -57,15 +59,22 @@ class PlayerControls extends StatelessWidget {
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Slider(
-              value: (dragging ?? current).clamp(
-                0,
-                duration > 0 ? duration : 1,
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                showValueIndicator: ShowValueIndicator.onlyForContinuous,
               ),
-              max: duration > 0 ? duration : 1,
-              onChangeStart: onDragStart,
-              onChanged: duration > 0 ? onDragChanged : null,
-              onChangeEnd: onDragEnd,
+              child: Slider(
+                value: (dragging ?? current).clamp(
+                  0,
+                  duration > 0 ? duration : 1,
+                ),
+                max: duration > 0 ? duration : 1,
+                onChangeStart: onDragStart,
+                onChanged: duration > 0 ? onDragChanged : null,
+                onChangeEnd: onDragEnd,
+                label: formatTime(dragging ?? current),
+                semanticFormatterCallback: formatTime,
+              ),
             ),
             LayoutBuilder(
               builder: (context, constraints) {
@@ -80,7 +89,6 @@ class PlayerControls extends StatelessWidget {
                         color: Theme.of(context).colorScheme.primary,
                         onPressed: () {
                           unawaited(player.playOrPause());
-                          onFocus();
                           onReveal();
                         },
                         icon: Icon(
@@ -114,6 +122,7 @@ class PlayerControls extends StatelessWidget {
                       (PlayerMenu.danmaku, '弹幕', Icons.chat_bubble_outline),
                     ])
                       IconButton(
+                        focusNode: menuFocusNodes[entry.$1],
                         tooltip: entry.$2,
                         isSelected: menu == entry.$1,
                         onPressed: () => onMenu(entry.$1),
@@ -123,9 +132,8 @@ class PlayerControls extends StatelessWidget {
                       stream: player.stream.volume,
                       initialData: player.state.volume,
                       builder: (_, snapshot) => IconButton(
-                        tooltip: '静音（M）',
-                        onPressed: () =>
-                            player.setVolume(snapshot.data! == 0 ? 80 : 0),
+                        tooltip: snapshot.data == 0 ? '取消静音（M）' : '静音（M）',
+                        onPressed: playback.toggleMute,
                         icon: Icon(
                           snapshot.data == 0
                               ? Icons.volume_off
@@ -138,10 +146,14 @@ class PlayerControls extends StatelessWidget {
                       initialData: player.state.rate,
                       builder: (_, snapshot) => PopupMenuButton<double>(
                         tooltip: '播放速度',
-                        onOpened: onReveal,
+                        onOpened: () {
+                          onPopupChanged(true);
+                          onReveal();
+                        },
+                        onCanceled: () => onPopupChanged(false),
                         onSelected: (value) {
                           player.setRate(value);
-                          onFocus();
+                          onPopupChanged(false);
                           onReveal();
                         },
                         itemBuilder: (_) => [.5, .75, 1.0, 1.25, 1.5, 2.0]
@@ -162,6 +174,7 @@ class PlayerControls extends StatelessWidget {
                       ),
                     ),
                     IconButton(
+                      focusNode: menuFocusNodes[PlayerMenu.subtitles],
                       tooltip: '播放设置',
                       isSelected: menu == PlayerMenu.subtitles,
                       onPressed: () => onMenu(PlayerMenu.subtitles),
