@@ -1,9 +1,12 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/json.dart';
 import '../../data/resource_metadata.dart';
+import '../../data/resource_title.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
-import '../core/subject_posters.dart';
+import '../core/selection_controls.dart';
 import '../core/theme.dart';
 import 'resource_widgets.dart';
 
@@ -32,14 +35,17 @@ class ResourcesPage extends StatefulWidget {
 
 class _ResourcesPageState extends State<ResourcesPage> {
   final episodeQuery = TextEditingController();
-  final titleFilter = TextEditingController(),
-      groupFilter = TextEditingController();
-  final excluded = <String>{};
+  final queryFocus = FocusNode(), episodeFocus = FocusNode();
+  final excluded = <String>{}, expandedTitles = <String>{};
   final downloadPhases = <String, ResourceDownloadPhase>{};
   final downloadErrors = <String, String>{};
-  bool multipleNames = true, searching = false;
+  final annotations = <String, ResourceTitleInfo>{};
+  String quality = 'all', group = '';
+  bool includeUnknown = true;
+  bool multipleNames = true, aliasesExpanded = false, searching = false;
   PageStorageBucket? storage;
   bool formRestored = false, restoringForm = false;
+  late String activeStorageId;
   bool get searchBusy => widget.busy || searching;
 
   String get storageId =>
@@ -48,47 +54,79 @@ class _ResourcesPageState extends State<ResourcesPage> {
   @override
   void initState() {
     super.initState();
-    for (final controller in [episodeQuery, titleFilter, groupFilter]) {
-      controller.addListener(saveForm);
-    }
+    activeStorageId = storageId;
+    episodeQuery.addListener(saveForm);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     storage = PageStorage.maybeOf(context);
-    if (formRestored) return;
+    if (!formRestored) restoreForm();
+  }
+
+  @override
+  void didUpdateWidget(ResourcesPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (activeStorageId != storageId) {
+      activeStorageId = storageId;
+      restoringForm = true;
+      episodeQuery.clear();
+      quality = 'all';
+      group = '';
+      includeUnknown = true;
+      multipleNames = true;
+      aliasesExpanded = false;
+      excluded.clear();
+      expandedTitles.clear();
+      annotations.clear();
+      restoringForm = false;
+      restoreForm();
+    }
+  }
+
+  void restoreForm() {
     formRestored = true;
-    final saved = storage?.readState(
-      context,
-      identifier: storageId,
-    ) as Map<String, dynamic>?;
-    if (saved == null) return;
+    final saved = storage?.readState(context, identifier: activeStorageId);
+    if (saved is! Map) return;
     restoringForm = true;
-    episodeQuery.text = saved['episode'] as String;
-    titleFilter.text = saved['title'] as String;
-    groupFilter.text = saved['group'] as String;
-    multipleNames = saved['multipleNames'] as bool;
-    excluded.addAll((saved['excluded'] as List).cast<String>());
+    episodeQuery.text = saved['episode'] as String? ?? '';
+    quality = saved['quality'] as String? ?? 'all';
+    group = saved['sourceGroup'] as String? ?? '';
+    includeUnknown = saved['includeUnknown'] as bool? ?? true;
+    multipleNames = saved['multipleNames'] as bool? ?? true;
+    aliasesExpanded = saved['aliasesExpanded'] as bool? ?? false;
+    excluded.addAll((saved['excluded'] as List? ?? []).whereType<String>());
+    expandedTitles.addAll(
+      (saved['expandedTitles'] as List? ?? []).whereType<String>(),
+    );
     restoringForm = false;
   }
 
   void saveForm() {
-    if (restoringForm) return;
+    if (restoringForm || !mounted) return;
     storage?.writeState(context, {
       'episode': episodeQuery.text,
-      'title': titleFilter.text,
-      'group': groupFilter.text,
+      'quality': quality,
+      'sourceGroup': group,
+      'includeUnknown': includeUnknown,
       'multipleNames': multipleNames,
+      'aliasesExpanded': aliasesExpanded,
       'excluded': excluded.toList(),
-    }, identifier: storageId);
+      'expandedTitles': expandedTitles.toList(),
+    }, identifier: activeStorageId);
+  }
+
+  void changeForm(VoidCallback update) {
+    setState(update);
+    saveForm();
   }
 
   @override
   void dispose() {
     episodeQuery.dispose();
-    titleFilter.dispose();
-    groupFilter.dispose();
+    queryFocus.dispose();
+    episodeFocus.dispose();
     super.dispose();
   }
 
@@ -114,9 +152,10 @@ class _ResourcesPageState extends State<ResourcesPage> {
     }
   }
 
-  void clearFilters() => setState(() {
-    titleFilter.clear();
-    groupFilter.clear();
+  void clearFilters() => changeForm(() {
+    quality = 'all';
+    group = '';
+    includeUnknown = true;
   });
 
   Future<void> download(Json candidate) async {
@@ -146,100 +185,93 @@ class _ResourcesPageState extends State<ResourcesPage> {
     }
   }
 
+  ResourceTitleInfo annotate(Json candidate) {
+    final id = '${candidate['candidateId']}';
+    final previous = annotations[id];
+    final groups = (candidate['releaseGroups'] as List? ?? [])
+        .whereType<String>()
+        .toList();
+    if (previous != null &&
+        previous.title == candidate['title'] &&
+        listEquals(previous.sourceGroups, groups)) {
+      return previous;
+    }
+    return annotations[id] = describeResource(candidate);
+  }
+
   @override
   Widget build(BuildContext context) {
     final names = resourceNames(widget.subject ?? {});
-    final visible = widget.candidates
-        .where((e) => matchesResource(e, titleFilter.text, groupFilter.text))
+    final annotated = widget.candidates
+        .map((candidate) => (candidate, annotate(candidate)))
         .toList();
-    final groups =
-        widget.candidates
-            .expand((e) => (e['releaseGroups'] as List? ?? []).cast<String>())
-            .toSet()
-            .toList()
-          ..sort();
+    final visible = annotated
+        .where(
+          (entry) => matchesResourceSelection(
+            entry.$2,
+            quality: quality,
+            group: group,
+            includeUnknown: includeUnknown,
+          ),
+        )
+        .toList();
+    final groups = {
+      ...annotated.expand((entry) => entry.$2.sourceGroups),
+      if (group.isNotEmpty) group,
+    }.toList()..sort();
     final episode = objects(widget.subject?['episodes'])
         .where((e) => e['episodeId'] == widget.resourceEpisode)
         .firstOrNull;
     final providersFailed =
         widget.providers.isNotEmpty &&
         widget.providers.every((e) => e['status'] == 'error');
+    final small = Theme.of(context).textTheme.bodySmall;
     return PageScroll(
       children: [
         const SizedBox(height: 10),
         MelonPanel(
+          padding: const EdgeInsets.all(18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  SizedBox(
-                    width: 54,
-                    height: 72,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: SubjectCover(
-                        url: widget.subject?['coverUrl'],
-                        title: titleOf(widget.subject ?? {}),
-                        id: number(widget.subject?['subjectId']).toInt(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          titleOf(widget.subject ?? {}),
-                          style: const TextStyle(
-                            fontSize: 21,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          episode == null
-                              ? '选择喜欢的字幕组与视频版本'
-                              : '下载将关联到第 ${episode['sort']} 话',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+              Text(
+                titleOf(widget.subject ?? {}),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-              const SizedBox(height: 20),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: TextField(
-                      key: const PageStorageKey('resource-query'),
-                      controller: widget.resourceSearch,
-                      onSubmitted: (_) => search(),
-                      decoration: const InputDecoration(
-                        labelText: '资源关键词',
-                        prefixIcon: Icon(Icons.search, size: 19),
-                      ),
+              const SizedBox(height: 5),
+              Text(
+                episode == null ? '查找字幕组与视频版本' : '下载将关联到第 ${episode['sort']} 话',
+                style: small,
+              ),
+              const SizedBox(height: 17),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final keyword = TextField(
+                    key: const PageStorageKey('resource-query'),
+                    controller: widget.resourceSearch,
+                    focusNode: queryFocus,
+                    onChanged: (_) => setState(() {}),
+                    onSubmitted: (_) => search(),
+                    decoration: const InputDecoration(
+                      labelText: '资源关键词',
+                      prefixIcon: Icon(Icons.search, size: 19),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      key: const PageStorageKey('resource-episode'),
-                      controller: episodeQuery,
-                      onChanged: (_) => setState(() {}),
-                      onSubmitted: (_) => search(),
-                      decoration: const InputDecoration(
-                        labelText: '集数关键词',
-                        hintText: '01 / S01E01',
-                      ),
+                  );
+                  final episodeField = TextField(
+                    key: const PageStorageKey('resource-episode'),
+                    controller: episodeQuery,
+                    focusNode: episodeFocus,
+                    onChanged: (_) => setState(() {}),
+                    onSubmitted: (_) => search(),
+                    decoration: const InputDecoration(
+                      labelText: '集数关键词',
+                      hintText: '01 / S01E01',
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Tooltip(
+                  );
+                  final button = Tooltip(
                     message: searchBusy ? '正在搜索资源…' : '搜索资源',
                     child: FilledButton(
                       onPressed: searchBusy ? null : search,
@@ -258,48 +290,99 @@ class _ResourcesPageState extends State<ResourcesPage> {
                         ],
                       ),
                     ),
-                  ),
-                ],
+                  );
+                  if (constraints.maxWidth < 490) {
+                    return Column(
+                      children: [
+                        keyword,
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(child: episodeField),
+                            const SizedBox(width: 10),
+                            button,
+                          ],
+                        ),
+                      ],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(child: keyword),
+                      const SizedBox(width: 10),
+                      SizedBox(width: 145, child: episodeField),
+                      const SizedBox(width: 10),
+                      button,
+                    ],
+                  );
+                },
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 7),
               Wrap(
-                spacing: 8,
-                runSpacing: 6,
+                spacing: 10,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  FilterChip(
-                    label: const Text('多个名称一起搜'),
-                    selected: multipleNames,
-                    onSelected: (value) {
-                      setState(() => multipleNames = value);
-                      saveForm();
-                    },
+                  TextButton.icon(
+                    key: const ValueKey('resource-aliases-toggle'),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 0),
+                      textStyle: const TextStyle(fontSize: 12),
+                    ),
+                    onPressed: () =>
+                        changeForm(() => aliasesExpanded = !aliasesExpanded),
+                    icon: AnimatedRotation(
+                      turns: aliasesExpanded ? .25 : 0,
+                      duration: motionDuration(context, 150),
+                      child: const Icon(Icons.chevron_right, size: 17),
+                    ),
+                    label: Text(
+                      multipleNames
+                          ? '别名搜索 · ${names.where((name) => !excluded.contains(name)).length} 个名称'
+                          : '别名搜索 · 已关闭',
+                    ),
                   ),
-                  if (multipleNames)
-                    for (final name in names.where(
-                      (e) => e != widget.resourceSearch.text.trim(),
-                    ))
-                      FilterChip(
-                        label: Text(name),
-                        selected: !excluded.contains(name),
-                        onSelected: (value) => setState(() {
-                          if (value) {
-                            excluded.remove(name);
-                          } else {
-                            excluded.add(name);
-                          }
-                          saveForm();
-                        }),
-                      ),
+                  Text('集数留空可查找合集', style: small?.copyWith(fontSize: 11)),
                 ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                '集数关键词交给资源站搜索；留空可查看合集及其他命名。',
-                style: Theme.of(context).textTheme.bodySmall,
+              AnimatedSize(
+                duration: motionDuration(context),
+                alignment: Alignment.topLeft,
+                curve: Curves.easeOutCubic,
+                child: aliasesExpanded
+                    ? Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Wrap(
+                          spacing: 7,
+                          runSpacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            FilterChip(
+                              label: const Text('多个名称一起搜'),
+                              selected: multipleNames,
+                              onSelected: (value) =>
+                                  changeForm(() => multipleNames = value),
+                            ),
+                            if (multipleNames)
+                              for (final name in names.where(
+                                (name) =>
+                                    name != widget.resourceSearch.text.trim(),
+                              ))
+                                FilterChip(
+                                  label: Text(name),
+                                  selected: !excluded.contains(name),
+                                  onSelected: (value) => changeForm(
+                                    () => value
+                                        ? excluded.remove(name)
+                                        : excluded.add(name),
+                                  ),
+                                ),
+                          ],
+                        ),
+                      )
+                    : const SizedBox.shrink(),
               ),
               if (widget.providers.isNotEmpty || searchBusy) ...[
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
                 ResourceProgress(providers: widget.providers, busy: searchBusy),
               ],
             ],
@@ -308,112 +391,159 @@ class _ResourcesPageState extends State<ResourcesPage> {
         SectionTitle(
           title: '资源结果',
           subtitle: '${visible.length} / ${widget.candidates.length} 条',
-          icon: Icons.download_outlined,
-          color: mint,
         ),
-        MelonPanel(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      key: const PageStorageKey('resource-title-filter'),
-                      controller: titleFilter,
-                      onChanged: (_) => setState(() {}),
-                      decoration: const InputDecoration(
-                        labelText: '筛选结果标题',
-                        hintText: '画质、语言、格式…',
-                        prefixIcon: Icon(Icons.filter_list, size: 19),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      key: const PageStorageKey('resource-group-filter'),
-                      controller: groupFilter,
-                      onChanged: (_) => setState(() {}),
-                      decoration: const InputDecoration(
-                        labelText: '字幕组 / 联合发布',
-                        hintText: '输入字幕组名称',
-                        prefixIcon: Icon(Icons.groups_outlined, size: 19),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  TextButton(onPressed: clearFilters, child: const Text('清除')),
-                ],
+              Text('画质', style: small),
+              SizedBox(
+                width: 278,
+                child: MelonSegmentedControl<String>(
+                  options: const {
+                    'all': '全部',
+                    '1080p': '1080p',
+                    '720p': '720p',
+                    '4K': '4K',
+                  },
+                  value: quality,
+                  semanticLabel: '按标题标注的画质筛选',
+                  onChanged: (value) => changeForm(() => quality = value),
+                ),
               ),
-              if (groups.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    for (final group in groups)
-                      FilterChip(
-                        label: Text(group),
-                        selected: groupFilter.text == group,
-                        onSelected: (value) => setState(
-                          () => groupFilter.text = value ? group : '',
+              MelonChoiceMenu<String>(
+                options: {'': '全部来源分组', for (final name in groups) name: name},
+                value: group,
+                icon: Icons.groups_outlined,
+                label: group.isEmpty ? '来源分组' : group,
+                tooltip: '资源站标注的发布分组；标题中的联合署名单独展示',
+                onSelected: (value) => changeForm(() => group = value),
+              ),
+              Tooltip(
+                message: '筛选时保留未标明画质或来源分组的资源',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () =>
+                      changeForm(() => includeUnknown = !includeUnknown),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ExcludeFocus(
+                        child: Checkbox(
+                          value: includeUnknown,
+                          onChanged: (value) =>
+                              changeForm(() => includeUnknown = value ?? true),
                         ),
                       ),
-                  ],
+                      const Padding(
+                        padding: EdgeInsets.only(right: 8),
+                        child: Text('含未确认', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
+              ),
+              if (quality != 'all' || group.isNotEmpty || !includeUnknown)
+                TextButton(onPressed: clearFilters, child: const Text('清除')),
             ],
           ),
         ),
-        const SizedBox(height: 14),
-        for (final candidate in visible)
-          ResourceArrival(
-            key: ValueKey(candidate['candidateId']),
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: MelonPanel(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 17,
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.video_file_outlined,
-                      color: mint,
-                      size: 24,
+        if (visible.isNotEmpty) ...[
+          LayoutBuilder(
+            builder: (context, constraints) => constraints.maxWidth < 760
+                ? const SizedBox.shrink()
+                : Material(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.vertical(
+                      top: panelBorderRadius.topLeft,
                     ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 13, 16, 11),
+                      child: Row(
                         children: [
-                          Text(
-                            '${candidate['title']}',
-                            style: Theme.of(context).textTheme.titleSmall,
+                          Expanded(
+                            child: Text(
+                              '资源 / 标题标注',
+                              style: small?.copyWith(fontSize: 11),
+                            ),
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            resourceDetails(candidate),
-                            style: Theme.of(context).textTheme.bodySmall,
+                          const SizedBox(width: 18),
+                          SizedBox(
+                            width: 106,
+                            child: Text(
+                              '来源分组',
+                              style: small?.copyWith(fontSize: 11),
+                            ),
                           ),
+                          const SizedBox(width: 12),
+                          SizedBox(
+                            width: 72,
+                            child: Text(
+                              '大小',
+                              style: small?.copyWith(fontSize: 11),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          SizedBox(
+                            width: 80,
+                            child: Text(
+                              '发布',
+                              style: small?.copyWith(fontSize: 11),
+                            ),
+                          ),
+                          const SizedBox(width: 100),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    ResourceDownloadButton(
-                      phase:
-                          downloadPhases['${candidate['candidateId']}'] ??
-                          ResourceDownloadPhase.idle,
-                      error: downloadErrors['${candidate['candidateId']}'],
-                      onPressed: () => download(candidate),
+                  ),
+          ),
+          for (var i = 0; i < visible.length; i++)
+            LayoutBuilder(
+              key: ValueKey(visible[i].$1['candidateId']),
+              builder: (context, constraints) => Material(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.vertical(
+                  top: i == 0 && constraints.maxWidth < 760
+                      ? panelBorderRadius.topLeft
+                      : Radius.zero,
+                  bottom: i == visible.length - 1
+                      ? panelBorderRadius.bottomLeft
+                      : Radius.zero,
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    if (i > 0)
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                    ResourceArrival(
+                      child: ResourceResultRow(
+                        candidate: visible[i].$1,
+                        info: visible[i].$2,
+                        expanded: expandedTitles.contains(
+                          '${visible[i].$1['candidateId']}',
+                        ),
+                        onExpand: () => changeForm(() {
+                          final id = '${visible[i].$1['candidateId']}';
+                          if (!expandedTitles.remove(id)) {
+                            expandedTitles.add(id);
+                          }
+                        }),
+                        phase:
+                            downloadPhases['${visible[i].$1['candidateId']}'] ??
+                            ResourceDownloadPhase.idle,
+                        error:
+                            downloadErrors['${visible[i].$1['candidateId']}'],
+                        onDownload: () => download(visible[i].$1),
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
-          ),
+        ],
         if (visible.isEmpty && (!searchBusy || widget.candidates.isNotEmpty))
           EmptyState(
             text: widget.candidates.isNotEmpty

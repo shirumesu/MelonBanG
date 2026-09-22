@@ -40,7 +40,7 @@ ThemeData appTheme(bool dark) {
         onPrimary: dark ? const Color(0xff123a2a) : Colors.white,
         primaryContainer: dark
             ? const Color(0xff304f42)
-            : const Color(0xffdef1e8),
+            : const Color(0xffb8edd5),
         onPrimaryContainer: dark
             ? const Color(0xffcbefdc)
             : const Color(0xff164d39),
@@ -138,9 +138,11 @@ ThemeData appTheme(bool dark) {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
+        backgroundColor: scheme.primaryContainer,
+        foregroundColor: scheme.onPrimaryContainer,
         minimumSize: const Size(64, 40),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
         shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
       ),
     ),
@@ -196,7 +198,7 @@ ThemeData appTheme(bool dark) {
     textTheme: textTheme.copyWith(
       titleMedium: textTheme.bodyMedium!.copyWith(
         fontSize: 17,
-        fontWeight: FontWeight.w800,
+        fontWeight: FontWeight.w600,
       ),
       titleSmall: textTheme.bodyMedium!.copyWith(
         fontSize: 13,

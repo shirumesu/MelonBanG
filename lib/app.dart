@@ -64,7 +64,11 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   bool accountBusy = false;
   final homeFeedback = ActionFeedback();
   final syncFeedback = ActionFeedback();
-  Json? account, subject, playerSubject;
+  Json? account, subject, playerSubject, subjectResume;
+  Set<int>? cachedEpisodeIds;
+  List<Json> resumable = [];
+  int? mediaSubjectId;
+  int _mediaRequest = 0, _trackingRefreshRequest = 0;
   List<Json> trending = [],
       today = [],
       calendar = [],
@@ -96,7 +100,18 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       if (!mounted || closing) return;
       subscriptions.add(
         widget.service.downloads.changes.stream.listen((value) {
-          if (mounted) setState(() => downloads = value);
+          if (!mounted) return;
+          String availability(Json snapshot) => objects(snapshot['tasks'])
+              .map(
+                (task) =>
+                    '${task['id']}:${task['status']}:${number(task['progress']) >= 1}',
+              )
+              .join('|');
+          final changed = availability(downloads) != availability(value);
+          setState(() => downloads = value);
+          if (changed && ready && ['home', 'subject'].contains(route)) {
+            unawaited(perform(refreshPlaybackAvailability));
+          }
         }),
       );
       subscriptions.add(
@@ -118,6 +133,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           if (issue != null) showError(issue);
         }),
         refreshPersonal(),
+        refreshPlaybackAvailability(),
       ]);
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
@@ -213,6 +229,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       (_) => perform(() async {
         await playback.player.pause();
         await playback.saveProgress();
+        await refreshPlaybackAvailability();
       }),
     );
   }
@@ -241,6 +258,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       resourceQueryEpisode = previous.resourceQueryEpisode;
       busy = false;
     });
+    if (ready && ['home', 'subject'].contains(route)) {
+      unawaited(perform(refreshPlaybackAvailability));
+    }
     if (previous.pending ||
         (route == 'subject' &&
             previous.accountId != widget.service.account.userId)) {
@@ -332,9 +352,13 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     setState(() {
       route = 'subject';
       subject = item;
+      subjectResume = null;
+      cachedEpisodeIds = null;
+      mediaSubjectId = null;
       busy = true;
     });
     try {
+      unawaited(perform(refreshPlaybackAvailability));
       final detail = object(await widget.service.tracking.subject(id as int));
       if (mounted && ticket == _navigation) setState(() => subject = detail);
     } catch (e) {
@@ -412,33 +436,88 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     );
   }
 
-  Future<void> updateTracking(Json mutation) async {
+  Future<void> updateTracking(Json mutation) =>
+      perform(() => saveTracking(mutation));
+
+  Future<void> saveTracking(Json mutation) async {
     final subjectId = mutation['subjectId'] as int;
     final ticket = _navigation;
-    await perform(() async {
-      if (mutation['kind'] == 'subjectCollection') {
-        await widget.service.tracking.setCollection(
-          mutation['subjectId'] as int,
-          status: mutation['status'] == null
-              ? null
-              : CollectionStatus.parse('${mutation['status']}'),
-          score: mutation['score'] as int?,
-        );
-      } else {
-        await widget.service.tracking.setEpisode(
-          subjectId,
-          mutation['episodeId'] as int,
-          EpisodeStatus.parse('${mutation['status']}'),
-        );
-      }
-      await refreshPersonal();
-      final detail = await widget.service.tracking.subject(subjectId);
-      if (mounted &&
-          ticket == _navigation &&
-          route == 'subject' &&
-          subject?['subjectId'] == subjectId) {
-        setState(() => subject = detail);
-      }
+    final accountId = widget.service.account.userId;
+    if (mutation['kind'] == 'subjectCollection') {
+      await widget.service.tracking.setCollection(
+        subjectId,
+        status: mutation['status'] == null
+            ? null
+            : CollectionStatus.parse('${mutation['status']}'),
+        score: mutation['score'] as int?,
+      );
+    } else {
+      await widget.service.tracking.setEpisode(
+        subjectId,
+        mutation['episodeId'] as int,
+        EpisodeStatus.parse('${mutation['status']}'),
+      );
+    }
+    final refreshTicket = ++_trackingRefreshRequest;
+    bool isCurrent() =>
+        mounted &&
+        ticket == _navigation &&
+        route == 'subject' &&
+        subject?['subjectId'] == subjectId &&
+        accountId == widget.service.account.userId &&
+        refreshTicket == _trackingRefreshRequest;
+    if (isCurrent()) {
+      setState(() {
+        subject = {
+          ...subject!,
+          if (mutation['kind'] == 'subjectCollection')
+            'collection': {
+              ...object(subject!['collection']),
+              if (mutation['status'] != null) 'status': mutation['status'],
+              if (mutation['score'] != null) 'score': mutation['score'],
+            }
+          else
+            'episodes': [
+              for (final episode in objects(subject!['episodes']))
+                if (episode['episodeId'] == mutation['episodeId'])
+                  {...episode, 'status': mutation['status']}
+                else
+                  episode,
+            ],
+        };
+      });
+    }
+    // Reflect committed local changes immediately; refresh has its own failure path.
+    unawaited(
+      perform(() async {
+        await refreshPersonal();
+        final detail = await widget.service.tracking.subject(subjectId);
+        if (isCurrent()) setState(() => subject = detail);
+      }),
+    );
+  }
+
+  Future<void> refreshPlaybackAvailability() async {
+    final ticket = ++_mediaRequest;
+    final id = subject?['subjectId'] as int?;
+    final recent = await widget.service.library.recent();
+    final resume =
+        recent.where((item) => item['subjectId'] == id).firstOrNull ??
+        (id == null
+            ? null
+            : (await widget.service.library.recent(
+                limit: 1,
+                forSubject: id,
+              )).firstOrNull);
+    final playable = id == null
+        ? null
+        : await widget.service.library.playableEpisodes(id);
+    if (!mounted || ticket != _mediaRequest) return;
+    setState(() {
+      resumable = recent;
+      mediaSubjectId = id;
+      cachedEpisodeIds = playable;
+      subjectResume = resume;
     });
   }
 
@@ -550,6 +629,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       }
       busy = false;
     });
+    if (ready && target == 'home') {
+      unawaited(perform(refreshPlaybackAvailability));
+    }
     if (ready && target == 'calendar' && calendar.isEmpty) {
       unawaited(loadCalendar());
     }
@@ -812,6 +894,13 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           dark: dark,
           today: today,
           trending: trending,
+          resumable: resumable,
+          onResume: (item) => startPlayback(
+            () => widget.service.library.episode(
+              item['subjectId'] as int,
+              item['episodeId'] as int,
+            ),
+          ),
           watching: collection
               .where((item) => item['status'] == 'watching')
               .toList(),
@@ -856,6 +945,11 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           subject: item,
           loading: busy,
           onUpdateTracking: updateTracking,
+          onSaveTracking: saveTracking,
+          resume: mediaSubjectId == item?['subjectId'] ? subjectResume : null,
+          cachedEpisodeIds: mediaSubjectId == item?['subjectId']
+              ? cachedEpisodeIds
+              : null,
           onFindResources: (episode) => findResources(episode: episode),
           onOpenEpisode: (episode) => openVideo(null, episode),
           onPlayEpisode: (episode) => startPlayback(

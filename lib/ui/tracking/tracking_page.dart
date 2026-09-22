@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/json.dart';
 import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
+import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'collection_labels.dart';
@@ -88,30 +89,15 @@ class _TrackingPageState extends State<TrackingPage> {
     return PageScroll(
       children: [
         const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: controlBorderRadius,
-            ),
-            child: Wrap(
-              spacing: 5,
-              runSpacing: 5,
-              children: collectionLabels.entries
-                  .map(
-                    (entry) => ChoiceChip(
-                      label: Text(
-                        '${entry.value} ${widget.collection.where((item) => item['status'] == entry.key).length}',
-                      ),
-                      selected: widget.collectionFilter == entry.key,
-                      onSelected: (_) => widget.onFilterChanged(entry.key),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
+        MelonSegmentedControl<String>(
+          options: {
+            for (final entry in collectionLabels.entries)
+              entry.key:
+                  '${entry.value} ${widget.collection.where((item) => item['status'] == entry.key).length}',
+          },
+          value: widget.collectionFilter,
+          onChanged: widget.onFilterChanged,
+          semanticLabel: '追番分类',
         ),
         const SizedBox(height: 18),
         Wrap(
@@ -131,16 +117,21 @@ class _TrackingPageState extends State<TrackingPage> {
                 onChanged: (value) => updateFilters(() => query = value),
               ),
             ),
-            for (final filter in ['全部', '有进度', '已评分'])
-              ChoiceChip(
-                label: Text(filter),
-                selected: quickFilter == filter,
-                onSelected: (_) => updateFilters(() => quickFilter = filter),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 260),
+              child: MelonSegmentedControl<String>(
+                options: const {'全部': '全部', '有进度': '有进度', '已评分': '已评分'},
+                value: quickFilter,
+                onChanged: (value) => updateFilters(() => quickFilter = value),
+                semanticLabel: '追番筛选',
               ),
-            OutlinedButton.icon(
-              onPressed: () => updateFilters(() => sortByScore = !sortByScore),
-              icon: const Icon(Icons.sort, size: 16),
-              label: Text(sortByScore ? '按我的评分' : '默认顺序'),
+            ),
+            MelonChoiceMenu<bool>(
+              options: const {false: '默认顺序', true: '按我的评分'},
+              value: sortByScore,
+              onSelected: (value) => updateFilters(() => sortByScore = value),
+              icon: Icons.sort,
+              tooltip: '追番排序',
             ),
             FeedbackButton(
               feedback: widget.feedback,
