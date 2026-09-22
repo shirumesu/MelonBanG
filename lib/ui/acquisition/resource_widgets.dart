@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/json.dart';
 import '../../data/resource_metadata.dart';
+import '../../data/resource_title.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
@@ -14,10 +18,12 @@ class ResourceDownloadButton extends StatelessWidget {
     required this.phase,
     required this.onPressed,
     this.error,
+    this.showLabel = false,
   });
   final ResourceDownloadPhase phase;
   final VoidCallback onPressed;
   final String? error;
+  final bool showLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -28,39 +34,58 @@ class ResourceDownloadButton extends StatelessWidget {
       ResourceDownloadPhase.failed =>
         '添加失败，点击重试${error == null ? '' : '\n$error'}',
     };
+    final action =
+        [
+          ResourceDownloadPhase.adding,
+          ResourceDownloadPhase.added,
+        ].contains(phase)
+        ? null
+        : onPressed;
+    final icon = SizedBox.square(
+      dimension: 24,
+      child: AnimatedSwitcher(
+        duration: motionDuration(context, 150),
+        child: phase == ResourceDownloadPhase.adding
+            ? const Padding(
+                key: ValueKey(ResourceDownloadPhase.adding),
+                padding: EdgeInsets.all(3),
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(
+                switch (phase) {
+                  ResourceDownloadPhase.added => Icons.check_circle_outline,
+                  ResourceDownloadPhase.failed => Icons.refresh,
+                  _ => Icons.download_outlined,
+                },
+                key: ValueKey(phase),
+                color: phase == ResourceDownloadPhase.failed ? gold : mint,
+              ),
+      ),
+    );
     return Semantics(
       liveRegion: phase != ResourceDownloadPhase.idle,
-      child: IconButton(
-        tooltip: label,
-        onPressed:
-            [
-              ResourceDownloadPhase.adding,
-              ResourceDownloadPhase.added,
-            ].contains(phase)
-            ? null
-            : onPressed,
-        icon: SizedBox.square(
-          dimension: 24,
-          child: AnimatedSwitcher(
-            duration: motionDuration(context, 150),
-            child: phase == ResourceDownloadPhase.adding
-                ? const Padding(
-                    key: ValueKey(ResourceDownloadPhase.adding),
-                    padding: EdgeInsets.all(3),
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Icon(
-                    switch (phase) {
-                      ResourceDownloadPhase.added => Icons.check_circle_outline,
-                      ResourceDownloadPhase.failed => Icons.refresh,
-                      _ => Icons.download_outlined,
-                    },
-                    key: ValueKey(phase),
-                    color: phase == ResourceDownloadPhase.failed ? gold : mint,
+      child: showLabel
+          ? Tooltip(
+              message: label,
+              child: SizedBox(
+                width: 92,
+                child: TextButton.icon(
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    textStyle: const TextStyle(fontSize: 12),
                   ),
-          ),
-        ),
-      ),
+                  onPressed: action,
+                  icon: icon,
+                  label: Text(switch (phase) {
+                    ResourceDownloadPhase.adding => '加入中',
+                    ResourceDownloadPhase.added => '已加入',
+                    ResourceDownloadPhase.failed => '重试',
+                    _ => '下载',
+                  }),
+                ),
+              ),
+            )
+          : IconButton(tooltip: label, onPressed: action, icon: icon),
     );
   }
 }
@@ -133,11 +158,7 @@ class ResourceArrival extends StatelessWidget {
 
 String resourceDetails(Json candidate) {
   final groups = (candidate['releaseGroups'] as List? ?? []).join(' & ');
-  final size =
-      candidate['sizeLabel'] ??
-      (number(candidate['sizeBytes']) > 0
-          ? '${(number(candidate['sizeBytes']) / 1048576).toStringAsFixed(1)} MiB'
-          : null);
+  final size = resourceSizeLabel(candidate);
   final published = '${candidate['publishedAt'] ?? ''}';
   final date = DateTime.tryParse(published);
   final publishedLabel = date == null
@@ -149,6 +170,220 @@ String resourceDetails(Json candidate) {
     size,
     publishedLabel,
   ].where((e) => e != null && '$e'.isNotEmpty).join(' · ');
+}
+
+String resourceSizeLabel(Json candidate) {
+  final provided = '${candidate['sizeLabel'] ?? ''}'.trim();
+  if (provided.isNotEmpty) return provided;
+  final bytes = number(candidate['sizeBytes']);
+  if (bytes <= 1) return '大小未知';
+  if (bytes >= 1073741824) {
+    return '${(bytes / 1073741824).toStringAsFixed(1)} GiB';
+  }
+  if (bytes >= 1048576) return '${(bytes / 1048576).toStringAsFixed(1)} MiB';
+  return '${(bytes / 1024).toStringAsFixed(1)} KiB';
+}
+
+String resourceDateLabel(Json candidate) {
+  final raw = '${candidate['publishedAt'] ?? ''}';
+  var date = DateTime.tryParse(raw);
+  if (date == null && raw.isNotEmpty) {
+    try {
+      date = HttpDate.parse(raw).toLocal();
+    } on HttpException {
+      return '未提供';
+    }
+  }
+  if (date == null) return '未提供';
+  return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+}
+
+class ResourceResultRow extends StatelessWidget {
+  const ResourceResultRow({
+    super.key,
+    required this.candidate,
+    required this.info,
+    required this.expanded,
+    required this.onExpand,
+    required this.phase,
+    required this.onDownload,
+    this.error,
+  });
+  final Json candidate;
+  final ResourceTitleInfo info;
+  final bool expanded;
+  final VoidCallback onExpand, onDownload;
+  final ResourceDownloadPhase phase;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final wide = constraints.maxWidth >= 760;
+      final scheme = Theme.of(context).colorScheme;
+      final group = info.sourceGroups.isEmpty
+          ? '待确认'
+          : info.sourceGroups.join(' & ');
+      final size = resourceSizeLabel(candidate);
+      final date = resourceDateLabel(candidate);
+      final source = '${candidate['providerName'] ?? ''}';
+      final small = Theme.of(context).textTheme.bodySmall;
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    info.displayTitle,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (info.labels.isNotEmpty) ...[
+                    const SizedBox(height: 7),
+                    Wrap(
+                      spacing: 5,
+                      runSpacing: 5,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text('标题标注', style: small?.copyWith(fontSize: 11)),
+                        for (final label in info.labels)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: scheme.surfaceContainerLow,
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                            child: Text(
+                              label,
+                              style: small?.copyWith(fontSize: 11),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                  if (info.notes.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        info.notes.join(' · '),
+                        style: small?.copyWith(
+                          fontSize: 11,
+                          color: info.episodeConflict ? scheme.error : null,
+                        ),
+                      ),
+                    ),
+                  if (!wide)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 7),
+                      child: Text(
+                        '来源分组：$group · $size · $date${source.isEmpty ? '' : ' · $source'}',
+                        style: small,
+                      ),
+                    ),
+                  TextButton.icon(
+                    key: ValueKey(
+                      'resource-original:${candidate['candidateId']}',
+                    ),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 0,
+                        vertical: 4,
+                      ),
+                      minimumSize: const Size(0, 30),
+                      foregroundColor: scheme.onSurfaceVariant,
+                      textStyle: const TextStyle(fontSize: 11),
+                    ),
+                    onPressed: onExpand,
+                    icon: AnimatedRotation(
+                      turns: expanded ? .25 : 0,
+                      duration: motionDuration(context, 150),
+                      child: const Icon(Icons.chevron_right, size: 15),
+                    ),
+                    label: Text(expanded ? '收起原名' : '完整原名'),
+                  ),
+                  AnimatedSize(
+                    duration: motionDuration(context),
+                    alignment: Alignment.topLeft,
+                    curve: Curves.easeOutCubic,
+                    child: expanded
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SelectableText(
+                                info.title,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              if (candidate['detailUrl'] != null)
+                                TextButton.icon(
+                                  onPressed: () => _openSource(context),
+                                  icon: const Icon(Icons.open_in_new, size: 13),
+                                  label: const Text('查看原始发布'),
+                                ),
+                            ],
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                  if (error != null)
+                    Text(
+                      '添加失败：$error',
+                      style: small?.copyWith(color: scheme.error),
+                    ),
+                ],
+              ),
+            ),
+            if (wide) ...[
+              const SizedBox(width: 18),
+              SizedBox(
+                width: 106,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(group, style: small),
+                    const SizedBox(height: 3),
+                    Text(source, style: small?.copyWith(fontSize: 10)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(width: 72, child: Text(size, style: small)),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 80,
+                child: Text(date, style: small?.copyWith(fontSize: 11)),
+              ),
+            ],
+            const SizedBox(width: 8),
+            ResourceDownloadButton(
+              phase: phase,
+              error: error,
+              showLabel: wide,
+              onPressed: onDownload,
+            ),
+          ],
+        ),
+      );
+    },
+  );
+
+  Future<void> _openSource(BuildContext context) async {
+    try {
+      final uri = Uri.parse('${candidate['detailUrl']}');
+      if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
+    } catch (_) {}
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('无法打开原始发布链接。')));
+    }
+  }
 }
 
 bool matchesResource(Json candidate, String title, String group) {

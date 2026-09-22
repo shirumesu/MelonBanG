@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:melonbang/ui/core/action_feedback.dart';
 import 'package:melonbang/ui/core/page_widgets.dart';
+import 'package:melonbang/ui/core/selection_controls.dart';
 import 'package:melonbang/ui/core/subject_posters.dart';
 import 'package:melonbang/ui/core/theme.dart';
 import 'package:melonbang/ui/discovery/discovery_pages.dart';
@@ -90,9 +91,15 @@ void main() {
     expect(find.text('Beta'), findsNothing);
     expect(
       tester
-          .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '有进度'))
-          .selected,
-      isTrue,
+          .widget<MelonSegmentedControl<String>>(
+            find.byWidgetPredicate(
+              (widget) =>
+                  widget is MelonSegmentedControl<String> &&
+                  widget.semanticLabel == '追番筛选',
+            ),
+          )
+          .value,
+      '有进度',
     );
     await tester.enterText(find.byType(TextField), 'unknown');
     await tester.pumpAndSettle();

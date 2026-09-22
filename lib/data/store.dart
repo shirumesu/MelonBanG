@@ -45,6 +45,16 @@ class AppStore {
     whereArgs: [scope],
     orderBy: 'updated DESC',
   )).map((r) => object(jsonDecode(r['body'] as String))).toList();
+
+  Future<Map<String, Json>> entries(String scope) async => {
+    for (final row in await database.query(
+      'documents',
+      where: 'scope=?',
+      whereArgs: [scope],
+      orderBy: 'updated DESC, id ASC',
+    ))
+      row['id'] as String: object(jsonDecode(row['body'] as String)),
+  };
   Future<void> put(String scope, String id, Json body) async {
     await database.insert('documents', {
       'scope': scope,

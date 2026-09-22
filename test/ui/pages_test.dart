@@ -219,21 +219,13 @@ void main() {
           onPlay: (id, fileId) => plays.add((id, fileId)),
         ),
       );
-      final playButtons = tester
-          .widgetList<IconButton>(
-            find.byWidgetPredicate(
-              (widget) => widget is IconButton && widget.tooltip == '播放',
-            ),
-          )
-          .toList();
-      expect(playButtons.first.onPressed, isNull);
+      expect(find.text('播放'), findsNothing);
       await tester.tap(find.byTooltip('暂停 / 继续下载').first);
       expect(paused?['id'], 'pending');
-      await tester.tap(find.byTooltip('播放').last);
-      await tester.tap(find.byTooltip('查看文件').last);
+      await tester.tap(find.text('选择文件'));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('播放此文件').last);
-      expect(plays, [('done', null), ('done', 'b')]);
+      expect(plays, [('done', 'b')]);
     },
   );
 

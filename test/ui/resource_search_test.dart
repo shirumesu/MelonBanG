@@ -4,11 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:melonbang/data/json.dart';
 import 'package:melonbang/ui/acquisition/resources_page.dart';
+import 'package:melonbang/ui/core/selection_controls.dart';
 import 'package:melonbang/ui/core/theme.dart';
 
 void main() {
   testWidgets(
-    'incremental rows stay downloadable; title/group filters and episode keyword reach search',
+    'incremental rows preserve focus; quality/group filters and episode keyword reach search',
     (tester) async {
       tester.view.physicalSize = const Size(1200, 1000);
       tester.view.devicePixelRatio = 1;
@@ -69,6 +70,7 @@ void main() {
       await tester.pump();
       expect(downloaded, 'first');
       expect(find.byTooltip('已加入下载'), findsOneWidget);
+      await tester.enterText(find.widgetWithText(TextField, '集数关键词'), 'S01E01');
       update(
         () => candidates.add({
           'candidateId': 'second',
@@ -81,11 +83,30 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.byTooltip('下载'), findsOneWidget);
       expect(find.byTooltip('已加入下载'), findsOneWidget);
-      await tester.enterText(find.widgetWithText(TextField, '字幕组 / 联合发布'), 'B');
+      final episodeField = tester.widget<TextField>(
+        find.widgetWithText(TextField, '集数关键词'),
+      );
+      expect(episodeField.controller!.text, 'S01E01');
+      expect(episodeField.focusNode!.hasFocus, isTrue);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(MelonChoiceMenu<String>),
+          matching: find.byType(OutlinedButton),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.widgetWithText(MenuItemButton, 'A & B'));
       await tester.pump();
       expect(find.byTooltip('已加入下载'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('resource-original:first')));
+      await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('[A & B] Anime [01][1080p]'), findsOneWidget);
-      await tester.enterText(find.widgetWithText(TextField, '筛选结果标题'), '720p');
+      await tester.tap(
+        find.descendant(
+          of: find.byType(MelonSegmentedControl<String>),
+          matching: find.text('720p'),
+        ),
+      );
       await tester.pump();
       expect(find.byTooltip('下载'), findsNothing);
       await tester.tap(find.text('清除筛选'));
@@ -94,7 +115,6 @@ void main() {
       expect(find.byTooltip('已加入下载'), findsOneWidget);
       update(() => busy = false);
       await tester.pump();
-      await tester.enterText(find.widgetWithText(TextField, '集数关键词'), 'S01E01');
       await tester.tap(find.widgetWithText(FilledButton, '搜索'));
       expect(names, ['中文名', '日本語']);
       expect(episode, 'S01E01');
@@ -241,7 +261,13 @@ void main() {
                   resourceSearch: query,
                   resourceEpisode: null,
                   providers: const [],
-                  candidates: const [],
+                  candidates: const [
+                    {
+                      'candidateId': 'saved',
+                      'title': '[字幕组] Anime [01][1080p]',
+                      'releaseGroups': ['字幕组'],
+                    },
+                  ],
                   busy: false,
                   onSearch: (n, e) async {
                     names = n;
@@ -257,9 +283,28 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, '集数关键词'), 'S01E02');
-    await tester.enterText(find.widgetWithText(TextField, '筛选结果标题'), '1080p');
-    await tester.enterText(find.widgetWithText(TextField, '字幕组 / 联合发布'), '字幕组');
+    await tester.enterText(find.widgetWithText(TextField, '资源关键词'), '搜索草稿');
+    await tester.tap(
+      find.descendant(
+        of: find.byType(MelonSegmentedControl<String>),
+        matching: find.text('1080p'),
+      ),
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(MelonChoiceMenu<String>),
+        matching: find.byType(OutlinedButton),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(MenuItemButton, '字幕组'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('含未确认'));
+    await tester.tap(find.byKey(const ValueKey('resource-aliases-toggle')));
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilterChip, '日本語'));
+    await tester.tap(find.byKey(const ValueKey('resource-original:saved')));
+    await tester.pumpAndSettle();
     update(() => visible = false);
     await tester.pump();
     update(() => visible = true);
@@ -269,8 +314,23 @@ void main() {
         .controller!
         .text;
     expect(fieldText('集数关键词'), 'S01E02');
-    expect(fieldText('筛选结果标题'), '1080p');
-    expect(fieldText('字幕组 / 联合发布'), '字幕组');
+    expect(fieldText('资源关键词'), '搜索草稿');
+    expect(
+      tester
+          .widget<MelonSegmentedControl<String>>(
+            find.byType(MelonSegmentedControl<String>),
+          )
+          .value,
+      '1080p',
+    );
+    expect(
+      tester
+          .widget<MelonChoiceMenu<String>>(find.byType(MelonChoiceMenu<String>))
+          .value,
+      '字幕组',
+    );
+    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+    expect(find.text('[字幕组] Anime [01][1080p]'), findsOneWidget);
     expect(
       tester
           .widget<FilterChip>(find.widgetWithText(FilterChip, '日本語'))
@@ -281,13 +341,35 @@ void main() {
     await tester.pumpAndSettle();
     expect(names, ['中文名']);
     expect(episode, 'S01E02');
-    expect(fieldText('筛选结果标题'), '1080p');
+    expect(
+      tester
+          .widget<MelonSegmentedControl<String>>(
+            find.byType(MelonSegmentedControl<String>),
+          )
+          .value,
+      '1080p',
+    );
 
     update(() => subjectId = 43);
     await tester.pumpAndSettle();
     expect(fieldText('集数关键词'), isEmpty);
-    expect(fieldText('筛选结果标题'), isEmpty);
-    expect(fieldText('字幕组 / 联合发布'), isEmpty);
+    expect(
+      tester
+          .widget<MelonSegmentedControl<String>>(
+            find.byType(MelonSegmentedControl<String>),
+          )
+          .value,
+      'all',
+    );
+    expect(
+      tester
+          .widget<MelonChoiceMenu<String>>(find.byType(MelonChoiceMenu<String>))
+          .value,
+      isEmpty,
+    );
+    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isTrue);
+    expect(find.byType(SelectableText), findsNothing);
+    expect(find.widgetWithText(FilterChip, '日本語'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/json.dart';
 import '../core/action_feedback.dart';
@@ -21,19 +22,21 @@ class HomePage extends StatelessWidget {
     required this.onRefresh,
     required this.onOpenSubject,
     this.watching = const [],
+    this.resumable = const [],
+    this.onResume,
   });
   final bool dark, trendingLoading;
-  final List<Json> today, trending, watching;
+  final List<Json> today, trending, watching, resumable;
   final String? error;
   final VoidCallback onExplore, onCalendar, onRefresh;
   final ActionFeedback feedback;
   final ValueChanged<Json> onOpenSubject;
+  final ValueChanged<Json>? onResume;
   @override
   Widget build(BuildContext context) => PageScroll(
     children: [
       SectionTitle(
-        title: '本季热度',
-        subtitle: '当季最受欢迎的番剧',
+        title: '热门与精选',
         icon: Icons.local_fire_department_outlined,
         trailing: FeedbackButton(
           feedback: feedback,
@@ -46,21 +49,44 @@ class HomePage extends StatelessWidget {
       ),
       FeedbackIssue(feedback: feedback, onRetry: onRefresh),
       if (trendingLoading && trending.isEmpty)
-        const PosterPlaceholders()
+        const _FeaturedPlaceholder()
       else if (error != null && trending.isEmpty)
         EmptyState(text: '暂时无法加载番剧', detail: error, action: onRefresh)
+      else if (trending.isEmpty)
+        EmptyState(text: '暂时没有热门番剧', action: onRefresh)
       else
-        SubjectPosters(
-          key: const ValueKey('trending-posters'),
+        _FeaturedSubjects(
+          items: trending.take(3).toList(),
           onOpen: onOpenSubject,
-          items: trending.take(8).toList(),
-          horizontal: true,
-          ranked: true,
         ),
+      if (resumable.isNotEmpty && onResume != null) ...[
+        const SectionTitle(
+          title: '继续播放',
+          icon: Icons.play_circle_outline,
+          color: mint,
+        ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = constraints.maxWidth >= 680 ? 2 : 1;
+            final width = (constraints.maxWidth - (columns - 1) * 14) / columns;
+            return Wrap(
+              spacing: 14,
+              runSpacing: 14,
+              children: [
+                for (final item in resumable.take(2))
+                  SizedBox(
+                    width: width,
+                    child: _ResumeCard(item: item, onResume: onResume!),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
       const SectionTitle(
         title: '正在追',
         subtitle: '我的在看收藏',
-        icon: Icons.play_circle_outline,
+        icon: Icons.bookmark_border_rounded,
         color: mint,
       ),
       if (watching.isEmpty)
@@ -86,8 +112,502 @@ class HomePage extends StatelessWidget {
         const EmptyState(text: '今日暂无放送数据')
       else
         BroadcastTimeline(items: today, onOpen: onOpenSubject),
+      if (trending.isNotEmpty) ...[
+        const SectionTitle(
+          title: '本季热度',
+          subtitle: '当季最受欢迎的番剧',
+          icon: Icons.local_fire_department_outlined,
+        ),
+        SubjectPosters(
+          key: const ValueKey('trending-posters'),
+          onOpen: onOpenSubject,
+          items: trending.take(8).toList(),
+          horizontal: true,
+          ranked: true,
+        ),
+      ],
     ],
   );
+}
+
+class _FeaturedSubjects extends StatefulWidget {
+  const _FeaturedSubjects({required this.items, required this.onOpen});
+  final List<Json> items;
+  final ValueChanged<Json> onOpen;
+
+  @override
+  State<_FeaturedSubjects> createState() => _FeaturedSubjectsState();
+}
+
+class _FeaturedSubjectsState extends State<_FeaturedSubjects> {
+  String? _selectedId;
+  bool _restored = false;
+
+  String _id(Json item) =>
+      '${item['subjectId'] ?? item['id'] ?? titleOf(item)}';
+  int get _index {
+    final index = widget.items.indexWhere((item) => _id(item) == _selectedId);
+    return index < 0 ? 0 : index;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_restored) {
+      _selectedId = PageStorage.maybeOf(
+        context,
+      )?.readState(context, identifier: 'home-featured-subject') as String?;
+      _restored = true;
+    }
+  }
+
+  void _select(int index) {
+    final next = (index + widget.items.length) % widget.items.length;
+    final id = _id(widget.items[next]);
+    if (id == _selectedId) return;
+    setState(() => _selectedId = id);
+    PageStorage.maybeOf(context)
+        ?.writeState(context, id, identifier: 'home-featured-subject');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.items[_index];
+    final scheme = Theme.of(context).colorScheme;
+    return FocusTraversalGroup(
+      child: Focus(
+        canRequestFocus: false,
+        onKeyEvent: (_, event) {
+          if (event is! KeyDownEvent || widget.items.length < 2) {
+            return KeyEventResult.ignored;
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            _select(_index - 1);
+            return KeyEventResult.handled;
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+            _select(_index + 1);
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Card(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  scheme.primaryContainer.withValues(alpha: .55),
+                  scheme.surface,
+                ],
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 20, 18, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final showArt = constraints.maxWidth >= 520;
+                      final artCount = constraints.maxWidth >= 810
+                          ? widget.items.length
+                          : 1;
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                AnimatedSwitcher(
+                                  duration: motionDuration(context, 180),
+                                  switchInCurve: Curves.easeOut,
+                                  switchOutCurve: Curves.easeOut,
+                                  layoutBuilder: (current, previous) => Stack(
+                                    alignment: Alignment.topLeft,
+                                    children: [
+                                      for (final child in previous)
+                                        ExcludeSemantics(child: child),
+                                      ?current,
+                                    ],
+                                  ),
+                                  child: _FeaturedCopy(
+                                    key: ValueKey(_id(item)),
+                                    item: item,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                TextButton.icon(
+                                  key: const ValueKey('open-featured-subject'),
+                                  onPressed: () => widget.onOpen(item),
+                                  icon: const Icon(
+                                    Icons.arrow_outward,
+                                    size: 17,
+                                  ),
+                                  label: const Text('查看作品'),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (showArt) ...[
+                            const SizedBox(width: 22),
+                            for (var i = 0; i < artCount; i++) ...[
+                              if (i > 0) const SizedBox(width: 10),
+                              _FeaturedCover(
+                                item: artCount == 1 ? item : widget.items[i],
+                                selected: artCount == 1 || i == _index,
+                                onPressed: artCount == 1
+                                    ? () => widget.onOpen(item)
+                                    : () => _select(i),
+                                opensSubject: artCount == 1,
+                              ),
+                            ],
+                          ],
+                        ],
+                      );
+                    },
+                  ),
+                  if (widget.items.length > 1) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (var i = 0; i < widget.items.length; i++)
+                              Semantics(
+                                selected: i == _index,
+                                child: IconButton(
+                                  tooltip:
+                                      '精选 ${i + 1}：${titleOf(widget.items[i])}',
+                                  onPressed: () => _select(i),
+                                  icon: AnimatedContainer(
+                                    duration: motionDuration(context, 160),
+                                    curve: Curves.easeOut,
+                                    width: i == _index ? 22 : 7,
+                                    height: 7,
+                                    decoration: BoxDecoration(
+                                      color: i == _index
+                                          ? scheme.primary
+                                          : scheme.onSurface.withValues(
+                                              alpha: .18,
+                                            ),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Semantics(
+                              liveRegion: true,
+                              label:
+                                  '精选 ${_index + 1}，共 ${widget.items.length} 项，${titleOf(item)}',
+                              child: ExcludeSemantics(
+                                child: Text(
+                                  '${_index + 1} / ${widget.items.length}',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              tooltip: '上一项精选',
+                              onPressed: () => _select(_index - 1),
+                              icon: const Icon(Icons.chevron_left_rounded),
+                            ),
+                            IconButton(
+                              tooltip: '下一项精选',
+                              onPressed: () => _select(_index + 1),
+                              icon: const Icon(Icons.chevron_right_rounded),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FeaturedCopy extends StatelessWidget {
+  const _FeaturedCopy({super.key, required this.item});
+  final Json item;
+
+  @override
+  Widget build(BuildContext context) {
+    final season = object(item['season'])['label'];
+    final date = DateTime.tryParse('${item['airDate'] ?? ''}');
+    final seasonLabel = season is String && season.trim().isNotEmpty
+        ? season.trim()
+        : date == null
+        ? null
+        : '${date.year} ${['冬', '春', '夏', '秋'][(date.month - 1) ~/ 3]}';
+    final summary = '${item['summary'] ?? ''}'.trim();
+    final originalName = '${item['name'] ?? ''}'.trim();
+    final detail = summary.isNotEmpty
+        ? summary
+        : originalName != titleOf(item)
+        ? originalName
+        : '';
+    final tags = objects(item['tags'])
+        .map((tag) => '${tag['name'] ?? ''}'.trim())
+        .where((name) => name.isNotEmpty)
+        .take(2);
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 146),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (seasonLabel != null) ...[
+            MelonBadge(seasonLabel, color: coral),
+            const SizedBox(height: 10),
+          ],
+          Semantics(
+            header: true,
+            child: Text(
+              titleOf(item),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontSize: 25,
+                fontWeight: FontWeight.w700,
+                height: 1.25,
+              ),
+            ),
+          ),
+          if (detail.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              detail,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(height: 1.6),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 6,
+            runSpacing: 5,
+            children: [
+              if ('${item['platform'] ?? ''}'.trim().isNotEmpty)
+                MelonBadge('${item['platform']}', color: sky),
+              for (final tag in tags) MelonBadge(tag, color: grape),
+              if (number(item['score']) > 0)
+                MelonBadge('★ ${scoreLabel(item['score'])}', color: gold),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeaturedCover extends StatefulWidget {
+  const _FeaturedCover({
+    required this.item,
+    required this.selected,
+    required this.onPressed,
+    required this.opensSubject,
+  });
+  final Json item;
+  final bool selected, opensSubject;
+  final VoidCallback onPressed;
+
+  @override
+  State<_FeaturedCover> createState() => _FeaturedCoverState();
+}
+
+class _FeaturedCoverState extends State<_FeaturedCover> {
+  bool _focused = false, _hovered = false, _pressed = false;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 104,
+    height: 156,
+    child: Semantics(
+      selected: widget.opensSubject ? null : widget.selected,
+      child: Tooltip(
+        message: '${widget.opensSubject ? '查看' : '精选'} ${titleOf(widget.item)}',
+        child: Material(
+          borderRadius: posterBorderRadius,
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: widget.onPressed,
+            onFocusChange: (value) => setState(() => _focused = value),
+            onHover: (value) => setState(() => _hovered = value),
+            onHighlightChanged: (value) => setState(() => _pressed = value),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ExcludeSemantics(
+                  child: SubjectCover(
+                    url: widget.item['coverUrl'],
+                    title: titleOf(widget.item),
+                    id: number(widget.item['subjectId']).toInt(),
+                  ),
+                ),
+                IgnorePointer(
+                  child: AnimatedContainer(
+                    duration: motionDuration(context, 160),
+                    decoration: BoxDecoration(
+                      borderRadius: posterBorderRadius,
+                      color: _pressed
+                          ? Colors.black.withValues(alpha: .12)
+                          : _hovered
+                          ? Colors.white.withValues(alpha: .07)
+                          : Colors.transparent,
+                      border: Border.all(
+                        color: _focused || widget.selected
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.transparent,
+                        width: _focused ? 3 : 2,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _FeaturedPlaceholder extends StatelessWidget {
+  const _FeaturedPlaceholder();
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: '正在加载精选番剧',
+    child: MelonPanel(
+      child: SizedBox(
+        height: 206,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Icon(
+            Icons.movie_outlined,
+            size: 36,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _ResumeCard extends StatelessWidget {
+  const _ResumeCard({required this.item, required this.onResume});
+  final Json item;
+  final ValueChanged<Json> onResume;
+
+  @override
+  Widget build(BuildContext context) {
+    final position = number(item['positionSeconds']);
+    final duration = number(item['durationSeconds']);
+    final episode = number(item['episodeSort']);
+    final episodeLabel = episode > 0
+        ? '第 ${episode == episode.roundToDouble() ? episode.toInt() : episode} 话'
+        : null;
+    final remaining = ((duration - position) / 60).ceil();
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      label: '${titleOf(item)}，${episodeLabel ?? '继续观看'}',
+      child: MelonPanel(
+        padding: const EdgeInsets.all(15),
+        onTap: () => onResume(item),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ExcludeSemantics(
+              child: ClipRRect(
+                borderRadius: const BorderRadius.all(Radius.circular(10)),
+                child: SizedBox(
+                  width: 68,
+                  height: 96,
+                  child: SubjectCover(
+                    url: item['coverUrl'],
+                    title: titleOf(item),
+                    id: number(item['subjectId']).toInt(),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    titleOf(item),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    [
+                      ?episodeLabel,
+                      if (duration > position && remaining > 0)
+                        '剩余 $remaining 分钟',
+                    ].join(' · '),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 9),
+                  if (duration > 0)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: LinearProgressIndicator(
+                        value: (position / duration).clamp(0, 1),
+                        minHeight: 3,
+                        backgroundColor: scheme.primary.withValues(alpha: .12),
+                        semanticsLabel: '观看进度',
+                      ),
+                    ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.play_arrow_rounded,
+                        size: 19,
+                        color: scheme.primary,
+                      ),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          episodeLabel == null ? '继续观看' : '继续$episodeLabel',
+                          style: TextStyle(
+                            color: scheme.primary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class SearchPage extends StatelessWidget {

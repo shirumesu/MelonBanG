@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/json.dart';
 import '../../data/bittorrent_settings.dart';
 import '../core/page_widgets.dart';
+import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 
@@ -29,82 +30,52 @@ class DownloadsPage extends StatefulWidget {
 
 class _DownloadsPageState extends State<DownloadsPage> {
   String filter = '全部';
+  String statusFilter = '所有状态';
+  final expanded = <String>{};
+  StateSetter? _refreshFileDialog;
+
+  @override
+  void didUpdateWidget(covariant DownloadsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_refreshFileDialog != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _refreshFileDialog?.call(() {});
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final tasks = objects(widget.downloads['tasks'])
         .where((t) => t['status'] != 'removed')
         .toList();
-    final visible = tasks
-        .where(
-          (t) => switch (filter) {
-            '下载中' =>
-              [
-                    'metadata',
-                    'downloading',
-                    'ready',
-                    'checking',
-                    'queued',
-                  ].contains(t['status']) &&
-                  number(t['progress']) < 1,
-            '已暂停' => ['paused', 'failed'].contains(t['status']),
-            '已完成' => number(t['progress']) >= 1,
-            '做种中' => t['status'] == 'seeding',
-            _ => true,
-          },
-        )
-        .toList();
+    final visible = tasks.where((t) {
+      final complete = number(t['progress']) >= 1;
+      final category =
+          filter == '全部' || (filter == '已缓存' ? complete : !complete);
+      final status = switch (statusFilter) {
+        '已暂停' => t['status'] == 'paused',
+        '失败' => t['status'] == 'failed',
+        '做种中' => t['status'] == 'seeding',
+        _ => true,
+      };
+      return category && status;
+    }).toList();
     final speed = tasks.fold<double>(
       0,
       (sum, t) => sum + number(t['downloadSpeedBytesPerSecond']),
     );
+    final active = visible.where((t) => number(t['progress']) < 1).toList();
+    final cached = visible.where((t) => number(t['progress']) >= 1).toList();
     return PageScroll(
       children: [
-        const SizedBox(height: 10),
-        MelonPanel(
-          child: Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: mint.withValues(alpha: .12),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(Icons.folder_copy_outlined, color: mint),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '本地缓存',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      '${tasks.length} 个任务 · ${tasks.where((t) => number(t['progress']) >= 1).length} 个已完成',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                '↓ ${(speed / 1048576).toStringAsFixed(1)} MB/s',
-                style: const TextStyle(
-                  color: mint,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-        ),
         SectionTitle(
-          title: '下载与本地缓存',
+          title: '缓存',
+          subtitle:
+              '${tasks.length} 个任务 · ${tasks.where((t) => number(t['progress']) >= 1).length} 个已缓存',
           trailing: Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
             spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               TextButton.icon(
                 onPressed: widget.onAddMagnet,
@@ -133,23 +104,48 @@ class _DownloadsPageState extends State<DownloadsPage> {
           ),
         ),
         Wrap(
-          spacing: 8,
-          runSpacing: 6,
+          spacing: 12,
+          runSpacing: 10,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            for (final label in ['全部', '下载中', '做种中', '已暂停', '已完成'])
-              ChoiceChip(
-                label: Text(label),
-                selected: filter == label,
-                onSelected: (_) => setState(() => filter = label),
+            SizedBox(
+              width: 290,
+              child: MelonSegmentedControl<String>(
+                options: const {'全部': '全部', '进行中': '进行中', '已缓存': '已缓存'},
+                value: filter,
+                onChanged: (value) => setState(() => filter = value),
+              ),
+            ),
+            MelonChoiceMenu<String>(
+              options: const {
+                '所有状态': '所有状态',
+                '已暂停': '已暂停',
+                '失败': '失败',
+                '做种中': '做种中',
+              },
+              value: statusFilter,
+              onSelected: (value) => setState(() => statusFilter = value),
+            ),
+            if (speed > 0)
+              Text(
+                '↓ ${(speed / 1048576).toStringAsFixed(1)} MiB/s',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontSize: 12,
+                ),
               ),
           ],
         ),
-        const SizedBox(height: 16),
-        for (final task in visible)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 14),
-            child: _task(context, task),
-          ),
+        for (final group in [('进行中', active), ('已缓存', cached)]) ...[
+          if (group.$2.isNotEmpty) ...[
+            SectionTitle(title: group.$1, subtitle: '${group.$2.length} 个任务'),
+            for (final task in group.$2)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _task(context, task),
+              ),
+          ],
+        ],
         if (visible.isEmpty)
           EmptyState(
             text: tasks.isEmpty ? '缓存好喜欢的故事，随时开始观看' : '当前分类没有任务',
@@ -161,9 +157,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
   }
 
   Widget _task(BuildContext context, Json task) {
+    final id = '${task['id']}';
     final progress = number(task['progress']).clamp(0.0, 1.0).toDouble();
-    final canStop =
-        progress >= 1 && ['seeding', 'queued'].contains(task['status']);
+    final complete = progress >= 1;
+    final canStop = complete && ['seeding', 'queued'].contains(task['status']);
     final canResume =
         ['paused', 'failed'].contains(task['status']) ||
         (task['status'] == 'completed' && task['seedingStopped'] == true);
@@ -171,16 +168,24 @@ class _DownloadsPageState extends State<DownloadsPage> {
     final files = objects(widget.downloads['files'])
         .where((f) => f['downloadId'] == task['id'])
         .toList();
+    final videos = files.where((f) => f['mediaKind'] == 'video').toList();
+    final playable =
+        complete &&
+        task['status'] != 'checking' &&
+        videos.any((file) => number(file['progress']) >= 1);
+    final scheme = Theme.of(context).colorScheme;
+    final details = expanded.contains(id);
     return MelonPanel(
       padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
-                width: 64,
-                height: 84,
+                width: 58,
+                height: 78,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(10),
                   child: SubjectCover(
@@ -200,118 +205,77 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    if (files.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 5),
-                        child: Text(
-                          files.length == 1
-                              ? '${files.single['name']}'
-                              : '${files.length} 个文件 · ${files.first['name']}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(fontSize: 11),
-                        ),
-                      ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: LinearProgressIndicator(
-                            value: progress,
-                            minHeight: 6,
-                            borderRadius: BorderRadius.circular(99),
-                            backgroundColor: Theme.of(context)
-                                .colorScheme
-                                .surfaceContainerLow,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          '${(progress * 100).toStringAsFixed(0)}%',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 7),
                     Wrap(
-                      spacing: 12,
+                      spacing: 10,
+                      runSpacing: 5,
                       children: [
-                        Text(
+                        MelonBadge(
                           downloadStatus(task),
-                          style: const TextStyle(
-                            color: mint,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
+                          color: task['status'] == 'failed'
+                              ? coral
+                              : complete
+                              ? sky
+                              : mint,
                         ),
-                        Text(
-                          '↓ ${(number(task['downloadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} · ↑ ${(number(task['uploadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} MiB/s · ${number(task['peerCount']).toInt()} 个连接 · 分享率 ${number(task['totalBytes']) > 0 ? (number(task['uploadedBytes']) / number(task['totalBytes'])).toStringAsFixed(2) : '0.00'}',
-                          style: TextStyle(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant,
-                            fontSize: 11,
-                          ),
-                        ),
-                        if (number(task['progress']) >= 1)
+                        if (files.isNotEmpty)
                           Text(
-                            '已上传 ${(number(task['uploadedBytes']) / 1048576).toStringAsFixed(1)} MiB · 累计做种 ${(number(task['seedSeconds']) / 60).floor()} 分钟',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(fontSize: 11),
+                            '${files.length} 个文件',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        if (!complete)
+                          Text(
+                            '${(progress * 100).toStringAsFixed(0)}% · ↓ ${(number(task['downloadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} MiB/s',
+                            style: Theme.of(context).textTheme.bodySmall,
                           ),
                       ],
                     ),
+                    if (!complete)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          minHeight: 4,
+                          borderRadius: BorderRadius.circular(99),
+                          backgroundColor: scheme.surfaceContainerLow,
+                        ),
+                      ),
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
-              if (files.isNotEmpty)
+              const SizedBox(width: 12),
+              if (complete)
+                FilledButton.icon(
+                  onPressed: playable
+                      ? () => videos.length > 1
+                            ? _showFiles(context, id)
+                            : widget.onPlay(id, null)
+                      : null,
+                  icon: const Icon(Icons.play_arrow_rounded, size: 19),
+                  label: Text(videos.length > 1 ? '选择文件' : '播放'),
+                )
+              else
                 IconButton(
-                  tooltip: '查看文件',
-                  onPressed: () => _showFiles(context, task, files),
-                  icon: const Icon(Icons.folder_open_outlined, size: 20),
+                  tooltip: '暂停 / 继续下载',
+                  onPressed: () => widget.onTogglePause(task),
+                  icon: Icon(
+                    canResume ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                  ),
                 ),
               IconButton(
-                tooltip: canStop
-                    ? '停止做种'
-                    : stoppedByPolicy
-                    ? '已按做种设置停止'
-                    : canResume && progress >= 1
-                    ? '继续做种'
-                    : '暂停 / 继续下载',
-                onPressed: stoppedByPolicy
-                    ? null
-                    : canStop
-                    ? () => widget.onStopSeeding(task)
-                    : () => widget.onTogglePause(task),
+                tooltip: details ? '收起任务详情' : '任务详情',
+                onPressed: () => setState(
+                  () => details ? expanded.remove(id) : expanded.add(id),
+                ),
                 icon: Icon(
-                  canStop
-                      ? Icons.stop_circle_outlined
-                      : canResume
-                      ? Icons.play_arrow
-                      : Icons.pause,
-                  size: 20,
+                  details
+                      ? Icons.expand_less_rounded
+                      : Icons.expand_more_rounded,
                 ),
-              ),
-              IconButton(
-                tooltip: '播放',
-                onPressed: progress >= 1
-                    ? () => widget.onPlay('${task['id']}', null)
-                    : null,
-                icon: const Icon(Icons.play_circle_outline, size: 22),
-              ),
-              IconButton(
-                tooltip: '移除任务与缓存',
-                onPressed: () => widget.onRemove(task),
-                icon: const Icon(Icons.delete_outline, size: 20),
               ),
             ],
           ),
@@ -320,69 +284,148 @@ class _DownloadsPageState extends State<DownloadsPage> {
               padding: const EdgeInsets.only(top: 12),
               child: Text(
                 '${task['errorMessage'] ?? task['persistenceError']}',
-                style: const TextStyle(color: coral, fontSize: 12),
+                style: TextStyle(color: scheme.error, fontSize: 12),
               ),
             ),
+          if (details) ...[
+            const Divider(height: 28),
+            if (files.isNotEmpty)
+              Text(
+                files.length == 1
+                    ? '${files.single['name']}'
+                    : '${files.length} 个文件 · ${files.first['name']}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            const SizedBox(height: 8),
+            Text(
+              '↓ ${(number(task['downloadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} · ↑ ${(number(task['uploadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} MiB/s · ${number(task['peerCount']).toInt()} 个连接 · 分享率 ${number(task['totalBytes']) > 0 ? (number(task['uploadedBytes']) / number(task['totalBytes'])).toStringAsFixed(2) : '0.00'}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (complete)
+              Text(
+                '已上传 ${(number(task['uploadedBytes']) / 1048576).toStringAsFixed(1)} MiB · 累计做种 ${(number(task['seedSeconds']) / 60).floor()} 分钟',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                if (files.isNotEmpty)
+                  TextButton.icon(
+                    onPressed: () => _showFiles(context, id),
+                    icon: const Icon(Icons.folder_open_outlined, size: 17),
+                    label: const Text('查看文件'),
+                  ),
+                if (complete && task['status'] != 'checking')
+                  TextButton.icon(
+                    onPressed: stoppedByPolicy
+                        ? null
+                        : canStop
+                        ? () => widget.onStopSeeding(task)
+                        : () => widget.onTogglePause(task),
+                    icon: Icon(
+                      canStop
+                          ? Icons.stop_circle_outlined
+                          : Icons.play_arrow_rounded,
+                      size: 17,
+                    ),
+                    label: Text(
+                      canStop
+                          ? '停止做种'
+                          : stoppedByPolicy
+                          ? '已按做种设置停止'
+                          : '继续做种',
+                    ),
+                  ),
+                TextButton.icon(
+                  onPressed: () => widget.onRemove(task),
+                  icon: const Icon(Icons.delete_outline, size: 17),
+                  label: const Text('移除任务与缓存'),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Future<void> _showFiles(
-    BuildContext context,
-    Json task,
-    List<Json> files,
-  ) => showDialog<void>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('任务文件'),
-      content: SizedBox(
-        width: 560,
-        child: ListView.separated(
-          shrinkWrap: true,
-          itemCount: files.length,
-          separatorBuilder: (_, _) => const Divider(height: 1),
-          itemBuilder: (context, index) {
-            final file = files[index];
-            final playable =
-                file['mediaKind'] == 'video' && number(file['progress']) >= 1;
-            return ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                file['mediaKind'] == 'video'
-                    ? Icons.video_file_outlined
-                    : Icons.insert_drive_file_outlined,
-                size: 20,
+  Future<void> _showFiles(BuildContext context, String id) async {
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, refresh) {
+            _refreshFileDialog = refresh;
+            final task = objects(widget.downloads['tasks'])
+                .where(
+                  (task) =>
+                      '${task['id']}' == id && task['status'] != 'removed',
+                )
+                .firstOrNull;
+            final files = objects(widget.downloads['files'])
+                .where((file) => '${file['downloadId']}' == id)
+                .toList();
+            return AlertDialog(
+              title: Text(task == null ? '任务已移除' : '任务文件'),
+              content: SizedBox(
+                width: 560,
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: files.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final file = files[index];
+                    final playable =
+                        task != null &&
+                        file['mediaKind'] == 'video' &&
+                        number(file['progress']) >= 1 &&
+                        number(task['progress']) >= 1 &&
+                        task['status'] != 'checking';
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        file['mediaKind'] == 'video'
+                            ? Icons.video_file_outlined
+                            : Icons.insert_drive_file_outlined,
+                        size: 20,
+                      ),
+                      title: Text(
+                        '${file['name']}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      subtitle: Text(
+                        '${(number(file['size']) / 1048576).toStringAsFixed(1)} MiB · ${(number(file['progress']) * 100).toStringAsFixed(0)}%',
+                      ),
+                      trailing: file['mediaKind'] != 'video'
+                          ? null
+                          : IconButton(
+                              tooltip: '播放此文件',
+                              onPressed: playable
+                                  ? () {
+                                      Navigator.pop(context);
+                                      widget.onPlay(id, '${file['id']}');
+                                    }
+                                  : null,
+                              icon: const Icon(Icons.play_arrow, size: 20),
+                            ),
+                    );
+                  },
+                ),
               ),
-              title: Text(
-                '${file['name']}',
-                style: const TextStyle(fontSize: 12),
-              ),
-              subtitle: Text(
-                '${(number(file['size']) / 1048576).toStringAsFixed(1)} MiB · ${(number(file['progress']) * 100).toStringAsFixed(0)}%',
-              ),
-              trailing: file['mediaKind'] != 'video'
-                  ? null
-                  : IconButton(
-                      tooltip: '播放此文件',
-                      onPressed: playable
-                          ? () {
-                              Navigator.pop(context);
-                              widget.onPlay('${task['id']}', '${file['id']}');
-                            }
-                          : null,
-                      icon: const Icon(Icons.play_arrow, size: 20),
-                    ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('关闭'),
+                ),
+              ],
             );
           },
         ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('关闭'),
-        ),
-      ],
-    ),
-  );
+      );
+    } finally {
+      _refreshFileDialog = null;
+    }
+  }
 }

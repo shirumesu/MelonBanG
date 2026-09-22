@@ -27,6 +27,10 @@ void main() {
     (tester) async {
       MediaKit.ensureInitialized();
       await windowManager.ensureInitialized();
+      await windowManager.setFullScreen(false);
+      await tester.pump(const Duration(seconds: 1));
+      await windowManager.show();
+      await windowManager.focus();
       await windowManager.setSize(const Size(1360, 860));
       final directory = await Directory.systemTemp.createTemp(
         'melonbang-navigation-',
@@ -79,6 +83,8 @@ void main() {
         api: api,
       );
       addTearDown(() async {
+        await windowManager.setFullScreen(false);
+        await tester.pump(const Duration(seconds: 1));
         if (!slowSearch.isCompleted) slowSearch.complete();
         if (!slowDetail.isCompleted) slowDetail.complete();
         if (!slowReturningDetail.isCompleted) slowReturningDetail.complete();
@@ -343,7 +349,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
       expect(state.playerSubject['subjectId'], 2);
-      await state.playback.player.seek(Duration.zero);
+      await state.playback.player.seek(const Duration(seconds: 20));
       await state.playback.player.play();
       await tester.pump(const Duration(milliseconds: 200));
       expect(state.playback.player.state.playing, isTrue);
@@ -352,6 +358,34 @@ void main() {
       expect(state.route, 'subject');
       expect(state.subject?['subjectId'], 2);
       expect(state.playback.player.state.playing, isFalse);
+      for (var i = 0; i < 20 && state.subjectResume == null; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(state.subjectResume?['episodeId'], 20);
+      expect(state.subjectResume?['positionSeconds'], greaterThanOrEqualTo(19));
+      expect(state.cachedEpisodeIds, contains(20));
+      state.navigate('home');
+      await tester.pump(const Duration(milliseconds: 300));
+      final resumeAction = find.text('继续第 1 话').first;
+      await tester.ensureVisible(resumeAction);
+      await tester.tap(resumeAction);
+      for (var i = 0; i < 30 && state.route != 'player'; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(state.route, 'player');
+      expect(state.playback.session['subjectId'], 2);
+      expect(state.playback.session['episodeId'], 20);
+      for (
+        var i = 0;
+        i < 30 && state.playback.player.state.position.inSeconds < 19;
+        i++
+      ) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(
+        state.playback.player.state.position.inSeconds,
+        greaterThanOrEqualTo(19),
+      );
       expect(tester.takeException(), isNull);
     },
   );

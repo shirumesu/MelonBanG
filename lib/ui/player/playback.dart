@@ -103,10 +103,6 @@ class Playback extends ChangeNotifier {
         await platform.setProperty('sub-ass-override', 'no');
         await platform.setProperty('sub-delay', '0');
       }
-      await player.open(Media(uri!), play: false);
-      if (Platform.environment['MELONBANG_MUTE_AUDIO'] == '1') {
-        await player.setVolume(0);
-      }
       var resume = preferences.getDouble('progress:$uri') ?? 0;
       if (next['subjectId'] != null && next['episodeId'] != null) {
         try {
@@ -123,8 +119,13 @@ class Playback extends ChangeNotifier {
           }
         } catch (_) {}
       }
-      if (resume > 0) {
-        await player.seek(Duration(milliseconds: (resume * 1000).round()));
+      // Apply continuation while loading; open() can return before native seek is ready.
+      await player.open(
+        Media(uri!, start: Duration(milliseconds: (resume * 1000).round())),
+        play: false,
+      );
+      if (Platform.environment['MELONBANG_MUTE_AUDIO'] == '1') {
+        await player.setVolume(0);
       }
       await player.play();
       if (!_closed && service.library.current?['id'] == next['id']) {

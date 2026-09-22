@@ -100,6 +100,89 @@ class PlaybackLibrary {
 
   Future<Json?> progress(int subjectId, int episodeId) =>
       store.get('playback_progress', '$subjectId:$episodeId');
+
+  Future<bool> _available(int subjectId, int episodeId) async {
+    final binding = await store.get('episode_files', '$subjectId:$episodeId');
+    try {
+      final Json media;
+      if (binding?['downloadId'] case final String id) {
+        media = downloads.contains(id)
+            ? downloads.media(id, fileId: binding!['fileId'] as String?)
+            : downloads.episodeMedia(subjectId, episodeId);
+      } else if (binding != null && await File('${binding['path']}').exists()) {
+        return true;
+      } else {
+        media = downloads.episodeMedia(subjectId, episodeId);
+      }
+      return await File('${media['path']}').exists();
+    } on StateError {
+      return false;
+    }
+  }
+
+  Future<Set<int>> playableEpisodes(int subjectId) async {
+    final ids = <int>{};
+    for (final key in (await store.entries('episode_files')).keys) {
+      final parts = key.split(':');
+      if (parts.length == 2 && int.tryParse(parts.first) == subjectId) {
+        final id = int.tryParse(parts.last);
+        if (id != null) ids.add(id);
+      }
+    }
+    for (final task in objects(downloads.snapshot()['tasks'])) {
+      if (task['subjectId'] == subjectId && task['episodeId'] is int) {
+        ids.add(task['episodeId'] as int);
+      }
+    }
+    final available = <int>{};
+    for (final id in ids) {
+      if (await _available(subjectId, id)) available.add(id);
+    }
+    return available;
+  }
+
+  Future<List<Json>> recent({int limit = 8, int? forSubject}) async {
+    final result = <Json>[];
+    final subjects = <int>{};
+    for (final entry in (await store.entries('playback_progress')).entries) {
+      final parts = entry.key.split(':');
+      if (parts.length != 2) continue;
+      final subjectId = int.tryParse(parts.first);
+      final episodeId = int.tryParse(parts.last);
+      if (forSubject != null && subjectId != forSubject) continue;
+      final value = entry.value;
+      final position = number(value['positionSeconds']);
+      final duration = number(value['durationSeconds']);
+      if (subjectId == null ||
+          episodeId == null ||
+          subjects.contains(subjectId) ||
+          value['completed'] == true ||
+          !position.isFinite ||
+          !duration.isFinite ||
+          position <= 0 ||
+          duration <= position ||
+          !await _available(subjectId, episodeId)) {
+        continue;
+      }
+      final cached = await store.get('catalog', 'detail:$subjectId');
+      final detail = object(object(cached?['value'])['data']);
+      final episodes = objects(detail['episodes'])
+          .where((e) => e['episodeId'] == episodeId);
+      result.add({
+        ...catalog.summary(detail),
+        ...value,
+        'subjectId': subjectId,
+        'episodeId': episodeId,
+        'episodeSort': episodes.isEmpty
+            ? null
+            : episodes.first['ep'] ?? episodes.first['sort'],
+      });
+      subjects.add(subjectId);
+      if (result.length >= limit) break;
+    }
+    return result;
+  }
+
   Future<void> save(
     Json session,
     double position,
