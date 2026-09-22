@@ -19,6 +19,9 @@ Uint8List bencode(Object value) {
   if (value is Uint8List) {
     return Uint8List.fromList([...ascii.encode('${value.length}:'), ...value]);
   }
+  if (value is List<Object>) {
+    return Uint8List.fromList([108, ...value.expand(bencode), 101]);
+  }
   if (value is Map<String, Object>) {
     final keys = value.keys.toList()..sort();
     return Uint8List.fromList([
@@ -48,6 +51,18 @@ void main() {
       );
       final peer = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       final tracker = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final emptyTracker = await HttpServer.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      var emptyAnnounces = 0, workingAnnounces = 0;
+      emptyTracker.listen((request) async {
+        emptyAnnounces++;
+        request.response.add(
+          bencode(<String, Object>{'interval': 1800, 'peers': Uint8List(0)}),
+        );
+        await request.response.close();
+      });
       final payload = Uint8List.fromList(
         List.generate(65536, (i) => (i * 17 + i ~/ 89) % 256),
       );
@@ -65,12 +80,17 @@ void main() {
       };
       final hash = sha1.convert(bencode(info)).bytes;
       final metadata = bencode(<String, Object>{
-        'announce': 'http://127.0.0.1:${tracker.port}/announce',
+        'announce': 'http://127.0.0.1:${emptyTracker.port}/announce',
+        'announce-list': <Object>[
+          <Object>['http://127.0.0.1:${emptyTracker.port}/announce'],
+          <Object>['http://127.0.0.1:${tracker.port}/announce'],
+        ],
         'info': info,
       });
       final sockets = <Socket>[];
       var servedBytes = 0;
       tracker.listen((request) async {
+        workingAnnounces++;
         request.response.headers.contentType = ContentType.binary;
         request.response.add(
           bencode(<String, Object>{
@@ -197,6 +217,15 @@ void main() {
           if (current['status'] == 'seeding') break;
         }
         expect(current['status'], 'seeding', reason: current.toString());
+        expect(emptyAnnounces, greaterThan(0));
+        expect(
+          workingAnnounces,
+          greaterThan(0),
+          reason: 'An empty first tier must not hide peers in another tier',
+        );
+        expect(current['trackerCount'], 2);
+        expect(current['workingTrackers'], 2);
+        expect(current['dhtNodes'], -1);
         expect(servedBytes, greaterThanOrEqualTo(payload.length));
         final media = downloads.media('${task['id']}');
         expect(media['size'], payload.length);
@@ -352,6 +381,7 @@ void main() {
         }
         await peer.close();
         await tracker.close(force: true);
+        await emptyTracker.close(force: true);
         final transferredBeforeRestart = servedBytes;
         final savedTask = (await store.get('downloads', '${task['id']}'))!;
         final seedSeconds = number(savedTask['seedSeconds']);
@@ -503,6 +533,7 @@ void main() {
         }
         await peer.close();
         await tracker.close(force: true);
+        await emptyTracker.close(force: true);
         await directory.delete(recursive: true);
       }
     },

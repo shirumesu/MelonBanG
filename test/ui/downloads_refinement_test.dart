@@ -98,6 +98,59 @@ Future<void> _expand(WidgetTester tester, String title) async {
 }
 
 void main() {
+  testWidgets('discovery explains idle transfers and low rates stay visible', (
+    tester,
+  ) async {
+    addTearDown(tester.view.reset);
+    final task = <String, dynamic>{
+      ..._task('search', '节点发现测试', 'downloading', 0),
+      'peerCount': 0,
+      'knownPeerCount': 0,
+      'trackerCount': 3,
+      'workingTrackers': 0,
+      'failedTrackers': 2,
+      'dhtNodes': 0,
+      'downloadSpeedBytesPerSecond': 0,
+    };
+    final data = ValueNotifier<Json>({
+      'tasks': [task],
+    });
+    addTearDown(data.dispose);
+    await _show(tester, data);
+    expect(find.text('寻找下载节点'), findsOneWidget);
+    await _expand(tester, '节点发现测试');
+    expect(find.textContaining('Tracker 0/3 可用'), findsOneWidget);
+    expect(find.textContaining('检查网络是否允许 BT / UDP'), findsOneWidget);
+    data.value = {
+      'tasks': [
+        {
+          ...task,
+          'peerCount': 1,
+          'knownPeerCount': 4,
+          'workingTrackers': 1,
+          'failedTrackers': 1,
+          'dhtNodes': 24,
+          'downloadSpeedBytesPerSecond': 8192,
+        },
+      ],
+    };
+    await tester.pumpAndSettle();
+    expect(find.text('寻找下载节点'), findsNothing);
+    expect(find.textContaining('8.0 KiB/s'), findsNWidgets(2));
+    expect(find.textContaining('检查网络是否允许 BT / UDP'), findsNothing);
+    expect(find.textContaining('DHT 24 个节点'), findsOneWidget);
+    data.value = {
+      'tasks': [
+        {...task, 'status': 'paused', 'dhtNodes': -1},
+      ],
+    };
+    await tester.pumpAndSettle();
+    expect(find.text('已暂停'), findsOneWidget);
+    expect(find.textContaining('DHT 已关闭'), findsOneWidget);
+    expect(find.textContaining('检查网络是否允许 BT / UDP'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'category and status filters intersect without including failed as paused',
     (tester) async {

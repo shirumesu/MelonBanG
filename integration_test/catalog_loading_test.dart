@@ -62,6 +62,13 @@ void main() {
         timeout: const Duration(minutes: 2),
         client: MockClient((request) async {
           requests.add(request.url);
+          if (['share.dmhy.org', 'mikanani.me'].contains(request.url.host)) {
+            return http.Response(
+              '<rss><channel/></rss>',
+              200,
+              headers: {'content-type': 'application/xml; charset=utf-8'},
+            );
+          }
           Json body;
           if (request.url.path.endsWith('/42')) {
             await detailResponse.future;
@@ -180,6 +187,56 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
     }
     expect(state.subject['name'], '更新后的番剧详情');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byTooltip('查找资源 EP1'));
+    for (var i = 0; i < 30 && state.busy == true; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(state.route, 'resources');
+    final episodeField = find.widgetWithText(TextField, '集数关键词');
+    expect(tester.widget<TextField>(episodeField).controller!.text, '01');
+    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+    final providerRequests = requests.where(
+      (url) => ['share.dmhy.org', 'mikanani.me'].contains(url.host),
+    );
+    expect(providerRequests, isNotEmpty);
+    expect(
+      providerRequests.every(
+        (url) => url.queryParameters.values.single.endsWith(' 01'),
+      ),
+      isTrue,
+      reason: providerRequests.join('\n'),
+    );
+    await screenshot('resources');
+    await tester.enterText(episodeField, 'S01E01');
+    await tester.tap(find.byKey(const ValueKey('brand-home')));
+    await tester.pump(const Duration(milliseconds: 300));
+    state.goBack();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.widget<TextField>(episodeField).controller!.text, 'S01E01');
+    state.goBack();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byTooltip('查找资源 EP1'));
+    for (var i = 0; i < 30 && state.busy == true; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(tester.widget<TextField>(episodeField).controller!.text, '01');
+    state.goBack();
+    await tester.pump(const Duration(milliseconds: 300));
+    final previousRequests = providerRequests.length;
+    await tester.tap(find.widgetWithText(OutlinedButton, '查找资源'));
+    for (var i = 0; i < 30 && state.busy == true; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(tester.widget<TextField>(episodeField).controller!.text, isEmpty);
+    expect(
+      providerRequests
+          .skip(previousRequests)
+          .every((url) => url.queryParameters.values.single == '更新后的番剧详情'),
+      isTrue,
+    );
+    state.goBack();
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.byKey(const ValueKey('brand-home')));
     await tester.pump(const Duration(milliseconds: 200));
     homeResponse.complete();

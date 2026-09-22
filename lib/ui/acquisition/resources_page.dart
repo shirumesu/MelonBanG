@@ -11,6 +11,9 @@ import '../core/theme.dart';
 import 'resource_widgets.dart';
 
 class ResourcesPage extends StatefulWidget {
+  static String formStorageId(int? subjectId, int? episodeId) =>
+      'resource-form:$subjectId:$episodeId';
+
   const ResourcesPage({
     super.key,
     required this.subject,
@@ -42,20 +45,27 @@ class _ResourcesPageState extends State<ResourcesPage> {
   final downloadErrors = <String, String>{};
   final annotations = <String, ResourceTitleInfo>{};
   String quality = 'all', group = '';
-  bool includeUnknown = true;
+  bool includeUnknown = false;
   bool multipleNames = true, aliasesExpanded = false, searching = false;
   PageStorageBucket? storage;
   bool formRestored = false, restoringForm = false;
   late String activeStorageId;
   bool get searchBusy => widget.busy || searching;
 
-  String get storageId =>
-      'resource-form:${widget.subject?['subjectId']}:${widget.resourceEpisode}';
+  String get storageId => ResourcesPage.formStorageId(
+    widget.subject?['subjectId'] as int?,
+    widget.resourceEpisode,
+  );
+  Json? get selectedEpisode =>
+      objects(widget.subject?['episodes'])
+          .where((episode) => episode['episodeId'] == widget.resourceEpisode)
+          .firstOrNull;
 
   @override
   void initState() {
     super.initState();
     activeStorageId = storageId;
+    episodeQuery.text = resourceEpisodeKeyword(selectedEpisode);
     episodeQuery.addListener(saveForm);
   }
 
@@ -72,10 +82,10 @@ class _ResourcesPageState extends State<ResourcesPage> {
     if (activeStorageId != storageId) {
       activeStorageId = storageId;
       restoringForm = true;
-      episodeQuery.clear();
+      episodeQuery.text = resourceEpisodeKeyword(selectedEpisode);
       quality = 'all';
       group = '';
-      includeUnknown = true;
+      includeUnknown = false;
       multipleNames = true;
       aliasesExpanded = false;
       excluded.clear();
@@ -92,10 +102,11 @@ class _ResourcesPageState extends State<ResourcesPage> {
     final saved = storage?.readState(context, identifier: activeStorageId);
     if (saved is! Map) return;
     restoringForm = true;
-    episodeQuery.text = saved['episode'] as String? ?? '';
+    episodeQuery.text =
+        saved['episode'] as String? ?? resourceEpisodeKeyword(selectedEpisode);
     quality = saved['quality'] as String? ?? 'all';
     group = saved['sourceGroup'] as String? ?? '';
-    includeUnknown = saved['includeUnknown'] as bool? ?? true;
+    includeUnknown = saved['includeUnknown'] as bool? ?? false;
     multipleNames = saved['multipleNames'] as bool? ?? true;
     aliasesExpanded = saved['aliasesExpanded'] as bool? ?? false;
     excluded.addAll((saved['excluded'] as List? ?? []).whereType<String>());
@@ -161,7 +172,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
   void clearFilters() => changeForm(() {
     quality = 'all';
     group = '';
-    includeUnknown = true;
+    includeUnknown = false;
     excludedProviders.clear();
   });
 
@@ -228,9 +239,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
       ...annotated.expand((entry) => entry.$2.sourceGroups),
       if (group.isNotEmpty) group,
     }.toList()..sort();
-    final episode = objects(widget.subject?['episodes'])
-        .where((e) => e['episodeId'] == widget.resourceEpisode)
-        .firstOrNull;
+    final episode = selectedEpisode;
     final providersFailed =
         widget.providers.isNotEmpty &&
         widget.providers.every((e) => e['status'] == 'error');
@@ -459,7 +468,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                         child: Checkbox(
                           value: includeUnknown,
                           onChanged: (value) =>
-                              changeForm(() => includeUnknown = value ?? true),
+                              changeForm(() => includeUnknown = value ?? false),
                         ),
                       ),
                       const Padding(
@@ -472,7 +481,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
               ),
               if (quality != 'all' ||
                   group.isNotEmpty ||
-                  !includeUnknown ||
+                  includeUnknown ||
                   excludedProviders.isNotEmpty)
                 TextButton(onPressed: clearFilters, child: const Text('清除')),
             ],

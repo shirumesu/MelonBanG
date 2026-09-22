@@ -65,3 +65,27 @@ streaming adapter's aggressive timeouts, predictive announcements and qBittorren
 fingerprint. Explicit settings and the established native disk backend remain.
 Native tests cover idle accounting, file metadata, transient SQLite write failures,
 same-torrent removal/re-import, local upload/download integrity and restart.
+
+## Peer discovery and diagnostics
+
+The session announces to one tracker in each independent tier concurrently.
+Libtorrent's default stops after the first successful tier even when that tracker
+returns no peers, leaving other swarms undiscovered. Same-tier fallback and tracker
+minimum intervals remain unchanged; this does not announce to every URL or force
+repeated announces. See [libtorrent tracker settings](https://www.libtorrent.org/reference-Settings.html).
+
+Status snapshots expose known peers, successful/failed tracker counts and the
+largest DHT routing table across interfaces. A successful tracker route takes
+precedence over failures on other interfaces. DHT statistics are sampled every
+five seconds, using the existing native alert thread. These are discovery signals,
+not a guarantee that a peer has a complete copy or will provide upload bandwidth.
+The expanded download card shows them, and an idle task with no connected peers
+is labelled as searching for download nodes. Small transfer rates use KiB/s or B/s.
+The C status struct and Dart FFI layout must be rebuilt together.
+
+`integration_test/torrent_test.dart` uses two local tracker tiers: the first replies
+successfully with no peers and the second supplies a real wire-protocol seeder.
+It verifies downloaded hashes and the diagnostic fields through DownloadRepository,
+alongside existing recovery, queue and sharing checks. This controlled test does
+not establish public-swarm throughput; network routing and seed availability still
+matter. Transport limits, DHT/PEX defaults and explicit pause ownership are retained.

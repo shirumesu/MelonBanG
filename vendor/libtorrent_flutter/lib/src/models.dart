@@ -93,6 +93,9 @@ class TorrentInfo {
   final bool isFinished;
   final bool hasMetadata;
   final int queuePosition;
+  final int knownPeers, trackerCount, workingTrackers, failedTrackers;
+  /// Largest routing table across interfaces, or -1 when DHT is disabled.
+  final int dhtNodes;
 
   const TorrentInfo({
     required this.id, required this.name, required this.savePath,
@@ -103,6 +106,8 @@ class TorrentInfo {
     required this.numSeeds, required this.isPaused,
     required this.isFinished, required this.hasMetadata,
     required this.queuePosition,
+    this.knownPeers = 0, this.trackerCount = 0, this.workingTrackers = 0,
+    this.failedTrackers = 0, this.dhtNodes = 0,
   });
 
   TorrentInfo copyWith({
@@ -112,6 +117,8 @@ class TorrentInfo {
     int? totalDone, int? totalWanted, int? totalUploaded,
     int? numPeers, int? numSeeds,
     bool? isPaused, bool? isFinished, bool? hasMetadata, int? queuePosition,
+    int? knownPeers, int? trackerCount, int? workingTrackers,
+    int? failedTrackers, int? dhtNodes,
   }) => TorrentInfo(
     id: id,
     name: name ?? this.name,
@@ -130,6 +137,11 @@ class TorrentInfo {
     isFinished: isFinished ?? this.isFinished,
     hasMetadata: hasMetadata ?? this.hasMetadata,
     queuePosition: queuePosition ?? this.queuePosition,
+    knownPeers: knownPeers ?? this.knownPeers,
+    trackerCount: trackerCount ?? this.trackerCount,
+    workingTrackers: workingTrackers ?? this.workingTrackers,
+    failedTrackers: failedTrackers ?? this.failedTrackers,
+    dhtNodes: dhtNodes ?? this.dhtNodes,
   );
 
   @override

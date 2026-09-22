@@ -32,7 +32,9 @@ network refresh finishes. Navigating back keeps the view usable while reloading 
 unfinished detail request. Manual refresh retains content and reports failures at
 its control. A cold empty schedule displays a loading state until its request ends.
 
-Public subject detail and account episode synchronization run concurrently. The
+Public subject detail and account episode synchronization run concurrently. Repeated
+visits share in-flight account/subject synchronization and reuse a successful result
+for one minute; explicit synchronization bypasses that freshness window. The
 detail view can use locally stored progress as soon as public detail is available;
 the final result overlays synchronized progress without mixing account identities
 or overriding queued local edits. `integration_test/catalog_loading_test.dart`
@@ -42,15 +44,40 @@ the settings view in the native Windows shell.
 The client requests `/v1/subjects/{id}?includeHtml=false`. Melon API supports this
 as a complete structured detail response, including episodes, characters, staff,
 infobox and related subjects, without the unused live comment/discussion HTML.
-An older API deployment ignores the option and retains its previous latency;
-deploying the corresponding API change is required for the cold-detail benefit.
+Melon API resolves a subject's recurrence directly from cached broadcast rules,
+without building and enriching the entire timetable. Timetable enrichment preserves
+successful cover lookups when another subject fails and reuses complete summaries.
+Episode pagination retrieves long-running series beyond the first 200 entries.
 
-Remaining server optimization opportunities are concentrated in cache misses:
-serve expired public snapshots while refreshing, combine concurrent loads for the
-same key, reuse R2 hits in memory, and reuse schedule enrichment between requests.
-Auxiliary HTML fetches should have an independent timeout budget when requested.
-These changes need server-side failure and freshness tests before rollout; no
-additional client cache framework or database replacement is required.
+The companion API caches R2 reads in memory, shares concurrent loads, and can serve
+bounded stale snapshots while refreshing through Workers `waitUntil`. Contextual R2
+writes run after the fresh result is available. The client honors server cache
+expiry and `stale` metadata, so an old server snapshot does not gain another full
+local freshness window. These server changes require deploying Melon-api; local
+tests do not establish production network latency.
+
+## Resource search and peer discovery
+
+Entering resource search from a chapter seeds both the visible field and each
+provider query with its episode number (`01`, or the exact fractional number).
+Back navigation preserves edited keywords, including an intentionally blank batch
+search. Selecting a quality or source group excludes unconfirmed matches unless
+they are explicitly enabled.
+
+The native session announces to every tracker tier, with normal same-tier fallback
+and tracker intervals. A responsive tracker returning no peers can otherwise keep
+later independent tiers unused. `integration_test/torrent_test.dart` exercises an
+empty first tracker and a second tracker advertising the local seeder, then verifies
+the downloaded bytes. This tests discovery correctness, not public-swarm bandwidth.
+
+Download details expose connected and discovered peers, working/failed tracker
+counts and the session's DHT routing-table size. Zero connections displays a
+discovery state; transfer rates use B/s or KiB/s below 1 MiB/s so small transfers
+do not appear stopped. A successful tracker response is not evidence of an active
+seeder, and DHT routing nodes are not peers offering that torrent. Actual transfer
+still depends on reachable peers, their upload capacity and the network route.
+
+Reference: [libtorrent tracker-tier announcements](https://libtorrent.org/reference-Settings.html#announce_to_all_trackers-announce_to_all_tiers).
 
 ## Dependency choices
 

@@ -48,6 +48,16 @@ final class LtTorrentStatus extends Struct {
   external int hasMetadata;
   @Int32()
   external int queuePosition;
+  @Int32()
+  external int knownPeers;
+  @Int32()
+  external int trackerCount;
+  @Int32()
+  external int workingTrackers;
+  @Int32()
+  external int failedTrackers;
+  @Int32()
+  external int dhtNodes;
 }
 
 // ─── lt_file_info ─────────────────────────────────────────────────────────────

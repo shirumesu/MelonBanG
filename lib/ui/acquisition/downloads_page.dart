@@ -7,6 +7,14 @@ import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 
+String _transferRate(dynamic value) {
+  final bytes = number(value);
+  if (bytes <= 0) return '0 B/s';
+  if (bytes < 1024) return '${bytes.toStringAsFixed(0)} B/s';
+  if (bytes < 1048576) return '${(bytes / 1024).toStringAsFixed(1)} KiB/s';
+  return '${(bytes / 1048576).toStringAsFixed(1)} MiB/s';
+}
+
 class DownloadsPage extends StatefulWidget {
   const DownloadsPage({
     super.key,
@@ -229,7 +237,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                           ),
                         if (!complete)
                           Text(
-                            '${(progress * 100).toStringAsFixed(0)}% · ↓ ${(number(task['downloadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} MiB/s',
+                            '${(progress * 100).toStringAsFixed(0)}% · ↓ ${_transferRate(task['downloadSpeedBytesPerSecond'])}',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                       ],
@@ -298,9 +306,37 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ),
             const SizedBox(height: 8),
             Text(
-              '↓ ${(number(task['downloadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} · ↑ ${(number(task['uploadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} MiB/s · ${number(task['peerCount']).toInt()} 个连接 · 分享率 ${number(task['totalBytes']) > 0 ? (number(task['uploadedBytes']) / number(task['totalBytes'])).toStringAsFixed(2) : '0.00'}',
+              '↓ ${_transferRate(task['downloadSpeedBytesPerSecond'])} · ↑ ${_transferRate(task['uploadSpeedBytesPerSecond'])} · ${number(task['peerCount']).toInt()} 个连接 · 分享率 ${number(task['totalBytes']) > 0 ? (number(task['uploadedBytes']) / number(task['totalBytes'])).toStringAsFixed(2) : '0.00'}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            if (!complete && task.containsKey('trackerCount')) ...[
+              const SizedBox(height: 6),
+              Text(
+                '发现 ${number(task['knownPeerCount']).toInt()} 个节点 · Tracker ${number(task['workingTrackers']).toInt()}/${number(task['trackerCount']).toInt()} 可用'
+                '${number(task['failedTrackers']) > 0 ? '（${number(task['failedTrackers']).toInt()} 个连接异常）' : ''}'
+                ' · ${number(task['dhtNodes']) < 0 ? 'DHT 已关闭' : 'DHT ${number(task['dhtNodes']).toInt()} 个节点'}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              if ([
+                    'metadata',
+                    'downloading',
+                    'ready',
+                  ].contains(task['status']) &&
+                  number(task['peerCount']) == 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    number(task['knownPeerCount']) > 0
+                        ? '已发现节点，正在尝试连接。'
+                        : number(task['failedTrackers']) > 0 &&
+                              number(task['workingTrackers']) == 0 &&
+                              number(task['dhtNodes']) <= 0
+                        ? '暂未发现下载节点。可检查网络是否允许 BT / UDP，或尝试其他资源。'
+                        : '正在寻找下载节点；等待时间也取决于资源的做种情况。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+            ],
             if (complete)
               Text(
                 '已上传 ${(number(task['uploadedBytes']) / 1048576).toStringAsFixed(1)} MiB · 累计做种 ${(number(task['seedSeconds']) / 60).floor()} 分钟',

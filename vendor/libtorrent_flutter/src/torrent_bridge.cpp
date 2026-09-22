@@ -81,6 +81,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <set>
+#include <map>
 #include <string>
 #include <sstream>
 #include <iomanip>
@@ -266,6 +267,24 @@ static void fill_status(lt_torrent_status& out, int64_t id,
 
     int qp = static_cast<int>(st.queue_position);
     out.queue_position = (qp < 0) ? -1 : qp;
+    out.known_peers = st.list_peers;
+    out.tracker_count = 0;
+    out.working_trackers = 0;
+    out.failed_trackers = 0;
+    for (const auto& tracker : st.handle.trackers()) {
+        ++out.tracker_count;
+        bool working = false, failed = false;
+        for (const auto& endpoint : tracker.endpoints) {
+            if (!endpoint.enabled) continue;
+            for (const auto& hash : endpoint.info_hashes) {
+                working = working || (hash.start_sent && !hash.last_error);
+                failed = failed || bool(hash.last_error);
+            }
+        }
+        // An unavailable interface must not hide a successful route.
+        if (working) ++out.working_trackers;
+        else if (failed) ++out.failed_trackers;
+    }
 
     std::string name = st.name;
     if (st.has_metadata) {
@@ -1047,6 +1066,7 @@ struct SessionWrapper {
     // alert thread — sole consumer of session.pop_alerts()
     std::thread       alert_thread;
     std::atomic<bool> alert_running{false};
+    std::atomic<int> dht_nodes{0};
 
     // push callback (called from alert thread)
     lt_alert_callback  dart_callback  = nullptr;
@@ -1096,8 +1116,14 @@ struct SessionWrapper {
     }
 
     void process_alerts() {
+        auto next_dht_stats = chr::steady_clock::now();
+        std::map<lt::sha1_hash, int> dht_routing_sizes;
         while (alert_running.load()) {
             try {
+                if (chr::steady_clock::now() >= next_dht_stats) {
+                    session.post_dht_stats();
+                    next_dht_stats = chr::steady_clock::now() + chr::seconds(5);
+                }
                 if (!session.wait_for_alert(lt::milliseconds(100)))
                     continue;
                 std::vector<lt::alert*> alerts;
@@ -1106,6 +1132,18 @@ struct SessionWrapper {
                 for (auto* a : alerts) {
                     if (!a) continue;
                     try {
+                        if (auto* stats = lt::alert_cast<lt::dht_stats_alert>(a)) {
+                            int nodes = 0;
+                            for (const auto& bucket : stats->routing_table)
+                                nodes += bucket.num_nodes;
+                            dht_routing_sizes[stats->nid] = nodes;
+                            // Interfaces often know the same nodes; do not add them twice.
+                            int largest = 0;
+                            for (const auto& size : dht_routing_sizes)
+                                largest = std::max(largest, size.second);
+                            dht_nodes.store(largest);
+                            continue;
+                        }
                         // read_piece_alert → route to stream's cache
                         if (auto* rpa = lt::alert_cast<lt::read_piece_alert>(a)) {
                             int p = static_cast<int>(rpa->piece);
@@ -1969,6 +2007,10 @@ TORRENT_API lt_session_t lt_create_session(const char* iface, int dl, int ul) {
         // Use libtorrent's tested desktop defaults for transport, disk and
         // piece picking. Application queue policy is applied per torrent.
         sp.set_bool(lt::settings_pack::no_recheck_incomplete_resume, false);
+        // Independent tracker tiers may serve different peers. A responsive
+        // empty tier must not block discovery through the remaining tiers.
+        // Keep same-tier fallback and each tracker's announce interval intact.
+        sp.set_bool(lt::settings_pack::announce_to_all_tiers, true);
         sp.set_str(lt::settings_pack::user_agent, "Melonbang/1.0");
         sp.set_str(lt::settings_pack::peer_fingerprint, "-MB1000-");
         sp.set_str(lt::settings_pack::handshake_client_version, "Melonbang/1.0");
@@ -2238,6 +2280,7 @@ TORRENT_API int lt_get_all_statuses(lt_session_t session,
         try {
             lt::torrent_status st = kv.second.status(lt::torrent_handle::query_pieces);
             fill_status(out[n], kv.first, st);
+            out[n].dht_nodes = sw->bt_config.disable_dht ? -1 : sw->dht_nodes.load();
             n++;
         } catch (...) {}
     }
@@ -2251,8 +2294,11 @@ TORRENT_API int lt_get_status(lt_session_t session, lt_torrent_id id,
     std::lock_guard<std::mutex> lk(sw->mu);
     auto it = sw->handles.find(id);
     if (it == sw->handles.end() || !it->second.is_valid()) return 0;
-    try { fill_status(*out, id,
-          it->second.status(lt::torrent_handle::query_pieces)); return 1; } catch (...) { return 0; }
+    try {
+        fill_status(*out, id, it->second.status(lt::torrent_handle::query_pieces));
+        out->dht_nodes = sw->bt_config.disable_dht ? -1 : sw->dht_nodes.load();
+        return 1;
+    } catch (...) { return 0; }
 }
 
 // ── file queries ────────────────────────────────────────────────────────────────

@@ -10,6 +10,88 @@ import 'package:melonbang/ui/core/selection_controls.dart';
 import 'package:melonbang/ui/core/theme.dart';
 
 void main() {
+  testWidgets('episode context seeds search without overwriting saved drafts', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final query = TextEditingController(text: 'Anime');
+    addTearDown(query.dispose);
+    final bucket = PageStorageBucket();
+    int? episodeId = 901;
+    var visible = true;
+    late StateSetter update;
+    String? searchedEpisode;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: appTheme(false),
+        home: Scaffold(
+          body: PageStorage(
+            bucket: bucket,
+            child: StatefulBuilder(
+              builder: (_, setState) {
+                update = setState;
+                if (!visible) return const SizedBox();
+                return ResourcesPage(
+                  subject: const {
+                    'subjectId': 42,
+                    'name': 'Anime',
+                    'episodes': [
+                      {'episodeId': 901, 'sort': 1},
+                      {'episodeId': 902, 'sort': 12.5},
+                    ],
+                  },
+                  resourceSearch: query,
+                  resourceEpisode: episodeId,
+                  providers: const [],
+                  candidates: const [],
+                  busy: false,
+                  onSearch: (_, episode) async => searchedEpisode = episode,
+                  onDownload: (_) async {},
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final field = find.widgetWithText(TextField, '集数关键词');
+    String text() => tester.widget<TextField>(field).controller!.text;
+    expect(text(), '01');
+    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+    await tester.tap(find.widgetWithText(FilledButton, '搜索'));
+    await tester.pumpAndSettle();
+    expect(searchedEpisode, '01');
+
+    await tester.enterText(field, 'S01E01');
+    update(() => visible = false);
+    await tester.pump();
+    update(() => visible = true);
+    await tester.pumpAndSettle();
+    expect(text(), 'S01E01');
+    update(() => episodeId = 902);
+    await tester.pumpAndSettle();
+    expect(text(), '12.5');
+    update(() => episodeId = null);
+    await tester.pumpAndSettle();
+    expect(text(), isEmpty);
+    await tester.tap(find.widgetWithText(FilledButton, '搜索'));
+    await tester.pumpAndSettle();
+    expect(searchedEpisode, isEmpty);
+    update(() => episodeId = 901);
+    await tester.pumpAndSettle();
+    expect(text(), 'S01E01');
+    await tester.enterText(field, '');
+    update(() => visible = false);
+    await tester.pump();
+    update(() => visible = true);
+    await tester.pumpAndSettle();
+    expect(text(), isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('provider chips filter locally and preserve other selections', (
     tester,
   ) async {
@@ -472,7 +554,7 @@ void main() {
           .value,
       '字幕组',
     );
-    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isTrue);
     expect(
       tester
           .widget<FilterChip>(
@@ -518,7 +600,7 @@ void main() {
           .value,
       isEmpty,
     );
-    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isTrue);
+    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
     expect(
       tester
           .widget<FilterChip>(

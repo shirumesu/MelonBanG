@@ -25,10 +25,11 @@ class CatalogRepository {
     if (_closed) throw StateError('番剧服务已关闭');
     final cached = await store.get('catalog', key);
     if (_closed) throw StateError('番剧服务已关闭');
+    final now = DateTime.now().millisecondsSinceEpoch;
     if (!refresh &&
         cached != null &&
-        DateTime.now().millisecondsSinceEpoch - number(cached['savedAt']) <
-            ttl.inMilliseconds) {
+        now - number(cached['savedAt']) < ttl.inMilliseconds &&
+        _serverFresh(cached['value'], now)) {
       return cached['value'];
     }
     if (cached != null && onCached != null) await onCached(cached['value']);
@@ -50,6 +51,13 @@ class CatalogRepository {
       if (!refresh && cached != null) return cached['value'];
       rethrow;
     }
+  }
+
+  bool _serverFresh(dynamic value, int now) {
+    final cache = object(object(value)['cache']);
+    if (cache['stale'] == true) return false;
+    final expiresAt = DateTime.tryParse('${cache['expiresAt'] ?? ''}');
+    return expiresAt == null || expiresAt.millisecondsSinceEpoch > now;
   }
 
   Json summary(Json value) => {

@@ -4,6 +4,14 @@ import 'package:pinyin/pinyin.dart';
 import 'json.dart';
 import 'torrent_identity.dart';
 
+String resourceEpisodeKeyword(Json? episode) {
+  final sort = episode?['sort'] ?? episode?['ep'];
+  if (sort is! num) return '';
+  return sort == sort.roundToDouble()
+      ? sort.toInt().toString().padLeft(2, '0')
+      : sort.toString();
+}
+
 /// Resource names are catalogue aliases, never guessed from a release title.
 List<String> resourceNames(Json subject) {
   final values = <String>[
