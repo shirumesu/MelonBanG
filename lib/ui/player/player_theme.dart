@@ -2,16 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
 
-ThemeData playerTheme() {
-  final base = appTheme(true);
-  final scheme = base.colorScheme.copyWith(
-    surface: const Color(0xff1b2222),
-    surfaceContainerLow: const Color(0xff252e2d),
-    surfaceContainer: const Color(0xff252e2d),
-    surfaceContainerHigh: const Color(0xff2c3732),
-    onSurface: const Color(0xffe0e8e4),
-    onSurfaceVariant: const Color(0xffa2b1aa),
-  );
+ThemeData playerTheme([ThemeData? theme]) {
+  final base = theme ?? appTheme(true);
+  final scheme = base.colorScheme;
   return base.copyWith(
     colorScheme: scheme,
     inputDecorationTheme: base.inputDecorationTheme.copyWith(

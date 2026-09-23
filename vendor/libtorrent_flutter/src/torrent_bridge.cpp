@@ -89,6 +89,7 @@
 #include <deque>
 #include <memory>
 #include <algorithm>
+#include <limits>
 #include <chrono>
 #include <cstring>
 #include <cinttypes>
@@ -2855,8 +2856,9 @@ TORRENT_API void lt_configure_session(lt_session_t session,
         sp.set_int(lt::settings_pack::unchoke_slots_limit, 8);
     }
 
-    // port of: bt.config.EstablishedConnsPerTorrent = settings.BTsets.ConnectionsLimit
-    sp.set_int(lt::settings_pack::connections_limit, std::max(200, cfg.connections_limit * 4));
+    // Per-torrent limits and application queue admission bound connections.
+    // A second fixed session cap would starve admitted downloads and seeders.
+    sp.set_int(lt::settings_pack::connections_limit, std::numeric_limits<int>::max());
 
     // port of: bt.config.TotalHalfOpenConns = 500
     // (already hardcoded in lt_create_session, re-apply for safety)

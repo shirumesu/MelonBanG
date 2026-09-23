@@ -46,7 +46,10 @@ can be restored from a torrent file without rediscovering metadata online. Data
 pieces are still verified on restart, rather than assumed valid through seed mode.
 Settings now apply per-torrent connection limits to ordinary downloads, honor the
 listen port, and apply IPv6/TCP/uTP switches in both directions when toggled.
-The session connection cap is four times the per-torrent cap, with a floor of 200.
+The session no longer imposes a fixed four-times cap or floor of 200. Per-torrent
+limits and application admission govern the total for downloads and seeders;
+libtorrent still applies operating-system resource limits. Rebuild the bridge
+after changing this policy.
 Dart and native bridge must be rebuilt together because the metadata export is a
 new C symbol. The native torrent test covers stopped offline recovery, native
 pause/queue state, settings persistence, and corrupted local pieces.

@@ -635,7 +635,7 @@ void main() {
         );
         await downloads.saveSettings(
           const BitTorrentSettings(
-            activeDownloads: 2,
+            activeDownloads: 0,
             dht: false,
             upnp: false,
             resumeOnStartup: false,

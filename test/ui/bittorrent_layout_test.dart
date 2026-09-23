@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:melonbang/data/bittorrent_settings.dart';
 import 'package:melonbang/data/downloads.dart';
@@ -94,6 +95,104 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.byType(Checkbox), findsNothing);
+    },
+  );
+  testWidgets(
+    'invalid hidden fields reveal, focus and retain their draft; help survives refresh',
+    (tester) async {
+      final downloads = _SettingsRepository(
+        store,
+        '${directory.path}/downloads',
+      );
+      addTearDown(downloads.close);
+      addTearDown(tester.view.reset);
+      tester.view.physicalSize = const Size(900, 800);
+      tester.view.devicePixelRatio = 1;
+      late StateSetter refresh;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: appTheme(false),
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                refresh = setState;
+                return SingleChildScrollView(
+                  child: BitTorrentSettingsPanel(downloads: downloads),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      final advanced = find.byKey(const PageStorageKey('bittorrent-advanced'));
+      await tester.ensureVisible(find.text('高级设置'));
+      await tester.tap(find.text('高级设置'));
+      await tester.pumpAndSettle();
+      final connections = find.byKey(
+        const PageStorageKey('bittorrent-field:connectionsPerTask'),
+      );
+      await tester.ensureVisible(connections);
+      await tester.enterText(connections, '4');
+      await tester.ensureVisible(find.text('高级设置'));
+      await tester.tap(find.text('高级设置'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('保存并应用'));
+      await tester.tap(find.text('保存并应用'));
+      await tester.pumpAndSettle();
+      final field = tester.widget<TextField>(connections);
+      expect(field.controller!.text, '4');
+      expect(field.focusNode!.hasFocus, isTrue);
+      expect(field.decoration!.errorText, '请输入 5–500 个连接');
+      expect(
+        tester
+            .getRect(connections)
+            .overlaps(Offset.zero & const Size(900, 800)),
+        isTrue,
+      );
+      expect(downloads.settings.connectionsPerTask, 50);
+      expect(find.textContaining('保存失败'), findsNothing);
+      await tester.enterText(connections, '5');
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(connections).decoration!.errorText,
+        isNull,
+      );
+      final slider = find.byKey(
+        const ValueKey('bittorrent-slider:activeSeeds'),
+      );
+      await tester.ensureVisible(slider);
+      await tester.tapAt(tester.getTopRight(slider) + const Offset(-24, 24));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('保存并应用'));
+      await tester.tap(find.text('保存并应用'));
+      await tester.pumpAndSettle();
+      expect(downloads.settings.activeSeeds, 0);
+      expect(downloads.settings.connectionsPerTask, 5);
+      await tester.ensureVisible(find.text('高级设置'));
+      await tester.tap(find.text('高级设置'));
+      await tester.pumpAndSettle();
+      final help = find.byIcon(Icons.help_outline_rounded);
+      await tester.ensureVisible(help.first);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer();
+      await mouse.moveTo(tester.getCenter(help.first));
+      await tester.pumpAndSettle();
+      const message = '将已下载的内容上传给其他用户，推荐启用维护 BT 网络社区；做种只会在应用运行时进行。';
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text(message), findsOneWidget);
+      for (var i = 0; i < 4; i++) {
+        refresh(() {});
+        await tester.pump(const Duration(seconds: 1));
+        expect(find.text(message), findsOneWidget);
+      }
+      await mouse.moveTo(Offset.zero);
+      await tester.pumpAndSettle();
+      expect(find.text(message), findsNothing);
+      await mouse.removePointer();
+      expect(
+        tester.widget<ExpansionTile>(advanced).controller!.isExpanded,
+        isFalse,
+      );
     },
   );
 }

@@ -134,6 +134,12 @@ ThemeData appTheme(bool dark) {
       hintStyle: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
       border: inputBorder,
       enabledBorder: inputBorder,
+      errorBorder: inputBorder.copyWith(
+        borderSide: BorderSide(color: scheme.error),
+      ),
+      focusedErrorBorder: inputBorder.copyWith(
+        borderSide: BorderSide(color: scheme.error, width: 2),
+      ),
       focusedBorder: inputBorder.copyWith(
         borderSide: BorderSide(color: scheme.primary),
       ),
