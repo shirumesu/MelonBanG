@@ -12,9 +12,9 @@ From this repository root:
 
 ```powershell
 flutter pub get
-Copy-Item config/services.example.json .env.services.json
-# Fill .env.services.json with your application registrations, then run:
-flutter run -d windows --dart-define-from-file=.env.services.json
+Copy-Item .env.service.example.json .env.service.json
+# Fill .env.service.json with your application registrations, then run:
+flutter run -d windows --dart-define-from-file=.env.service.json
 ./scripts/build.ps1 -Archive
 ```
 
@@ -39,9 +39,9 @@ brew install --cask flutter
 brew install cocoapods cmake ninja libtorrent-rasterbar
 flutter doctor -v
 flutter pub get
-cp config/services.example.json .env.services.json
-# Fill .env.services.json with your application registrations, then run:
-flutter run -d macos --dart-define-from-file=.env.services.json
+cp .env.service.example.json .env.service.json
+# Fill .env.service.json with your application registrations, then run:
+flutter run -d macos --dart-define-from-file=.env.service.json
 ```
 
 Alternatively, set `export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
@@ -53,11 +53,18 @@ builds the patched torrent bridge using Homebrew's libtorrent 2.1 and embeds its
 native dependencies in the app. Flutter's project configuration selects arm64 for
 release/profile builds; this setup does not produce a universal binary.
 
-`flutter build macos --release --dart-define-from-file=.env.services.json` creates
+`flutter build macos --release --dart-define-from-file=.env.service.json` creates
 `build/macos/Build/Products/Release/melonbang.app`. Local builds are desktop apps
 without App Sandbox so downloaded and previously selected media remain accessible
 across restarts. App Store distribution and notarization require separate signing
 and packaging setup.
+
+Flutter 3.47 still reports the three CocoaPods-only plugins even with Swift Package
+Manager disabled for this project. This is an upstream migration warning; the
+current native build uses CocoaPods. `file_selector_macos` 0.9.5+1 also emits an
+`allowedFileTypes` deprecation warning from its pre-macOS 11 compatibility branch;
+on supported Macs it uses `allowedContentTypes`. Neither warning indicates a
+failed build. See Flutter's [Swift Package Manager migration guide](https://docs.flutter.dev/packages-and-plugins/swift-package-manager/for-app-developers).
 
 ## Project layout
 
@@ -165,9 +172,9 @@ and returns the task to the configured queue and limits. File summaries appear
 below the task title; View Files opens the full list and per-file playback.
 
 Application registrations are build configuration. Copy
-[`config/services.example.json`](config/services.example.json) to the Git-ignored
-`.env.services.json`, fill the Bangumi Client ID/Secret and Dandanplay App ID/Secret,
-then pass `--dart-define-from-file=.env.services.json` to Flutter run/build.
+[`.env.service.example.json`](.env.service.example.json) to the Git-ignored
+`.env.service.json`, fill the Bangumi Client ID/Secret and Dandanplay App ID/Secret,
+then pass `--dart-define-from-file=.env.service.json` to Flutter run/build.
 Register the exact Bangumi callback address from the file (default
 `http://127.0.0.1:14567/callback`). Restart the build/run after editing these values.
 The app has no service-secret editor; users only log in to their Bangumi account.
@@ -175,7 +182,10 @@ Old `oauth` and `dandanplay` entries in native storage are ignored. Keep the sam
 Bangumi registration for existing login sessions, or sign out and authorize again
 after changing it.
 
-`scripts/build.ps1` reads `.env.services.json` by default, accepts
+If you previously used `.env.services.json`, rename it to `.env.service.json`
+or pass its existing path explicitly. The JSON keys and GitHub secret name are unchanged.
+
+`scripts/build.ps1` reads `.env.service.json` by default, accepts
 `-ConfigurationFile <path>`, and rejects absent or empty registrations for normal
 release builds. `-Development` permits a local build with optional services disabled.
 Without credentials, discovery, local tracking, downloads and other danmaku sources

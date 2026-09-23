@@ -65,7 +65,7 @@ class CachedCredentials implements Credentials {
   });
 }
 
-/// Store secrets in the login keychain, isolated by application data directory.
+/// Store account tokens in the login keychain, isolated by data directory.
 class MacOSCredentials implements Credentials {
   MacOSCredentials(String directory)
     : _service =

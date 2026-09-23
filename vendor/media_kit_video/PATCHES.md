@@ -1,4 +1,6 @@
-# Local Windows disposal patch
+# Local native patches
+
+## Windows disposal
 
 Upstream: media_kit_video 2.0.1 from pub.dev, MIT license (see LICENSE).
 The upstream example application is omitted; runtime source is retained.
@@ -21,3 +23,19 @@ The UI thread remains available for texture-unregistration callbacks throughout.
 Keep this override until an upstream release provides equivalent completion
 semantics. Revalidate by closing the packaged application during active playback,
 checking exit code zero and absence of child processes.
+
+## macOS texture visibility
+
+The macOS `TextureHW`, `TextureSW`, and `SafeResizableTexture` classes are internal
+implementation details. Keep them internal so Swift does not export their
+`Unmanaged<CVPixelBuffer>` methods into the framework's Objective-C header, where
+Swift 6.4 emits an invalid `__unsafe_unretained` qualifier for the Core Video pointer.
+Flutter still calls them through `FlutterTexture`; retain the protocol conformance
+and `Unmanaged.passRetained` ownership behavior. The plugin registration remains
+public. This patch is macOS-only; the upstream common and iOS copies are unchanged.
+Revalidate native video playback, seeking, resizing, and disposal after upgrades.
+
+The macOS podspec also leaves `$(inherited)` unquoted in
+`GCC_PREPROCESSOR_DEFINITIONS`. Quoting the expansion combines CocoaPods' debug
+macros into one `POD_CONFIGURATION_DEBUG` definition and triggers redefinition
+warnings in Swift's Clang importer. Keep the inherited macros as separate tokens.

@@ -1,7 +1,7 @@
 param(
   [switch]$Archive,
   [switch]$Development,
-  [string]$ConfigurationFile = '.env.services.json'
+  [string]$ConfigurationFile = '.env.service.json'
 )
 $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path $PSScriptRoot
@@ -13,7 +13,7 @@ try {
     try {
       $configuration = Get-Content -LiteralPath $ConfigurationFile -Raw | ConvertFrom-Json
     } catch {
-      throw 'Service configuration must be a valid JSON object; use config/services.example.json as the template.'
+      throw 'Service configuration must be a valid JSON object; use .env.service.example.json as the template.'
     }
     if (-not ($configuration -is [pscustomobject])) {
       throw 'Service configuration must be a JSON object.'
@@ -28,7 +28,7 @@ try {
     }
     $buildArguments += '--dart-define-from-file=' + (Resolve-Path -LiteralPath $ConfigurationFile).Path
   } elseif (-not $Development) {
-    throw 'Copy config/services.example.json to .env.services.json and fill the service registrations, or pass -ConfigurationFile. Use -Development to build without them.'
+    throw 'Copy .env.service.example.json to .env.service.json and fill the service registrations, or pass -ConfigurationFile. Use -Development to build without them.'
   }
   & $flutterCommand pub get
   if ($LASTEXITCODE -ne 0) { throw 'Dependency resolution failed.' }
