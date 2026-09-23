@@ -45,3 +45,14 @@ enum EpisodeStatus {
   static EpisodeStatus parse(String key) =>
       values.firstWhere((v) => v.key == key);
 }
+
+String? coverAddress(Object? value) {
+  if (value is! String) return null;
+  final address = value.trim();
+  final uri = Uri.tryParse(address);
+  return uri != null &&
+          (uri.scheme == 'https' || uri.scheme == 'http') &&
+          uri.host.isNotEmpty
+      ? address
+      : null;
+}

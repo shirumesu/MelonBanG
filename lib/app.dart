@@ -17,6 +17,7 @@ import 'ui/core/app_chrome.dart';
 import 'ui/core/motion.dart';
 import 'ui/core/page_widgets.dart';
 import 'ui/core/theme.dart';
+import 'ui/core/subject_posters.dart';
 import 'ui/discovery/discovery_pages.dart';
 import 'ui/player/playback.dart';
 import 'ui/player/player_page.dart';
@@ -163,11 +164,14 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       }
     });
     void showTrending(List<Json> value) {
-      if (mounted) setState(() => trending = value);
+      if (mounted && !_dataEqual(trending, value)) {
+        setState(() => trending = value);
+      }
     }
 
     void showToday(Json value) {
-      if (mounted) {
+      if (mounted &&
+          (todayDate != value['date'] || !_dataEqual(today, value['items']))) {
         setState(() {
           today = objects(value['items']);
           todayDate = value['date'] as String?;
@@ -648,9 +652,16 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       resultQuery = requestedQuery;
     });
     try {
-      final value = await widget.service.catalog.search(resultQuery);
-      if (mounted && ticket == _navigation) {
-        setState(() => results = objects(value));
+      final value = await widget.service.catalog.search(
+        resultQuery,
+        onCached: (value) {
+          if (mounted && ticket == _navigation && !_dataEqual(results, value)) {
+            setState(() => results = value);
+          }
+        },
+      );
+      if (mounted && ticket == _navigation && !_dataEqual(results, value)) {
+        setState(() => results = value);
       }
     } catch (_) {
       if (mounted && ticket == _navigation) {
@@ -678,7 +689,13 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       unawaited(loadHome());
       unawaited(perform(refreshPlaybackAvailability));
     }
-    if (ready && target == 'calendar' && calendar.isEmpty) {
+    if (ready &&
+        target == 'tracking' &&
+        widget.service.account.session != null &&
+        !widget.service.account.needsAuthorization) {
+      unawaited(perform(widget.service.tracking.refresh));
+    }
+    if (ready && target == 'calendar') {
       unawaited(loadCalendar());
     }
   }
@@ -686,10 +703,14 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   Future<void> loadCalendar() => perform(() async {
     final value = await widget.service.catalog.calendar(
       onCached: (value) {
-        if (mounted) setState(() => calendar = value);
+        if (mounted && !_dataEqual(calendar, value)) {
+          setState(() => calendar = value);
+        }
       },
     );
-    if (mounted) setState(() => calendar = objects(value));
+    if (mounted && !_dataEqual(calendar, value)) {
+      setState(() => calendar = value);
+    }
   });
 
   @override
@@ -786,6 +807,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Melonbang',
+      builder: (context, child) => ready
+          ? SubjectCoverScope(catalog: widget.service.catalog, child: child!)
+          : child!,
       scaffoldMessengerKey: messages,
       navigatorKey: navigation,
       theme: appTheme(dark),
@@ -1210,3 +1234,19 @@ Future<XFile?> selectVideo() => openFile(
     ),
   ],
 );
+
+bool _dataEqual(Object? a, Object? b) {
+  if (identical(a, b)) return true;
+  if (a is List && b is List) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_dataEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  if (a is Map && b is Map) {
+    return a.length == b.length &&
+        a.keys.every((key) => b.containsKey(key) && _dataEqual(a[key], b[key]));
+  }
+  return a == b;
+}

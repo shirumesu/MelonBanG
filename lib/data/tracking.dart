@@ -20,6 +20,7 @@ class TrackingRepository {
   Timer? _retry;
   bool _closed = false;
   final _syncStatus = <String, _SyncStatus>{};
+  final _collectionRefreshes = <String, Future<void>>{};
   final _episodeRefreshes = <String, Future<void>>{};
   final _episodeRefreshedAt = <String, DateTime>{};
   _SyncStatus get _currentSync =>
@@ -40,7 +41,10 @@ class TrackingRepository {
 
   String _collection(String user) => 'collection:$user';
   String _episodes(String user) => 'episodes:$user';
-  Future<List<Json>> collection() => store.list(_collection(account.userId));
+  Future<List<Json>> collection() async =>
+      (await store.list(_collection(account.userId)))
+          .map(catalog.summary)
+          .toList();
   Future<Json> syncState() async => {
     'pendingMutationCount': (await store.pending(account.userId)).length,
     'lastSyncError': lastSyncError,
@@ -144,7 +148,18 @@ class TrackingRepository {
     unawaited(flush());
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh() {
+    final user = account.userId;
+    return _collectionRefreshes.putIfAbsent(user, () async {
+      try {
+        await _refreshCollection();
+      } finally {
+        _collectionRefreshes.remove(user);
+      }
+    });
+  }
+
+  Future<void> _refreshCollection() async {
     if (account.session == null) return;
     final requestedAt = DateTime.now().millisecondsSinceEpoch;
     final user = account.userId;
@@ -167,7 +182,10 @@ class TrackingRepository {
             'name': s['name'],
             'nameCn': s['name_cn'],
             'summary': s['short_summary'],
-            'coverUrl': object(s['images'])['common'],
+            'coverUrl': [
+              for (final size in ['common', 'large', 'medium', 'small'])
+                coverAddress(object(s['images'])[size]),
+            ].whereType<String>().firstOrNull,
             'episodeTotal': s['eps'] ?? s['total_episodes'],
             'score': s['score'],
             'status': CollectionStatus.fromRemote(number(row['type']).toInt())
@@ -348,7 +366,9 @@ class TrackingRepository {
     _retry?.cancel();
     await _flushing;
     await Future.wait(
-      _episodeRefreshes.values.toList().map((request) async {
+      [..._collectionRefreshes.values, ..._episodeRefreshes.values].map((
+        request,
+      ) async {
         try {
           await request;
         } catch (_) {

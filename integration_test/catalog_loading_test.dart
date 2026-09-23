@@ -13,6 +13,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:melonbang/app.dart';
 import 'package:melonbang/app_services.dart';
 import 'package:melonbang/data/network.dart';
+import 'package:melonbang/ui/core/subject_posters.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -29,6 +30,29 @@ void main() {
     final directory = await Directory.systemTemp.createTemp(
       'melonbang-catalog-',
     );
+    final imageServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.drawRect(
+      const Rect.fromLTWH(0, 0, 120, 180),
+      Paint()..color = const Color(0xff65cbb0),
+    );
+    canvas.drawCircle(
+      const Offset(60, 75),
+      35,
+      Paint()..color = const Color(0xff236f63),
+    );
+    final picture = recorder.endRecording();
+    final fixture = await picture.toImage(120, 180);
+    final png = await fixture.toByteData(format: ui.ImageByteFormat.png);
+    fixture.dispose();
+    picture.dispose();
+    imageServer.listen((request) async {
+      request.response.headers.contentType = ContentType('image', 'png');
+      request.response.add(png!.buffer.asUint8List());
+      await request.response.close();
+    });
+    final cover = 'http://127.0.0.1:${imageServer.port}/cover.png';
     final homeResponse = Completer<void>();
     final detailResponse = Completer<void>();
     final date = DateTime.now()
@@ -53,7 +77,7 @@ void main() {
         {'episodeId': 7, 'ep': 1, 'name': '旅程的开始', 'type': 'main'},
       ],
     };
-    var homeRequests = 0;
+    var homeRequests = 0, calendarRequests = 0;
     final requests = <Uri>[];
     final service = AppServices(
       directory: directory.path,
@@ -72,7 +96,18 @@ void main() {
           Json body;
           if (request.url.path.endsWith('/42')) {
             await detailResponse.future;
-            body = {'data': title('更新后的番剧详情')};
+            body = {
+              'data': {...title('更新后的番剧详情'), 'coverUrl': cover},
+            };
+          } else if (request.url.path.endsWith('/latest')) {
+            calendarRequests++;
+            body = {
+              'byDate': {
+                date: [
+                  {...title('日历作品'), 'coverUrl': '$cover?v=$calendarRequests'},
+                ],
+              },
+            };
           } else {
             if (request.url.path.contains('/trending/')) {
               homeRequests++;
@@ -97,6 +132,25 @@ void main() {
       ),
     );
     final capture = GlobalKey();
+    Future<void> expectArtwork() async {
+      final decoded = find.descendant(
+        of: find.byType(SubjectCover),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is RawImage && widget.image != null,
+        ),
+      );
+      for (var i = 0; i < 50 && decoded.evaluate().isEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(
+        decoded,
+        findsWidgets,
+        reason:
+            'The cover must decode and render, not just create an Image widget',
+      );
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+
     Future<void> screenshot(String name) async {
       const prefix = String.fromEnvironment('TEST_CAPTURE');
       if (prefix.isEmpty) return;
@@ -116,6 +170,7 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(milliseconds: 200));
       await service.close();
+      await imageServer.close(force: true);
       await directory.delete(recursive: true);
     });
     await service.start();
@@ -135,6 +190,10 @@ void main() {
         'value': entry.value,
       });
     }
+    await service.store.put('collection:local', '42', {
+      ...title('本地追番作品'),
+      'status': 'watching',
+    });
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(
       RepaintBoundary(
@@ -245,7 +304,52 @@ void main() {
     }
     expect(find.text('更新后的热门番剧'), findsWidgets);
     expect(homeRequests, 1);
+    expect(service.catalog.coverFor(42), cover);
+    expect(
+      find.descendant(
+        of: find.byType(SubjectCover),
+        matching: find.byType(Image),
+      ),
+      findsWidgets,
+    );
+    await expectArtwork();
     await screenshot('home');
+    state.navigate('tracking');
+    await tester.pumpAndSettle();
+    expect(find.text('本地追番作品'), findsWidgets);
+    expect(
+      find.descendant(
+        of: find.byType(SubjectCover),
+        matching: find.byType(Image),
+      ),
+      findsWidgets,
+    );
+    await expectArtwork();
+    await screenshot('tracking-covers');
+    state.navigate('calendar');
+    for (var i = 0; i < 30 && state.calendar.isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(state.calendar.single['items'].single['coverUrl'], '$cover?v=1');
+    state.navigate('tracking');
+    state.navigate('calendar');
+    for (var i = 0; i < 30 && calendarRequests < 2; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await tester.pumpAndSettle();
+    expect(calendarRequests, 2);
+    expect(state.calendar.single['items'].single['coverUrl'], '$cover?v=2');
+    expect(
+      find.descendant(
+        of: find.byType(SubjectCover),
+        matching: find.byType(Image),
+      ),
+      findsWidgets,
+    );
+    await expectArtwork();
+    await screenshot('calendar-covers');
+    state.navigate('home');
+    await tester.pumpAndSettle();
     state.setDark(true);
     await tester.pumpAndSettle(
       const Duration(milliseconds: 100),
