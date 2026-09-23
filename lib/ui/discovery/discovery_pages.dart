@@ -449,7 +449,6 @@ class _FeaturedCover extends StatelessWidget {
               url: item['coverUrl'],
               title: titleOf(item),
               id: number(item['subjectId']).toInt(),
-              fit: BoxFit.contain,
             ),
           ),
         ),

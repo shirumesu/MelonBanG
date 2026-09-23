@@ -15,6 +15,9 @@ The Windows plugin builds this source against the pinned vcpkg registry configur
 in windows/CMakeLists.txt. It never substitutes the upstream prebuilt DLL, which
 would omit the fix. Libtorrent and its dependencies link statically into the bridge.
 No separately installed torrent client is needed.
+The Windows plugin prefers package configs so libtorrent's Boost dependency uses
+BoostConfig.cmake without the removed FindBoost module warning on CMake 3.30+.
+Setting CMP0167 only in the plugin does not reach vcpkg's captured macro policy scope.
 
 The macOS CocoaPod builds the same bridge with CMake against Homebrew libtorrent
 2.1. Its build script copies the native dependency closure and rewrites dylib

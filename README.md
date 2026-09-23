@@ -14,7 +14,8 @@ From this repository root:
 flutter pub get
 Copy-Item .env.service.example.json .env.service.json
 # Fill .env.service.json with your application registrations, then run:
-flutter run -d windows --dart-define-from-file=.env.service.json
+dart run scripts/flutter.dart dev windows
+dart run scripts/flutter.dart build windows
 ./scripts/build.ps1 -Archive
 ```
 
@@ -24,6 +25,18 @@ ZIP; set `FLUTTER_ROOT` if Flutter is not on PATH. Node.js, pnpm, and Electron a
 not build or runtime requirements. The first build downloads media_kit binaries and
 builds the patched torrent engine through a pinned vcpkg toolchain; this can take
 several minutes. Later builds reuse the native dependency cache.
+
+Windows builds also retain vcpkg source/build trees and package staging under
+`build/windows/x64/_deps/vcpkg-src`. After a successful build, its `buildtrees/`
+and `packages/` directories can be removed to recover space once no native build
+is running; these hold dependency compilation work and package staging, not the
+application's incremental build files. Installed dependencies
+remain in `build/windows/x64/vcpkg_installed`. Keep `downloads/` to avoid downloading
+tools and sources again. `flutter clean` removes the whole build cache and makes
+the next native build substantially slower.
+Dependency upgrades may regenerate these staging directories. On macOS, Homebrew
+keeps libtorrent and its dependencies outside the checkout, so repository folder
+sizes alone do not compare the full development footprint across platforms.
 
 ### macOS
 
@@ -41,7 +54,7 @@ flutter doctor -v
 flutter pub get
 cp .env.service.example.json .env.service.json
 # Fill .env.service.json with your application registrations, then run:
-./scripts/flutter.sh run -d macos
+dart run scripts/flutter.dart dev macos
 ```
 
 Alternatively, set `export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
@@ -53,7 +66,7 @@ builds the patched torrent bridge using Homebrew's libtorrent 2.1 and embeds its
 native dependencies in the app. Flutter's project configuration selects arm64 for
 release/profile builds; this setup does not produce a universal binary.
 
-`./scripts/flutter.sh build macos --release` creates
+`dart run scripts/flutter.dart build macos --release` creates
 `build/macos/Build/Products/Release/melonbang.app`. Local builds are desktop apps
 without App Sandbox so downloaded and previously selected media remain accessible
 across restarts. App Store distribution and notarization require separate signing
@@ -191,8 +204,26 @@ Application registrations are build configuration. Copy
 [`.env.service.example.json`](.env.service.example.json) to the Git-ignored
 `.env.service.json`, fill the Bangumi Client ID/Secret and Dandanplay App ID/Secret,
 then pass `--dart-define-from-file=.env.service.json` to Flutter run/build.
-On macOS, `scripts/flutter.sh` supplies this argument automatically for run/build
-and reports a missing file. Set `MELONBANG_CONFIGURATION_FILE` for another path.
+The shared Dart entry point supplies this argument automatically and reports a
+missing file. It uses the Flutter SDK already on PATH; no Node.js is needed:
+
+```sh
+dart run scripts/flutter.dart dev windows
+dart run scripts/flutter.dart dev macos
+dart run scripts/flutter.dart build windows
+dart run scripts/flutter.dart build macos
+```
+
+`dev` without a platform uses the current OS. Additional Flutter arguments are
+forwarded, for example `dev windows --release`. `run -d windows` is also supported.
+`scripts/flutter.ps1` and `scripts/flutter.sh` delegate to the same Dart entry point.
+Set `MELONBANG_CONFIGURATION_FILE` for another file; an explicit
+`--dart-define-from-file=<path>` takes precedence over both the environment variable
+and local JSON. GitHub Actions continues to inject `MELONBANG_SERVICES_JSON` through
+`scripts/build.ps1 -ConfigurationFile`, independent of the local file.
+A direct `flutter run` or `flutter build` does not automatically load the JSON;
+Flutter's built-in commands cannot be extended with a project-specific `flutter dev`.
+The application reads compiled definitions, not a JSON sidecar at runtime.
 Register the exact Bangumi callback address from the file (default
 `http://127.0.0.1:14567/callback`). Restart the build/run after editing these values.
 The app has no service-secret editor; users only log in to their Bangumi account.

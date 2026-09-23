@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.14)
 project(libtorrent_flutter LANGUAGES CXX)
+# vcpkg's find_package macro keeps its own policy scope, so prefer configs directly.
+set(CMAKE_FIND_PACKAGE_PREFER_CONFIG TRUE)
 find_package(LibtorrentRasterbar CONFIG REQUIRED)
 add_library(libtorrent_flutter SHARED ../src/torrent_bridge.cpp)
 target_compile_features(libtorrent_flutter PRIVATE cxx_std_17)
