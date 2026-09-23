@@ -4,13 +4,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../app_services.dart';
-import '../core/theme.dart';
 import '../../data/bittorrent_settings.dart';
-import '../../data/resource_metadata.dart';
-import '../acquisition/resource_widgets.dart';
 import '../core/subject_posters.dart';
 
-/// Searches keep their own episode context without navigating away from playback.
+/// Episode and cache actions stay available alongside the resource sheet.
 class PlayerLibraryPanel extends StatefulWidget {
   const PlayerLibraryPanel({
     super.key,
@@ -21,6 +18,7 @@ class PlayerLibraryPanel extends StatefulWidget {
     required this.title,
     required this.downloads,
     required this.onEpisode,
+    required this.onFindResources,
     required this.onPlayFile,
   });
   final AppServices service;
@@ -29,23 +27,15 @@ class PlayerLibraryPanel extends StatefulWidget {
   final String title;
   final Json downloads;
   final ValueChanged<Json> onEpisode;
+  final ValueChanged<Json?> onFindResources;
   final void Function(String id, String? fileId) onPlayFile;
   @override
   State<PlayerLibraryPanel> createState() => _PlayerLibraryPanelState();
 }
 
 class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
-  final query = TextEditingController();
-  final groupQuery = TextEditingController();
-  final added = <String>{}, adding = <String>{};
   final localEpisodes = <int>{};
-  int tab = 0, request = 0;
-  int? selectedEpisode;
-  bool searching = false;
   String? error;
-  String groupFilter = '';
-  List<String> defaultQueries = [];
-  List<Json> candidates = [], providers = [];
   List<Json> get episodes => objects(widget.subject?['episodes']);
   List<Json> get tasks => widget.subjectId == null
       ? []
@@ -56,8 +46,6 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
   @override
   void initState() {
     super.initState();
-    selectedEpisode = widget.episodeId;
-    fillQuery();
     unawaited(loadLocalEpisodes());
   }
 
@@ -65,7 +53,6 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
   void didUpdateWidget(PlayerLibraryPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.subject != widget.subject) {
-      if (query.text.isEmpty) fillQuery();
       unawaited(loadLocalEpisodes());
     }
   }
@@ -94,90 +81,6 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
     }
   }
 
-  void fillQuery() {
-    final item = widget.subject;
-    if (item == null) return;
-    final episode = episodes
-        .where((e) => e['episodeId'] == selectedEpisode)
-        .firstOrNull;
-    final name = titleOf(item);
-    final episodeKeyword = resourceEpisodeKeyword(episode);
-    String withEpisode(String name) =>
-        [name, episodeKeyword].where((part) => part.isNotEmpty).join(' ');
-    defaultQueries = resourceNames(item).map(withEpisode).toList();
-    query.text = withEpisode(name);
-  }
-
-  Future<void> search() async {
-    final id = widget.subjectId;
-    final keyword = query.text.trim();
-    if (id == null || keyword.isEmpty) return;
-    final ticket = ++request;
-    final episode = selectedEpisode;
-    setState(() {
-      searching = true;
-      error = null;
-      candidates = [];
-      providers = [];
-    });
-    try {
-      final result = await widget.service.sources.search(
-        id,
-        keyword,
-        episodeId: episode,
-        alternativeNames: defaultQueries.contains(keyword)
-            ? defaultQueries
-            : [],
-        coverUrl: widget.subject?['coverUrl'] as String?,
-        isCurrent: () => mounted && ticket == request,
-        onUpdate: (result) {
-          if (mounted && ticket == request) {
-            setState(() {
-              candidates = objects(result['candidates']);
-              providers = objects(result['providers']);
-            });
-          }
-        },
-      );
-      if (mounted && ticket == request) {
-        setState(() {
-          candidates = objects(result['candidates']);
-          providers = objects(result['providers']);
-        });
-      }
-    } catch (e) {
-      if (mounted && ticket == request) setState(() => error = '$e');
-    } finally {
-      if (mounted && ticket == request) setState(() => searching = false);
-    }
-  }
-
-  void findEpisode(Json episode) {
-    setState(() {
-      tab = 1;
-      selectedEpisode = episode['episodeId'] as int;
-    });
-    fillQuery();
-    unawaited(search());
-  }
-
-  Future<void> enqueue(Json candidate) async {
-    final id = '${candidate['candidateId']}';
-    if (adding.contains(id) || added.contains(id)) return;
-    setState(() {
-      adding.add(id);
-      error = null;
-    });
-    try {
-      await widget.service.sources.enqueue(id);
-      if (mounted) setState(() => added.add(id));
-    } catch (e) {
-      if (mounted) setState(() => error = '下载未能加入：$e');
-    } finally {
-      if (mounted) setState(() => adding.remove(id));
-    }
-  }
-
   Future<void> toggleTask(Json task) async {
     try {
       if (['paused', 'failed', 'completed'].contains(task['status'])) {
@@ -196,14 +99,6 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
             file['downloadId'] == task['id'] && file['mediaKind'] == 'video',
       )
       .toList();
-
-  @override
-  void dispose() {
-    request++;
-    query.dispose();
-    groupQuery.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -245,15 +140,10 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
           else ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: SegmentedButton<int>(
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(value: 0, label: Text('选集')),
-                  ButtonSegment(value: 1, label: Text('找资源')),
-                ],
-                selected: {tab},
-                onSelectionChanged: (value) =>
-                    setState(() => tab = value.first),
+              child: OutlinedButton.icon(
+                onPressed: () => widget.onFindResources(current),
+                icon: const Icon(Icons.search, size: 18),
+                label: const Text('找资源'),
               ),
             ),
             if (error != null)
@@ -267,7 +157,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.all(16),
-                children: tab == 0 ? episodeRows() : resourceRows(),
+                children: episodeRows(),
               ),
             ),
             if (tasks.isNotEmpty)
@@ -347,148 +237,11 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
             : IconButton(
                 tooltip: '查找第 ${episode['sort']} 话资源',
                 icon: const Icon(Icons.search, size: 18),
-                onPressed: () => findEpisode(episode),
+                onPressed: () => widget.onFindResources(episode),
               ),
       ),
     );
   }
-
-  List<Widget> resourceRows() => [
-    DropdownButtonFormField<int>(
-      borderRadius: controlBorderRadius,
-      key: ValueKey(selectedEpisode),
-      initialValue: episodes.any((e) => e['episodeId'] == selectedEpisode)
-          ? selectedEpisode
-          : null,
-      isExpanded: true,
-      decoration: const InputDecoration(labelText: '下载关联章节'),
-      items: [
-        const DropdownMenuItem<int>(value: null, child: Text('本作 · 不指定章节')),
-        for (final episode in episodes)
-          DropdownMenuItem(
-            value: episode['episodeId'] as int,
-            child: Text(
-              '第 ${episode['sort']} 话',
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-      ],
-      onChanged: (value) {
-        request++;
-        setState(() {
-          selectedEpisode = value;
-          searching = false;
-          candidates = [];
-          providers = [];
-          error = null;
-        });
-        fillQuery();
-      },
-    ),
-    const SizedBox(height: 12),
-    TextField(
-      controller: query,
-      onSubmitted: (_) => search(),
-      decoration: InputDecoration(
-        labelText: '资源关键词',
-        suffixIcon: IconButton(
-          tooltip: '搜索资源',
-          onPressed: search,
-          icon: const Icon(Icons.search),
-        ),
-      ),
-    ),
-    const SizedBox(height: 12),
-    ResourceProgress(providers: providers, busy: searching),
-    const SizedBox(height: 12),
-    TextField(
-      controller: groupQuery,
-      onChanged: (value) => setState(() => groupFilter = value),
-      decoration: InputDecoration(
-        labelText: '筛选字幕组 / 联合发布',
-        suffixIcon: groupFilter.isEmpty
-            ? null
-            : IconButton(
-                tooltip: '清除字幕组筛选',
-                onPressed: () => setState(() {
-                  groupQuery.clear();
-                  groupFilter = '';
-                }),
-                icon: const Icon(Icons.clear, size: 18),
-              ),
-      ),
-    ),
-    const SizedBox(height: 12),
-    if (!searching && candidates.isEmpty)
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Text(
-          providers.isEmpty ? '输入作品名或集数查找资源' : '没有找到资源，试试原名或其他关键词',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      ),
-    if (candidates.isNotEmpty &&
-        !candidates.any((e) => matchesResource(e, '', groupFilter)))
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Text(
-          '没有符合字幕组筛选的资源，试试清除筛选。',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      ),
-    for (final candidate in candidates.where(
-      (e) => matchesResource(e, '', groupFilter),
-    ))
-      ResourceArrival(
-        key: ValueKey(candidate['candidateId']),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SelectableText(
-                '${candidate['title']}',
-                style: const TextStyle(fontSize: 12),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                resourceDetails(candidate),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed:
-                      adding.contains(candidate['candidateId']) ||
-                          added.contains(candidate['candidateId'])
-                      ? null
-                      : () => enqueue(candidate),
-                  icon: adding.contains(candidate['candidateId'])
-                      ? const SizedBox.square(
-                          dimension: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(
-                          added.contains(candidate['candidateId'])
-                              ? Icons.check
-                              : Icons.download,
-                          size: 16,
-                        ),
-                  label: Text(
-                    added.contains(candidate['candidateId']) ? '已加入缓存' : '下载',
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-  ];
 
   Widget taskTile(Json task) {
     final progress = number(task['progress']).clamp(0.0, 1.0);

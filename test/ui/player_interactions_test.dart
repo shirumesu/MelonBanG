@@ -31,6 +31,9 @@ class MemoryPlayer extends PlatformPlayer {
   }
 
   @override
+  Future<void> playOrPause() => state.playing ? pause() : play();
+
+  @override
   Future<void> seek(Duration position) async {
     state = state.copyWith(position: position);
     positionController.add(position);
@@ -227,6 +230,7 @@ void main() {
 
     await tester.tap(find.text('找资源'));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 240));
     await tester.enterText(
       find.widgetWithText(TextField, '资源关键词'),
       'Preserved query',

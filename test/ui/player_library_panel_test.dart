@@ -2,16 +2,22 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 import 'package:melonbang/app_services.dart';
 import 'package:melonbang/data/downloads.dart';
 import 'package:melonbang/data/network.dart';
 import 'package:melonbang/data/sources.dart';
 import 'package:melonbang/data/store.dart';
-import 'package:melonbang/ui/player/player_library_panel.dart';
+import 'package:melonbang/ui/acquisition/resource_widgets.dart';
+import 'package:melonbang/ui/acquisition/resources_page.dart';
+import 'package:melonbang/ui/player/player_page.dart';
 import 'package:melonbang/ui/player/player_theme.dart';
+
+import 'player_interactions_test.dart' show MemoryPlayback;
 
 class TestDownloads extends DownloadRepository {
   TestDownloads(super.store, super.directory);
@@ -70,7 +76,7 @@ void main() {
       final api = ApiClient(
         client: MockClient((request) async {
           final keyword = request.url.queryParameters.values.first;
-          if (keyword == 'old') await gate.future;
+          if (keyword.startsWith('old')) await gate.future;
           return http.Response(
             '<rss><channel><item><title>$keyword result</title>'
             '<enclosure url="magnet:?xt=urn:btih:0123456789012345678901234567890123456789"/>'
@@ -84,10 +90,21 @@ void main() {
         ..store = store
         ..downloads = downloads
         ..sources = SourceRepository(api, downloads);
+      final playback = MemoryPlayback()
+        ..session = {'id': 'session', 'subjectId': 7, 'episodeId': 71};
+      await playback.player.play();
+      Future<void> settle() async {
+        for (var i = 0; i < 12; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+      }
+
       var episodeOpened = false;
       addTearDown(() async {
         if (!gate.isCompleted) gate.complete();
         await tester.pumpWidget(const SizedBox.shrink());
+        await playback.player.dispose();
+        playback.dispose();
         await tester.runAsync(() async {
           await downloads.close();
           api.close();
@@ -99,77 +116,110 @@ void main() {
         MaterialApp(
           theme: playerTheme(),
           home: Scaffold(
-            body: Center(
-              child: SizedBox(
-                width: 310,
-                height: 720,
-                child: StreamBuilder<Json>(
-                  stream: downloads.changes.stream,
-                  initialData: downloads.state,
-                  builder: (_, snapshot) => PlayerLibraryPanel(
-                    service: services,
-                    subjectId: 7,
-                    subject: const {
-                      'subjectId': 7,
-                      'name': 'Subject',
-                      'episodes': [
-                        {'episodeId': 71, 'sort': 1, 'name': 'One'},
-                        {'episodeId': 72, 'sort': 2, 'name': 'Two'},
-                      ],
-                    },
-                    episodeId: 71,
-                    title: 'Current episode',
-                    downloads: snapshot.data!,
-                    onEpisode: (_) => episodeOpened = true,
-                    onPlayFile: (_, _) {},
-                  ),
-                ),
+            body: StreamBuilder<Json>(
+              stream: downloads.changes.stream,
+              initialData: downloads.state,
+              builder: (_, snapshot) => PlayerPage(
+                playback: playback,
+                service: services,
+                subject: const {
+                  'subjectId': 7,
+                  'name': 'Subject',
+                  'episodes': [
+                    {'episodeId': 71, 'sort': 1, 'name': 'One'},
+                    {'episodeId': 72, 'sort': 2, 'name': 'Two'},
+                  ],
+                },
+                downloads: snapshot.data!,
+                onBack: () {},
+                onError: (_) {},
+                fullScreen: false,
+                onFullScreenChanged: (_) async {},
+                onEpisode: (_) => episodeOpened = true,
+                onPlayFile: (_, _) {},
               ),
             ),
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await settle();
+      final video = tester.element(find.byType(Video));
+      final videoRect = tester.getRect(find.byType(Video));
       await tester.tap(find.text('找资源'));
-      await tester.pumpAndSettle();
+      await settle();
+      expect(find.byType(ResourcesPage), findsOneWidget);
       await tester.enterText(find.widgetWithText(TextField, '资源关键词'), 'old');
-      await tester.tap(find.byTooltip('搜索资源'));
+      await tester.tap(find.widgetWithText(FilledButton, '搜索'));
       await tester.pump();
-      await tester.tap(find.text('选集'));
-      await tester.pump();
+      await tester.tap(find.byTooltip('关闭资源窗口'));
+      await settle();
       await tester.tap(find.byTooltip('查找第 2 话资源'));
-      await tester.pumpAndSettle();
+      await settle();
       gate.complete();
-      await tester.pumpAndSettle();
-      expect(find.text('old result'), findsNothing);
-      expect(find.text('Subject 02 result'), findsNWidgets(2));
-      await tester.enterText(
-        find.widgetWithText(TextField, '筛选字幕组 / 联合发布'),
-        'missing group',
+      await settle();
+      final resources = tester.widget<ResourcesPage>(
+        find.byType(ResourcesPage),
       );
-      await tester.pumpAndSettle();
-      expect(find.text('没有符合字幕组筛选的资源，试试清除筛选。'), findsOneWidget);
-      await tester.tap(find.byTooltip('清除字幕组筛选'));
-      await tester.pumpAndSettle();
-      expect(find.text('Subject 02 result'), findsNWidgets(2));
-      await tester.tap(find.widgetWithText(TextButton, '下载').first);
-      await tester.pumpAndSettle();
-      expect(find.textContaining('下载未能加入'), findsOneWidget);
+      expect(resources.resourceEpisode, 72);
+      expect(
+        resources.candidates.map((e) => e['title']),
+        everyElement('Subject 02 result'),
+      );
+      expect(tester.element(find.byType(Video)), same(video));
+      expect(tester.getRect(find.byType(Video)), videoRect);
+      expect(playback.player.state.playing, isTrue);
+      expect(playback.session!['episodeId'], 71);
+      final sheet = find.byKey(const ValueKey('player-resource-sheet'));
+      final sheetBounds = tester.getRect(sheet);
+      await tester.drag(find.text('查找资源 · 第 2 话'), const Offset(100, 0));
+      await settle();
+      expect(tester.getRect(sheet), sheetBounds);
+
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byTooltip('播放 / 暂停（空格）').hitTestable(), findsOneWidget);
+      await tester.tap(find.byTooltip('播放 / 暂停（空格）'));
+      await settle();
+      expect(playback.player.state.playing, isFalse);
+      await tester.tap(find.byTooltip('播放 / 暂停（空格）'));
+      await settle();
+      await tester.enterText(
+        find.widgetWithText(TextField, '资源关键词'),
+        'Kept query',
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      expect(playback.player.state.playing, isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await settle();
+      expect(find.byType(ResourcesPage), findsNothing);
+      await tester.tap(find.byTooltip('查找第 2 话资源'));
+      await settle();
+      expect(find.textContaining('Kept query'), findsOneWidget);
+      final download = find.widgetWithText(TextButton, '下载').first;
+      await tester.ensureVisible(download);
+      await tester.tap(download);
+      await settle();
+      expect(
+        find.byTooltip('添加失败，点击重试\nTest download unavailable'),
+        findsOneWidget,
+      );
       expect(downloads.queued, isEmpty);
       downloads.fail = false;
-      await tester.tap(find.widgetWithText(TextButton, '下载').first);
-      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, '重试').first);
+      await settle();
       expect(downloads.queued.single['subjectId'], 7);
       expect(downloads.queued.single['episodeId'], 72);
-      expect(find.text('已加入缓存'), findsOneWidget);
-      expect(find.text('42%'), findsOneWidget);
+      expect(find.byType(ResourceResultRow), findsWidgets);
       expect(episodeOpened, isFalse);
+      expect(playback.session!['episodeId'], 71);
+      await tester.tap(find.byTooltip('关闭资源窗口'));
+      await settle();
+      expect(find.text('42%'), findsOneWidget);
       expect(find.text('正在播放 · 第 1 话'), findsOneWidget);
       await tester.tap(find.byTooltip('暂停下载'));
-      await tester.pumpAndSettle();
+      await settle();
       expect(find.text('已暂停'), findsOneWidget);
       await tester.tap(find.byTooltip('继续下载'));
-      await tester.pumpAndSettle();
+      await settle();
       expect(find.text('下载中 · 1.0 MB/s'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },

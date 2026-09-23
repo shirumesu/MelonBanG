@@ -12,6 +12,7 @@ import 'danmaku.dart';
 import 'playback.dart';
 import 'player_controls.dart';
 import 'player_library_panel.dart';
+import 'player_resource_sheet.dart';
 import 'player_settings.dart';
 import 'player_theme.dart';
 
@@ -55,6 +56,8 @@ class _PlayerPageState extends State<PlayerPage> {
   bool panel = true, controls = true, nearPanel = false, panelFocused = false;
   bool controlsHovered = false, controlsFocused = false, controlsPopup = false;
   bool titleVisible = false, panelBeforeImmersive = true;
+  bool resourcesOpen = false;
+  int? resourceEpisode;
   PlayerMenu? menu;
   PlayerMenu lastMenu = PlayerMenu.subtitles;
   double? dragging;
@@ -76,6 +79,10 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   void didUpdateWidget(PlayerPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.subject?['subjectId'] != widget.subject?['subjectId']) {
+      resourcesOpen = false;
+      resourceEpisode = null;
+    }
     final wasImmersive = oldWidget.fullScreen || oldWidget.windowFullScreen;
     if (!wasImmersive && immersive) {
       panelBeforeImmersive = panel;
@@ -131,13 +138,15 @@ class _PlayerPageState extends State<PlayerPage> {
           menu == null &&
           !controlsHovered &&
           !controlsFocused &&
-          !controlsPopup) {
+          !controlsPopup &&
+          !resourcesOpen) {
         setState(() => controls = false);
       }
     });
   }
 
   void toggleMenu(PlayerMenu value) {
+    resourcesOpen = false;
     if (menu == value) {
       closeMenu();
       return;
@@ -156,6 +165,21 @@ class _PlayerPageState extends State<PlayerPage> {
     final trigger = menuFocusNodes[menu];
     setState(() => menu = null);
     (trigger ?? focus).requestFocus();
+    reveal();
+  }
+
+  void findResources(Json? episode) {
+    setState(() {
+      resourceEpisode = episode?['episodeId'] as int?;
+      resourcesOpen = true;
+      menu = null;
+    });
+    reveal();
+  }
+
+  void closeResources() {
+    setState(() => resourcesOpen = false);
+    focus.requestFocus();
     reveal();
   }
 
@@ -191,6 +215,10 @@ class _PlayerPageState extends State<PlayerPage> {
         keyboard.isAltPressed ||
         keyboard.isShiftPressed) {
       return KeyEventResult.ignored;
+    }
+    if (resourcesOpen && event.logicalKey == LogicalKeyboardKey.escape) {
+      closeResources();
+      return KeyEventResult.handled;
     }
     if (menu != null) {
       if (event.logicalKey == LogicalKeyboardKey.escape) {
@@ -269,6 +297,9 @@ class _PlayerPageState extends State<PlayerPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final panelWidth = constraints.maxWidth < 820 ? 284.0 : 310.0;
+        final libraryWidth = math.min(panelWidth, constraints.maxWidth * .5);
+        final videoWidth = constraints.maxWidth - (panel ? libraryWidth : 0);
+        final transportInset = videoWidth < 624 ? 132.0 : 100.0;
         final showButton = panel || nearPanel || panelFocused;
         return MouseRegion(
           onHover: (event) {
@@ -304,10 +335,7 @@ class _PlayerPageState extends State<PlayerPage> {
                           ),
                         ),
                         child: SizedBox(
-                          width: math.min(
-                            panelWidth,
-                            constraints.maxWidth * .5,
-                          ),
+                          width: libraryWidth,
                           child: PlayerLibraryPanel(
                             key: ValueKey(playback.session?['subjectId']),
                             service: widget.service,
@@ -317,6 +345,7 @@ class _PlayerPageState extends State<PlayerPage> {
                             title: '${playback.session?['title'] ?? '播放器'}',
                             downloads: widget.downloads,
                             onEpisode: widget.onEpisode,
+                            onFindResources: findResources,
                             onPlayFile: widget.onPlayFile ?? (_, _) {},
                           ),
                         ),
@@ -325,6 +354,57 @@ class _PlayerPageState extends State<PlayerPage> {
                   ),
                 ],
               ),
+              if (widget.subject != null)
+                Positioned(
+                  key: const ValueKey('player-resource-overlay'),
+                  left: 16,
+                  right: 16,
+                  bottom: transportInset,
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: ExcludeFocus(
+                      excluding: !resourcesOpen,
+                      child: IgnorePointer(
+                        ignoring: !resourcesOpen,
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween(end: resourcesOpen ? 1 : 0),
+                          duration: motionDuration(context, 220),
+                          curve: Curves.easeOutCubic,
+                          builder: (_, value, child) => Offstage(
+                            offstage: value == 0,
+                            child: Opacity(
+                              opacity: value,
+                              child: Transform.translate(
+                                offset: Offset(0, 32 * (1 - value)),
+                                child: child,
+                              ),
+                            ),
+                          ),
+                          child: SizedBox(
+                            width: 1000,
+                            height: math.max(
+                              0,
+                              math.min(
+                                560,
+                                constraints.maxHeight - transportInset - 24,
+                              ),
+                            ),
+                            child: PlayerResourceSheet(
+                              key: ValueKey(
+                                'resource-sheet:${widget.subject!['subjectId']}',
+                              ),
+                              service: widget.service,
+                              subject: widget.subject!,
+                              episodeId: resourceEpisode,
+                              visible: resourcesOpen,
+                              onClose: closeResources,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               Positioned(
                 top: 14,
                 right: 12,
