@@ -80,7 +80,7 @@ class ControlledDanmaku extends DanmakuRepository {
   ControlledDanmaku(super.api);
   final requests = <Completer<List<Json>>>[];
   @override
-  Future<List<Json>> search(String title) {
+  Future<List<Json>> search(String title, {double? episode}) {
     final request = Completer<List<Json>>();
     requests.add(request);
     return request.future;

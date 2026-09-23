@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/json.dart';
+import '../core/account_avatar.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
 
@@ -16,9 +17,15 @@ class SettingsPage extends StatefulWidget {
     required this.onCancelSignIn,
     required this.onThemeChanged,
     this.onBack,
+    this.onSync,
+    this.storageSettings,
+    this.syncBusy = false,
     this.needsAuthorization = false,
     this.accountBusy = false,
   });
+  final Widget? storageSettings;
+  final VoidCallback? onSync;
+  final bool syncBusy;
   final Json? account;
   final Json sync;
   final bool dark;
@@ -119,12 +126,10 @@ class _SettingsPageState extends State<SettingsPage> {
                           children: [
                             Row(
                               children: [
-                                const CircleAvatar(
-                                  backgroundColor: grape,
-                                  child: Icon(
-                                    Icons.person_outline,
-                                    color: Colors.white,
-                                  ),
+                                AccountAvatar(
+                                  url: widget.account?['avatarUrl'] as String?,
+                                  name: '${widget.account?['nickname'] ?? ''}',
+                                  size: 54,
                                 ),
                                 const SizedBox(width: 14),
                                 Expanded(
@@ -205,9 +210,13 @@ class _SettingsPageState extends State<SettingsPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              '追番记录自动保存在本机',
-                              style: TextStyle(fontWeight: FontWeight.w700),
+                            Text(
+                              widget.account == null
+                                  ? '追番记录保存在本机'
+                                  : 'Bangumi 收藏与章节同步',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                             const SizedBox(height: 8),
                             Text(
@@ -215,13 +224,27 @@ class _SettingsPageState extends State<SettingsPage> {
                                   ? '登录凭据待授权，本地追番和播放记录仍可使用。点击「解锁同步」恢复连接。'
                                   : widget.account == null
                                   ? '登录后可同步到 Bangumi，未登录也能记录追番。'
-                                  : '${number(widget.sync['pendingMutationCount']).toInt()} 项修改等待同步',
+                                  : number(
+                                          widget.sync['pendingMutationCount'],
+                                        ) >
+                                        0
+                                  ? '${number(widget.sync['pendingMutationCount']).toInt()} 项修改等待上传，连接恢复后自动重试'
+                                  : '没有待上传修改；联网时自动同步收藏与章节记录。',
                               style: TextStyle(
                                 color: Theme.of(context)
                                     .colorScheme
                                     .onSurfaceVariant,
                               ),
                             ),
+                            if (widget.account != null &&
+                                !widget.needsAuthorization)
+                              TextButton.icon(
+                                onPressed: widget.syncBusy
+                                    ? null
+                                    : widget.onSync,
+                                icon: const Icon(Icons.sync),
+                                label: Text(widget.syncBusy ? '同步中…' : '立即同步'),
+                              ),
                             if (widget.sync['lastSyncError'] != null)
                               Padding(
                                 padding: const EdgeInsets.only(top: 10),
@@ -292,21 +315,25 @@ class _SettingsPageState extends State<SettingsPage> {
                   PageScroll(
                     key: const PageStorageKey('settings-data'),
                     children: [
-                      const SectionTitle(title: '应用数据'),
-                      MelonPanel(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('追番记录、播放进度与安装目录分开保存。'),
-                            const SizedBox(height: 14),
-                            SelectableText(
-                              widget.dataDirectory ?? '正在准备…',
-                              key: const PageStorageKey('settings-data-path'),
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
+                      if (widget.storageSettings != null)
+                        widget.storageSettings!
+                      else ...[
+                        const SectionTitle(title: '应用数据'),
+                        MelonPanel(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('追番记录、播放进度与安装目录分开保存。'),
+                              const SizedBox(height: 14),
+                              SelectableText(
+                                widget.dataDirectory ?? '正在准备…',
+                                key: const PageStorageKey('settings-data-path'),
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ],

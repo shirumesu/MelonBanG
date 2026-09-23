@@ -88,10 +88,10 @@ void main() {
       );
       addTearDown(api.close);
       expect(
-        await DanmakuRepository(
+        (await DanmakuRepository(
           api,
           configuration: testServiceConfiguration,
-        ).matchFile(file.path, 1500.8),
+        ).matchFile(file.path, 1500.8)).episodeId,
         7,
       );
     },
@@ -117,7 +117,7 @@ void main() {
         api,
         configuration: testServiceConfiguration,
       );
-      expect(await repository.matchFile(file.path, 0), isNull);
+      expect((await repository.matchFile(file.path, 0)).episodeId, isNull);
       response = {
         'success': true,
         'isMatched': true,
@@ -126,11 +126,223 @@ void main() {
           {'episodeId': 8},
         ],
       };
-      expect(await repository.matchFile(file.path, 0), isNull);
+      expect((await repository.matchFile(file.path, 0)).episodeId, isNull);
       response = {'success': false, 'errorMessage': 'Quota exceeded'};
       await expectLater(repository.matchFile(file.path, 0), throwsStateError);
     },
   );
+
+  test('incomplete playback maps Bangumi episodes then falls back without reading bytes', () async {
+    var mapped = true;
+    var titleMatch = false;
+    var ambiguous = false;
+    final paths = <String>[];
+    final api = ApiClient(
+      client: MockClient((request) async {
+        paths.add(request.url.path);
+        switch (request.url.path) {
+          case '/v1/subjects/42':
+            return jsonResponse({
+              'data': {
+                'nameCn': 'Show',
+                'episodes': [
+                  {'episodeId': 91, 'ep': 2},
+                ],
+              },
+            });
+          case '/api/v2/bangumi/bgmtv/42':
+            if (!mapped) return http.Response('', 404);
+            return jsonResponse({
+              'success': true,
+              'bangumi': {
+                'animeTitle': 'Mapped show',
+                'episodes': [
+                  {'episodeId': 701, 'episodeNumber': '1'},
+                  {
+                    'episodeId': 702,
+                    'episodeNumber': '2',
+                    'episodeTitle': 'Second',
+                  },
+                  {'episodeId': 799, 'episodeNumber': 'S2'},
+                ],
+              },
+            });
+          case '/api/v2/search/episodes':
+            expect(request.url.queryParameters['anime'], 'Show');
+            expect(request.url.queryParameters['episode'], '2');
+            return jsonResponse({
+              'success': true,
+              'animes': titleMatch
+                  ? [
+                      {
+                        'animeTitle': 'Show',
+                        'episodes': [
+                          {'episodeId': 702, 'episodeTitle': '第2话 Second'},
+                        ],
+                      },
+                    ]
+                  : [],
+            });
+          case '/api/v2/match':
+            expect(jsonDecode(request.body), {
+              'fileName': 'Show - 02',
+              'fileSize': 500000000,
+              'videoDuration': 0,
+              'matchMode': 'fileNameOnly',
+            });
+            return jsonResponse({
+              'success': true,
+              'isMatched': !ambiguous,
+              'matches': [
+                {
+                  'episodeId': 702,
+                  'animeTitle': 'Mapped show',
+                  'episodeTitle': 'Second',
+                },
+                if (ambiguous)
+                  {
+                    'episodeId': 802,
+                    'animeTitle': 'Other season',
+                    'episodeTitle': 'Second',
+                  },
+              ],
+            });
+          case '/api/v2/comment/702':
+            return jsonResponse({
+              'success': true,
+              'comments': [
+                {'p': '1,1,16777215,user', 'm': 'Stream comment'},
+              ],
+            });
+          default:
+            throw StateError('Unexpected request: ${request.url.path}');
+        }
+      }),
+    );
+    final store = await AppStore.open('${directory.path}/stream.sqlite');
+    final downloads = DownloadRepository(store, '${directory.path}/downloads');
+    final library = PlaybackLibrary(
+      store,
+      downloads,
+      DanmakuRepository(api, configuration: testServiceConfiguration),
+      CatalogRepository(api, store),
+    );
+    addTearDown(() async {
+      await library.close();
+      await downloads.close();
+      api.close();
+      await store.close();
+    });
+    final session = await library.local(
+      '${directory.path}/Show - 02.mkv',
+      streamUrl: 'http://127.0.0.1/video',
+      streamId: 1,
+      subjectId: 42,
+      episodeId: 91,
+    );
+    session['fileSize'] = 500000000;
+    library.enable('bilibili', false);
+    library.enable('bahamut', false);
+    await library.autoMatch(0);
+    expect(
+      objects(library.current!['danmaku']).single['text'],
+      'Stream comment',
+    );
+    expect(paths, contains('/api/v2/comment/702'));
+    expect(paths, isNot(contains('/api/v2/match')));
+
+    mapped = false;
+    titleMatch = true;
+    paths.clear();
+    await library.autoMatch(0);
+    expect(paths, contains('/api/v2/search/episodes'));
+    expect(paths, isNot(contains('/api/v2/match')));
+    expect(objects(library.current!['danmaku']), hasLength(1));
+
+    titleMatch = false;
+    paths.clear();
+    await library.autoMatch(0);
+    expect(paths, contains('/api/v2/match'));
+    expect(objects(library.current!['danmaku']), hasLength(1));
+
+    ambiguous = true;
+    paths.clear();
+    await library.autoMatch(0);
+    final source = objects(library.current!['danmakuSources']).first;
+    expect(source['status'], 'unmatched');
+    expect(objects(source['candidates']), hasLength(2));
+    expect(paths, isNot(contains('/api/v2/comment/702')));
+    expect(objects(library.current!['danmaku']), isEmpty);
+    await library.selectEpisode(702);
+    paths.clear();
+    await library.autoMatch(0);
+    expect(paths, ['/api/v2/comment/702']);
+    expect(
+      objects(objects(library.current!['danmakuSources']).first['candidates']),
+      isEmpty,
+    );
+  });
+
+  test(
+    'mapped repeated episode numbers stay ambiguous and specials do not match',
+    () async {
+      var number = '2';
+      final api = ApiClient(
+        client: MockClient(
+          (_) async => jsonResponse({
+            'success': true,
+            'bangumi': {
+              'episodes': [
+                {'episodeId': 7, 'episodeNumber': number},
+                {'episodeId': 8, 'episodeNumber': number},
+              ],
+            },
+          }),
+        ),
+      );
+      addTearDown(api.close);
+      final repository = DanmakuRepository(
+        api,
+        configuration: testServiceConfiguration,
+      );
+      final result = await repository.matchBangumi(42, 2);
+      expect(result.episodeId, isNull);
+      expect(result.candidates, hasLength(2));
+      number = 'S2';
+      expect((await repository.matchBangumi(42, 2)).candidates, isEmpty);
+    },
+  );
+
+  test('title search does not automatically select a different season or ambiguous release', () async {
+    var wrongSeason = true;
+    final api = ApiClient(
+      client: MockClient(
+        (request) async => jsonResponse({
+          'success': true,
+          'animes': [
+            {
+              'animeTitle': wrongSeason ? 'Show Season 2' : 'Show',
+              'episodes': [
+                {'episodeId': 7, 'episodeTitle': '第2话 Second'},
+                if (!wrongSeason)
+                  {'episodeId': 8, 'episodeTitle': '第2话 Dubbed'},
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    addTearDown(api.close);
+    final repository = DanmakuRepository(
+      api,
+      configuration: testServiceConfiguration,
+    );
+    expect((await repository.matchTitles(['Show'], 2)).episodeId, isNull);
+    wrongSeason = false;
+    final result = await repository.matchTitles(['Show'], 2);
+    expect(result.episodeId, isNull);
+    expect(result.candidates, hasLength(2));
+  });
 
   test(
     'Bahamut matches traditional card titles and main episode query links',

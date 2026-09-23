@@ -31,6 +31,7 @@ class DownloadRepository {
   final _verifying = <String>{};
   final _running = <String>{};
   final _uploaded = <String, int>{};
+  final _streams = <int, String>{};
   final _clock = Stopwatch()..start();
   int _lastTick = 0, _lastSaved = 0;
 
@@ -224,7 +225,11 @@ class DownloadRepository {
     if (_handles.isEmpty) return;
     final engine = lt.LibtorrentFlutter.instance;
     var downloading = 0, seeding = 0;
-    for (final task in _tasks.values) {
+    final ordered = [
+      ..._tasks.values.where((task) => _streams.containsValue(task['id'])),
+      ..._tasks.values.where((task) => !_streams.containsValue(task['id'])),
+    ];
+    for (final task in ordered) {
       final id = '${task['id']}', handle = _handles[id];
       if (handle == null || _verifying.contains(id)) continue;
       var run = false;
@@ -485,6 +490,11 @@ class DownloadRepository {
   Future<void> _remove(String id) async {
     final task = _tasks.remove(id);
     if (task == null) return;
+    for (final stream
+        in _streams.entries.where((entry) => entry.value == id).toList()) {
+      lt.LibtorrentFlutter.instance.stopStream(stream.key);
+      _streams.remove(stream.key);
+    }
     final handle = _handles.remove(id);
     if (handle != null) {
       lt.LibtorrentFlutter.instance.removeTorrent(handle, deleteFiles: true);
@@ -530,28 +540,57 @@ class DownloadRepository {
             .toList()
           ..sort((a, b) => number(b['size']).compareTo(number(a['size'])));
     if (files.isEmpty) throw StateError('尚未获取到视频文件');
-    if (number(task['progress']) < 1 || task['status'] == 'checking') {
-      throw StateError('请等待下载完成后播放');
-    }
+    if (task['status'] == 'checking') throw StateError('正在校验文件，请稍后播放');
+    if (task['status'] == 'failed') throw StateError('下载任务异常，请先重试');
     final file = files.first;
     return {
       ...file,
+      'incomplete': number(file['progress']) < 1,
       'subjectId': task['subjectId'],
       'episodeId': videos.length == 1 ? task['episodeId'] : null,
     };
   }
 
   Json episodeMedia(int subjectId, int episodeId) {
-    final task = _tasks.values
-        .where(
-          (t) =>
-              t['subjectId'] == subjectId &&
-              t['episodeId'] == episodeId &&
-              number(t['progress']) >= 1,
-        )
-        .firstOrNull;
-    if (task == null) throw StateError('该章节尚无完成的下载，请先选择资源或打开本地文件');
-    return media('${task['id']}');
+    final tasks =
+        _tasks.values
+            .where(
+              (t) => t['subjectId'] == subjectId && t['episodeId'] == episodeId,
+            )
+            .toList()
+          ..sort(
+            (a, b) => number(b['progress']).compareTo(number(a['progress'])),
+          );
+    for (final task in tasks) {
+      try {
+        return media('${task['id']}');
+      } on StateError {
+        continue;
+      }
+    }
+    throw StateError('该章节尚无可播放下载，请选择资源或具体视频文件');
+  }
+
+  Future<Json> openMedia(String id, {String? fileId}) async {
+    final selected = media(id, fileId: fileId);
+    if (selected['incomplete'] != true) return selected;
+    await resume(id);
+    final stream = lt.LibtorrentFlutter.instance.startStream(
+      _handles[id]!,
+      fileIndex: int.parse('${selected['id']}'),
+    );
+    _streams[stream.id] = id;
+    _schedule();
+    return {...selected, 'streamId': stream.id, 'streamUrl': stream.url};
+  }
+
+  void releaseStreamsExcept(int? keep) {
+    for (final id in _streams.keys.toList()) {
+      if (id == keep) continue;
+      lt.LibtorrentFlutter.instance.stopStream(id);
+      _streams.remove(id);
+    }
+    _schedule();
   }
 
   void _emit() {

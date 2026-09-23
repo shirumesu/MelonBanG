@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -13,6 +14,7 @@ import 'data/playback_library.dart';
 import 'data/service_configuration.dart';
 import 'data/sources.dart';
 import 'data/store.dart';
+import 'data/storage_locations.dart';
 import 'data/tracking.dart';
 export 'data/json.dart';
 
@@ -29,6 +31,14 @@ class AppServices {
   final ServiceConfiguration configuration;
   final ApiClient api;
   String? dataDirectory;
+  StorageLocations? storage;
+  final startupStatus = ValueNotifier<String>('正在启动…');
+  bool _downloadsCreated = false;
+
+  void releasePlaybackStreams(int? keep) {
+    if (_downloadsCreated) downloads.releaseStreamsExcept(keep);
+  }
+
   late final AppStore store;
   late final AccountRepository account;
   late final CatalogRepository catalog;
@@ -46,14 +56,28 @@ class AppServices {
   }
 
   Future<void> _start() async {
-    dataDirectory =
-        directory ??
-        Platform.environment['MELONBANG_DATA_DIR'] ??
-        p.join((await getApplicationSupportDirectory()).path, 'native');
+    final override = directory ?? Platform.environment['MELONBANG_DATA_DIR'];
+    if (override != null) {
+      dataDirectory = override;
+    } else {
+      final support = (await getApplicationSupportDirectory()).path;
+      storage = StorageLocations(
+        File(p.join(support, 'storage.json')),
+        p.join(support, 'native'),
+      );
+      storage!.onProgress = (message) => startupStatus.value = message;
+      await storage!.load();
+      await storage!.migrate();
+      dataDirectory = storage!.data;
+    }
     await Directory(dataDirectory!).create(recursive: true);
     store = await AppStore.open(p.join(dataDirectory!, 'melonbang.sqlite'));
     _dispose.add(store.close);
-    credentials ??= platformCredentials(p.join(dataDirectory!, 'credentials'));
+    credentials ??= platformCredentials(
+      Platform.isMacOS
+          ? storage?.credentialIdentity ?? p.join(dataDirectory!, 'credentials')
+          : p.join(dataDirectory!, 'credentials'),
+    );
     account = AccountRepository(
       api,
       credentials!,
@@ -65,7 +89,11 @@ class AppServices {
     _dispose.add(catalog.close);
     tracking = TrackingRepository(store, account, catalog);
     _dispose.add(tracking.close);
-    downloads = DownloadRepository(store, p.join(dataDirectory!, 'downloads'));
+    downloads = DownloadRepository(
+      store,
+      storage?.media ?? p.join(dataDirectory!, 'downloads'),
+    );
+    _downloadsCreated = true;
     _dispose.add(downloads.close);
     sources = SourceRepository(api, downloads);
     danmaku = DanmakuRepository(api, configuration: configuration);

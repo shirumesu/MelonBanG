@@ -125,7 +125,10 @@ class CatalogRepository {
     final response = object(value);
     return {
       'date': response['date'],
-      'items': objects(response['items']).map(summary).toList(),
+      'items': objects(response['items'])
+          .where((item) => number(item['subjectId']) > 0)
+          .map(summary)
+          .toList(),
     };
   }
 
@@ -169,7 +172,10 @@ class CatalogRepository {
       return {
         'date': date,
         'weekday': {'id': day, 'cn': labels[day - 1]},
-        'items': objects(byDate[date]).map(summary).toList(),
+        'items': objects(byDate[date])
+            .where((item) => number(item['subjectId']) > 0)
+            .map(summary)
+            .toList(),
       };
     }).toList();
   }

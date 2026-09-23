@@ -89,3 +89,10 @@ It verifies downloaded hashes and the diagnostic fields through DownloadReposito
 alongside existing recovery, queue and sharing checks. This controlled test does
 not establish public-swarm throughput; network routing and seed availability still
 matter. Transport limits, DHT/PEX defaults and explicit pause ownership are retained.
+
+## Persistent playback streaming
+
+HTTP readers retain default priority outside the playback window for persistent
+downloads, including after seeks and trailing-cache eviction. Ephemeral streams
+retain on-demand selection. This prevents streaming from changing the wanted size
+or stopping a normal cache task before every file is complete.

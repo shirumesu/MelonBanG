@@ -22,6 +22,7 @@ import 'ui/player/playback.dart';
 import 'ui/player/player_page.dart';
 import 'ui/settings/bittorrent_settings.dart';
 import 'ui/settings/settings_page.dart';
+import 'ui/settings/storage_settings.dart';
 import 'ui/tracking/subject_page.dart';
 import 'ui/tracking/tracking_page.dart';
 
@@ -831,6 +832,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                             selectedRoute: selectedSection,
                             nickname: '${account?['nickname'] ?? '尚未登录'}',
                             username: account?['username'] as String?,
+                            avatarUrl: account?['avatarUrl'] as String?,
                             watchingCount: collection
                                 .where((item) => item['status'] == 'watching')
                                 .length,
@@ -929,7 +931,19 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   Widget page() {
     if (!ready) {
       return error == null
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(
+              child: ValueListenableBuilder<String>(
+                valueListenable: widget.service.startupStatus,
+                builder: (context, status, _) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 16),
+                    Text(status),
+                  ],
+                ),
+              ),
+            )
           : EmptyState(
               text: '应用服务未能启动',
               detail: error,
@@ -1057,6 +1071,21 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           accountBusy: accountBusy,
           dark: dark,
           dataDirectory: widget.service.dataDirectory,
+          storageSettings: StorageSettings(
+            storage: widget.service.storage,
+            dataDirectory: widget.service.dataDirectory!,
+            mediaDirectory: widget.service.downloads.directory,
+          ),
+          onSync: () => perform(() async {
+            final syncing = syncCollection();
+            setState(() {});
+            await syncing;
+            if (mounted) setState(() {});
+            if (syncFeedback.issue != null) {
+              throw StateError(syncFeedback.issue!);
+            }
+          }),
+          syncBusy: syncFeedback.busy,
           bitTorrentSettings: BitTorrentSettingsPanel(
             downloads: widget.service.downloads,
           ),

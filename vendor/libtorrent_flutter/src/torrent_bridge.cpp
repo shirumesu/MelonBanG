@@ -865,6 +865,7 @@ struct StreamEngine {
     lt_stream_id  id;
     lt_torrent_id torrent_id;
     int           file_index;
+    bool          background_download = true;
 
     lt::torrent_handle                      handle;
     std::shared_ptr<const lt::torrent_info> ti;
@@ -1526,7 +1527,7 @@ static bool serve_range(StreamEngine* s, TorrReader* reader, socket_t cli,
                 int old_p = s->trailing_pieces.front();
                 s->trailing_pieces.pop_front();
                 try {
-                    s->handle.piece_priority(lt::piece_index_t(old_p), lt::dont_download);
+                    s->handle.piece_priority(lt::piece_index_t(old_p), s->background_download ? lt::default_priority : lt::dont_download);
                 } catch (...) {}
                 // Release cache memory for evicted piece
                 if (s->cache) {
@@ -1688,7 +1689,7 @@ static void handle_connection(StreamEngine* s, socket_t cli, int reader_id) {
                     for (int old_p : s->trailing_pieces) {
                         try {
                             s->handle.piece_priority(
-                                lt::piece_index_t(old_p), lt::dont_download);
+                                lt::piece_index_t(old_p), s->background_download ? lt::default_priority : lt::dont_download);
                         } catch (...) {}
                     }
                     s->trailing_pieces.clear();
@@ -2423,6 +2424,10 @@ TORRENT_API lt_stream_id lt_start_stream(lt_session_t session,
     s->id           = sw->next_stream_id.fetch_add(1);
     s->torrent_id   = torrent_id;
     s->file_index   = file_index;
+    {
+        std::lock_guard<std::mutex> lk(sw->mu);
+        s->background_download = !sw->ephemeral_torrents.count(torrent_id);
+    }
     s->handle       = handle;
     s->ti           = ti;
     s->piece_length = ti->piece_length();
@@ -2496,9 +2501,10 @@ TORRENT_API lt_stream_id lt_start_stream(lt_session_t session,
         handle.unset_flags(lt::torrent_flags::stop_when_ready);
 
         // Set piece priorities BEFORE resume().
-        // All pieces start as dont_download, then we enable only what we need.
+        // Persistent downloads keep fetching the complete torrent while readers
+        // prioritize their current range. Ephemeral streams fetch on demand.
         std::vector<lt::download_priority_t> prios(
-            (size_t)ti->num_pieces(), lt::dont_download);
+            (size_t)ti->num_pieces(), s->background_download ? lt::default_priority : lt::dont_download);
 
         // Critical startup pieces — adaptive count based on bitrate estimate.
         // These get top_priority + tight deadlines to minimize time-to-first-frame.

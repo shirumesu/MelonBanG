@@ -326,6 +326,21 @@ class _PlayerSettingsState extends State<PlayerSettings> {
                         widget.service.library.enable('${source['id']}', value),
                   ),
           ),
+          for (final match in objects(source['candidates']))
+            ListTile(
+              dense: true,
+              title: Text('${match['animeTitle'] ?? '候选番剧'}'),
+              subtitle: Text(
+                '${match['episodeTitle'] ?? match['episodeNumber'] ?? ''}',
+              ),
+              onTap: busy
+                  ? null
+                  : () => loadDanmaku(
+                      () => widget.service.library.selectEpisode(
+                        int.parse('${match['episodeId']}'),
+                      ),
+                    ),
+            ),
           if (source['errorMessage'] != null)
             Text(
               '${source['errorMessage']}',

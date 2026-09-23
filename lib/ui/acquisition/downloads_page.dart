@@ -178,9 +178,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         .toList();
     final videos = files.where((f) => f['mediaKind'] == 'video').toList();
     final playable =
-        complete &&
-        task['status'] != 'checking' &&
-        videos.any((file) => number(file['progress']) >= 1);
+        !['checking', 'failed'].contains(task['status']) && videos.isNotEmpty;
     final scheme = Theme.of(context).colorScheme;
     final details = expanded.contains(id);
     return MelonPanel(
@@ -256,7 +254,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 ),
               ),
               const SizedBox(width: 12),
-              if (complete)
+              if (complete || playable)
                 FilledButton.icon(
                   onPressed: playable
                       ? () => videos.length > 1
@@ -264,9 +262,15 @@ class _DownloadsPageState extends State<DownloadsPage> {
                             : widget.onPlay(id, null)
                       : null,
                   icon: const Icon(Icons.play_arrow_rounded, size: 19),
-                  label: Text(videos.length > 1 ? '选择文件' : '播放'),
-                )
-              else
+                  label: Text(
+                    videos.length > 1
+                        ? '选择文件'
+                        : complete
+                        ? '播放'
+                        : '边下边看',
+                  ),
+                ),
+              if (!complete)
                 IconButton(
                   tooltip: '暂停 / 继续下载',
                   onPressed: () => widget.onTogglePause(task),
@@ -416,9 +420,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     final playable =
                         task != null &&
                         file['mediaKind'] == 'video' &&
-                        number(file['progress']) >= 1 &&
-                        number(task['progress']) >= 1 &&
-                        task['status'] != 'checking';
+                        !['checking', 'failed'].contains(task['status']);
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(

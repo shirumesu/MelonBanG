@@ -4,6 +4,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../data/json.dart';
 import 'motion.dart';
 import 'page_widgets.dart';
+import 'account_avatar.dart';
 import 'theme.dart';
 
 const routeTitles = {
@@ -137,11 +138,12 @@ class AppSidebar extends StatelessWidget {
     this.watchingCount = 0,
     this.downloadCount = 0,
     this.username,
+    this.avatarUrl,
     this.selectedRoute,
   });
   final bool dark;
   final String route, nickname;
-  final String? username;
+  final String? username, avatarUrl;
   final String? selectedRoute;
   final int watchingCount, downloadCount;
   final ValueChanged<String> onNavigate;
@@ -255,22 +257,7 @@ class AppSidebar extends StatelessWidget {
               padding: const EdgeInsets.all(10),
               child: Row(
                 children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    alignment: Alignment.center,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(colors: [grape, sky]),
-                    ),
-                    child: Text(
-                      nickname.isEmpty ? 'M' : nickname.characters.first,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
+                  AccountAvatar(url: avatarUrl, name: nickname, size: 36),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(

@@ -19,13 +19,23 @@ class PlaybackLibrary {
   Json? current;
   final _comments = <String, List<Json>>{};
   final _loads = <String, Object>{};
-  Future<Json> local(String path, {int? subjectId, int? episodeId}) async {
-    if (!await File(path).exists()) throw StateError('视频文件不存在');
+  Future<Json> local(
+    String path, {
+    int? subjectId,
+    int? episodeId,
+    String? streamUrl,
+    int? streamId,
+  }) async {
+    if (streamUrl == null && !await File(path).exists()) {
+      throw StateError('视频文件不存在');
+    }
     final session = <String, dynamic>{
       'id': newId(),
       'title': p.basename(path),
       'path': path,
-      'source': {'url': Uri.file(path).toString()},
+      'source': {'url': streamUrl ?? Uri.file(path).toString()},
+      'resumeKey': Uri.file(path).toString(),
+      'streamId': streamId,
       'status': 'ready',
       'subjectId': subjectId,
       'episodeId': episodeId,
@@ -55,12 +65,16 @@ class PlaybackLibrary {
   }
 
   Future<Json> fromDownload(String id, {String? fileId}) async {
-    final media = downloads.media(id, fileId: fileId);
+    final media = await downloads.openMedia(id, fileId: fileId);
     final session = await local(
       '${media['path']}',
+      streamUrl: media['streamUrl'] as String?,
+      streamId: media['streamId'] as int?,
       subjectId: media['subjectId'] as int?,
       episodeId: media['episodeId'] as int?,
     );
+    session['resumeKey'] = 'download:$id:${media['id']}';
+    session['fileSize'] = media['size'];
     if (media['subjectId'] != null && media['episodeId'] != null) {
       await store.put(
         'episode_files',
@@ -114,7 +128,8 @@ class PlaybackLibrary {
       } else {
         media = downloads.episodeMedia(subjectId, episodeId);
       }
-      return await File('${media['path']}').exists();
+      return media['incomplete'] == true ||
+          await File('${media['path']}').exists();
     } on StateError {
       return false;
     }
@@ -227,8 +242,52 @@ class PlaybackLibrary {
             return _fetch(provider, '${saved['locator']}');
           }
           if (provider == 'dandanplay') {
-            final id = await danmaku.matchFile('${session['path']}', duration);
-            return id == null ? null : danmaku.dandan(id);
+            DandanMatch? match;
+            if (session['subjectId'] case final int subjectId) {
+              try {
+                final detail = await (detailRequest ??= catalog.subject(
+                  subjectId,
+                ));
+                final episode = _matchingEpisode(session, detail);
+                try {
+                  match = await danmaku.matchBangumi(
+                    subjectId,
+                    number(episode['sort']),
+                  );
+                } catch (_) {
+                  // Mapping availability is independent of episode search.
+                }
+                if (match?.episodeId == null &&
+                    (match?.candidates.isEmpty ?? true)) {
+                  match = await danmaku.matchTitles(
+                    [
+                      detail['nameCn'],
+                      detail['name'],
+                      detail['displayName'],
+                    ].whereType<String>(),
+                    number(episode['sort']),
+                  );
+                }
+              } catch (_) {
+                // A missing catalog/mapping must not prevent filename fallback.
+              }
+            }
+            if (match?.episodeId == null &&
+                (match?.candidates.isEmpty ?? true)) {
+              match = await danmaku.matchFile(
+                '${session['path']}',
+                duration,
+                filenameOnly: session['streamId'] != null,
+                fileSize: session['fileSize'] as int?,
+              );
+            }
+            if (match!.episodeId != null) {
+              return danmaku.dandan(match.episodeId!);
+            }
+            if (match.candidates.isNotEmpty) {
+              throw _DandanSuggestions(match.candidates);
+            }
+            return null;
           }
           if (session['subjectId'] == null) {
             throw const _Unmatched('缺少番剧信息');
@@ -281,6 +340,7 @@ class PlaybackLibrary {
       'count': 0,
       'errorMessage': null,
       'statusMessage': null,
+      'candidates': <Json>[],
     });
     _merge();
     try {
@@ -308,6 +368,7 @@ class PlaybackLibrary {
       if (!identical(current, session) || _loads[provider] != ticket) return;
       _sourceState(session, provider, {
         'status': e is _Unmatched ? 'unmatched' : 'error',
+        'candidates': e is _DandanSuggestions ? e.candidates : <Json>[],
         'statusMessage': e is _Unmatched ? e.message : null,
         'errorMessage': e is _Unmatched ? null : e.toString(),
       });
@@ -343,6 +404,11 @@ class PlaybackLibrary {
     current = null;
     await changes.close();
   }
+}
+
+class _DandanSuggestions extends _Unmatched {
+  const _DandanSuggestions(this.candidates) : super('找到候选剧集，请选择确认');
+  final List<Json> candidates;
 }
 
 class _Unmatched implements Exception {
