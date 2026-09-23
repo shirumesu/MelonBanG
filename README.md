@@ -41,7 +41,7 @@ flutter doctor -v
 flutter pub get
 cp .env.service.example.json .env.service.json
 # Fill .env.service.json with your application registrations, then run:
-flutter run -d macos --dart-define-from-file=.env.service.json
+./scripts/flutter.sh run -d macos
 ```
 
 Alternatively, set `export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
@@ -53,7 +53,7 @@ builds the patched torrent bridge using Homebrew's libtorrent 2.1 and embeds its
 native dependencies in the app. Flutter's project configuration selects arm64 for
 release/profile builds; this setup does not produce a universal binary.
 
-`flutter build macos --release --dart-define-from-file=.env.service.json` creates
+`./scripts/flutter.sh build macos --release` creates
 `build/macos/Build/Products/Release/melonbang.app`. Local builds are desktop apps
 without App Sandbox so downloaded and previously selected media remain accessible
 across restarts. App Store distribution and notarization require separate signing
@@ -125,7 +125,9 @@ without requiring an additional state-management framework. Keep `test/` and
   first-16-MiB MD5, filename, size, and optional duration; Bilibili searches official
   bangumi only; Bahamut searches the main episode list with simplified/traditional
   title conversion. Bilibili and Bahamut need a catalog subject and either an
-  associated episode or a clear filename episode number such as `Series - 01`.
+  associated episode or a clear filename episode number such as `Series - 01` or
+  `[Group][Series S2][01][1080p]`. Regional aliases come from Melon API;
+  Bahamut supports both labelled main lists and a single unlabelled episode list.
   Filename inference is used only for danmaku and does not bind playback progress.
   Missing or ambiguous matches stay empty. Saved manual choices take priority;
   individual sources can be toggled and local comment JSON can be imported.
@@ -189,6 +191,8 @@ Application registrations are build configuration. Copy
 [`.env.service.example.json`](.env.service.example.json) to the Git-ignored
 `.env.service.json`, fill the Bangumi Client ID/Secret and Dandanplay App ID/Secret,
 then pass `--dart-define-from-file=.env.service.json` to Flutter run/build.
+On macOS, `scripts/flutter.sh` supplies this argument automatically for run/build
+and reports a missing file. Set `MELONBANG_CONFIGURATION_FILE` for another path.
 Register the exact Bangumi callback address from the file (default
 `http://127.0.0.1:14567/callback`). Restart the build/run after editing these values.
 The app has no service-secret editor; users only log in to their Bangumi account.

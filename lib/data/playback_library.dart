@@ -7,6 +7,7 @@ import 'danmaku_repository.dart';
 import 'catalog.dart';
 import 'downloads.dart';
 import 'json.dart';
+import 'resource_metadata.dart';
 import 'store.dart';
 
 class PlaybackLibrary {
@@ -260,11 +261,7 @@ class PlaybackLibrary {
                 if (match?.episodeId == null &&
                     (match?.candidates.isEmpty ?? true)) {
                   match = await danmaku.matchTitles(
-                    [
-                      detail['nameCn'],
-                      detail['name'],
-                      detail['displayName'],
-                    ].whereType<String>(),
+                    resourceNames(detail),
                     number(episode['sort']),
                   );
                 }
@@ -300,11 +297,7 @@ class PlaybackLibrary {
             provider,
             titleOf(detail),
             number(episode['sort']),
-            alternativeTitles: [
-              detail['nameCn'],
-              detail['displayName'],
-              detail['name'],
-            ].whereType<String>(),
+            alternativeTitles: resourceNames(detail),
           );
           return locator == null ? null : _fetch(provider, locator);
         }),
@@ -425,9 +418,11 @@ Json _matchingEpisode(Json session, Json detail) {
   } else {
     // Infer only the danmaku lookup; progress/file associations require explicit identity.
     final filename = p.basenameWithoutExtension('${session['path']}');
-    final numbers = RegExp(r'\s-\s(\d+(?:\.\d+)?)(?:v\d+)?(?=\s*(?:\[|\(|$))')
-        .allMatches(filename)
-        .toList();
+    final numbers = [
+      ...RegExp(r'\s-\s(\d+(?:\.\d+)?)(?:v\d+)?(?=\s*(?:\[|\(|$))')
+          .allMatches(filename),
+      ...RegExp(r'\[(\d{1,3}(?:\.\d+)?)(?:v\d+)?\]').allMatches(filename),
+    ];
     if (numbers.length != 1) throw const _Unmatched('缺少章节信息，无法从文件名识别集数');
     final sort = double.parse(numbers.single[1]!);
     matches = episodes.where((episode) => number(episode['sort']) == sort);

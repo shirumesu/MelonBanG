@@ -119,11 +119,15 @@ class DanmakuRepository {
     final document = html.parse(utf8.decode(page.bodyBytes));
     final episodes = <String>{};
     // Main episodes have their own list; dubbed versions and specials reuse numbers.
-    for (final heading in document.querySelectorAll('.season > p')) {
-      if (heading.text.trim() != '本篇') continue;
-      final list = heading.nextElementSibling;
-      if (list?.localName != 'ul') continue;
-      for (final link in list!.querySelectorAll('a[href]')) {
+    for (final list in document.querySelectorAll('.season > ul')) {
+      final heading = list.previousElementSibling;
+      final isMain = heading?.localName == 'p' && heading!.text.trim() == '本篇';
+      final isOnlyUnlabelled =
+          heading == null &&
+          list.parent!.children.length == 1 &&
+          document.querySelectorAll('.season').length == 1;
+      if (!isMain && !isOnlyUnlabelled) continue;
+      for (final link in list.querySelectorAll('a[href]')) {
         final uri = Uri.tryParse(link.attributes['href']!);
         final sn = _positiveId(
           link.attributes['data-ani-video-sn'] ?? uri?.queryParameters['sn'],
