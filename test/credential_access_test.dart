@@ -42,33 +42,33 @@ void main() {
     'cache shares reads, retries denied access, and tracks durable writes',
     () async {
       final storage = ObservedCredentials()..locked = true;
-      storage.values['oauth'] = 'first';
+      storage.values['account'] = 'first';
       final credentials = CachedCredentials(storage);
       await expectLater(
-        credentials.read('oauth', allowInteraction: false),
+        credentials.read('account', allowInteraction: false),
         throwsA(isA<CredentialInteractionRequired>()),
       );
       expect(
         await Future.wait([
-          credentials.read('oauth'),
-          credentials.read('oauth'),
+          credentials.read('account'),
+          credentials.read('account'),
         ]),
         ['first', 'first'],
       );
-      expect(storage.reads, [('oauth', false), ('oauth', true)]);
+      expect(storage.reads, [('account', false), ('account', true)]);
       storage.failWrites = true;
       await expectLater(
-        credentials.write('oauth', 'unsaved'),
+        credentials.write('account', 'unsaved'),
         throwsStateError,
       );
-      expect(await credentials.read('oauth'), 'first');
+      expect(await credentials.read('account'), 'first');
       storage.failWrites = false;
       await Future.wait([
-        credentials.write('oauth', 'next'),
-        credentials.write('oauth', null),
+        credentials.write('account', 'next'),
+        credentials.write('account', null),
       ]);
-      expect(await credentials.read('oauth'), isNull);
-      expect(storage.values['oauth'], isNull);
+      expect(await credentials.read('account'), isNull);
+      expect(storage.values['account'], isNull);
     },
   );
 

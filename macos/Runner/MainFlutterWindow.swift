@@ -41,15 +41,15 @@ class MainFlutterWindow: NSWindow {
       let quiet = arguments["allowInteraction"] as? Bool == false
       var previousInteraction: DarwinBoolean = true
       if quiet {
-        status = SecKeychainGetUserInteractionAllowed(&previousInteraction)
-        if status == errSecSuccess { status = SecKeychainSetUserInteractionAllowed(false) }
+        status = LoginKeychainInteraction.get(&previousInteraction)
+        if status == errSecSuccess { status = LoginKeychainInteraction.set(false) }
         if status != errSecSuccess {
           result(FlutterError(code: "keychain_\(status)", message: "Cannot read credentials without interaction", details: nil))
           return
         }
       }
       defer {
-        if quiet { SecKeychainSetUserInteractionAllowed(previousInteraction.boolValue) }
+        if quiet { LoginKeychainInteraction.set(previousInteraction.boolValue) }
       }
       var lookup = query
       lookup[kSecReturnData as String] = true
@@ -90,5 +90,21 @@ class MainFlutterWindow: NSWindow {
         details: nil
       ))
     }
+  }
+}
+
+// File-based login Keychain ACLs require this legacy switch for quiet reads.
+// Keep the deprecation exception confined to the two audited compatibility calls.
+#if compiler(>=6.4)
+@diagnose(DeprecatedDeclaration, as: ignored, reason: "SecItem authentication flags do not suppress file-based Keychain ACL dialogs")
+#endif
+private enum LoginKeychainInteraction {
+  static func get(_ allowed: UnsafeMutablePointer<DarwinBoolean>) -> OSStatus {
+    SecKeychainGetUserInteractionAllowed(allowed)
+  }
+
+  @discardableResult
+  static func set(_ allowed: Bool) -> OSStatus {
+    SecKeychainSetUserInteractionAllowed(allowed)
   }
 }

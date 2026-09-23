@@ -31,7 +31,7 @@ jobs:
           MELONBANG_SERVICES_JSON: ${{ secrets.MELONBANG_SERVICES_JSON }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:MELONBANG_SERVICES_JSON)) {
-            throw 'Set the MELONBANG_SERVICES_JSON repository secret using config/services.example.json.'
+            throw 'Set the MELONBANG_SERVICES_JSON repository secret using .env.service.example.json.'
           }
           $configurationPath = Join-Path $env:RUNNER_TEMP 'melonbang-services.json'
           try {
