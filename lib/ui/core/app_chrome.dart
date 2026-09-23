@@ -371,7 +371,7 @@ class AppHeader extends StatelessWidget {
   final int collectionCount;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(26, 16, 26, 12),
+    padding: const EdgeInsets.fromLTRB(pageGutter, 16, pageGutter, 12),
     child: LayoutBuilder(
       builder: (context, size) => Row(
         children: [
@@ -381,10 +381,7 @@ class AppHeader extends StatelessWidget {
               children: [
                 Text(
                   routeTitles[route] ?? '',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
                 if (['home', 'tracking', 'downloads'].contains(route))
                   Padding(

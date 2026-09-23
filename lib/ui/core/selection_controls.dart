@@ -271,7 +271,7 @@ class MelonChoiceMenu<T> extends StatelessWidget {
 
   final Map<T, String> options;
   final T value;
-  final ValueChanged<T> onSelected;
+  final ValueChanged<T>? onSelected;
   final IconData? icon;
   final String? label, tooltip;
 
@@ -292,7 +292,7 @@ class MelonChoiceMenu<T> extends StatelessWidget {
     menuChildren: [
       for (final entry in options.entries)
         MenuItemButton(
-          onPressed: () => onSelected(entry.key),
+          onPressed: onSelected == null ? null : () => onSelected!(entry.key),
           leadingIcon: SizedBox.square(
             dimension: 18,
             child: entry.key == value
@@ -309,8 +309,9 @@ class MelonChoiceMenu<T> extends StatelessWidget {
     builder: (context, controller, _) => Tooltip(
       message: tooltip ?? label ?? options[value] ?? '',
       child: OutlinedButton(
-        onPressed: () =>
-            controller.isOpen ? controller.close() : controller.open(),
+        onPressed: onSelected == null
+            ? null
+            : () => controller.isOpen ? controller.close() : controller.open(),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../app_services.dart';
+import '../core/theme.dart';
 import '../../data/bittorrent_settings.dart';
 import '../../data/resource_metadata.dart';
 import '../acquisition/resource_widgets.dart';
@@ -354,6 +355,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
 
   List<Widget> resourceRows() => [
     DropdownButtonFormField<int>(
+      borderRadius: controlBorderRadius,
       key: ValueKey(selectedEpisode),
       initialValue: episodes.any((e) => e['episodeId'] == selectedEpisode)
           ? selectedEpisode

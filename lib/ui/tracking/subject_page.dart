@@ -373,10 +373,7 @@ class _SubjectPageState extends State<SubjectPage> {
             Expanded(
               child: Text(
                 titleOf(item),
-                style: const TextStyle(
-                  fontSize: 25,
-                  fontWeight: FontWeight.w700,
-                ),
+                style: Theme.of(context).textTheme.headlineSmall,
               ),
             ),
             IconButton(
@@ -709,7 +706,9 @@ class _SubjectPageState extends State<SubjectPage> {
         const SizedBox(height: 12),
         LayoutBuilder(
           builder: (context, constraints) {
-            final columns = (constraints.maxWidth / 200).floor().clamp(1, 6);
+            final columns = (constraints.maxWidth / (characters ? 250 : 200))
+                .floor()
+                .clamp(1, 6);
             final width = (constraints.maxWidth - (columns - 1) * 12) / columns;
             return Wrap(
               spacing: 12,
@@ -759,22 +758,73 @@ class _SubjectPageState extends State<SubjectPage> {
         ),
       ),
     );
-    return Semantics(
+    final image = Semantics(
       label: '${titleOf(person)}${character ? '角色头像' : '人物头像'}',
       image: true,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(character ? 10 : size / 2),
         child: SizedBox(
-          width: size,
-          height: size,
+          width: character ? 72 : size,
+          height: character ? 108 : size,
           child: url == null
               ? placeholder('暂无头像')
               : Image.network(
                   url,
-                  fit: BoxFit.cover,
+                  fit: character ? BoxFit.contain : BoxFit.cover,
+                  alignment: character ? Alignment.topCenter : Alignment.center,
                   errorBuilder: (_, _, _) => placeholder('头像加载失败'),
                 ),
         ),
+      ),
+    );
+    if (!character || url == null) return image;
+    return Tooltip(
+      message: '查看${titleOf(person)}完整立绘',
+      child: InkWell(
+        borderRadius: controlBorderRadius,
+        onTap: () => showDialog<void>(
+          context: context,
+          builder: (context) => Dialog(
+            child: SizedBox(
+              width: 520,
+              height: 620,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            titleOf(person),
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '关闭图片',
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: InteractiveViewer(
+                        child: Image.network(
+                          url,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, _, _) =>
+                              const Center(child: Text('图片加载失败')),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        child: image,
       ),
     );
   }
@@ -814,10 +864,7 @@ class _SubjectPageState extends State<SubjectPage> {
                           titleOf(person),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                          ),
+                          style: Theme.of(context).textTheme.titleSmall,
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -847,7 +894,7 @@ class _SubjectPageState extends State<SubjectPage> {
                         Expanded(
                           child: Text(
                             'CV ${titleOf(actor)}',
-                            style: const TextStyle(fontSize: 11),
+                            style: Theme.of(context).textTheme.bodySmall,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),

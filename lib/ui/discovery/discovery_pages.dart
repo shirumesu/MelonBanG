@@ -226,9 +226,6 @@ class _FeaturedSubjectsState extends State<_FeaturedSubjects> {
                   LayoutBuilder(
                     builder: (context, constraints) {
                       final showArt = constraints.maxWidth >= 520;
-                      final artCount = constraints.maxWidth >= 810
-                          ? widget.items.length
-                          : 1;
                       return Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
@@ -268,17 +265,14 @@ class _FeaturedSubjectsState extends State<_FeaturedSubjects> {
                           ),
                           if (showArt) ...[
                             const SizedBox(width: 22),
-                            for (var i = 0; i < artCount; i++) ...[
-                              if (i > 0) const SizedBox(width: 10),
-                              _FeaturedCover(
-                                item: artCount == 1 ? item : widget.items[i],
-                                selected: artCount == 1 || i == _index,
-                                onPressed: artCount == 1
-                                    ? () => widget.onOpen(item)
-                                    : () => _select(i),
-                                opensSubject: artCount == 1,
+                            AnimatedSwitcher(
+                              duration: motionDuration(context, 180),
+                              child: _FeaturedCover(
+                                key: ValueKey(_id(item)),
+                                item: item,
+                                onPressed: () => widget.onOpen(item),
                               ),
-                            ],
+                            ),
                           ],
                         ],
                       );
@@ -296,23 +290,24 @@ class _FeaturedSubjectsState extends State<_FeaturedSubjects> {
                             for (var i = 0; i < widget.items.length; i++)
                               Semantics(
                                 selected: i == _index,
-                                child: IconButton(
-                                  tooltip:
+                                child: Tooltip(
+                                  message:
                                       '精选 ${i + 1}：${titleOf(widget.items[i])}',
-                                  onPressed: () => _select(i),
-                                  icon: AnimatedContainer(
-                                    duration: motionDuration(context, 160),
-                                    curve: Curves.easeOut,
-                                    width: i == _index ? 22 : 7,
-                                    height: 7,
-                                    decoration: BoxDecoration(
-                                      color: i == _index
-                                          ? scheme.primary
-                                          : scheme.onSurface.withValues(
-                                              alpha: .18,
-                                            ),
-                                      borderRadius: BorderRadius.circular(4),
+                                  child: TextButton(
+                                    onPressed: () => _select(i),
+                                    style: TextButton.styleFrom(
+                                      minimumSize: const Size(36, 36),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                      ),
+                                      foregroundColor: i == _index
+                                          ? scheme.onPrimaryContainer
+                                          : scheme.onSurfaceVariant,
+                                      backgroundColor: i == _index
+                                          ? scheme.primaryContainer
+                                          : Colors.transparent,
                                     ),
+                                    child: Text('${i + 1}'),
                                   ),
                                 ),
                               ),
@@ -398,11 +393,7 @@ class _FeaturedCopy extends StatelessWidget {
               titleOf(item),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontSize: 25,
-                fontWeight: FontWeight.w700,
-                height: 1.25,
-              ),
+              style: Theme.of(context).textTheme.headlineSmall,
             ),
           ),
           if (detail.isNotEmpty) ...[
@@ -433,70 +424,32 @@ class _FeaturedCopy extends StatelessWidget {
   }
 }
 
-class _FeaturedCover extends StatefulWidget {
+class _FeaturedCover extends StatelessWidget {
   const _FeaturedCover({
+    super.key,
     required this.item,
-    required this.selected,
     required this.onPressed,
-    required this.opensSubject,
   });
   final Json item;
-  final bool selected, opensSubject;
   final VoidCallback onPressed;
-
-  @override
-  State<_FeaturedCover> createState() => _FeaturedCoverState();
-}
-
-class _FeaturedCoverState extends State<_FeaturedCover> {
-  bool _focused = false, _hovered = false, _pressed = false;
-
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: 104,
-    height: 156,
-    child: Semantics(
-      selected: widget.opensSubject ? null : widget.selected,
-      child: Tooltip(
-        message: '${widget.opensSubject ? '查看' : '精选'} ${titleOf(widget.item)}',
-        child: Material(
-          borderRadius: posterBorderRadius,
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: widget.onPressed,
-            onFocusChange: (value) => setState(() => _focused = value),
-            onHover: (value) => setState(() => _hovered = value),
-            onHighlightChanged: (value) => setState(() => _pressed = value),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                ExcludeSemantics(
-                  child: SubjectCover(
-                    url: widget.item['coverUrl'],
-                    title: titleOf(widget.item),
-                    id: number(widget.item['subjectId']).toInt(),
-                  ),
-                ),
-                IgnorePointer(
-                  child: AnimatedContainer(
-                    duration: motionDuration(context, 160),
-                    decoration: BoxDecoration(
-                      borderRadius: posterBorderRadius,
-                      color: _pressed
-                          ? Colors.black.withValues(alpha: .12)
-                          : _hovered
-                          ? Colors.white.withValues(alpha: .07)
-                          : Colors.transparent,
-                      border: Border.all(
-                        color: _focused || widget.selected
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.transparent,
-                        width: _focused ? 3 : 2,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+    width: 160,
+    height: 240,
+    child: Tooltip(
+      message: '查看 ${titleOf(item)}',
+      child: Material(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: posterBorderRadius,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: ExcludeSemantics(
+            child: SubjectCover(
+              url: item['coverUrl'],
+              title: titleOf(item),
+              id: number(item['subjectId']).toInt(),
+              fit: BoxFit.contain,
             ),
           ),
         ),

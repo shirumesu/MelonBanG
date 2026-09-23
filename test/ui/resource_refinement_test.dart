@@ -58,7 +58,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
       expect(find.byType(ResourceResultRow), findsNWidgets(3));
       await tester.tap(find.byKey(const ValueKey('resource-original:unknown')));
       await tester.pumpAndSettle();
@@ -108,7 +108,7 @@ void main() {
       expect(downloaded!['episodeId'], 909);
       await tester.tap(find.text('清除'));
       await tester.pumpAndSettle();
-      expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
       expect(find.byType(ResourceResultRow), findsNWidgets(3));
       expect(tester.takeException(), isNull);
     },

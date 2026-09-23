@@ -3,9 +3,11 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+
 import 'package:media_kit/media_kit.dart';
 
 import '../../app_services.dart';
+import '../core/theme.dart';
 import 'playback.dart';
 import 'player_theme.dart';
 
@@ -352,6 +354,8 @@ class _PlayerSettingsState extends State<PlayerSettings> {
     const Text('手动匹配'),
     const SizedBox(height: 12),
     DropdownButtonFormField<String>(
+      borderRadius: controlBorderRadius,
+      isExpanded: true,
       initialValue: provider,
       items: const [
         DropdownMenuItem(value: 'bilibili', child: Text('Bilibili')),

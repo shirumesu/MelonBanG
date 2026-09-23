@@ -8,7 +8,7 @@ class PageScroll extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListView(
     key: const PageStorageKey('page-scroll'),
-    padding: const EdgeInsets.fromLTRB(26, 6, 26, 40),
+    padding: const EdgeInsets.fromLTRB(pageGutter, 6, pageGutter, 40),
     children: children,
   );
 }
