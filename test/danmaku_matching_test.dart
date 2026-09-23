@@ -404,6 +404,29 @@ void main() {
     },
   );
 
+  test('Bahamut accepts only one unlabelled list, not a dubbed or ambiguous list', () async {
+    var page =
+        '<section class="season"><ul><li><a href="?sn=49909">1</a></li></ul></section>';
+    final api = ApiClient(
+      client: MockClient((request) async {
+        return http.Response.bytes(
+          utf8.encode(request.url.path == '/search.php' ? searchPage : page),
+          200,
+        );
+      }),
+    );
+    addTearDown(api.close);
+    final repository = DanmakuRepository(api);
+    expect(
+      await repository.automaticLocator('bahamut', '葬送的芙莉莲', 1),
+      'sn=49909',
+    );
+    page = '<section class="season"><p>中文配音</p><ul><li><a href="?sn=99">1</a></li></ul></section>';
+    expect(await repository.automaticLocator('bahamut', '葬送的芙莉莲', 1), isNull);
+    page = '<section class="season"><ul><li><a href="?sn=99">1</a></li></ul><ul><li><a href="?sn=100">1</a></li></ul></section>';
+    expect(await repository.automaticLocator('bahamut', '葬送的芙莉莲', 1), isNull);
+  });
+
   test(
     'Bilibili searches official bangumi aliases and selects a main episode',
     () async {
@@ -614,7 +637,7 @@ void main() {
     );
   });
 
-  test('download filename resolves danmaku episode without creating a file association', () async {
+  test('download filename and API regional aliases resolve danmaku without creating an association', () async {
     var searches = 0;
     final api = ApiClient(
       client: MockClient((request) async {
@@ -622,7 +645,8 @@ void main() {
           case '/v1/subjects/42':
             return jsonResponse({
               'data': {
-                'nameCn': '葬送的芙莉莲',
+                'nameCn': '另一译名',
+                'aliases': ['葬送的芙莉蓮'],
                 'episodes': [
                   {'episodeId': 7, 'ep': 1},
                   {'episodeId': 8, 'ep': 2},
@@ -674,13 +698,22 @@ void main() {
     );
     expect(library.current!['episodeId'], isNull);
     expect(await store.get('episode_files', '42:7'), isNull);
-    expect(searches, 1);
+    expect(searches, 2);
+    await open(
+      '[Nekomoekissaten][Azur Lane - Bisoku Zenshin! S2][01][1080p][JPTC].mp4',
+    );
+    expect(objects(library.current!['danmaku']), hasLength(1));
+    expect(library.current!['episodeId'], isNull);
+    expect(await store.get('episode_files', '42:7'), isNull);
     await open('[Group] Series - 01v2 [1080p].mkv');
     expect(objects(library.current!['danmaku']), hasLength(1));
     for (final name in [
       'Series 1080p.mkv',
       'Series - 01-02.mkv',
       'Series - 99.mkv',
+      '[Group][Series][01-02][1080p].mkv',
+      '[Group][Series][01][02][1080p].mkv',
+      '[Group][Series][2026][1080p].mkv',
     ]) {
       final before = searches;
       await open(name);
