@@ -9,6 +9,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:melonbang/ui/player/playback.dart';
+import 'package:melonbang/ui/player/danmaku.dart';
 import 'package:melonbang/ui/player/player_page.dart';
 import 'package:melonbang/app_services.dart';
 
@@ -157,6 +158,38 @@ void main() {
           'color': '#43c99f',
         },
       ];
+      await playback.player.play();
+      await tester.pump(const Duration(milliseconds: 250));
+      final danmakuPaint = find.byWidgetPredicate(
+        (widget) => widget is CustomPaint && widget.painter is DanmakuPainter,
+      );
+      double paintedTime() =>
+          (tester.widget<CustomPaint>(danmakuPaint).painter! as DanmakuPainter)
+              .clock
+              .value;
+      var previousTime = paintedTime();
+      var previousNative = playback.player.state.position;
+      var interpolatedFrames = 0;
+      for (var frame = 0; frame < 60; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final current = paintedTime();
+        final native = playback.player.state.position;
+        if (native == previousNative && current > previousTime) {
+          interpolatedFrames++;
+        }
+        previousTime = current;
+        previousNative = native;
+      }
+      expect(
+        interpolatedFrames,
+        greaterThan(10),
+        reason: 'Danmaku must move between real native position events',
+      );
+      debugPrint(
+        'Danmaku advanced between native updates on '
+        '$interpolatedFrames/60 sampled frames',
+      );
+      await playback.player.pause();
       await tester.pump(const Duration(seconds: 1));
       await windowManager.setSize(const Size(1100, 720));
       await tester.pump(const Duration(milliseconds: 500));
