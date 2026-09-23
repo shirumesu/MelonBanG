@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../data/catalog.dart';
 import '../../data/json.dart';
 import '../tracking/collection_labels.dart';
 import 'page_widgets.dart';
@@ -475,7 +478,23 @@ Color collectionColor(String status) => switch (status) {
   _ => mint,
 };
 
-class SubjectCover extends StatelessWidget {
+class SubjectCoverScope extends InheritedWidget {
+  const SubjectCoverScope({
+    super.key,
+    required this.catalog,
+    required super.child,
+  });
+  final CatalogRepository catalog;
+
+  static CatalogRepository? of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<SubjectCoverScope>()?.catalog;
+
+  @override
+  bool updateShouldNotify(SubjectCoverScope oldWidget) =>
+      catalog != oldWidget.catalog;
+}
+
+class SubjectCover extends StatefulWidget {
   const SubjectCover({
     super.key,
     required this.url,
@@ -487,8 +506,53 @@ class SubjectCover extends StatelessWidget {
   final String title;
   final int id;
   final BoxFit fit;
+
+  @override
+  State<SubjectCover> createState() => _SubjectCoverState();
+}
+
+class _SubjectCoverState extends State<SubjectCover> {
+  CatalogRepository? _catalog;
+  StreamSubscription<int>? _subscription;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final catalog = SubjectCoverScope.of(context);
+    if (_catalog == catalog) return;
+    _subscription?.cancel();
+    _catalog = catalog;
+    _subscription = catalog?.coverChanges.stream.listen((id) {
+      if (mounted && id == widget.id && coverAddress(widget.url) == null) {
+        setState(() {});
+      }
+    });
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(SubjectCover oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.id != widget.id || oldWidget.url != widget.url) _resolve();
+  }
+
+  void _resolve() {
+    if (coverAddress(widget.url) == null) {
+      unawaited(_catalog?.resolveCover(widget.id));
+    }
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final id = widget.id;
+    final title = widget.title;
+    final address = coverAddress(widget.url) ?? _catalog?.coverFor(id);
     final fallback = DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -510,31 +574,30 @@ class SubjectCover extends StatelessWidget {
               ),
       ),
     );
-    return switch (url) {
-      final String address when address.startsWith('http') => Image.network(
-        address,
-        fit: fit,
-        frameBuilder: (context, child, frame, synchronous) {
-          if (synchronous) return child;
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              ColoredBox(
-                color: Theme.of(context).colorScheme.surfaceContainerHigh,
+    return AnimatedSwitcher(
+      duration: motionDuration(context),
+      child: address == null
+          ? SizedBox.expand(key: ValueKey('placeholder:$id'), child: fallback)
+          : Image.network(
+              address,
+              key: ValueKey('$id:$address'),
+              fit: widget.fit,
+              frameBuilder: (context, child, frame, synchronous) => Stack(
+                fit: StackFit.expand,
+                children: [
+                  fallback,
+                  AnimatedOpacity(
+                    opacity: frame == null ? 0 : 1,
+                    duration: synchronous
+                        ? Duration.zero
+                        : motionDuration(context),
+                    child: child,
+                  ),
+                ],
               ),
-              AnimatedOpacity(
-                key: ValueKey(address),
-                opacity: frame == null ? 0 : 1,
-                duration: motionDuration(context),
-                child: child,
-              ),
-            ],
-          );
-        },
-        errorBuilder: (_, _, _) => fallback,
-      ),
-      _ => fallback,
-    };
+              errorBuilder: (_, _, _) => fallback,
+            ),
+    );
   }
 }
 

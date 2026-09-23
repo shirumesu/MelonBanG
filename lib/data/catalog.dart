@@ -15,6 +15,34 @@ class CatalogRepository {
   final String origin;
   final _requests = <String, Future<dynamic>>{};
   bool _closed = false;
+  final coverChanges = StreamController<int>.broadcast();
+  final _covers = <int, String>{};
+  final _coverRequests = <int, Future<void>>{};
+  String? coverFor(int id) => _covers[id];
+
+  void _rememberCover(Json value) {
+    final id = number(value['subjectId'] ?? value['id']).toInt();
+    final cover = coverAddress(value['coverUrl']);
+    if (_closed || id <= 0 || cover == null || _covers[id] == cover) return;
+    _covers[id] = cover;
+    coverChanges.add(id);
+  }
+
+  // Reuse local detail artwork without making a full-detail request per card.
+  Future<void> resolveCover(int id) {
+    if (_closed || id <= 0 || _covers.containsKey(id)) return Future.value();
+    return _coverRequests.putIfAbsent(id, () async {
+      try {
+        final cached = await store.get('catalog', 'detail:$id');
+        if (!_closed && cached != null && !_covers.containsKey(id)) {
+          _rememberCover(object(object(cached['value'])['data']));
+        }
+      } finally {
+        _coverRequests.remove(id);
+      }
+    });
+  }
+
   Future<dynamic> _cached(
     String key,
     String path, {
@@ -27,6 +55,7 @@ class CatalogRepository {
     if (_closed) throw StateError('番剧服务已关闭');
     final now = DateTime.now().millisecondsSinceEpoch;
     if (!refresh &&
+        onCached == null &&
         cached != null &&
         now - number(cached['savedAt']) < ttl.inMilliseconds &&
         _serverFresh(cached['value'], now)) {
@@ -60,19 +89,32 @@ class CatalogRepository {
     return expiresAt == null || expiresAt.millisecondsSinceEpoch > now;
   }
 
-  Json summary(Json value) => {
-    ...value,
-    'subjectId': value['subjectId'] ?? value['id'],
-    'nameCn': value['nameCn'] ?? value['displayName'],
-    'score': value['score'] ?? object(value['rating'])['score'],
-  };
-  Future<List<Json>> search(String keyword) async {
+  Json summary(Json value) {
+    final result = <String, dynamic>{
+      ...value,
+      'subjectId': value['subjectId'] ?? value['id'],
+      'nameCn': value['nameCn'] ?? value['displayName'],
+      'score': value['score'] ?? object(value['rating'])['score'],
+    };
+    _rememberCover(result);
+    return result;
+  }
+
+  Future<List<Json>> search(
+    String keyword, {
+    void Function(List<Json>)? onCached,
+  }) async {
     final query = keyword.trim();
     if (query.isEmpty) return [];
     final response = object(
       await _cached(
         'search:${query.toLowerCase()}',
         '/v1/subjects/search?q=${Uri.encodeQueryComponent(query)}&limit=20&offset=0',
+        onCached: onCached == null
+            ? null
+            : (value) => onCached(
+                objects(object(value)['data']).map(summary).toList(),
+              ),
       ),
     );
     return objects(response['data']).map(summary).toList();
@@ -218,6 +260,7 @@ class CatalogRepository {
 
   Future<void> close() async {
     _closed = true;
+    await Future.wait(_coverRequests.values.toList());
     await Future.wait(
       _requests.values.toList().map((request) async {
         try {
@@ -227,5 +270,6 @@ class CatalogRepository {
         }
       }),
     );
+    await coverChanges.close();
   }
 }

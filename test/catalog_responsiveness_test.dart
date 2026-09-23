@@ -70,6 +70,124 @@ void main() {
   }
 
   test(
+    'fresh saved lists appear before revalidation and receive changed artwork',
+    () async {
+      final remote = delayedResponse();
+      final catalog = catalogFor(client((_) => remote.future));
+      final date = catalog.scheduleDate;
+      await store.put('catalog', 'today:$date', {
+        'savedAt': DateTime.now().millisecondsSinceEpoch,
+        'value': {
+          'date': date,
+          'items': [
+            {'subjectId': 42, 'name': 'Saved'},
+          ],
+        },
+      });
+      final cached = Completer<Json>();
+      final loading = catalog.today(onCached: cached.complete);
+      expect(
+        objects((await cached.future)['items']).single['coverUrl'],
+        isNull,
+      );
+      expect(remote.isCompleted, isFalse);
+      remote.complete(
+        jsonResponse({
+          'date': date,
+          'items': [
+            {
+              'subjectId': 42,
+              'name': 'Saved',
+              'coverUrl': 'https://images.test/42.jpg',
+            },
+          ],
+        }),
+      );
+      expect(
+        objects((await loading)['items']).single['coverUrl'],
+        'https://images.test/42.jpg',
+      );
+      expect(catalog.coverFor(42), 'https://images.test/42.jpg');
+    },
+  );
+
+  test('missing list artwork reuses persisted details without remote detail fan-out', () async {
+    final catalog = catalogFor(
+      client((_) async => throw StateError('Unexpected network request')),
+    );
+    await store.put('catalog', 'detail:42', {
+      'savedAt': 0,
+      'value': {
+        'data': {'subjectId': 42, 'coverUrl': 'https://images.test/saved.jpg'},
+      },
+    });
+    await Future.wait([
+      catalog.resolveCover(42),
+      catalog.resolveCover(42),
+      catalog.resolveCover(99),
+    ]);
+    expect(catalog.coverFor(42), 'https://images.test/saved.jpg');
+    expect(catalog.coverFor(99), isNull);
+    final changes = <int>[];
+    final subscription = catalog.coverChanges.stream.listen(changes.add);
+    catalog.summary({
+      'subjectId': 42,
+      'coverUrl': 'https://images.test/updated.jpg',
+    });
+    catalog.summary({
+      'subjectId': 42,
+      'coverUrl': 'https://images.test/updated.jpg',
+    });
+    catalog.summary({'subjectId': 42, 'coverUrl': null});
+    await Future<void>.delayed(Duration.zero);
+    expect(changes, [42]);
+    expect(catalog.coverFor(42), 'https://images.test/updated.jpg');
+    await subscription.cancel();
+  });
+
+  test(
+    'collection background reads coalesce and skip empty preferred artwork',
+    () async {
+      final response = delayedResponse();
+      var requests = 0;
+      final api = client((_) {
+        requests++;
+        return response.future;
+      });
+      final account = await signedIn(api);
+      final tracking = TrackingRepository(store, account, catalogFor(api));
+      disposals.add(tracking.close);
+      final first = tracking.refresh();
+      final second = tracking.refresh();
+      await Future<void>.delayed(Duration.zero);
+      expect(requests, 1);
+      response.complete(
+        jsonResponse({
+          'total': 1,
+          'data': [
+            {
+              'subject_id': 42,
+              'type': 3,
+              'subject': {
+                'name': 'Collected',
+                'images': {
+                  'common': '',
+                  'large': 'https://images.test/large.jpg',
+                },
+              },
+            },
+          ],
+        }),
+      );
+      await Future.wait([first, second]);
+      expect(
+        (await tracking.collection()).single['coverUrl'],
+        'https://images.test/large.jpg',
+      );
+    },
+  );
+
+  test(
     'server stale snapshots do not become fresh for another local hour',
     () async {
       var requests = 0;
