@@ -2,6 +2,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/storage_locations.dart';
+import '../../data/storage_usage.dart';
 import '../core/page_widgets.dart';
 
 class StorageSettings extends StatefulWidget {
@@ -11,10 +12,12 @@ class StorageSettings extends StatefulWidget {
     required this.dataDirectory,
     required this.mediaDirectory,
     this.onExit,
+    this.readUsage = StorageUsage.measure,
   });
   final StorageLocations? storage;
   final VoidCallback? onExit;
   final String dataDirectory, mediaDirectory;
+  final Future<StorageUsage> Function(String, String) readUsage;
   @override
   State<StorageSettings> createState() => _StorageSettingsState();
 }
@@ -22,6 +25,59 @@ class StorageSettings extends StatefulWidget {
 class _StorageSettingsState extends State<StorageSettings> {
   bool busy = false;
   String? error;
+  StorageUsage? usage;
+  bool measuring = false;
+  int measurement = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    refreshUsage();
+  }
+
+  @override
+  void didUpdateWidget(covariant StorageSettings oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.dataDirectory != widget.dataDirectory ||
+        oldWidget.mediaDirectory != widget.mediaDirectory) {
+      refreshUsage();
+    }
+  }
+
+  Future<void> refreshUsage() async {
+    final request = ++measurement;
+    setState(() => measuring = true);
+    StorageUsage result;
+    try {
+      result = await widget.readUsage(
+        widget.dataDirectory,
+        widget.mediaDirectory,
+      );
+    } catch (_) {
+      result = const StorageUsage();
+    }
+    if (!mounted || request != measurement) return;
+    setState(() {
+      usage = result;
+      measuring = false;
+    });
+  }
+
+  String usageLabel(bool media) {
+    if (measuring) return '正在统计…';
+    final bytes = media ? usage?.mediaBytes : usage?.dataBytes;
+    if (bytes == null) return '暂时无法统计';
+    if (bytes < 1024) return '已用 $bytes B';
+    var value = bytes.toDouble();
+    for (final unit in ['KiB', 'MiB', 'GiB', 'TiB']) {
+      value /= 1024;
+      if (value < 1024 || unit == 'TiB') {
+        return '已用 ${value.toStringAsFixed(1)} $unit';
+      }
+    }
+    throw StateError('Unreachable storage size');
+  }
+
   Future<void> choose(bool media) async {
     setState(() {
       busy = true;
@@ -79,7 +135,24 @@ class _StorageSettingsState extends State<StorageSettings> {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       for (final media in [false, true]) ...[
-        SectionTitle(title: media ? '媒体缓存' : '应用数据'),
+        SectionTitle(
+          title: media ? '媒体缓存' : '应用数据',
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                usageLabel(media),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: '刷新空间用量',
+                onPressed: measuring ? null : refreshUsage,
+                icon: const Icon(Icons.refresh, size: 18),
+              ),
+            ],
+          ),
+        ),
         MelonPanel(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
