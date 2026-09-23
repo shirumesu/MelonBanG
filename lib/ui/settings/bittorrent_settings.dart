@@ -167,48 +167,38 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
   Widget taskSlider(String key, int maximum) {
     final count = draft[key] as int;
     final value = count == 0 ? maximum + 1 : count;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(count == 0 ? '无上限' : '$count 个任务', textAlign: TextAlign.end),
-        Slider(
-          key: ValueKey('bittorrent-slider:$key'),
-          min: 1,
-          max: maximum + 1.0,
-          divisions: maximum,
-          value: value.toDouble(),
-          label: count == 0 ? '无上限' : '$count 个任务',
-          semanticFormatterCallback: (value) =>
-              value > maximum ? '无上限' : '${value.round()} 个任务',
-          onChanged: saving
-              ? null
-              : (value) => change(() {
-                  draft[key] = value > maximum ? 0 : value.round();
-                }),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: LayoutBuilder(
-            builder: (context, constraints) => SizedBox(
-              height: 20,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  for (var i = 0; i <= maximum; i++)
-                    Positioned(
-                      left: constraints.maxWidth * i / maximum - 24,
-                      width: 48,
-                      child: Text(
-                        i == maximum ? '无上限' : '${i + 1}',
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                ],
-              ),
+    return SliderTheme(
+      data: SliderTheme.of(context).copyWith(
+        showValueIndicator: ShowValueIndicator.onlyForDiscrete,
+        tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Slider(
+            key: ValueKey('bittorrent-slider:$key'),
+            min: 1,
+            max: maximum + 1.0,
+            divisions: maximum,
+            value: value.toDouble(),
+            label: count == 0 ? '无上限' : '$count',
+            semanticFormatterCallback: (value) =>
+                value > maximum ? '无上限' : '${value.round()} 个任务',
+            onChanged: saving
+                ? null
+                : (value) => change(() {
+                    draft[key] = value > maximum ? 0 : value.round();
+                  }),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [Text('1'), Text('无上限')],
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -316,125 +306,170 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      const Text('控制传输速度，以及下载完成后如何分享。'),
-      const SizedBox(height: 16),
-      MelonPanel(
-        child: Column(
-          children: separated([
-            speed('downloadKiB', '下载速度'),
-            speed('uploadKiB', '上传速度'),
-            row('同时下载', taskSlider('activeDownloads', 5)),
-            toggle('resumeOnStartup', '启动时继续任务', note: '关闭后，重新打开应用时任务保持暂停。'),
-            row(
-              '做种',
-              MelonChoiceMenu<String>(
-                value: draft['seedMode'] as String,
-                options: const {
-                  'limited': '适量分享（推荐）',
-                  'off': '停止分享',
-                  'unlimited': '持续分享',
-                },
-                onSelected: saving
-                    ? null
-                    : (value) => change(() => draft['seedMode'] = value),
-              ),
-              help: '将已下载的内容上传给其他用户，推荐启用维护 BT 网络社区；做种只会在应用运行时进行。',
-            ),
-          ]),
-        ),
-      ),
-      const SizedBox(height: 20),
-      Card(
-        child: ExpansionTile(
-          key: const PageStorageKey('bittorrent-advanced'),
-          controller: advancedController,
-          title: Text('高级设置', style: Theme.of(context).textTheme.titleSmall),
-          subtitle: const Text('分享条件、队列与网络连接'),
-          tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-          shape: const RoundedRectangleBorder(borderRadius: panelBorderRadius),
-          collapsedShape: const RoundedRectangleBorder(
-            borderRadius: panelBorderRadius,
-          ),
-          children: separated([
-            if (draft['seedMode'] == 'limited') ...[
-              row(
-                '目标分享率',
-                numberField('seedRatio', '目标分享率', hint: '0 表示不限'),
-                help: '累计上传量 ÷ 文件总量。0 表示不限，最高 1000；与做种时间任一条件达到即停止。',
-              ),
-              row(
-                '累计分享时间',
-                numberField(
-                  'seedMinutes',
-                  '累计分享时间',
-                  unit: '分钟',
-                  hint: '0 表示不限，最多 1440 分钟（1 天）',
+      Expanded(
+        child: SingleChildScrollView(
+          key: const PageStorageKey('settings-downloads'),
+          padding: const EdgeInsets.fromLTRB(pageGutter, 6, pageGutter, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('控制传输速度，以及下载完成后如何分享。'),
+              const SizedBox(height: 16),
+              MelonPanel(
+                child: Column(
+                  children: separated([
+                    speed('downloadKiB', '下载速度'),
+                    speed('uploadKiB', '上传速度'),
+                    row('同时下载', taskSlider('activeDownloads', 5)),
+                    toggle(
+                      'resumeOnStartup',
+                      '启动时继续任务',
+                      note: '关闭后，重新打开应用时任务保持暂停。',
+                    ),
+                    row(
+                      '做种方案',
+                      MelonChoiceMenu<String>(
+                        value: draft['seedMode'] as String,
+                        options: const {
+                          'limited': '适量分享（推荐）',
+                          'off': '停止分享',
+                          'unlimited': '持续分享',
+                        },
+                        onSelected: saving
+                            ? null
+                            : (value) =>
+                                  change(() => draft['seedMode'] = value),
+                      ),
+                      help: '将已下载的内容上传给其他用户，推荐启用维护 BT 网络社区；做种只会在应用运行时进行。',
+                    ),
+                  ]),
                 ),
-                help: '仅计算实际做种时间，重启不清零。达到分享率或累计时间任一条件即停止。',
+              ),
+              const SizedBox(height: 20),
+              Card(
+                child: ExpansionTile(
+                  key: const PageStorageKey('bittorrent-advanced'),
+                  controller: advancedController,
+                  title: Text(
+                    '高级设置',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  subtitle: const Text('分享条件、队列与网络连接'),
+                  tilePadding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 8,
+                  ),
+                  childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: panelBorderRadius,
+                  ),
+                  collapsedShape: const RoundedRectangleBorder(
+                    borderRadius: panelBorderRadius,
+                  ),
+                  children: separated([
+                    if (draft['seedMode'] == 'limited') ...[
+                      row(
+                        '目标分享率',
+                        numberField('seedRatio', '目标分享率', hint: '0 表示不限'),
+                        help: '累计上传量 ÷ 文件总量。0 表示不限，最高 1000；与做种时间任一条件达到即停止。',
+                      ),
+                      row(
+                        '累计分享时间',
+                        numberField(
+                          'seedMinutes',
+                          '累计分享时间',
+                          unit: '分钟',
+                          hint: '0 表示不限，最多 1440 分钟（1 天）',
+                        ),
+                        help: '仅计算实际做种时间，重启不清零。达到分享率或累计时间任一条件即停止。',
+                      ),
+                    ],
+                    row('同时分享', taskSlider('activeSeeds', 3)),
+                    row(
+                      '每任务连接上限',
+                      numberField('connectionsPerTask', '连接数'),
+                      help: '每个下载或做种任务可连接 5–500 位用户。总连接数随实际运行任务数增加，仍受系统可用资源限制。',
+                    ),
+                    row(
+                      '监听端口',
+                      numberField('listenPort', '监听端口'),
+                      help: '0 表示自动选择；固定端口范围 1–65535。',
+                    ),
+                    toggle('dht', 'DHT 节点发现', help: '帮助公共种子发现其他用户；私有种子遵循自身限制。'),
+                    toggle(
+                      'upnp',
+                      '自动端口映射',
+                      help: '通过 UPnP / NAT-PMP 尝试接收入站连接。',
+                    ),
+                    toggle('ipv6', 'IPv6'),
+                    toggle(
+                      'forceEncryption',
+                      '仅连接加密用户',
+                      help: '默认允许协商加密；强制开启可能减少可连接用户。',
+                    ),
+                  ]),
+                ),
               ),
             ],
-            row('同时分享', taskSlider('activeSeeds', 3)),
-            row(
-              '每任务连接上限',
-              numberField('connectionsPerTask', '连接数'),
-              help: '每个下载或做种任务可连接 5–500 位用户。总连接数随实际运行任务数增加，仍受系统可用资源限制。',
-            ),
-            row(
-              '监听端口',
-              numberField('listenPort', '监听端口'),
-              help: '0 表示自动选择；固定端口范围 1–65535。',
-            ),
-            toggle('dht', 'DHT 节点发现', help: '帮助公共种子发现其他用户；私有种子遵循自身限制。'),
-            toggle('upnp', '自动端口映射', help: '通过 UPnP / NAT-PMP 尝试接收入站连接。'),
-            toggle('ipv6', 'IPv6'),
-            toggle(
-              'forceEncryption',
-              '仅连接加密用户',
-              help: '默认允许协商加密；强制开启可能减少可连接用户。',
-            ),
-          ]),
-        ),
-      ),
-      const SizedBox(height: 16),
-      Text(
-        '保存后应用于现有任务，手动暂停的任务保持暂停。',
-        style: Theme.of(context).textTheme.bodySmall,
-      ),
-      const SizedBox(height: 16),
-      if (error != null)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Text(
-            error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ),
-      Wrap(
-        spacing: 12,
-        runSpacing: 8,
-        children: [
-          FilledButton.icon(
-            onPressed: saving ? null : save,
-            icon: Icon(saved ? Icons.check : Icons.save_outlined, size: 18),
-            label: Text(
-              saving
-                  ? '正在保存…'
-                  : saved
-                  ? '已保存并应用'
-                  : '保存并应用',
-            ),
+      ),
+      Material(
+        key: const ValueKey('bittorrent-save-bar'),
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(pageGutter, 16, pageGutter, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '保存后应用于现有任务，手动暂停的任务保持暂停。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 16),
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  FilledButton.icon(
+                    onPressed: saving ? null : save,
+                    icon: Icon(
+                      saved ? Icons.check : Icons.save_outlined,
+                      size: 18,
+                    ),
+                    label: Text(
+                      saving
+                          ? '正在保存…'
+                          : saved
+                          ? '已保存并应用'
+                          : '保存并应用',
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: saving
+                        ? null
+                        : () => setState(() {
+                            load(const BitTorrentSettings());
+                            error = null;
+                          }),
+                    child: const Text('恢复推荐值'),
+                  ),
+                ],
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: saving
-                ? null
-                : () => setState(() {
-                    load(const BitTorrentSettings());
-                    error = null;
-                  }),
-            child: const Text('恢复推荐值'),
-          ),
-        ],
+        ),
       ),
     ],
   );

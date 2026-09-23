@@ -421,7 +421,8 @@ class _PlayerPageState extends State<PlayerPage> {
                         color: panel
                             ? Colors.transparent
                             : Theme.of(context).colorScheme.surface,
-                        borderRadius: BorderRadius.circular(10),
+                        shape: const CircleBorder(),
+                        clipBehavior: Clip.antiAlias,
                         child: IconButton(
                           tooltip: panel ? '收起选集与资源' : '展开选集与资源',
                           onPressed: () {

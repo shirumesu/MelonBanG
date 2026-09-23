@@ -69,6 +69,17 @@ void main() {
         }
 
         await snapshot('bittorrent-seeding');
+        final saveBounds = tester.getRect(
+          find.byKey(const ValueKey('bittorrent-save-bar')),
+        );
+        final slider = find.byKey(
+          const ValueKey('bittorrent-slider:activeDownloads'),
+        );
+        final gesture = await tester.startGesture(tester.getCenter(slider));
+        await tester.pump(const Duration(milliseconds: 250));
+        await snapshot('bittorrent-slider');
+        await gesture.up();
+        await tester.pumpAndSettle();
         await tester.tap(find.text('不限速').first);
         await tester.pumpAndSettle();
         await snapshot('bittorrent-menu');
@@ -84,6 +95,11 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        expect(
+          tester.getRect(find.byKey(const ValueKey('bittorrent-save-bar'))),
+          saveBounds,
+        );
+        expect(find.text('保存并应用').hitTestable(), findsOneWidget);
         await snapshot('bittorrent-advanced');
         await tester.ensureVisible(find.text('高级设置'));
         await tester.pumpAndSettle();
