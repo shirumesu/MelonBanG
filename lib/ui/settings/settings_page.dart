@@ -69,11 +69,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   label: const Text('返回'),
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(26, 0, 0, 24),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(pageGutter, 0, 0, 24),
                 child: Text(
                   '设置',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
               for (var i = 0; i < categories.length; i++)
@@ -96,13 +96,15 @@ class _SettingsPageState extends State<SettingsPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(32, 28, 32, 20),
+              padding: const EdgeInsets.fromLTRB(
+                pageGutter,
+                28,
+                pageGutter,
+                20,
+              ),
               child: Text(
                 categories[selected],
-                style: const TextStyle(
-                  fontSize: 25,
-                  fontWeight: FontWeight.w800,
-                ),
+                style: Theme.of(context).textTheme.titleLarge,
               ),
             ),
             Expanded(

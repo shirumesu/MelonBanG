@@ -465,10 +465,10 @@ class _ResourcesPageState extends State<ResourcesPage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       ExcludeFocus(
-                        child: Checkbox(
+                        child: Switch(
                           value: includeUnknown,
                           onChanged: (value) =>
-                              changeForm(() => includeUnknown = value ?? false),
+                              changeForm(() => includeUnknown = value),
                         ),
                       ),
                       const Padding(

@@ -195,7 +195,7 @@ void main() {
     expect(state.route, 'resources');
     final episodeField = find.widgetWithText(TextField, '集数关键词');
     expect(tester.widget<TextField>(episodeField).controller!.text, '01');
-    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
     final providerRequests = requests.where(
       (url) => ['share.dmhy.org', 'mikanani.me'].contains(url.host),
     );

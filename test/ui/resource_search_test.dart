@@ -60,7 +60,7 @@ void main() {
     final field = find.widgetWithText(TextField, '集数关键词');
     String text() => tester.widget<TextField>(field).controller!.text;
     expect(text(), '01');
-    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
     await tester.tap(find.widgetWithText(FilledButton, '搜索'));
     await tester.pumpAndSettle();
     expect(searchedEpisode, '01');
@@ -554,7 +554,7 @@ void main() {
           .value,
       '字幕组',
     );
-    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isTrue);
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
     expect(
       tester
           .widget<FilterChip>(
@@ -600,7 +600,7 @@ void main() {
           .value,
       isEmpty,
     );
-    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
     expect(
       tester
           .widget<FilterChip>(

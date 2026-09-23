@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+const pageGutter = 26.0;
+
 const mint = Color(0xff22b388);
 const coral = Color(0xffff6b81);
 const gold = Color(0xffffb83d);
@@ -77,7 +79,7 @@ ThemeData appTheme(bool dark) {
             : const Color(0xffe1e8e3),
       );
   final inputBorder = OutlineInputBorder(
-    borderRadius: posterBorderRadius,
+    borderRadius: controlBorderRadius,
     borderSide: BorderSide.none,
   );
   final theme = ThemeData(
@@ -196,6 +198,15 @@ ThemeData appTheme(bool dark) {
       ),
     ),
     textTheme: textTheme.copyWith(
+      headlineSmall: textTheme.headlineSmall!.copyWith(
+        fontSize: 24,
+        fontWeight: FontWeight.w700,
+        height: 1.25,
+      ),
+      titleLarge: textTheme.titleLarge!.copyWith(
+        fontSize: 22,
+        fontWeight: FontWeight.w700,
+      ),
       titleMedium: textTheme.bodyMedium!.copyWith(
         fontSize: 17,
         fontWeight: FontWeight.w600,

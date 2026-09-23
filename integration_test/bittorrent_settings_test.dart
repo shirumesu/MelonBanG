@@ -69,9 +69,11 @@ void main() {
         }
 
         await snapshot('bittorrent-seeding');
-        final upload = find.widgetWithText(TextField, '上传限速 KiB/s（0 = 不限速）');
+        final upload = find.byKey(
+          const PageStorageKey('bittorrent-field:uploadKiB'),
+        );
         await tester.ensureVisible(upload);
-        await tester.enterText(upload, '256');
+        await tester.enterText(upload, '0.25');
         final save = find.descendant(
           of: find.byType(BitTorrentSettingsPanel),
           matching: find.byWidgetPredicate((widget) => widget is FilledButton),
@@ -186,16 +188,23 @@ void main() {
         );
         await tester.pumpAndSettle();
         await snapshot('bittorrent-tasks');
-        await tester.tap(find.byTooltip('查看文件'));
+        await tester.tap(find.byTooltip('任务详情').at(1));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('查看文件'));
+        await tester.tap(find.text('查看文件'));
         await tester.pumpAndSettle();
         expect(find.text('Episode 01.zh.ass'), findsOneWidget);
         await snapshot('bittorrent-files');
         await tester.tap(find.text('关闭'));
         await tester.pumpAndSettle();
-        await tester.tap(find.byTooltip('停止做种'));
+        await tester.ensureVisible(find.text('停止做种'));
+        await tester.tap(find.text('停止做种'));
         expect(pausedId, 'seed');
         expect(find.text('已完成 · 达到分享率'), findsOneWidget);
-        await tester.tap(find.widgetWithText(ChoiceChip, '做种中'));
+        await tester.scrollUntilVisible(find.text('所有状态'), -300);
+        await tester.tap(find.text('所有状态'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(MenuItemButton, '做种中'));
         await tester.pumpAndSettle();
         expect(find.text('示例番剧 · 第 01 话 [1080p / 多音轨 / 简繁字幕]'), findsOneWidget);
         expect(find.text('示例番剧 · 第 02 话'), findsNothing);

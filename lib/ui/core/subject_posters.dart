@@ -481,10 +481,12 @@ class SubjectCover extends StatelessWidget {
     required this.url,
     this.title = '',
     this.id = 0,
+    this.fit = BoxFit.cover,
   });
   final Object? url;
   final String title;
   final int id;
+  final BoxFit fit;
   @override
   Widget build(BuildContext context) {
     final fallback = DecoratedBox(
@@ -511,7 +513,7 @@ class SubjectCover extends StatelessWidget {
     return switch (url) {
       final String address when address.startsWith('http') => Image.network(
         address,
-        fit: BoxFit.cover,
+        fit: fit,
         frameBuilder: (context, child, frame, synchronous) {
           if (synchronous) return child;
           return Stack(
