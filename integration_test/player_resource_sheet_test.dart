@@ -65,9 +65,15 @@ void main() {
         await services.close();
         await directory.delete(recursive: true);
       });
+      tester.binding.platformDispatcher.platformBrightnessTestValue =
+          Brightness.light;
+      addTearDown(
+        tester.binding.platformDispatcher.clearPlatformBrightnessTestValue,
+      );
       await tester.pumpWidget(
         MaterialApp(
           theme: appTheme(false),
+          darkTheme: appTheme(true),
           home: Scaffold(
             body: RepaintBoundary(
               key: capture,
@@ -136,15 +142,32 @@ void main() {
       await advance();
       expect(find.text('保留搜索输入'), findsOneWidget);
       const output = String.fromEnvironment('TEST_CAPTURE');
-      if (output.isNotEmpty) {
+      Future<void> snapshot(String path) async {
+        if (path.isEmpty) return;
         final boundary =
             capture.currentContext!.findRenderObject()!
                 as RenderRepaintBoundary;
         final image = await boundary.toImage(pixelRatio: 1);
         final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-        await File(output).writeAsBytes(bytes!.buffer.asUint8List());
+        await File(path).writeAsBytes(bytes!.buffer.asUint8List());
         image.dispose();
       }
+
+      expect(
+        Theme.of(tester.element(find.byType(ResourcesPage))).brightness,
+        Brightness.light,
+      );
+      await snapshot(output);
+      tester.binding.platformDispatcher.platformBrightnessTestValue =
+          Brightness.dark;
+      await advance();
+      expect(
+        Theme.of(tester.element(find.byType(ResourcesPage))).brightness,
+        Brightness.dark,
+      );
+      expect(tester.element(find.byType(Video)), same(video));
+      expect(find.text('保留搜索输入'), findsOneWidget);
+      await snapshot(output.isEmpty ? '' : '$output.dark.png');
       expect(tester.takeException(), isNull);
     },
   );

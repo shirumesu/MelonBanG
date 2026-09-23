@@ -43,11 +43,14 @@ class PlayerControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.fromLTRB(12, 35, 12, 6),
-    decoration: const BoxDecoration(
+    decoration: BoxDecoration(
       gradient: LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [Colors.transparent, Colors.black87],
+        colors: [
+          Theme.of(context).colorScheme.surface.withValues(alpha: 0),
+          Theme.of(context).colorScheme.surface.withValues(alpha: .96),
+        ],
       ),
     ),
     child: StreamBuilder<Duration>(

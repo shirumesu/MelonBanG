@@ -273,9 +273,9 @@ class _PlayerPageState extends State<PlayerPage> {
 
   @override
   Widget build(BuildContext context) => Theme(
-    data: playerTheme(),
+    data: playerTheme(Theme.of(context)),
     child: Material(
-      color: const Color(0xff080b0b),
+      color: Theme.of(context).colorScheme.surface,
       child: Builder(builder: body),
     ),
   );
@@ -534,7 +534,10 @@ class _PlayerPageState extends State<PlayerPage> {
                             title,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 16),
+                            style: const TextStyle(
+                              fontSize: 16,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ),

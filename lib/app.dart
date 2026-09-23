@@ -1072,6 +1072,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           dark: dark,
           dataDirectory: widget.service.dataDirectory,
           storageSettings: StorageSettings(
+            onExit: () => windowManager.close(),
             storage: widget.service.storage,
             dataDirectory: widget.service.dataDirectory!,
             mediaDirectory: widget.service.downloads.directory,

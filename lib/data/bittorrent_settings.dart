@@ -44,6 +44,21 @@ class BitTorrentSettings {
     forceEncryption: data['forceEncryption'] as bool? ?? false,
   );
 
+  factory BitTorrentSettings.fromStoredJson(Json data) {
+    final values = {...data};
+    for (final (key, maximum, previousMaximum) in [
+      ('activeDownloads', 5, 20),
+      ('activeSeeds', 3, 20),
+      ('seedMinutes', 1440, 525600),
+    ]) {
+      final value = values[key];
+      if (value is num && value > maximum && value <= previousMaximum) {
+        values[key] = maximum;
+      }
+    }
+    return BitTorrentSettings.fromJson(values);
+  }
+
   Json toJson() => {
     'seedMode': seedMode,
     'seedRatio': seedRatio,
@@ -67,18 +82,18 @@ class BitTorrentSettings {
         seedRatio < 0 ||
         seedRatio > 1000 ||
         seedMinutes < 0 ||
-        seedMinutes > 525600 ||
+        seedMinutes > 1440 ||
         (seedMode == 'limited' && seedRatio == 0 && seedMinutes == 0)) {
-      throw const FormatException('限量做种需至少设置一个停止条件；分享率 0–1000，时长 0–525600 分钟');
+      throw const FormatException('限量做种需至少设置一个停止条件；分享率 0–1000，时长 0–1440 分钟');
     }
     if (downloadKiB < 0 ||
         downloadKiB > 1048576 ||
         uploadKiB < 0 ||
         uploadKiB > 1048576 ||
-        activeDownloads < 1 ||
-        activeDownloads > 20 ||
-        activeSeeds < 1 ||
-        activeSeeds > 20 ||
+        activeDownloads < 0 ||
+        activeDownloads > 5 ||
+        activeSeeds < 0 ||
+        activeSeeds > 3 ||
         connectionsPerTask < 5 ||
         connectionsPerTask > 500 ||
         listenPort < 0 ||

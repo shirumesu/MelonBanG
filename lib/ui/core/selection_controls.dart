@@ -292,6 +292,11 @@ class MelonChoiceMenu<T> extends StatelessWidget {
     menuChildren: [
       for (final entry in options.entries)
         MenuItemButton(
+          style: const ButtonStyle(
+            shape: WidgetStatePropertyAll(
+              RoundedRectangleBorder(borderRadius: controlBorderRadius),
+            ),
+          ),
           onPressed: onSelected == null ? null : () => onSelected!(entry.key),
           leadingIcon: SizedBox.square(
             dimension: 18,

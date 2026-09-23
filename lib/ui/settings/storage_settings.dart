@@ -10,8 +10,10 @@ class StorageSettings extends StatefulWidget {
     required this.storage,
     required this.dataDirectory,
     required this.mediaDirectory,
+    this.onExit,
   });
   final StorageLocations? storage;
+  final VoidCallback? onExit;
   final String dataDirectory, mediaDirectory;
   @override
   State<StorageSettings> createState() => _StorageSettingsState();
@@ -21,13 +23,46 @@ class _StorageSettingsState extends State<StorageSettings> {
   bool busy = false;
   String? error;
   Future<void> choose(bool media) async {
-    final selected = await getDirectoryPath(confirmButtonText: '选择空文件夹');
-    if (selected == null || !mounted) return;
     setState(() {
       busy = true;
       error = null;
     });
     try {
+      final selected = await getDirectoryPath(confirmButtonText: '选择文件夹');
+      if (selected == null || !mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(media ? '迁移媒体缓存？' : '迁移应用数据？'),
+          content: SizedBox(
+            width: 440,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('新位置'),
+                const SizedBox(height: 8),
+                SelectableText(selected),
+                const SizedBox(height: 20),
+                const Text('下次启动时会复制并校验现有数据，完成后切换位置。原目录保留，迁移完成前请保持磁盘连接。'),
+                const SizedBox(height: 12),
+                const Text('重启会中断当前播放和传输，请在方便时退出并重新打开应用。'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('确认迁移'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
       await widget.storage!.schedule(
         dataPath: media ? null : selected,
         mediaPath: media ? selected : null,
@@ -49,8 +84,6 @@ class _StorageSettingsState extends State<StorageSettings> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(media ? '视频、下载中的文件和种子元数据' : '追番记录、播放进度与下载任务记录'),
-              const SizedBox(height: 12),
               SelectableText(
                 media ? widget.mediaDirectory : widget.dataDirectory,
                 style: Theme.of(context).textTheme.bodySmall,
@@ -61,28 +94,59 @@ class _StorageSettingsState extends State<StorageSettings> {
                     ? null
                     : () => choose(media),
                 icon: const Icon(Icons.drive_file_move_outline),
-                label: const Text('更改位置并迁移'),
+                label: const Text('更改位置'),
               ),
             ],
           ),
         ),
       ],
       const SizedBox(height: 18),
-      const Text(
-        '迁移在下次启动时执行，复制并校验完成后才切换位置。原目录保留为备份，确认新位置正常后可手动删除。界面偏好与系统钥匙串仍由操作系统保存。',
-      ),
       if (widget.storage == null) const Text('当前使用启动参数指定的数据目录，请先移除该参数以启用位置管理。'),
       if (widget.storage?.pending case final plan?) ...[
         const SizedBox(height: 14),
-        Text('迁移已安排，请退出并重新打开应用。\n应用数据：${plan['data']}\n媒体缓存：${plan['media']}'),
-        TextButton(
-          onPressed: busy
-              ? null
-              : () async {
-                  await widget.storage!.cancel();
-                  if (mounted) setState(() {});
-                },
-          child: const Text('取消迁移'),
+        MelonPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('迁移已安排 · 重启后生效'),
+              const SizedBox(height: 8),
+              if (plan['data'] != widget.dataDirectory)
+                SelectableText('应用数据 → ${plan['data']}'),
+              if (plan['media'] != widget.mediaDirectory)
+                SelectableText('媒体缓存 → ${plan['media']}'),
+              const SizedBox(height: 12),
+              const Text('请退出并重新打开应用，启动时会显示迁移进度。'),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                children: [
+                  if (widget.onExit != null)
+                    FilledButton(
+                      onPressed: busy ? null : widget.onExit,
+                      child: const Text('退出应用'),
+                    ),
+                  TextButton(
+                    onPressed: busy
+                        ? null
+                        : () async {
+                            setState(() {
+                              busy = true;
+                              error = null;
+                            });
+                            try {
+                              await widget.storage!.cancel();
+                            } catch (_) {
+                              error = '暂时无法取消迁移，请重试。';
+                            } finally {
+                              if (mounted) setState(() => busy = false);
+                            }
+                          },
+                    child: const Text('取消迁移'),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ],
       if (error != null)

@@ -69,6 +69,26 @@ void main() {
         }
 
         await snapshot('bittorrent-seeding');
+        await tester.tap(find.text('不限速').first);
+        await tester.pumpAndSettle();
+        await snapshot('bittorrent-menu');
+        await tester.tapAt(const Offset(260, 40));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('高级设置'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('高级设置'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(
+            const PageStorageKey('bittorrent-field:connectionsPerTask'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await snapshot('bittorrent-advanced');
+        await tester.ensureVisible(find.text('高级设置'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('高级设置'));
+        await tester.pumpAndSettle();
         final upload = find.byKey(
           const PageStorageKey('bittorrent-field:uploadKiB'),
         );
@@ -107,8 +127,15 @@ void main() {
           '-1',
           reason: 'The invalid draft must survive scrolling and save',
         );
-        expect(find.textContaining('保存失败'), findsOneWidget);
+        expect(
+          tester.widget<TextField>(upload).decoration!.errorText,
+          isNotNull,
+        );
+        expect(tester.widget<TextField>(upload).focusNode!.hasFocus, isTrue);
+        await snapshot('bittorrent-validation');
         expect(downloads.settings.uploadKiB, 256);
+        await tester.ensureVisible(find.text('恢复推荐值'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('恢复推荐值'));
         await tester.pumpAndSettle();
         await tester.tap(save);

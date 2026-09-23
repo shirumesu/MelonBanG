@@ -243,8 +243,6 @@ class AppSidebar extends StatelessWidget {
           downloadCount,
         ),
         const Spacer(),
-        if (route == 'player')
-          _nav(context, 'player', '播放器', Icons.play_circle_outline),
         _nav(context, 'settings', '设置', Icons.settings_outlined),
         const SizedBox(height: 10),
         Material(

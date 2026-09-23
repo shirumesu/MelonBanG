@@ -53,7 +53,7 @@ class DownloadRepository {
 
   Future<void> initialize() async {
     _requireOpen();
-    settings = BitTorrentSettings.fromJson(
+    settings = BitTorrentSettings.fromStoredJson(
       await store.get('settings', 'bittorrent') ?? {},
     );
     settings.validate();
@@ -246,12 +246,14 @@ class DownloadRepository {
         if (reason != null) {
           task['status'] = 'completed';
         } else {
-          run = seeding++ < settings.activeSeeds;
+          run = settings.activeSeeds == 0 || seeding++ < settings.activeSeeds;
           task['status'] = run ? 'seeding' : 'queued';
         }
       } else {
         task['seedStopReason'] = null;
-        run = downloading++ < settings.activeDownloads;
+        run =
+            settings.activeDownloads == 0 ||
+            downloading++ < settings.activeDownloads;
         if (!run) {
           task['status'] = 'queued';
         } else if ([

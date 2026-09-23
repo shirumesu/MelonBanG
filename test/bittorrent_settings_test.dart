@@ -48,6 +48,31 @@ void main() {
   );
 
   test(
+    'unlimited queues and legacy finite settings migrate without unbounding',
+    () {
+      const unlimited = BitTorrentSettings(activeDownloads: 0, activeSeeds: 0);
+      expect(unlimited.validate, returnsNormally);
+      expect(
+        BitTorrentSettings.fromJson(unlimited.toJson()).activeDownloads,
+        0,
+      );
+      final legacy = BitTorrentSettings.fromStoredJson({
+        'activeDownloads': 20,
+        'activeSeeds': 10,
+        'seedMinutes': 525600,
+      });
+      legacy.validate();
+      expect(legacy.activeDownloads, 5);
+      expect(legacy.activeSeeds, 3);
+      expect(legacy.seedMinutes, 1440);
+      expect(
+        const BitTorrentSettings(seedMinutes: 1441).validate,
+        throwsFormatException,
+      );
+    },
+  );
+
+  test(
     'settings round-trip and reject unbounded limited mode and invalid numbers',
     () {
       const config = BitTorrentSettings(
@@ -64,7 +89,7 @@ void main() {
         throwsFormatException,
       );
       expect(
-        const BitTorrentSettings(activeDownloads: 0).validate,
+        const BitTorrentSettings(activeDownloads: 6).validate,
         throwsFormatException,
       );
       expect(
