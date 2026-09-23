@@ -310,10 +310,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ],
                   ),
-                  PageScroll(
-                    key: const PageStorageKey('settings-downloads'),
-                    children: [widget.bitTorrentSettings],
-                  ),
+                  widget.bitTorrentSettings,
                   PageScroll(
                     key: const PageStorageKey('settings-data'),
                     children: [

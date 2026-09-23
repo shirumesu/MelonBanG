@@ -52,14 +52,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: appTheme(false),
-          home: Scaffold(
-            body: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: BitTorrentSettingsPanel(downloads: downloads),
-              ),
-            ),
-          ),
+          home: Scaffold(body: BitTorrentSettingsPanel(downloads: downloads)),
         ),
       );
       await tester.pumpAndSettle();
@@ -80,11 +73,13 @@ void main() {
       expect(downloads.settings.connectionsPerTask, 87);
       expect(downloads.settings.seedMinutes, 120);
       await tester.ensureVisible(find.text('高级设置'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('高级设置'));
       await tester.pumpAndSettle();
       await tester.ensureVisible(advanced);
       await tester.enterText(advanced, '96');
       await tester.ensureVisible(find.text('高级设置'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('高级设置'));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('保存并应用'));
@@ -116,24 +111,32 @@ void main() {
             body: StatefulBuilder(
               builder: (context, setState) {
                 refresh = setState;
-                return SingleChildScrollView(
-                  child: BitTorrentSettingsPanel(downloads: downloads),
-                );
+                return BitTorrentSettingsPanel(downloads: downloads);
               },
             ),
           ),
         ),
       );
+      final saveBounds = tester.getRect(
+        find.byKey(const ValueKey('bittorrent-save-bar')),
+      );
       final advanced = find.byKey(const PageStorageKey('bittorrent-advanced'));
       await tester.ensureVisible(find.text('高级设置'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('高级设置'));
       await tester.pumpAndSettle();
       final connections = find.byKey(
         const PageStorageKey('bittorrent-field:connectionsPerTask'),
       );
       await tester.ensureVisible(connections);
+      expect(
+        tester.getRect(find.byKey(const ValueKey('bittorrent-save-bar'))),
+        saveBounds,
+      );
+      expect(find.text('保存并应用').hitTestable(), findsOneWidget);
       await tester.enterText(connections, '4');
       await tester.ensureVisible(find.text('高级设置'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('高级设置'));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('保存并应用'));
@@ -149,6 +152,7 @@ void main() {
             .overlaps(Offset.zero & const Size(900, 800)),
         isTrue,
       );
+      expect(tester.getRect(connections).bottom, lessThan(saveBounds.top));
       expect(downloads.settings.connectionsPerTask, 50);
       expect(find.textContaining('保存失败'), findsNothing);
       await tester.enterText(connections, '5');
@@ -169,10 +173,12 @@ void main() {
       expect(downloads.settings.activeSeeds, 0);
       expect(downloads.settings.connectionsPerTask, 5);
       await tester.ensureVisible(find.text('高级设置'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('高级设置'));
       await tester.pumpAndSettle();
       final help = find.byIcon(Icons.help_outline_rounded);
       await tester.ensureVisible(help.first);
+      await tester.pumpAndSettle();
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
       await mouse.addPointer();
       await mouse.moveTo(tester.getCenter(help.first));

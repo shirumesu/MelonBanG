@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 const pageGutter = 26.0;
 
 const mint = Color(0xff22b388);
+const mintOnDark = Color(0xff73d7b2);
 const coral = Color(0xffff6b81);
 const gold = Color(0xffffb83d);
 const sky = Color(0xff8bbcf6);
@@ -38,7 +39,7 @@ ThemeData appTheme(bool dark) {
         seedColor: mint,
         brightness: dark ? Brightness.dark : Brightness.light,
       ).copyWith(
-        primary: dark ? const Color(0xff73d7b2) : const Color(0xff168364),
+        primary: dark ? mintOnDark : const Color(0xff168364),
         onPrimary: dark ? const Color(0xff123a2a) : Colors.white,
         primaryContainer: dark
             ? const Color(0xff304f42)

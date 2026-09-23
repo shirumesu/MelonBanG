@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -102,7 +103,9 @@ void main() {
       await playback.openLocal(media, subjectId: 42, episodeId: 1);
       Future<void> advance() async {
         for (var i = 0; i < 10; i++) {
-          await tester.pump(const Duration(milliseconds: 100));
+          await tester
+              .pump(const Duration(milliseconds: 100))
+              .timeout(const Duration(seconds: 10));
         }
       }
 
@@ -158,6 +161,22 @@ void main() {
         Brightness.light,
       );
       await snapshot(output);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await advance();
+      await tester.tap(find.byTooltip('收起选集与资源'));
+      await advance();
+      await tester.tap(find.byTooltip('播放 / 暂停（空格）'));
+      await advance();
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer();
+      await mouse.moveTo(tester.getCenter(find.byTooltip('展开选集与资源')));
+      await advance();
+      await snapshot(output.isEmpty ? '' : '$output.collapsed.png');
+      await tester.tap(find.byTooltip('展开选集与资源'));
+      await mouse.removePointer();
+      await advance();
+      await tester.tap(find.byTooltip('查找第 2 话资源'));
+      await advance();
       tester.binding.platformDispatcher.platformBrightnessTestValue =
           Brightness.dark;
       await advance();
