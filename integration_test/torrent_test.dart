@@ -88,6 +88,7 @@ void main() {
         'info': info,
       });
       final sockets = <Socket>[];
+      final releasePieces = Completer<void>();
       var servedBytes = 0;
       tracker.listen((request) async {
         workingAnnounces++;
@@ -144,14 +145,16 @@ void main() {
                     begin = request.getUint32(5),
                     count = request.getUint32(9);
                 final start = index * pieceLength + begin;
-                socket.add([
-                  ...integer(count + 9),
-                  7,
-                  ...integer(index),
-                  ...integer(begin),
-                  ...payload.sublist(start, start + count),
-                ]);
-                servedBytes += count;
+                releasePieces.future.then((_) {
+                  socket.add([
+                    ...integer(count + 9),
+                    7,
+                    ...integer(index),
+                    ...integer(begin),
+                    ...payload.sublist(start, start + count),
+                  ]);
+                  servedBytes += count;
+                });
               }
             }
           },
@@ -210,6 +213,47 @@ void main() {
             enableIpv6: false,
           ),
         );
+        for (
+          var i = 0;
+          i < 50 && objects(downloads.snapshot()['files']).isEmpty;
+          i++
+        ) {
+          await tester.pump(const Duration(milliseconds: 200));
+        }
+        expect(
+          number(objects(downloads.snapshot()['tasks']).single['progress']),
+          lessThan(1),
+        );
+        final streaming = await downloads.openMedia('${task['id']}');
+        expect(streaming['incomplete'], true);
+        final http = HttpClient();
+        try {
+          final request = await http.getUrl(
+            Uri.parse('${streaming['streamUrl']}'),
+          );
+          request.headers.set(HttpHeaders.rangeHeader, 'bytes=65504-65535');
+          final response = request.close();
+          releasePieces.complete();
+          final received = await response.timeout(const Duration(seconds: 30));
+          expect(received.statusCode, HttpStatus.partialContent);
+          final bytes = await received.fold<List<int>>(
+            [],
+            (all, next) => all..addAll(next),
+          );
+          expect(bytes, payload.sublist(65504));
+          final seek = await http.getUrl(
+            Uri.parse('${streaming['streamUrl']}'),
+          );
+          seek.headers.set(HttpHeaders.rangeHeader, 'bytes=0-31');
+          final sought = await seek.close();
+          expect(
+            await sought.fold<List<int>>([], (all, next) => all..addAll(next)),
+            payload.sublist(0, 32),
+          );
+        } finally {
+          http.close(force: true);
+          downloads.releaseStreamsExcept(null);
+        }
         Json current = {};
         for (var i = 0; i < 150; i++) {
           await tester.pump(const Duration(milliseconds: 200));
@@ -524,7 +568,8 @@ void main() {
           reason:
               'Restart must reuse valid pieces and reject the damaged piece',
         );
-        expect(() => downloads.media('${task['id']}'), throwsStateError);
+        expect(downloads.media('${task['id']}')['incomplete'], true);
+        expect(downloads.media('${task['id']}')['progress'], .75);
       } finally {
         await downloads.close();
         await store.close();
@@ -644,4 +689,51 @@ void main() {
       }
     },
   );
+  testWidgets('streaming keeps the entire persistent torrent wanted', (
+    tester,
+  ) async {
+    final directory = await Directory.systemTemp.createTemp(
+      'melonbang-stream-priority-',
+    );
+    final store = await AppStore.open('${directory.path}/test.sqlite');
+    final downloads = DownloadRepository(store, '${directory.path}/downloads');
+    const length = 40 * 1024 * 1024;
+    final metadata = bencode(<String, Object>{
+      'info': <String, Object>{
+        'name': 'large.mkv',
+        'length': length,
+        'piece length': 1024 * 1024,
+        'pieces': Uint8List(40 * 20),
+        'private': 1,
+      },
+    });
+    try {
+      await downloads.initialize();
+      await downloads.saveSettings(
+        const BitTorrentSettings(dht: false, upnp: false, ipv6: false),
+      );
+      final task = await downloads.addTorrent(metadata, 'Large fixture');
+      for (
+        var i = 0;
+        i < 50 && objects(downloads.snapshot()['files']).isEmpty;
+        i++
+      ) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      final media = await downloads.openMedia('${task['id']}');
+      expect(media['streamUrl'], startsWith('http://127.0.0.1:'));
+      await tester.pump(const Duration(seconds: 2));
+      expect(
+        objects(downloads.snapshot()['tasks']).single['totalBytes'],
+        length,
+        reason:
+            'Playback must not zero priorities outside its head/tail window',
+      );
+      downloads.releaseStreamsExcept(null);
+    } finally {
+      await downloads.close();
+      await store.close();
+      await directory.delete(recursive: true);
+    }
+  });
 }

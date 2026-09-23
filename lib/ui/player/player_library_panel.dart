@@ -310,14 +310,18 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
     final current = id == widget.episodeId;
     final related = tasks.where((t) => t['episodeId'] == id).toList();
     final complete = related
-        .where((t) => number(t['progress']) >= 1 && filesFor(t).length == 1)
+        .where(
+          (t) =>
+              !['checking', 'failed'].contains(t['status']) &&
+              filesFor(t).length == 1,
+        )
         .firstOrNull;
     final task = complete ?? related.firstOrNull;
     final available = current || localEpisodes.contains(id) || complete != null;
     final status = current
         ? '正在播放'
         : available
-        ? '已缓存'
+        ? (task != null && number(task['progress']) < 1 ? '可边下边看' : '已缓存')
         : task != null
         ? '${taskStatus(task)} · ${(number(task['progress']) * 100).round()}%'
         : '未缓存';
@@ -551,9 +555,10 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                       size: 18,
                     ),
                   ),
-                if (progress >= 1 && files.length == 1)
+                if (!['checking', 'failed'].contains(task['status']) &&
+                    files.length == 1)
                   IconButton(
-                    tooltip: '播放已缓存视频',
+                    tooltip: progress >= 1 ? '播放已缓存视频' : '边下边看',
                     onPressed: () => widget.onPlayFile(
                       '${task['id']}',
                       '${files.first['id']}',
@@ -584,7 +589,8 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                   color: Theme.of(context).colorScheme.error,
                 ),
               ),
-            if (progress >= 1 && files.length > 1)
+            if (!['checking', 'failed'].contains(task['status']) &&
+                files.length > 1)
               ExpansionTile(
                 tilePadding: EdgeInsets.zero,
                 title: Text(

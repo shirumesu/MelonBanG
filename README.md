@@ -115,7 +115,7 @@ without requiring an additional state-management framework. Keep `test/` and
   use the associated catalogue subject; existing tasks recover covers from cached
   subject details. Unassociated torrents retain a placeholder.
 - Import magnets or torrent files, pause and resume native
-  downloads, and play completed episodes. Closing the app preserves downloaded data.
+  downloads, and play episodes while downloading or after completion. Closing the app preserves downloaded data.
   Multi-video torrents require selecting a file in the cache list; individual files
   are not automatically assigned to the chapter used to find the collection.
 - Play original video files through media_kit: native ASS subtitles, audio and
@@ -145,8 +145,15 @@ for service ownership, persistence guarantees, and verification boundaries.
 ## Data and connections
 
 The app uses a fresh `native` directory under the operating system's application
-support directory. Its path is shown in Settings. `MELONBANG_DATA_DIR` can select
-another directory. Earlier runtime databases are not opened or migrated.
+support directory. Settings → Application data can independently change the
+application-record and media-cache directories. Choose empty folders; migration
+runs at the next startup before services open, copies and verifies files, and
+updates stored task and episode paths. Original files remain as a recovery copy
+and can be removed manually after checking the new locations. UI preferences
+and macOS Keychain credentials remain in OS-managed storage; changing directories
+preserves the credential identity. An interrupted migration retries at startup.
+`MELONBANG_DATA_DIR` can select an override directory and disables this location
+manager. Earlier runtime databases are not opened or migrated.
 
 Settings → Downloads and seeding controls the persistent BitTorrent policy.
 Defaults: at most 3 downloads and 2 seeders, unlimited download speed, 1024 KiB/s
@@ -165,6 +172,13 @@ have no historical sharing counters to migrate. Magnet metadata is cached for
 offline recovery, and restored local files are checked before playback/transfer.
 Task changes are saved immediately and transfer counters every five seconds and
 on orderly shutdown. Force-quitting can lose the most recent counter interval.
+Once video metadata is available, Play while downloading uses a loopback HTTP
+stream of verified pieces and gives the playing task priority in the download
+queue. Seeking prioritizes the requested range; the complete torrent continues
+caching. Completed files use their original local URI. Multi-video torrents still
+require explicit file selection. Automatic file-hash danmaku matching is deferred
+for incomplete files; manual and title-based matching remain available.
+
 Completed tasks have a Stop Seeding action that preserves downloaded files and
 persists independently of global sharing limits. File sizes and individual progress
 come from native verified pieces; idle seeding still counts toward the time limit. Explicit Resume clears this stop
@@ -230,6 +244,13 @@ Local chapter states remain usable independently of subject collection.
 Danmaku JSON is an array of objects containing `timeSeconds`, `text`, `mode`
 (`scroll`, `top`, `bottom`), and optional `color` (`#rrggbb`). Provider availability
 and title matching can vary; a provider failure is displayed without stopping video.
+Dandanplay first tries the associated Bangumi subject and episode, then exact
+title/episode search. Incomplete videos can request filename-only matching
+without reading sparse file bytes;
+completed/local files can use the first-16-MiB hash. Ambiguous candidates remain
+available for manual selection, and saved choices take priority. The live match
+endpoint may reject hashless requests; metadata search and manual selection remain
+available and provider errors stay visible.
 
 ## Verify
 

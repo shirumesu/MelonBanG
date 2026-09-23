@@ -320,6 +320,7 @@ void main() {
           'date': date,
           'items': [
             {'subjectId': 42, 'name': 'Today'},
+            {'subjectId': null, 'id': 999, 'name': 'Unlinked'},
           ],
         }),
       );

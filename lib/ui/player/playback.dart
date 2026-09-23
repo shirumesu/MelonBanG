@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../app_services.dart';
@@ -103,7 +104,26 @@ class Playback extends ChangeNotifier {
         await platform.setProperty('sub-ass-override', 'no');
         await platform.setProperty('sub-delay', '0');
       }
-      var resume = preferences.getDouble('progress:$uri') ?? 0;
+      var resume = preferences.getDouble(
+        'progress:${next['resumeKey'] ?? uri}',
+      );
+      if (resume == null && next['path'] is String) {
+        final path = next['path'] as String;
+        resume = preferences.getDouble('progress:${Uri.file(path)}');
+        final storage = service.storage;
+        if (resume == null &&
+            storage != null &&
+            p.isWithin(storage.media, path)) {
+          for (final previous in storage.previousMedia.reversed) {
+            final oldPath = p.join(
+              previous,
+              p.relative(path, from: storage.media),
+            );
+            resume = preferences.getDouble('progress:${Uri.file(oldPath)}');
+            if (resume != null) break;
+          }
+        }
+      }
       if (next['subjectId'] != null && next['episodeId'] != null) {
         try {
           final saved = object(
@@ -121,12 +141,16 @@ class Playback extends ChangeNotifier {
       }
       // Apply continuation while loading; open() can return before native seek is ready.
       await player.open(
-        Media(uri!, start: Duration(milliseconds: (resume * 1000).round())),
+        Media(
+          uri!,
+          start: Duration(milliseconds: ((resume ?? 0) * 1000).round()),
+        ),
         play: false,
       );
       if (Platform.environment['MELONBANG_MUTE_AUDIO'] == '1') {
         await player.setVolume(0);
       }
+      service.releasePlaybackStreams(next['streamId'] as int?);
       await player.play();
       if (!_closed && service.library.current?['id'] == next['id']) {
         unawaited(
@@ -141,6 +165,7 @@ class Playback extends ChangeNotifier {
       session = null;
       uri = null;
       await player.stop();
+      service.releasePlaybackStreams(null);
       rethrow;
     } finally {
       opening = false;
@@ -182,7 +207,7 @@ class Playback extends ChangeNotifier {
 
   Future<void> saveProgress({bool ended = false}) {
     if (uri == null || session == null || opening) return _progressWrites;
-    final savedUri = uri!;
+    final savedUri = session!['resumeKey'] ?? uri!;
     final savedSession = session!;
     ended = ended || player.state.completed;
     final position = player.state.position.inMilliseconds / 1000;
@@ -211,5 +236,6 @@ class Playback extends ChangeNotifier {
       await subscription.cancel();
     }
     await player.dispose();
+    service.releasePlaybackStreams(null);
   }
 }

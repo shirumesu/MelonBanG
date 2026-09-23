@@ -320,7 +320,7 @@ void main() {
   );
 
   testWidgets(
-    'completed tasks still need a complete video before enabling play',
+    'video metadata enables streaming while non-video tasks stay disabled',
     (tester) async {
       addTearDown(tester.view.reset);
       final data = ValueNotifier<Json>({
@@ -335,7 +335,7 @@ void main() {
       });
       addTearDown(data.dispose);
       await _show(tester, data);
-      for (final title in ['没有视频', '视频还未完成']) {
+      for (final title in ['没有视频']) {
         expect(
           tester
               .widget<FilledButton>(_inCard(title, find.byType(FilledButton)))
@@ -343,6 +343,12 @@ void main() {
           isNull,
         );
       }
+      expect(
+        tester
+            .widget<FilledButton>(_inCard('视频还未完成', find.byType(FilledButton)))
+            .onPressed,
+        isNotNull,
+      );
     },
   );
 

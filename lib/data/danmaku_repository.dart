@@ -13,6 +13,12 @@ import 'service_configuration.dart';
 import 'json.dart';
 import 'network.dart';
 
+class DandanMatch {
+  const DandanMatch({this.episodeId, this.candidates = const []});
+  final int? episodeId;
+  final List<Json> candidates;
+}
+
 class DanmakuRepository {
   DanmakuRepository(
     this.api, {
@@ -155,9 +161,10 @@ class DanmakuRepository {
     );
   }
 
-  Future<List<Json>> search(String title) async {
+  Future<List<Json>> search(String title, {double? episode}) async {
     final value = await _dandan(
-      '/api/v2/search/episodes?anime=${Uri.encodeQueryComponent(title)}',
+      '/api/v2/search/episodes?anime=${Uri.encodeQueryComponent(title)}'
+      '${episode == null ? '' : '&episode=${episode.toInt()}'}',
     );
     if (value['success'] != true) throw StateError('弹弹play搜索失败');
     return objects(value['animes'])
@@ -173,35 +180,112 @@ class DanmakuRepository {
         .toList();
   }
 
-  Future<int?> matchFile(String path, double duration) async {
-    final file = File(path);
-    final handle = await file.open();
-    late List<int> prefix;
-    try {
-      prefix = await handle.read(16 * 1024 * 1024);
-    } finally {
-      await handle.close();
+  Future<DandanMatch> matchBangumi(int subjectId, double episode) async {
+    if (!episode.isFinite || episode <= 0) return const DandanMatch();
+    final value = await _dandan('/api/v2/bangumi/bgmtv/$subjectId');
+    if (value['success'] != true) {
+      throw StateError('弹弹play条目映射失败：${value['errorMessage'] ?? '未知错误'}');
+    }
+    final bangumi = object(value['bangumi']);
+    final candidates = objects(bangumi['episodes'])
+        .where((item) => _episodeNumber('${item['episodeNumber']}') == episode)
+        .where((item) => _positiveId(item['episodeId']) != null)
+        .map(
+          (item) => <String, dynamic>{
+            ...item,
+            'animeTitle': bangumi['animeTitle'],
+          },
+        )
+        .toList();
+    return DandanMatch(
+      episodeId: candidates.length == 1
+          ? int.parse('${candidates.single['episodeId']}')
+          : null,
+      candidates: candidates,
+    );
+  }
+
+  Future<DandanMatch> matchTitles(
+    Iterable<String> names,
+    double episode,
+  ) async {
+    if (!episode.isFinite ||
+        episode <= 0 ||
+        episode != episode.roundToDouble()) {
+      return const DandanMatch();
+    }
+    final titles = names
+        .map((name) => name.trim())
+        .where((name) => name.length >= 2)
+        .toSet();
+    final normalized = titles.map(_normalizedTitle).toSet();
+    final candidates = <String, Json>{};
+    for (final title in titles) {
+      for (final item in await search(title, episode: episode)) {
+        final id = _positiveId(item['episodeId']);
+        if (id != null) candidates[id] = item;
+      }
+    }
+    final exact = candidates.values.where((item) {
+      final prefix = RegExp(r'^第\s*(\d+)\s*[話话集](?:\s|$)')
+          .firstMatch('${item['episodeTitle']}');
+      final number =
+          _episodeNumber('${item['episodeNumber'] ?? item['episodeTitle']}') ??
+          (prefix == null ? null : double.tryParse(prefix[1]!));
+      return normalized.contains(_normalizedTitle('${item['animeTitle']}')) &&
+          number == episode;
+    }).toList();
+    return DandanMatch(
+      episodeId: exact.length == 1
+          ? int.parse('${exact.single['episodeId']}')
+          : null,
+      candidates: exact.isEmpty ? candidates.values.toList() : exact,
+    );
+  }
+
+  Future<DandanMatch> matchFile(
+    String path,
+    double duration, {
+    bool filenameOnly = false,
+    int? fileSize,
+  }) async {
+    String? hash;
+    if (!filenameOnly) {
+      final file = File(path);
+      final handle = await file.open();
+      try {
+        hash = md5.convert(await handle.read(16 * 1024 * 1024)).toString();
+      } finally {
+        await handle.close();
+      }
+      fileSize = await file.length();
     }
     final value = await _dandan(
       '/api/v2/match',
       body: {
         'fileName': p.basenameWithoutExtension(path),
-        'fileHash': md5.convert(prefix).toString(),
-        'fileSize': await file.length(),
+        'fileHash': ?hash,
+        if (fileSize != null && fileSize > 0) 'fileSize': fileSize,
         'videoDuration': duration.isFinite && duration > 0
             ? duration.round()
             : 0,
-        'matchMode': 'hashAndFileName',
+        'matchMode': filenameOnly ? 'fileNameOnly' : 'hashAndFileName',
       },
     );
     if (value['success'] != true) {
       throw StateError('弹弹play匹配失败：${value['errorMessage'] ?? '未知错误'}');
     }
     final matches = objects(value['matches']);
-    if (value['isMatched'] != true || matches.length != 1) return null;
-    final id = _positiveId(matches.single['episodeId']);
-    if (id == null) throw StateError('弹弹play返回了无效章节');
-    return int.parse(id);
+    if (value['isMatched'] == true && matches.length == 1) {
+      final id = _positiveId(matches.single['episodeId']);
+      if (id == null) throw StateError('弹弹play返回了无效章节');
+      return DandanMatch(episodeId: int.parse(id));
+    }
+    return DandanMatch(
+      candidates: matches
+          .where((item) => _positiveId(item['episodeId']) != null)
+          .toList(),
+    );
   }
 
   Future<List<Json>> dandan(int episodeId) async {
