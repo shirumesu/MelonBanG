@@ -170,6 +170,27 @@ preserves the credential identity. An interrupted migration retries at startup.
 `MELONBANG_DATA_DIR` can select an override directory and disables this location
 manager. Earlier runtime databases are not opened or migrated.
 
+Settings → Cache method chooses the default **BT** or **PikPak** downloader.
+Resource search and the player's resource sheet use that default; the dropdown
+beside Download offers the other method for that resource without changing the
+preference. Magnet and torrent-file imports also use the default.
+
+PikPak requires signing into your own account in Cache method. The password is
+used only for login; refresh tokens use the same operating-system credential
+storage as other accounts. A verification challenge opens PikPak's verification
+page; finish it and retry the login or failed download. On macOS, saved credentials
+may need an explicit unlock in these settings after an application rebuild.
+
+PikPak first fetches the torrent in the cloud, then caches its original files on
+this computer over HTTP. Once cloud files are ready, playback can use a fresh
+original-file URL while local caching continues. Completed files play locally
+without a PikPak login. Multi-video resources require selecting a file, as with
+BT. Pausing or removing a local task preserves the cloud files; manage those in
+PikPak. Cache transfer resumes from partial local files after restarting. Account
+quota, cloud availability and the connection to PikPak determine speed; cloud
+acquisition can still fail or take time. BT queue and seeding settings apply only
+to BT; PikPak currently caches one task at a time.
+
 Settings → Downloads and seeding controls the persistent BitTorrent policy.
 Defaults: at most 3 downloads and 2 seeders, unlimited download speed, 1024 KiB/s
 aggregate upload speed, 50 peers per task (200 globally), automatic listen port,

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:melonbang/data/downloads.dart';
+import 'package:melonbang/data/cache_method.dart';
 import 'package:melonbang/data/json.dart';
 import 'package:melonbang/data/network.dart';
 import 'package:melonbang/data/resource_metadata.dart';
@@ -20,11 +21,13 @@ class QueueDownloads extends DownloadRepository {
     int? subjectId,
     int? episodeId,
     String? coverUrl,
+    CacheMethod? method,
   }) async => queued = {
     'input': input,
     'subjectId': subjectId,
     'episodeId': episodeId,
     'coverUrl': coverUrl,
+    'method': method,
   };
 }
 
@@ -114,6 +117,9 @@ void main() {
     expect(downloads.queued?['subjectId'], 42);
     expect(downloads.queued?['episodeId'], 9);
     expect(downloads.queued?['coverUrl'], 'https://example.org/poster.jpg');
+    await source.enqueue(candidate['candidateId'], method: CacheMethod.pikpak);
+    expect(downloads.queued?['method'], CacheMethod.pikpak);
+    expect(downloads.queued?['episodeId'], 9);
     expect(slow.isCompleted, isFalse);
     slow.complete(http.Response(rss('Same hash through alias'), 200));
     metadata.complete(http.Response('<html></html>', 200));

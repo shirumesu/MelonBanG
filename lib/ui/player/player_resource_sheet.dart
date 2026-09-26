@@ -190,7 +190,14 @@ class _PlayerResourceSheetState extends State<PlayerResourceSheet> {
                 providers: providers,
                 candidates: candidates,
                 busy: busy,
+                defaultMethod: widget.service.downloads.defaultMethod,
                 onSearch: search,
+                onDownloadWithMethod: (candidate, method) async {
+                  await widget.service.sources.enqueue(
+                    '${candidate['candidateId']}',
+                    method: method,
+                  );
+                },
                 onDownload: (candidate) async {
                   await widget.service.sources.enqueue(
                     '${candidate['candidateId']}',

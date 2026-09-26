@@ -7,15 +7,20 @@ import 'package:libtorrent_flutter/libtorrent_flutter.dart' as lt;
 import 'package:path/path.dart' as p;
 
 import 'json.dart';
+import 'cache_method.dart';
 import 'bittorrent_settings.dart';
+import 'pikpak_downloads.dart';
 import 'store.dart';
 import 'torrent_identity.dart';
 
 class DownloadRepository {
-  DownloadRepository(this.store, String directory)
+  DownloadRepository(this.store, String directory, {this.pikpak})
     : directory = p.normalize(p.absolute(directory));
   final AppStore store;
   final String directory;
+  final PikPakDownloadRepository? pikpak;
+  CacheMethod defaultMethod = CacheMethod.bt;
+  StreamSubscription<Json>? _cloudSubscription;
   final changes = StreamController<Json>.broadcast();
   final _tasks = <String, Json>{};
   final _handles = <String, int>{};
@@ -35,6 +40,16 @@ class DownloadRepository {
   final _clock = Stopwatch()..start();
   int _lastTick = 0, _lastSaved = 0;
 
+  Future<void> saveCacheMethod(CacheMethod method) async {
+    _requireOpen();
+    await store.put('settings', 'cache', {'method': method.name});
+    defaultMethod = method;
+    _emit();
+  }
+
+  PikPakDownloadRepository get _cloud =>
+      pikpak ?? (throw StateError('PikPak 尚未配置，请在设置中登录'));
+
   Future<void> saveSettings(BitTorrentSettings value) async {
     _requireOpen();
     value.validate();
@@ -53,6 +68,13 @@ class DownloadRepository {
 
   Future<void> initialize() async {
     _requireOpen();
+    defaultMethod = CacheMethod.fromStored(
+      (await store.get('settings', 'cache'))?['method'],
+    );
+    if (pikpak != null) {
+      _cloudSubscription = pikpak!.changes.stream.listen((_) => _emit());
+      await pikpak!.initialize();
+    }
     settings = BitTorrentSettings.fromStoredJson(
       await store.get('settings', 'bittorrent') ?? {},
     );
@@ -312,20 +334,38 @@ class DownloadRepository {
     }
   }
 
-  Json snapshot() => {
-    'tasks': _tasks.values.map((t) => Map<String, dynamic>.from(t)).toList(),
-    'files': _files.values.expand((v) => v).toList(),
-  };
+  Json snapshot() {
+    final cloud = pikpak?.snapshot();
+    return {
+      'tasks': [
+        ..._tasks.values.map((t) => {...t, 'provider': 'bt'}),
+        ...objects(cloud?['tasks']),
+      ],
+      'files': [
+        ..._files.values.expand((v) => v),
+        ...objects(cloud?['files']),
+      ],
+    };
+  }
   Future<Json> addMagnet(
     String input, {
     int? subjectId,
     int? episodeId,
     String? coverUrl,
+    CacheMethod? method,
   }) async {
     if (_closed) throw StateError('下载器已关闭');
     final uri = Uri.tryParse(input.trim());
     if (uri?.scheme != 'magnet') {
       throw const FormatException('磁力链接缺少有效的 BT info hash');
+    }
+    if ((method ?? defaultMethod) == CacheMethod.pikpak) {
+      return _cloud.addMagnet(
+        uri.toString(),
+        subjectId: subjectId,
+        episodeId: episodeId,
+        coverUrl: coverUrl ?? await _cachedCover(subjectId),
+      );
     }
     return _add(
       'magnet',
@@ -344,10 +384,23 @@ class DownloadRepository {
     int? subjectId,
     int? episodeId,
     String? coverUrl,
+    CacheMethod? method,
   }) async {
     if (_closed) throw StateError('下载器已关闭');
     if (bytes.isEmpty) throw const FormatException('种子文件为空');
     final fingerprint = torrentInfoHash(bytes);
+    if ((method ?? defaultMethod) == CacheMethod.pikpak) {
+      return _cloud.addMagnet(
+        Uri(
+          scheme: 'magnet',
+          queryParameters: {'xt': 'urn:btih:$fingerprint', 'dn': name},
+        ).toString(),
+        title: name,
+        subjectId: subjectId,
+        episodeId: episodeId,
+        coverUrl: coverUrl ?? await _cachedCover(subjectId),
+      );
+    }
     return _add(
       'torrent',
       p.join(directory, 'metadata', '$fingerprint.torrent'),
@@ -454,6 +507,7 @@ class DownloadRepository {
 
   Future<void> pause(String id) async {
     _requireOpen();
+    if (pikpak?.contains(id) == true) return pikpak!.pause(id);
     final task = _tasks[id];
     if (task == null) throw StateError('下载任务不存在');
     task['manualPaused'] = true;
@@ -464,6 +518,7 @@ class DownloadRepository {
 
   Future<void> resume(String id) async {
     _requireOpen();
+    if (pikpak?.contains(id) == true) return pikpak!.resume(id);
     final task = _tasks[id];
     if (task == null) throw StateError('下载任务不存在');
     await _engine();
@@ -478,6 +533,7 @@ class DownloadRepository {
 
   Future<void> remove(String id) {
     _requireOpen();
+    if (pikpak?.contains(id) == true) return pikpak!.remove(id);
     final task = _tasks[id];
     if (task == null) return Future.value();
     final fingerprint = '${task['fingerprint']}';
@@ -521,9 +577,11 @@ class DownloadRepository {
     if (_closed) throw StateError('下载器已关闭');
   }
 
-  bool contains(String id) => _tasks.containsKey(id);
+  bool contains(String id) =>
+      _tasks.containsKey(id) || pikpak?.contains(id) == true;
 
   Json media(String id, {String? fileId}) {
+    if (pikpak?.contains(id) == true) return pikpak!.media(id, fileId: fileId);
     final task = _tasks[id];
     if (task == null) throw StateError('下载任务不存在');
     final videos = (_files[id] ?? [])
@@ -555,7 +613,7 @@ class DownloadRepository {
 
   Json episodeMedia(int subjectId, int episodeId) {
     final tasks =
-        _tasks.values
+        objects(snapshot()['tasks'])
             .where(
               (t) => t['subjectId'] == subjectId && t['episodeId'] == episodeId,
             )
@@ -574,6 +632,9 @@ class DownloadRepository {
   }
 
   Future<Json> openMedia(String id, {String? fileId}) async {
+    if (pikpak?.contains(id) == true) {
+      return pikpak!.openMedia(id, fileId: fileId);
+    }
     final selected = media(id, fileId: fileId);
     if (selected['incomplete'] != true) return selected;
     await resume(id);
@@ -618,6 +679,8 @@ class DownloadRepository {
   Future<void> close() => _closing ??= _close();
   Future<void> _close() async {
     _closed = true;
+    await _cloudSubscription?.cancel();
+    await pikpak?.close();
     await Future.wait(
       _adding.values.toList().map((operation) async {
         try {

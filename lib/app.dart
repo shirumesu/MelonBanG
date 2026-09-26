@@ -22,6 +22,7 @@ import 'ui/discovery/discovery_pages.dart';
 import 'ui/player/playback.dart';
 import 'ui/player/player_page.dart';
 import 'ui/settings/bittorrent_settings.dart';
+import 'ui/settings/cache_settings.dart';
 import 'ui/settings/settings_page.dart';
 import 'ui/settings/storage_settings.dart';
 import 'ui/tracking/subject_page.dart';
@@ -1062,6 +1063,13 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           onDownload: (candidate) async {
             await widget.service.sources.enqueue('${candidate['candidateId']}');
           },
+          defaultMethod: widget.service.downloads.defaultMethod,
+          onDownloadWithMethod: (candidate, method) async {
+            await widget.service.sources.enqueue(
+              '${candidate['candidateId']}',
+              method: method,
+            );
+          },
         );
       case 'downloads':
         return DownloadsPage(
@@ -1094,6 +1102,28 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           accountBusy: accountBusy,
           dark: dark,
           dataDirectory: widget.service.dataDirectory,
+          cacheSettings: CacheSettings(
+            defaultMethod: widget.service.downloads.defaultMethod,
+            onMethodChanged: widget.service.downloads.saveCacheMethod,
+            account: widget.service.pikpak.session,
+            needsAuthorization: widget.service.pikpak.needsAuthorization,
+            verificationUrl: widget.service.pikpak.verificationUrl,
+            onUnlock: () async {
+              await widget.service.pikpak.unlock();
+              await widget.service.downloads.pikpak!.accountChanged();
+              if (mounted) setState(() {});
+            },
+            onLogin: (username, password) async {
+              await widget.service.pikpak.signIn(username, password);
+              await widget.service.downloads.pikpak!.accountChanged();
+              if (mounted) setState(() {});
+            },
+            onLogout: () async {
+              await widget.service.pikpak.signOut();
+              await widget.service.downloads.pikpak!.accountChanged();
+              if (mounted) setState(() {});
+            },
+          ),
           storageSettings: StorageSettings(
             onExit: () => windowManager.close(),
             storage: widget.service.storage,
@@ -1176,7 +1206,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     if (context == null) return;
     final remove = await showDialog<bool>(
       context: context,
-      builder: (_) => RemoveDownloadDialog(title: '${task['title']}'),
+      builder: (_) => RemoveDownloadDialog(
+        title: '${task['title']}',
+        cloud: task['provider'] == 'pikpak',
+      ),
     );
     if (remove == true) {
       await perform(() async {

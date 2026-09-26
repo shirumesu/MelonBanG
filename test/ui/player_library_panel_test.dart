@@ -9,6 +9,7 @@ import 'package:http/testing.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:melonbang/app_services.dart';
 import 'package:melonbang/data/downloads.dart';
+import 'package:melonbang/data/cache_method.dart';
 import 'package:melonbang/data/network.dart';
 import 'package:melonbang/data/sources.dart';
 import 'package:melonbang/data/store.dart';
@@ -30,6 +31,7 @@ class TestDownloads extends DownloadRepository {
     int? subjectId,
     int? episodeId,
     String? coverUrl,
+    CacheMethod? method,
   }) async {
     if (fail) throw StateError('Test download unavailable');
     final task = <String, dynamic>{
@@ -40,6 +42,7 @@ class TestDownloads extends DownloadRepository {
       'status': 'downloading',
       'progress': .42,
       'downloadSpeedBytesPerSecond': 1048576,
+      'provider': (method ?? defaultMethod).name,
     };
     queued.add(task);
     changes.add(state);
@@ -199,7 +202,7 @@ void main() {
       await tester.tap(download);
       await settle();
       expect(
-        find.byTooltip('添加失败，点击重试\nTest download unavailable'),
+        find.byTooltip('添加失败，点击重试\nBT：Test download unavailable'),
         findsOneWidget,
       );
       expect(downloads.queued, isEmpty);
@@ -221,6 +224,15 @@ void main() {
       await tester.tap(find.byTooltip('继续下载'));
       await settle();
       expect(find.text('下载中 · 1.0 MB/s'), findsOneWidget);
+      await tester.tap(find.byTooltip('查找第 2 话资源'));
+      await settle();
+      await tester.tap(find.byTooltip('其他缓存方式 · 默认 BT').first);
+      await settle();
+      await tester.tap(find.text('PikPak 下载'));
+      await settle();
+      expect(downloads.queued.length, 2);
+      expect(downloads.queued.last['provider'], 'pikpak');
+      expect(downloads.queued.last['episodeId'], 72);
       expect(tester.takeException(), isNull);
     },
     variant: TargetPlatformVariant({

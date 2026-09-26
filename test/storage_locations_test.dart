@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:melonbang/data/storage_locations.dart';
 import 'package:melonbang/data/store.dart';
+import 'package:path/path.dart' as p;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -12,14 +13,14 @@ void main() {
     root = await Directory.systemTemp.createTemp('melonbang-storage-');
     locations = StorageLocations(
       File('${root.path}/support/storage.json'),
-      '${root.path}/support/native',
+      p.join(root.path, 'support', 'native'),
     );
     await Directory(locations.media).create(recursive: true);
   });
   tearDown(() => root.delete(recursive: true));
 
   test('media migration rewrites downloads and episode bindings, preserves originals and credentials', () async {
-    final source = '${locations.media}/task/video.mkv';
+    final source = p.join(locations.media, 'task', 'video.mkv');
     await File(source).parent.create(recursive: true);
     await File(source).writeAsBytes(List.generate(8192, (i) => i % 256));
     final store = await AppStore.open('${locations.data}/melonbang.sqlite');
@@ -36,13 +37,20 @@ void main() {
       'downloadId': 'task',
       'fileId': '0',
     });
+    await store.put('pikpak_downloads', 'cloud', {
+      'id': 'cloud',
+      'savePath': '${locations.media}/task',
+      'files': [
+        {'id': 'remote-file', 'path': source},
+      ],
+    });
     await store.put('playback_progress', '1:2', {'positionSeconds': 42});
     await store.put('danmaku_matches', '$source:dandanplay', {
       'locator': '702',
     });
     await store.close();
     final identity = locations.credentialIdentity;
-    final next = '${root.path}/media';
+    final next = p.join(root.path, 'media');
     await locations.schedule(mediaPath: next);
     final restarted = StorageLocations(
       locations.bootstrap,
@@ -59,11 +67,17 @@ void main() {
     final reopened = await AppStore.open('${restarted.data}/melonbang.sqlite');
     expect(
       (await reopened.get('episode_files', '1:2'))!['path'],
-      '$next/task/video.mkv',
+      p.join(next, 'task', 'video.mkv'),
     );
     expect(
       (await reopened.get('downloads', 'task'))!['savePath'],
-      '$next/task',
+      p.join(next, 'task'),
+    );
+    final cloud = (await reopened.get('pikpak_downloads', 'cloud'))!;
+    expect(cloud['savePath'], p.join(next, 'task'));
+    expect(
+      (cloud['files'] as List).single['path'],
+      p.join(next, 'task', 'video.mkv'),
     );
     expect(
       (await reopened.get('playback_progress', '1:2'))!['positionSeconds'],
@@ -72,7 +86,7 @@ void main() {
     expect(
       (await reopened.get(
         'danmaku_matches',
-        '$next/task/video.mkv:dandanplay',
+        p.join(next, 'task', 'video.mkv:dandanplay'),
       ))!['locator'],
       '702',
     );
@@ -101,19 +115,19 @@ void main() {
   test('both destinations can be scheduled and unavailable source blocks migration', () async {
     await locations.schedule(dataPath: '${root.path}/new-data');
     await locations.schedule(mediaPath: '${root.path}/new-media');
-    expect(locations.pending!['data'], '${root.path}/new-data');
-    expect(locations.pending!['media'], '${root.path}/new-media');
+    expect(locations.pending!['data'], p.join(root.path, 'new-data'));
+    expect(locations.pending!['media'], p.join(root.path, 'new-media'));
     await Directory(locations.media).delete();
     await expectLater(locations.migrate(), throwsA(isA<FileSystemException>()));
     expect(locations.data, locations.defaultData);
     expect(locations.pending, isNotNull);
     await Directory(locations.media).create();
     await locations.migrate();
-    expect(locations.data, '${root.path}/new-data');
-    expect(locations.media, '${root.path}/new-media');
+    expect(locations.data, p.join(root.path, 'new-data'));
+    expect(locations.media, p.join(root.path, 'new-media'));
     expect(
       locations.previousMedia,
-      contains('${locations.defaultData}/downloads'),
+      contains(p.join(locations.defaultData, 'downloads')),
     );
   });
 
