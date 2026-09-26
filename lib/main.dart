@@ -7,9 +7,11 @@ import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
 import 'app_services.dart';
+import 'data/service_configuration.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  final configuration = await ServiceConfiguration.load();
   MediaKit.ensureInitialized();
   await windowManager.ensureInitialized();
   await windowManager.waitUntilReadyToShow(
@@ -28,7 +30,7 @@ Future<void> main(List<String> args) async {
   );
   runApp(
     MelonApp(
-      service: AppServices(),
+      service: AppServices(configuration: configuration),
       preferences: await SharedPreferences.getInstance(),
       initialMedia: args
           .where((arg) => !arg.startsWith('-') && File(arg).existsSync())
