@@ -1,11 +1,12 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../app_services.dart';
 import 'danmaku_clock.dart';
+import 'danmaku_layout.dart';
 import 'playback.dart';
+
+export 'danmaku_layout.dart' show firstVisibleComment;
 
 class DanmakuLayer extends StatefulWidget {
   const DanmakuLayer({super.key, required this.playback});
@@ -20,6 +21,7 @@ class _DanmakuLayerState extends State<DanmakuLayer>
   final clock = ValueNotifier<double>(0);
   final motion = DanmakuClock();
   final textCache = DanmakuTextCache();
+  final layout = DanmakuLayout();
   Object? identity;
   @override
   void initState() {
@@ -36,6 +38,7 @@ class _DanmakuLayerState extends State<DanmakuLayer>
         playback.uri,
         playback.opening,
       );
+      if (identity != nextIdentity) layout.clear();
       clock.value = motion.sample(
         elapsed: elapsed,
         position: state.position,
@@ -64,7 +67,7 @@ class _DanmakuLayerState extends State<DanmakuLayer>
     child: RepaintBoundary(
       child: ClipRect(
         child: CustomPaint(
-          painter: DanmakuPainter(widget.playback, clock, textCache),
+          painter: DanmakuPainter(widget.playback, clock, textCache, layout),
           size: Size.infinite,
         ),
       ),
@@ -72,79 +75,48 @@ class _DanmakuLayerState extends State<DanmakuLayer>
   );
 }
 
-int firstVisibleComment(List<Json> comments, double after) {
-  var low = 0;
-  var high = comments.length;
-  while (low < high) {
-    final middle = (low + high) ~/ 2;
-    if (number(comments[middle]['timeSeconds']) < after) {
-      low = middle + 1;
-    } else {
-      high = middle;
-    }
-  }
-  return low;
-}
-
 class DanmakuPainter extends CustomPainter {
-  DanmakuPainter(this.playback, this.clock, this.textCache)
+  DanmakuPainter(this.playback, this.clock, this.textCache, this.layout)
     : super(repaint: clock);
   final Playback playback;
   final ValueNotifier<double> clock;
   final DanmakuTextCache textCache;
+  final DanmakuLayout layout;
   @override
   void paint(Canvas canvas, Size size) {
     if (!playback.danmakuEnabled || size.isEmpty) {
+      layout.clear();
       textCache.clear();
       return;
     }
     textCache.beginFrame();
-    final comments = playback.comments;
-    const lifetime = 8.0;
-    final lanes = math.max(
-      1,
-      (size.height * playback.danmakuArea / (playback.danmakuSize + 10))
-          .floor(),
+    final visible = layout.update(
+      comments: playback.comments,
+      time: clock.value,
+      viewport: size,
+      fontSize: playback.danmakuSize,
+      area: playback.danmakuArea,
+      measure: (item) => _text(item).size,
     );
-    final occupied = <String, double>{};
-    var drawn = 0;
-    for (
-      var index = firstVisibleComment(comments, clock.value - lifetime);
-      index < comments.length && drawn < 100;
-      index++
-    ) {
-      final item = comments[index];
-      final age = clock.value - number(item['timeSeconds']);
-      if (age < 0) break;
-      final text = '${item['text'] ?? ''}';
-      if (text.isEmpty) continue;
-      final mode = '${item['mode'] ?? 'scroll'}';
-      final lane = index % lanes;
-      final colorValue =
-          int.tryParse(
-            '${item['color'] ?? '#ffffff'}'.replaceFirst('#', ''),
-            radix: 16,
-          ) ??
-          0xffffff;
-      final painter = textCache.obtain(
-        text,
-        Color(0xff000000 | colorValue)
-            .withValues(alpha: playback.danmakuOpacity),
-        playback.danmakuSize,
-      );
-      final x = mode == 'scroll'
-          ? size.width - (size.width + painter.width) * age / lifetime
-          : (size.width - painter.width) / 2;
-      final y = mode == 'bottom'
-          ? size.height - 75 - (lane + 1) * (playback.danmakuSize + 10)
-          : 16.0 + lane * (playback.danmakuSize + 10);
-      final key = '$mode:$lane';
-      if (occupied.containsKey(key) && x < occupied[key]! + 20) continue;
-      occupied[key] = x + painter.width;
-      painter.paint(canvas, Offset(x, y));
-      drawn++;
+    for (final entry in visible) {
+      _text(entry.item)
+          .paint(canvas, entry.boundsAt(clock.value, size.width).topLeft);
     }
     textCache.endFrame();
+  }
+
+  TextPainter _text(Json item) {
+    final colorValue =
+        int.tryParse(
+          '${item['color'] ?? '#ffffff'}'.replaceFirst('#', ''),
+          radix: 16,
+        ) ??
+        0xffffff;
+    return textCache.obtain(
+      '${item['text'] ?? ''}',
+      Color(0xff000000 | colorValue).withValues(alpha: playback.danmakuOpacity),
+      playback.danmakuSize,
+    );
   }
 
   @override
