@@ -15,7 +15,7 @@ flutter pub get
 Copy-Item .env.service.example.json .env.service.json
 # Fill .env.service.json with your application registrations, then run:
 flutter run -d windows
-dart run scripts/flutter.dart build windows
+flutter build windows --dart-define-from-file=.env.service.json
 ./scripts/build.ps1 -Archive
 ```
 
@@ -66,7 +66,7 @@ builds the patched torrent bridge using Homebrew's libtorrent 2.1 and embeds its
 native dependencies in the app. Flutter's project configuration selects arm64 for
 release/profile builds; this setup does not produce a universal binary.
 
-`dart run scripts/flutter.dart build macos --release` creates
+`flutter build macos --release --dart-define-from-file=.env.service.json` creates
 `build/macos/Build/Products/Release/melonbang.app`. Local builds are desktop apps
 without App Sandbox so downloaded and previously selected media remain accessible
 across restarts. App Store distribution and notarization require separate signing
@@ -230,10 +230,6 @@ flutter build windows --dart-define-from-file=.env.service.json
 flutter build macos --dart-define-from-file=.env.service.json
 ```
 
-The optional `dart run scripts/flutter.dart dev|run|build ...` wrapper still injects
-configuration at compile time. It chooses an explicit `--dart-define-from-file`,
-then `MELONBANG_CONFIGURATION_FILE`, then `.env.service.json`; its implicit file
-must exist. `scripts/flutter.ps1` and `scripts/flutter.sh` delegate to this wrapper.
 GitHub Actions injects `MELONBANG_SERVICES_JSON` through
 `scripts/build.ps1 -ConfigurationFile`, independent of local development files.
 Compiled configuration changes require restarting the Flutter run/build command.
