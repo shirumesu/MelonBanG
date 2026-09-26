@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../../data/json.dart';
 import 'motion.dart';
-import 'page_widgets.dart';
 import 'account_avatar.dart';
 import 'theme.dart';
 
@@ -357,7 +355,6 @@ class AppHeader extends StatelessWidget {
     required this.route,
     required this.search,
     required this.onSearch,
-    this.sync = const {},
     this.collectionCount = 0,
     this.searchFocusNode,
   });
@@ -365,7 +362,6 @@ class AppHeader extends StatelessWidget {
   final TextEditingController search;
   final FocusNode? searchFocusNode;
   final VoidCallback onSearch;
-  final Json sync;
   final int collectionCount;
   @override
   Widget build(BuildContext context) => Padding(
@@ -425,19 +421,6 @@ class AppHeader extends StatelessWidget {
                 ),
               ),
             ),
-          if (size.maxWidth > 800 && ['home', 'tracking'].contains(route)) ...[
-            const SizedBox(width: 14),
-            MelonBadge(
-              sync['lastSyncError'] != null
-                  ? '同步待重试'
-                  : number(sync['pendingMutationCount']) > 0
-                  ? '${sync['pendingMutationCount']} 项待同步'
-                  : sync['lastSyncedAt'] != null
-                  ? '已同步'
-                  : '本地记录',
-              color: sync['lastSyncError'] == null ? mint : gold,
-            ),
-          ],
         ],
       ),
     ),
