@@ -7,11 +7,14 @@ import 'package:http/http.dart' as http;
 import 'json.dart';
 
 class ApiException implements Exception {
-  const ApiException(this.status, this.host);
+  const ApiException(this.status, this.host, {this.reason});
   final int status;
   final String host;
+  final String? reason;
   @override
-  String toString() => '$host 请求失败（HTTP $status）';
+  String toString() =>
+      '$host 请求失败（HTTP $status）'
+      '${reason == null || reason!.isEmpty ? '' : '：$reason'}';
 }
 
 class ApiClient {
@@ -56,7 +59,11 @@ class ApiClient {
         },
       );
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw ApiException(response.statusCode, uri.host);
+        throw ApiException(
+          response.statusCode,
+          uri.host,
+          reason: response.headers['x-error-message']?.trim(),
+        );
       }
       return response;
     } finally {
