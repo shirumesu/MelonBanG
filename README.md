@@ -14,7 +14,7 @@ From this repository root:
 flutter pub get
 Copy-Item .env.service.example.json .env.service.json
 # Fill .env.service.json with your application registrations, then run:
-dart run scripts/flutter.dart dev windows
+flutter run -d windows
 dart run scripts/flutter.dart build windows
 ./scripts/build.ps1 -Archive
 ```
@@ -54,7 +54,7 @@ flutter doctor -v
 flutter pub get
 cp .env.service.example.json .env.service.json
 # Fill .env.service.json with your application registrations, then run:
-dart run scripts/flutter.dart dev macos
+flutter run -d macos
 ```
 
 Alternatively, set `export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
@@ -200,32 +200,45 @@ come from native verified pieces; idle seeding still counts toward the time limi
 and returns the task to the configured queue and limits. File summaries appear
 below the task title; View Files opens the full list and per-file playback.
 
-Application registrations are build configuration. Copy
-[`.env.service.example.json`](.env.service.example.json) to the Git-ignored
-`.env.service.json`, fill the Bangumi Client ID/Secret and Dandanplay App ID/Secret,
-then pass `--dart-define-from-file=.env.service.json` to Flutter run/build.
-The shared Dart entry point supplies this argument automatically and reports a
-missing file. It uses the Flutter SDK already on PATH; no Node.js is needed:
+Copy [`.env.service.example.json`](.env.service.example.json) to the Git-ignored
+`.env.service.json` and fill the Bangumi Client ID/Secret and Dandanplay App ID/Secret.
+Debug startup automatically reads this file, so ordinary Flutter commands and IDE
+Run/Debug work without a wrapper:
 
 ```sh
-dart run scripts/flutter.dart dev windows
-dart run scripts/flutter.dart dev macos
-dart run scripts/flutter.dart build windows
-dart run scripts/flutter.dart build macos
+flutter run -d windows
+flutter run -d macos
 ```
 
-`dev` without a platform uses the current OS. Additional Flutter arguments are
-forwarded, for example `dev windows --release`. `run -d windows` is also supported.
-`scripts/flutter.ps1` and `scripts/flutter.sh` delegate to the same Dart entry point.
-Set `MELONBANG_CONFIGURATION_FILE` for another file; an explicit
-`--dart-define-from-file=<path>` takes precedence over both the environment variable
-and local JSON. GitHub Actions continues to inject `MELONBANG_SERVICES_JSON` through
-`scripts/build.ps1 -ConfigurationFile`, independent of the local file.
-A direct `flutter run` or `flutter build` does not automatically load the JSON;
-Flutter's built-in commands cannot be extended with a project-specific `flutter dev`.
-The application reads compiled definitions, not a JSON sidecar at runtime.
+Compiled `--dart-define` / `--dart-define-from-file` settings take priority. Each
+service selects one source for its entire registration: setting any Bangumi key
+selects compiled Bangumi settings, and setting any Dandanplay key selects compiled
+Dandanplay settings. Even an explicitly empty value selects that source; incomplete
+compiled registrations are not filled with secrets from another registration.
+
+Only debug builds fall back to local JSON. The app finds the checkout through
+`pubspec.yaml`, searching upward from the working directory and then the executable.
+Set `MELONBANG_CONFIGURATION_FILE` to use another local file (an absolute path works
+regardless of the launch directory). Without a file, optional services remain
+unconfigured. After editing local JSON, hot restart or restart the app.
+
+Release/profile builds use compiled definitions only and never read a local JSON
+sidecar. For a configured local release, use:
+
+```sh
+flutter build windows --dart-define-from-file=.env.service.json
+flutter build macos --dart-define-from-file=.env.service.json
+```
+
+The optional `dart run scripts/flutter.dart dev|run|build ...` wrapper still injects
+configuration at compile time. It chooses an explicit `--dart-define-from-file`,
+then `MELONBANG_CONFIGURATION_FILE`, then `.env.service.json`; its implicit file
+must exist. `scripts/flutter.ps1` and `scripts/flutter.sh` delegate to this wrapper.
+GitHub Actions injects `MELONBANG_SERVICES_JSON` through
+`scripts/build.ps1 -ConfigurationFile`, independent of local development files.
+Compiled configuration changes require restarting the Flutter run/build command.
 Register the exact Bangumi callback address from the file (default
-`http://127.0.0.1:14567/callback`). Restart the build/run after editing these values.
+`http://127.0.0.1:14567/callback`).
 The app has no service-secret editor; users only log in to their Bangumi account.
 Old `oauth` and `dandanplay` entries in native storage are ignored. Keep the same
 Bangumi registration for existing login sessions, or sign out and authorize again
@@ -238,7 +251,7 @@ or pass its existing path explicitly. The JSON keys and GitHub secret name are u
 `-ConfigurationFile <path>`, and rejects absent or empty registrations for normal
 release builds. `-Development` permits a local build with optional services disabled.
 Without credentials, discovery, local tracking, downloads and other danmaku sources
-remain available. A plain `flutter run` also works with those limitations.
+remain available.
 
 For GitHub Actions, add the complete filled JSON as the repository Actions secret
 `MELONBANG_SERVICES_JSON`, then manually run the **Build Windows** workflow.
