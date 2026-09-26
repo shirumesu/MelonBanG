@@ -151,7 +151,7 @@ void main() {
 
     Future<void> homeTop() async {
       await tester.scrollUntilVisible(
-        find.text('热门与精选'),
+        find.text('本季热度'),
         -450,
         scrollable: find
             .descendant(
@@ -264,7 +264,7 @@ void main() {
           .widgetList<SectionTitle>(find.byType(SectionTitle))
           .map((w) => w.title)
           .toList();
-      expect(sections.take(2), ['热门与精选', '正在追']);
+      expect(sections.take(2), ['本季热度', '正在追']);
       await tester.scrollUntilVisible(
         find.text('本季热度'),
         450,

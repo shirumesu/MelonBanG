@@ -888,7 +888,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                               search: search,
                               searchFocusNode: searchFocus,
                               onSearch: searchSubjects,
-                              sync: sync,
                               collectionCount: collection.length,
                             ),
                           if (!ready && error != null && !fullScreen)
