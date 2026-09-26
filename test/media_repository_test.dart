@@ -146,6 +146,43 @@ void main() {
     },
   );
 
+  test(
+    'Dandanplay authentication failures preserve the provider reason',
+    () async {
+      final api = ApiClient(
+        client: MockClient(
+          (_) async => http.Response(
+            '',
+            403,
+            headers: {'x-error-message': 'Invalid Signature'},
+          ),
+        ),
+      );
+      addTearDown(api.close);
+      final repository = DanmakuRepository(
+        api,
+        configuration: testServiceConfiguration,
+      );
+      await expectLater(
+        repository.dandan(7),
+        throwsA(
+          isA<ApiException>()
+              .having((error) => error.status, 'status', 403)
+              .having(
+                (error) => error.reason,
+                'provider reason',
+                'Invalid Signature',
+              )
+              .having(
+                (error) => error.toString(),
+                'visible error',
+                'api.dandanplay.net 请求失败（HTTP 403）：Invalid Signature',
+              ),
+        ),
+      );
+    },
+  );
+
   test('comments deduplicate equivalent integer and fractional timestamps', () {
     expect(
       normalizeComments([

@@ -3,9 +3,31 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:melonbang/data/network.dart';
 
 void main() {
+  test(
+    'HTTP errors without a provider reason keep the status and host',
+    () async {
+      final api = ApiClient(
+        client: MockClient((_) async => http.Response('', 403)),
+      );
+      addTearDown(api.close);
+      await expectLater(
+        api.send(Uri.https('example.com', '/resource')),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.toString(),
+            'visible error',
+            'example.com 请求失败（HTTP 403）',
+          ),
+        ),
+      );
+    },
+  );
+
   test(
     'a stalled response body is aborted and later requests still work',
     () async {
