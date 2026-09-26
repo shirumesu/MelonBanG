@@ -1,13 +1,20 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:melonbang/app_services.dart';
 import 'package:melonbang/data/danmaku_repository.dart';
+import 'package:melonbang/data/downloads.dart';
+import 'package:melonbang/data/network.dart';
+import 'package:melonbang/data/sources.dart';
+import 'package:melonbang/data/store.dart';
 import 'package:melonbang/ui/player/playback.dart';
 import 'package:melonbang/ui/player/player_page.dart';
 import 'package:melonbang/ui/player/player_settings.dart';
@@ -173,12 +180,26 @@ void main() {
     addTearDown(tester.view.reset);
     final playback = MemoryPlayback()
       ..session = {'id': 'session', 'subjectId': 7};
-    final services = AppServices();
+    final store = (await tester.runAsync(() => AppStore.open(':memory:')))!;
+    final downloads = DownloadRepository(store, Directory.systemTemp.path);
+    final api = ApiClient(
+      client: MockClient(
+        (_) async => http.Response('<rss><channel/></rss>', 200),
+      ),
+    );
+    final services = AppServices(api: api)
+      ..store = store
+      ..downloads = downloads
+      ..sources = SourceRepository(api, downloads);
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());
       await playback.player.dispose();
       playback.dispose();
       await services.close();
+      await tester.runAsync(() async {
+        await downloads.close();
+        await store.close();
+      });
     });
     await tester.pumpWidget(
       MaterialApp(

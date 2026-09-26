@@ -19,11 +19,13 @@ class SettingsPage extends StatefulWidget {
     this.onBack,
     this.onSync,
     this.storageSettings,
+    this.cacheSettings,
     this.syncBusy = false,
     this.needsAuthorization = false,
     this.accountBusy = false,
   });
   final Widget? storageSettings;
+  final Widget? cacheSettings;
   final VoidCallback? onSync;
   final bool syncBusy;
   final Json? account;
@@ -42,11 +44,19 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   int selected = 0;
-  static const categories = ['账户与同步', '界面与外观', '播放', '下载与做种', '应用数据'];
-  static const icons = [
+  List<String> get categories => [
+    '账户与同步',
+    '界面与外观',
+    '播放',
+    if (widget.cacheSettings != null) '缓存方式',
+    '下载与做种',
+    '应用数据',
+  ];
+  List<IconData> get icons => [
     Icons.person_outline,
     Icons.palette_outlined,
     Icons.play_circle_outline,
+    if (widget.cacheSettings != null) Icons.download_outlined,
     Icons.swap_vert,
     Icons.folder_outlined,
   ];
@@ -310,6 +320,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ],
                   ),
+                  if (widget.cacheSettings != null) widget.cacheSettings!,
                   widget.bitTorrentSettings,
                   PageScroll(
                     key: const PageStorageKey('settings-data'),

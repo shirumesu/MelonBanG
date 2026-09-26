@@ -168,6 +168,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     final id = '${task['id']}';
     final progress = number(task['progress']).clamp(0.0, 1.0).toDouble();
     final complete = progress >= 1;
+    final cloud = task['provider'] == 'pikpak';
     final canStop = complete && ['seeding', 'queued'].contains(task['status']);
     final canResume =
         ['paused', 'failed'].contains(task['status']) ||
@@ -221,13 +222,20 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       runSpacing: 5,
                       children: [
                         MelonBadge(
-                          downloadStatus(task),
+                          cloud
+                              ? switch (task['status']) {
+                                  'metadata' => '云端准备中',
+                                  'downloading' => '下载到本机',
+                                  _ => downloadStatus(task),
+                                }
+                              : downloadStatus(task),
                           color: task['status'] == 'failed'
                               ? coral
                               : complete
                               ? sky
                               : mint,
                         ),
+                        if (cloud) const MelonBadge('PikPak', color: sky),
                         if (files.isNotEmpty)
                           Text(
                             '${files.length} 个文件',
@@ -235,7 +243,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
                           ),
                         if (!complete)
                           Text(
-                            '${(progress * 100).toStringAsFixed(0)}% · ↓ ${_transferRate(task['downloadSpeedBytesPerSecond'])}',
+                            cloud && task['status'] == 'metadata'
+                                ? '等待 PikPak 完成离线下载'
+                                : '${(progress * 100).toStringAsFixed(0)}% · ↓ ${_transferRate(task['downloadSpeedBytesPerSecond'])}',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                       ],
@@ -272,7 +282,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 ),
               if (!complete)
                 IconButton(
-                  tooltip: '暂停 / 继续下载',
+                  tooltip: cloud ? '暂停 / 继续本机缓存' : '暂停 / 继续下载',
                   onPressed: () => widget.onTogglePause(task),
                   icon: Icon(
                     canResume ? Icons.play_arrow_rounded : Icons.pause_rounded,
@@ -310,10 +320,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ),
             const SizedBox(height: 8),
             Text(
-              '↓ ${_transferRate(task['downloadSpeedBytesPerSecond'])} · ↑ ${_transferRate(task['uploadSpeedBytesPerSecond'])} · ${number(task['peerCount']).toInt()} 个连接 · 分享率 ${number(task['totalBytes']) > 0 ? (number(task['uploadedBytes']) / number(task['totalBytes'])).toStringAsFixed(2) : '0.00'}',
+              cloud
+                  ? 'PikPak 云端文件 → 本机缓存 · ↓ ${_transferRate(task['downloadSpeedBytesPerSecond'])}'
+                  : '↓ ${_transferRate(task['downloadSpeedBytesPerSecond'])} · ↑ ${_transferRate(task['uploadSpeedBytesPerSecond'])} · ${number(task['peerCount']).toInt()} 个连接 · 分享率 ${number(task['totalBytes']) > 0 ? (number(task['uploadedBytes']) / number(task['totalBytes'])).toStringAsFixed(2) : '0.00'}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            if (!complete && task.containsKey('trackerCount')) ...[
+            if (!cloud && !complete && task.containsKey('trackerCount')) ...[
               const SizedBox(height: 6),
               Text(
                 '发现 ${number(task['knownPeerCount']).toInt()} 个节点 · Tracker ${number(task['workingTrackers']).toInt()}/${number(task['trackerCount']).toInt()} 可用'
@@ -341,7 +353,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   ),
                 ),
             ],
-            if (complete)
+            if (!cloud && complete)
               Text(
                 '已上传 ${(number(task['uploadedBytes']) / 1048576).toStringAsFixed(1)} MiB · 累计做种 ${(number(task['seedSeconds']) / 60).floor()} 分钟',
                 style: Theme.of(context).textTheme.bodySmall,
@@ -357,7 +369,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     icon: const Icon(Icons.folder_open_outlined, size: 17),
                     label: const Text('查看文件'),
                   ),
-                if (complete && task['status'] != 'checking')
+                if (!cloud && complete && task['status'] != 'checking')
                   TextButton.icon(
                     onPressed: stoppedByPolicy
                         ? null
@@ -381,10 +393,15 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 TextButton.icon(
                   onPressed: () => widget.onRemove(task),
                   icon: const Icon(Icons.delete_outline, size: 17),
-                  label: const Text('移除任务与缓存'),
+                  label: Text(cloud ? '移除本机任务与缓存' : '移除任务与缓存'),
                 ),
               ],
             ),
+            if (cloud)
+              Text(
+                '暂停和移除仅影响本机缓存，PikPak 云端文件会保留。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
           ],
         ],
       ),

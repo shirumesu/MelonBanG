@@ -76,6 +76,13 @@ class PlaybackLibrary {
     );
     session['resumeKey'] = 'download:$id:${media['id']}';
     session['fileSize'] = media['size'];
+    session['remoteSource'] = media['streamUrl'] != null;
+    if (media['sourceHeaders'] != null) {
+      session['source'] = {
+        ...object(session['source']),
+        'headers': media['sourceHeaders'],
+      };
+    }
     if (media['subjectId'] != null && media['episodeId'] != null) {
       await store.put(
         'episode_files',
@@ -274,7 +281,9 @@ class PlaybackLibrary {
               match = await danmaku.matchFile(
                 '${session['path']}',
                 duration,
-                filenameOnly: session['streamId'] != null,
+                filenameOnly:
+                    session['remoteSource'] == true ||
+                    session['streamId'] != null,
                 fileSize: session['fileSize'] as int?,
               );
             }

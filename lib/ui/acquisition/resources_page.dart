@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../data/cache_method.dart';
 import '../../data/json.dart';
 import '../../data/resource_metadata.dart';
 import '../../data/resource_title.dart';
@@ -24,6 +25,8 @@ class ResourcesPage extends StatefulWidget {
     required this.busy,
     required this.onSearch,
     required this.onDownload,
+    this.defaultMethod = CacheMethod.bt,
+    this.onDownloadWithMethod,
   });
   final Json? subject;
   final TextEditingController resourceSearch;
@@ -32,6 +35,8 @@ class ResourcesPage extends StatefulWidget {
   final bool busy;
   final Future<void> Function(List<String>, String) onSearch;
   final Future<void> Function(Json) onDownload;
+  final CacheMethod defaultMethod;
+  final Future<void> Function(Json, CacheMethod)? onDownloadWithMethod;
   @override
   State<ResourcesPage> createState() => _ResourcesPageState();
 }
@@ -176,12 +181,34 @@ class _ResourcesPageState extends State<ResourcesPage> {
     excludedProviders.clear();
   });
 
-  Future<void> download(Json candidate) async {
-    final id = '${candidate['candidateId']}';
-    if ([
-      ResourceDownloadPhase.adding,
-      ResourceDownloadPhase.added,
-    ].contains(downloadPhases[id])) {
+  String downloadKey(Json candidate, CacheMethod method) =>
+      '${candidate['candidateId']}:${method.name}';
+
+  ResourceDownloadPhase phaseFor(Json candidate, CacheMethod method) =>
+      downloadPhases[downloadKey(candidate, method)] ??
+      ResourceDownloadPhase.idle;
+
+  String? errorFor(Json candidate) {
+    for (final method in [widget.defaultMethod, widget.defaultMethod.other]) {
+      final error = downloadErrors[downloadKey(candidate, method)];
+      if (error != null) {
+        return widget.onDownloadWithMethod == null
+            ? error
+            : '${method.label}：$error';
+      }
+    }
+    return null;
+  }
+
+  Future<void> download(Json candidate, CacheMethod method) async {
+    final id = downloadKey(candidate, method);
+    if (CacheMethod.values.any(
+          (value) => phaseFor(candidate, value) == ResourceDownloadPhase.adding,
+        ) ||
+        [
+          ResourceDownloadPhase.adding,
+          ResourceDownloadPhase.added,
+        ].contains(downloadPhases[id])) {
       return;
     }
     setState(() {
@@ -189,7 +216,11 @@ class _ResourcesPageState extends State<ResourcesPage> {
       downloadErrors.remove(id);
     });
     try {
-      await widget.onDownload(candidate);
+      if (widget.onDownloadWithMethod case final callback?) {
+        await callback(candidate, method);
+      } else {
+        await widget.onDownload(candidate);
+      }
       if (mounted) {
         setState(() => downloadPhases[id] = ResourceDownloadPhase.added);
       }
@@ -530,7 +561,11 @@ class _ResourcesPageState extends State<ResourcesPage> {
                               style: small?.copyWith(fontSize: 11),
                             ),
                           ),
-                          const SizedBox(width: 100),
+                          SizedBox(
+                            width: widget.onDownloadWithMethod == null
+                                ? 100
+                                : 128,
+                          ),
                         ],
                       ),
                     ),
@@ -567,12 +602,21 @@ class _ResourcesPageState extends State<ResourcesPage> {
                             expandedTitles.add(id);
                           }
                         }),
-                        phase:
-                            downloadPhases['${visible[i].$1['candidateId']}'] ??
-                            ResourceDownloadPhase.idle,
-                        error:
-                            downloadErrors['${visible[i].$1['candidateId']}'],
-                        onDownload: () => download(visible[i].$1),
+                        phase: phaseFor(visible[i].$1, widget.defaultMethod),
+                        error: errorFor(visible[i].$1),
+                        onDownload: () =>
+                            download(visible[i].$1, widget.defaultMethod),
+                        defaultMethod: widget.defaultMethod,
+                        alternativePhase: phaseFor(
+                          visible[i].$1,
+                          widget.defaultMethod.other,
+                        ),
+                        onAlternative: widget.onDownloadWithMethod == null
+                            ? null
+                            : () => download(
+                                visible[i].$1,
+                                widget.defaultMethod.other,
+                              ),
                       ),
                     ),
                   ],

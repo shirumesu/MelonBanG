@@ -103,8 +103,13 @@ class StorageLocations {
           await store.database.transaction((tx) async {
             final rows = await tx.query(
               'documents',
-              where: 'scope IN (?, ?, ?)',
-              whereArgs: ['downloads', 'episode_files', 'danmaku_matches'],
+              where: 'scope IN (?, ?, ?, ?)',
+              whereArgs: [
+                'downloads',
+                'pikpak_downloads',
+                'episode_files',
+                'danmaku_matches',
+              ],
             );
             for (final row in rows) {
               final body = object(jsonDecode(row['body'] as String));

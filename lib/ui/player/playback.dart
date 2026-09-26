@@ -143,6 +143,8 @@ class Playback extends ChangeNotifier {
       await player.open(
         Media(
           uri!,
+          httpHeaders: object(object(next['source'])['headers'])
+              .map((key, value) => MapEntry(key, '$value')),
           start: Duration(milliseconds: ((resume ?? 0) * 1000).round()),
         ),
         play: false,

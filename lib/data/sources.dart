@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:xml/xml.dart';
 
 import 'downloads.dart';
+import 'cache_method.dart';
 import 'json.dart';
 import 'resource_metadata.dart';
 import 'network.dart';
@@ -176,7 +177,7 @@ class SourceRepository {
     return snapshot();
   }
 
-  Future<Json> enqueue(String id, {int? episodeId}) async {
+  Future<Json> enqueue(String id, {int? episodeId, CacheMethod? method}) async {
     final candidate = _candidates[id];
     if (candidate == null) throw StateError('搜索结果已失效，请重新搜索');
     final locator = '${candidate['locator']}';
@@ -185,6 +186,7 @@ class SourceRepository {
     if (locator.startsWith('magnet:')) {
       return downloads.addMagnet(
         locator,
+        method: method,
         subjectId: subjectId,
         episodeId: episodeId,
         coverUrl: candidate['coverUrl'] as String?,
@@ -194,6 +196,7 @@ class SourceRepository {
     return downloads.addTorrent(
       response.bodyBytes,
       '${candidate['title']}',
+      method: method,
       subjectId: subjectId,
       episodeId: episodeId,
       coverUrl: candidate['coverUrl'] as String?,

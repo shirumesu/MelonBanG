@@ -220,14 +220,14 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          expect(storage.reads, [('account', false)]);
+          expect(storage.reads, [('pikpak', false), ('account', false)]);
           expect(find.text('服务连接'), findsNothing);
           expect(find.text('登录 Bangumi'), findsOneWidget);
           for (final category in ['界面与外观', '播放', '下载与做种', '应用数据']) {
             await tester.tap(find.text(category).first);
             await tester.pumpAndSettle();
           }
-          expect(storage.reads, [('account', false)]);
+          expect(storage.reads, [('pikpak', false), ('account', false)]);
           expect(find.byType(TextField), findsNothing);
           expect(tester.takeException(), isNull);
         } finally {

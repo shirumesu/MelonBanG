@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../data/cache_method.dart';
 import '../../data/json.dart';
 import '../../data/resource_metadata.dart';
 import '../../data/resource_title.dart';
@@ -19,16 +20,26 @@ class ResourceDownloadButton extends StatelessWidget {
     required this.onPressed,
     this.error,
     this.showLabel = false,
+    this.defaultMethod = CacheMethod.bt,
+    this.onAlternative,
+    this.alternativePhase = ResourceDownloadPhase.idle,
   });
   final ResourceDownloadPhase phase;
   final VoidCallback onPressed;
   final String? error;
   final bool showLabel;
+  final CacheMethod defaultMethod;
+  final VoidCallback? onAlternative;
+  final ResourceDownloadPhase alternativePhase;
 
   @override
   Widget build(BuildContext context) {
+    final busy =
+        phase == ResourceDownloadPhase.adding ||
+        alternativePhase == ResourceDownloadPhase.adding;
     final label = switch (phase) {
-      ResourceDownloadPhase.idle => '下载',
+      ResourceDownloadPhase.idle =>
+        onAlternative == null ? '下载' : '下载 · 默认 ${defaultMethod.label}',
       ResourceDownloadPhase.adding => '正在加入下载…',
       ResourceDownloadPhase.added => '已加入下载',
       ResourceDownloadPhase.failed =>
@@ -36,16 +47,17 @@ class ResourceDownloadButton extends StatelessWidget {
     };
     final action =
         [
-          ResourceDownloadPhase.adding,
-          ResourceDownloadPhase.added,
-        ].contains(phase)
+              ResourceDownloadPhase.adding,
+              ResourceDownloadPhase.added,
+            ].contains(phase) ||
+            busy
         ? null
         : onPressed;
     final icon = SizedBox.square(
       dimension: 24,
       child: AnimatedSwitcher(
         duration: motionDuration(context, 150),
-        child: phase == ResourceDownloadPhase.adding
+        child: busy
             ? const Padding(
                 key: ValueKey(ResourceDownloadPhase.adding),
                 padding: EdgeInsets.all(3),
@@ -64,8 +76,11 @@ class ResourceDownloadButton extends StatelessWidget {
     );
     return Semantics(
       liveRegion: phase != ResourceDownloadPhase.idle,
-      child: showLabel
-          ? Tooltip(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (showLabel)
+            Tooltip(
               message: label,
               child: SizedBox(
                 width: 92,
@@ -85,7 +100,35 @@ class ResourceDownloadButton extends StatelessWidget {
                 ),
               ),
             )
-          : IconButton(tooltip: label, onPressed: action, icon: icon),
+          else
+            IconButton(tooltip: label, onPressed: action, icon: icon),
+          if (onAlternative != null)
+            PopupMenuButton<CacheMethod>(
+              tooltip: '其他缓存方式 · 默认 ${defaultMethod.label}',
+              enabled: !busy,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 140),
+              icon: const Icon(Icons.arrow_drop_down, size: 20),
+              iconSize: 20,
+              style: IconButton.styleFrom(
+                minimumSize: const Size(28, 40),
+                padding: EdgeInsets.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onSelected: (_) => onAlternative!(),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: defaultMethod.other,
+                  enabled: alternativePhase != ResourceDownloadPhase.added,
+                  child: Text(
+                    '${defaultMethod.other.label} 下载'
+                    '${alternativePhase == ResourceDownloadPhase.added ? ' · 已加入' : ''}',
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
     );
   }
 }
@@ -252,6 +295,9 @@ class ResourceResultRow extends StatelessWidget {
     required this.phase,
     required this.onDownload,
     this.error,
+    this.defaultMethod = CacheMethod.bt,
+    this.onAlternative,
+    this.alternativePhase = ResourceDownloadPhase.idle,
   });
   final Json candidate;
   final ResourceTitleInfo info;
@@ -259,6 +305,9 @@ class ResourceResultRow extends StatelessWidget {
   final VoidCallback onExpand, onDownload;
   final ResourceDownloadPhase phase;
   final String? error;
+  final CacheMethod defaultMethod;
+  final VoidCallback? onAlternative;
+  final ResourceDownloadPhase alternativePhase;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -411,6 +460,9 @@ class ResourceResultRow extends StatelessWidget {
               error: error,
               showLabel: wide,
               onPressed: onDownload,
+              defaultMethod: defaultMethod,
+              onAlternative: onAlternative,
+              alternativePhase: alternativePhase,
             ),
           ],
         ),

@@ -300,8 +300,12 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                           'failed',
                           'completed',
                         ].contains(task['status'])
-                        ? (progress >= 1 ? '继续做种' : '继续下载')
-                        : (progress >= 1 ? '暂停做种' : '暂停下载'),
+                        ? (progress >= 1 && task['provider'] != 'pikpak'
+                              ? '继续做种'
+                              : '继续下载')
+                        : (progress >= 1 && task['provider'] != 'pikpak'
+                              ? '暂停做种'
+                              : '暂停下载'),
                     onPressed: () => toggleTask(task),
                     icon: Icon(
                       ['paused', 'failed', 'completed'].contains(task['status'])
@@ -373,4 +377,10 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
   }
 }
 
-String taskStatus(Json task) => downloadStatus(task);
+String taskStatus(Json task) => task['provider'] == 'pikpak'
+    ? 'PikPak · ${switch (task['status']) {
+        'metadata' => '云端准备中',
+        'downloading' => '下载到本机',
+        _ => downloadStatus(task),
+      }}'
+    : downloadStatus(task);

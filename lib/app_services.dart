@@ -11,6 +11,8 @@ import 'data/danmaku_repository.dart';
 import 'data/downloads.dart';
 import 'data/network.dart';
 import 'data/playback_library.dart';
+import 'data/pikpak.dart';
+import 'data/pikpak_downloads.dart';
 import 'data/service_configuration.dart';
 import 'data/sources.dart';
 import 'data/store.dart';
@@ -44,6 +46,7 @@ class AppServices {
   late final CatalogRepository catalog;
   late final TrackingRepository tracking;
   late final DownloadRepository downloads;
+  late final PikPakClient pikpak;
   late final SourceRepository sources;
   late final DanmakuRepository danmaku;
   late final PlaybackLibrary library;
@@ -89,9 +92,15 @@ class AppServices {
     _dispose.add(catalog.close);
     tracking = TrackingRepository(store, account, catalog);
     _dispose.add(tracking.close);
+    pikpak = PikPakClient(credentials!);
+    _dispose.add(() async => pikpak.close());
+    await pikpak.initialize();
+    final mediaDirectory =
+        storage?.media ?? p.join(dataDirectory!, 'downloads');
     downloads = DownloadRepository(
       store,
-      storage?.media ?? p.join(dataDirectory!, 'downloads'),
+      mediaDirectory,
+      pikpak: PikPakDownloadRepository(store, mediaDirectory, pikpak),
     );
     _downloadsCreated = true;
     _dispose.add(downloads.close);
