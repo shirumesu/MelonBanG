@@ -24,14 +24,14 @@ class ApiClient {
   final _active = <Completer<void>>{};
   bool _closed = false;
   final http.Client client;
-  Future<http.Response> send(
+  http.AbortableRequest _request(
     Uri uri, {
+    required Completer<void> abort,
     String method = 'GET',
     Object? body,
     Map<String, String> headers = const {},
-  }) async {
+  }) {
     if (_closed) throw StateError('网络服务已关闭');
-    final abort = Completer<void>();
     final request = http.AbortableRequest(
       method,
       uri,
@@ -48,25 +48,88 @@ class ApiClient {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
     }
+    return request;
+  }
+
+  Never _timedOut(Uri uri, Completer<void> abort) {
+    if (!abort.isCompleted) abort.complete();
+    throw TimeoutException('${uri.host} 请求超时', timeout);
+  }
+
+  void _checkResponse(http.Response response, Uri uri) {
+    if (response.statusCode >= 200 && response.statusCode < 300) return;
+    final reason =
+        response.headers['x-error-message']?.trim() ??
+        (response.headers['content-type']?.contains('application/json') == true
+            ? object(object(jsonDecode(response.body))['error'])['message']
+                  as String?
+            : null);
+    throw ApiException(response.statusCode, uri.host, reason: reason);
+  }
+
+  Future<http.Response> send(
+    Uri uri, {
+    String method = 'GET',
+    Object? body,
+    Map<String, String> headers = const {},
+  }) async {
+    final abort = Completer<void>();
+    final request = _request(
+      uri,
+      abort: abort,
+      method: method,
+      body: body,
+      headers: headers,
+    );
     _active.add(abort);
     try {
       final receiving = client.send(request).then(http.Response.fromStream);
       final response = await receiving.timeout(
         timeout,
-        onTimeout: () {
-          if (!abort.isCompleted) abort.complete();
-          throw TimeoutException('${uri.host} 请求超时', timeout);
-        },
+        onTimeout: () => _timedOut(uri, abort),
       );
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw ApiException(
-          response.statusCode,
-          uri.host,
-          reason: response.headers['x-error-message']?.trim(),
-        );
-      }
+      _checkResponse(response, uri);
       return response;
     } finally {
+      _active.remove(abort);
+    }
+  }
+
+  Stream<Json> ndjson(Uri uri) async* {
+    final abort = Completer<void>();
+    final request = _request(
+      uri,
+      abort: abort,
+      headers: const {'Accept': 'application/x-ndjson'},
+    );
+    _active.add(abort);
+    try {
+      final response = await client
+          .send(request)
+          .timeout(timeout, onTimeout: () => _timedOut(uri, abort));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        _checkResponse(
+          await http.Response.fromStream(response)
+              .timeout(timeout, onTimeout: () => _timedOut(uri, abort)),
+          uri,
+        );
+      }
+      final lines = response.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .timeout(
+            timeout,
+            onTimeout: (sink) {
+              if (!abort.isCompleted) abort.complete();
+              sink.addError(TimeoutException('${uri.host} 请求超时', timeout));
+              sink.close();
+            },
+          );
+      await for (final line in lines) {
+        yield object(jsonDecode(line));
+      }
+    } finally {
+      if (!abort.isCompleted) abort.complete();
       _active.remove(abort);
     }
   }

@@ -49,23 +49,25 @@ class CatalogRepository {
     Duration ttl = const Duration(minutes: 5),
     bool refresh = false,
     FutureOr<void> Function(dynamic)? onCached,
+    Future<dynamic> Function()? load,
   }) async {
     if (_closed) throw StateError('番剧服务已关闭');
     final cached = await store.get('catalog', key);
     if (_closed) throw StateError('番剧服务已关闭');
     final now = DateTime.now().millisecondsSinceEpoch;
+    if (cached != null && onCached != null) await onCached(cached['value']);
     if (!refresh &&
-        onCached == null &&
         cached != null &&
         now - number(cached['savedAt']) < ttl.inMilliseconds &&
         _serverFresh(cached['value'], now)) {
       return cached['value'];
     }
-    if (cached != null && onCached != null) await onCached(cached['value']);
     try {
       return await _requests.putIfAbsent(key, () async {
         try {
-          final value = await api.json(Uri.parse('$origin$path'));
+          final value = await (load == null
+              ? api.json(Uri.parse('$origin$path'))
+              : load());
           if (_closed) throw StateError('番剧服务已关闭');
           await store.put('catalog', key, {
             'value': value,
@@ -83,6 +85,10 @@ class CatalogRepository {
   }
 
   bool _serverFresh(dynamic value, int now) {
+    if (object(object(object(value)['data'])['source'])['notes']
+        case final List notes when notes.isNotEmpty) {
+      return false;
+    }
     final cache = object(object(value)['cache']);
     if (cache['stale'] == true) return false;
     final expiresAt = DateTime.tryParse('${cache['expiresAt'] ?? ''}');
@@ -100,24 +106,28 @@ class CatalogRepository {
     return result;
   }
 
-  Future<List<Json>> search(
+  Future<Json> search(
     String keyword, {
-    void Function(List<Json>)? onCached,
+    int offset = 0,
+    void Function(Json)? onCached,
   }) async {
     final query = keyword.trim();
-    if (query.isEmpty) return [];
+    Json page(dynamic value) {
+      final response = object(value);
+      return {
+        ...response,
+        'data': objects(response['data']).map(summary).toList(),
+      };
+    }
+
     final response = object(
       await _cached(
-        'search:${query.toLowerCase()}',
-        '/v1/subjects/search?q=${Uri.encodeQueryComponent(query)}&limit=20&offset=0',
-        onCached: onCached == null
-            ? null
-            : (value) => onCached(
-                objects(object(value)['data']).map(summary).toList(),
-              ),
+        'search:${query.toLowerCase()}:10:$offset',
+        '/v1/subjects/search?q=${Uri.encodeQueryComponent(query)}&limit=10&offset=$offset',
+        onCached: onCached == null ? null : (value) => onCached(page(value)),
       ),
     );
-    return objects(response['data']).map(summary).toList();
+    return page(response);
   }
 
   Future<List<Json>> trending({
@@ -224,18 +234,52 @@ class CatalogRepository {
 
   Future<Json> subject(
     int id, {
-    FutureOr<void> Function(Json)? onCached,
+    FutureOr<void> Function(Json)? onAvailable,
   }) async {
     if (id <= 0) throw const FormatException('番剧编号无效');
     // Detail and list caches have distinct keys; a search cannot erase detail.
+    Json? available;
+    final uri = Uri.parse('$origin/v1/subjects/$id?includeHtml=false');
     final response = object(
       await _cached(
         'detail:$id',
         '/v1/subjects/$id?includeHtml=false',
         ttl: const Duration(hours: 1),
-        onCached: onCached == null
+        onCached: onAvailable == null
             ? null
-            : (value) => onCached(_subject(id, value)),
+            : (value) async {
+                available = object(object(value)['data']);
+                await onAvailable(_subject(id, value));
+              },
+        load: () async {
+          await for (final message in api.ndjson(uri)) {
+            switch (message['type']) {
+              case 'snapshot':
+              case 'patch':
+                final pending = message['pending'] as List<dynamic>;
+                available = {
+                  ...?available,
+                  ...Map.fromEntries(
+                    object(message['data']).entries
+                        .where((entry) => !pending.contains(entry.key)),
+                  ),
+                };
+                if (onAvailable != null) {
+                  await onAvailable({
+                    ..._subject(id, {'data': available}),
+                    '_pending': pending,
+                  });
+                }
+              case 'complete':
+                return {'data': message['data'], 'cache': message['cache']};
+              case 'error':
+                throw StateError(
+                  '番剧详情加载失败：${object(message['error'])['message']}',
+                );
+            }
+          }
+          throw const FormatException('番剧详情响应未完整接收');
+        },
       ),
     );
     return _subject(id, response);

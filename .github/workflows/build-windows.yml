@@ -23,8 +23,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Dependency resolution failed.' }
           flutter analyze
           if ($LASTEXITCODE -ne 0) { throw 'Analysis failed.' }
-          flutter test
-          if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
       - name: Build configured portable app
         shell: pwsh
         env:

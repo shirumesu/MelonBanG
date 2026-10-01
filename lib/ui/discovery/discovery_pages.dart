@@ -247,19 +247,29 @@ class SearchPage extends StatelessWidget {
     super.key,
     required this.results,
     required this.busy,
+    required this.total,
+    required this.hasMore,
+    required this.onLoadMore,
     required this.onOpenSubject,
     this.error,
     this.onRetry,
   });
   final List<Json> results;
   final bool busy;
+  final int total;
+  final bool hasMore;
+  final VoidCallback onLoadMore;
   final String? error;
   final VoidCallback? onRetry;
   final ValueChanged<Json> onOpenSubject;
   @override
   Widget build(BuildContext context) => PageScroll(
     children: [
-      SectionTitle(title: '搜索结果 · ${results.length}', icon: Icons.search),
+      SectionTitle(
+        title:
+            '搜索结果 · ${results.length}${total > results.length ? ' / $total' : ''}',
+        icon: Icons.search,
+      ),
       if (results.isEmpty && busy)
         const PosterPlaceholders()
       else if (results.isEmpty && error != null)
@@ -268,6 +278,25 @@ class SearchPage extends StatelessWidget {
         const EmptyState(text: '没有找到匹配的番剧')
       else
         SubjectPosters(onOpen: onOpenSubject, items: results),
+      if (results.isNotEmpty && error != null)
+        EmptyState(text: error!, action: busy ? null : onRetry)
+      else if (results.isNotEmpty && hasMore)
+        Padding(
+          padding: const EdgeInsets.only(top: 20),
+          child: Center(
+            child: OutlinedButton.icon(
+              onPressed: busy ? null : onLoadMore,
+              icon: busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.expand_more, size: 18),
+              label: Text(busy ? '正在加载…' : '加载更多'),
+            ),
+          ),
+        ),
     ],
   );
 }

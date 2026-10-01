@@ -44,6 +44,21 @@ class _SubjectPageState extends State<SubjectPage> {
   final _savingEpisodes = <int>{};
   final _episodeErrors = <int, String>{};
 
+  bool _loadingPart(String part) {
+    if (!widget.loading) return false;
+    final pending = widget.subject?['_pending'] as List<dynamic>?;
+    return pending == null
+        ? widget.subject?.containsKey('episodes') != true
+        : pending.contains(part);
+  }
+
+  bool _failedPart(String part) =>
+      !widget.loading &&
+      (widget.subject?['_pending'] as List<dynamic>?)?.contains(part) == true;
+
+  bool get _episodesLoading =>
+      _loadingPart('episodes') && objects(widget.subject?['episodes']).isEmpty;
+
   String? get _collectionStatus =>
       _selectedStatus ??
       object(widget.subject?['collection'])['status'] as String?;
@@ -186,7 +201,7 @@ class _SubjectPageState extends State<SubjectPage> {
     final nextIndex = next == null ? 0 : episodes.indexOf(next);
     final start = (nextIndex - 1).clamp(0, episodes.length);
     final nearby = episodes.skip(start).take(3).toList();
-    final playLabel = widget.loading
+    final playLabel = _episodesLoading
         ? '加载剧集…'
         : next == null
         ? '暂无剧集'
@@ -258,15 +273,20 @@ class _SubjectPageState extends State<SubjectPage> {
                     onPressed: episodes.isEmpty ? null : _episodes,
                     icon: const Icon(Icons.grid_view_rounded, size: 16),
                     label: Text(
-                      widget.loading ? '加载剧集…' : '全部 ${episodes.length} 话',
+                      _episodesLoading ? '加载剧集…' : '全部 ${episodes.length} 话',
                     ),
                   ),
                 ],
               ),
-              if (widget.loading)
+              if (_episodesLoading)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 18),
                   child: Text('正在加载剧集…'),
+                )
+              else if (_failedPart('episodes') && nearby.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 18),
+                  child: Text('剧集加载失败，请重新打开详情重试。'),
                 )
               else if (nearby.isEmpty)
                 const Padding(
@@ -291,17 +311,37 @@ class _SubjectPageState extends State<SubjectPage> {
               const SizedBox(height: 12),
               SelectableText(
                 key: const PageStorageKey('subject-summary'),
-                '${item['summary'] ?? (widget.loading ? '正在加载简介…' : '暂无简介')}',
+                '${item['summary'] ?? (_loadingPart('subject') ? '正在加载简介…' : '暂无简介')}',
                 style: const TextStyle(fontSize: 13, height: 1.8),
               ),
               if (objects(item['characters']).isNotEmpty) ...[
                 const Divider(height: 32),
                 _people(item, characters: true),
               ],
+              if (_loadingPart('characters'))
+                const Padding(
+                  padding: EdgeInsets.only(top: 18),
+                  child: Text('正在加载角色与配音…'),
+                )
+              else if (_failedPart('characters'))
+                const Padding(
+                  padding: EdgeInsets.only(top: 18),
+                  child: Text('角色与配音加载失败。'),
+                ),
               if (objects(item['staff']).isNotEmpty) ...[
                 const Divider(height: 32),
                 _people(item, characters: false),
               ],
+              if (_loadingPart('staff'))
+                const Padding(
+                  padding: EdgeInsets.only(top: 18),
+                  child: Text('正在加载制作团队…'),
+                )
+              else if (_failedPart('staff'))
+                const Padding(
+                  padding: EdgeInsets.only(top: 18),
+                  child: Text('制作团队加载失败。'),
+                ),
             ],
           ),
         ),
@@ -409,7 +449,7 @@ class _SubjectPageState extends State<SubjectPage> {
         ),
         const SizedBox(height: 14),
         Text(
-          widget.loading
+          _episodesLoading
               ? '正在加载番剧详情…'
               : '已看 $watched 话 / 预定全 ${item['episodeTotal'] ?? episodes.length} 话',
           style: TextStyle(
@@ -433,7 +473,7 @@ class _SubjectPageState extends State<SubjectPage> {
           runSpacing: 8,
           children: [
             FilledButton.icon(
-              onPressed: next == null || widget.loading
+              onPressed: next == null || _episodesLoading
                   ? null
                   : () => _openEpisode(next),
               icon: Icon(
@@ -552,7 +592,7 @@ class _SubjectPageState extends State<SubjectPage> {
           trailing: IconButton.filledTonal(
             tooltip:
                 '${available == false ? '查找资源' : '播放'} EP${episode['sort']}',
-            onPressed: widget.loading ? null : () => _openEpisode(episode),
+            onPressed: _episodesLoading ? null : () => _openEpisode(episode),
             icon: Icon(
               available == false
                   ? Icons.download_outlined
