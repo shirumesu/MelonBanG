@@ -33,11 +33,6 @@ dependencies:
   pinyin: ^3.3.0
 
 dev_dependencies:
-  integration_test:
-    sdk: flutter
-  flutter_test:
-    sdk: flutter
-
   flutter_lints: ^6.0.0
 
 flutter:

@@ -54,6 +54,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   String selectedSection = 'home';
   String? searchError;
   String resultQuery = '';
+  int resultOffset = 0, resultTotal = 0;
+  bool resultHasMore = false;
+  int _searchRequestOffset = 0;
   List<String>? resourceQueryNames;
   String resourceQueryEpisode = '';
   late final Playback playback;
@@ -241,6 +244,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     providers: providers,
     searchError: searchError,
     resultQuery: resultQuery,
+    resultOffset: resultOffset,
+    resultTotal: resultTotal,
+    resultHasMore: resultHasMore,
+    searchRequestOffset: _searchRequestOffset,
     pending: busy || (route == 'subject' && _subjectRequest == _navigation),
     resourceQueryNames: resourceQueryNames,
     resourceQueryEpisode: resourceQueryEpisode,
@@ -282,6 +289,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       providers = previous.providers;
       searchError = previous.searchError;
       resultQuery = previous.resultQuery;
+      resultOffset = previous.resultOffset;
+      resultTotal = previous.resultTotal;
+      resultHasMore = previous.resultHasMore;
+      _searchRequestOffset = previous.searchRequestOffset;
       resourceQueryNames = previous.resourceQueryNames;
       resourceQueryEpisode = previous.resourceQueryEpisode;
       busy = false;
@@ -296,7 +307,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         case 'subject':
           if (subject != null) unawaited(openSubject(subject!));
         case 'search':
-          unawaited(searchSubjects(query: previous.resultQuery));
+          unawaited(_loadSearchPage(previous.searchRequestOffset));
         case 'resources':
           unawaited(
             searchResources(
@@ -394,7 +405,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           if (mounted && ticket == _navigation) {
             setState(() {
               subject = value;
-              busy = false;
             });
           }
         },
@@ -644,29 +654,53 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     final requestedQuery = query ?? search.text.trim();
     if (!ready || requestedQuery.isEmpty) return;
     if (route != 'search') rememberLocation();
-    final ticket = ++_navigation;
     setState(() {
       route = 'search';
-      busy = true;
       results = [];
       searchError = null;
       resultQuery = requestedQuery;
+      resultOffset = 0;
+      resultTotal = 0;
+      resultHasMore = false;
     });
+    await _loadSearchPage(0);
+  }
+
+  Future<void> loadMoreSearch() async {
+    if (busy || !resultHasMore) return;
+    await _loadSearchPage(resultOffset);
+  }
+
+  Future<void> _loadSearchPage(int offset) async {
+    final ticket = ++_navigation;
+    final previousResults = results.take(offset).toList();
+    final requestedQuery = resultQuery;
+    setState(() {
+      busy = true;
+      searchError = null;
+      _searchRequestOffset = offset;
+    });
+    void showPage(Json value) {
+      if (!mounted || ticket != _navigation) return;
+      final rows = objects(value['data']);
+      setState(() {
+        results = [...previousResults, ...rows];
+        resultOffset = (value['offset'] as num).toInt() + rows.length;
+        resultTotal = (value['total'] as num).toInt();
+        resultHasMore = value['hasMore'] as bool;
+      });
+    }
+
     try {
       final value = await widget.service.catalog.search(
-        resultQuery,
-        onCached: (value) {
-          if (mounted && ticket == _navigation && !_dataEqual(results, value)) {
-            setState(() => results = value);
-          }
-        },
+        requestedQuery,
+        offset: offset,
+        onCached: showPage,
       );
-      if (mounted && ticket == _navigation && !_dataEqual(results, value)) {
-        setState(() => results = value);
-      }
-    } catch (_) {
+      showPage(value);
+    } catch (e) {
       if (mounted && ticket == _navigation) {
-        setState(() => searchError = '搜索暂时失败，请重试。');
+        setState(() => searchError = e.toString());
       }
     }
     if (mounted && ticket == _navigation) setState(() => busy = false);
@@ -1005,8 +1039,11 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         return SearchPage(
           results: results,
           busy: busy,
+          total: resultTotal,
+          hasMore: resultHasMore,
           error: searchError,
-          onRetry: searchSubjects,
+          onRetry: () => _loadSearchPage(_searchRequestOffset),
+          onLoadMore: loadMoreSearch,
           onOpenSubject: openSubject,
         );
       case 'calendar':
@@ -1233,12 +1270,18 @@ class _PageLocation {
     required this.providers,
     required this.searchError,
     required this.resultQuery,
+    required this.resultOffset,
+    required this.resultTotal,
+    required this.resultHasMore,
+    required this.searchRequestOffset,
     required this.pending,
     required this.resourceQueryNames,
     required this.resourceQueryEpisode,
   });
   final String route, accountId, section, resourceQuery, query, resultQuery;
   final bool pending;
+  final bool resultHasMore;
+  final int resultOffset, resultTotal, searchRequestOffset;
   final List<String>? resourceQueryNames;
   final String resourceQueryEpisode;
   final Json? subject;

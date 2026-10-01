@@ -1,6 +1,5 @@
 # Local-only development and generated files
 dist/
-coverage/
 .cache/
 *.log
 .env

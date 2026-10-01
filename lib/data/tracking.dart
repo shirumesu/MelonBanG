@@ -60,7 +60,7 @@ class TrackingRepository {
 
     // Public detail and personal progress are independent network requests.
     final values = await Future.wait<dynamic>([
-      catalog.subject(id, onCached: publish).then((detail) async {
+      catalog.subject(id, onAvailable: publish).then((detail) async {
         await publish(detail);
         return detail;
       }),

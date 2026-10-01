@@ -28,9 +28,8 @@ directory. Re-run `pod install` after changing the native bridge or Homebrew
 dependencies. Builds target the host architecture.
 
 Engine `dispose` destroys the session without calling the destructive upstream
-`disposeAll`; explicit torrent removal still supports file deletion. Verify changes
-with integration_test/torrent_test.dart, including restart after stopping its local
-seeder and tracker. Native libraries remain independent from application services.
+`disposeAll`; explicit torrent removal still supports file deletion. Native libraries
+remain independent from application services.
 
 The Dart alert callback drains native alerts without printing every network event.
 Application state and download errors remain available through torrentUpdates.
@@ -54,8 +53,7 @@ limits and application admission govern the total for downloads and seeders;
 libtorrent still applies operating-system resource limits. Rebuild the bridge
 after changing this policy.
 Dart and native bridge must be rebuilt together because the metadata export is a
-new C symbol. The native torrent test covers stopped offline recovery, native
-pause/queue state, settings persistence, and corrupted local pieces.
+new C symbol.
 
 ## Desktop polling and file metadata
 
@@ -69,8 +67,6 @@ Session creation now leaves libtorrent's transport, connection, piece-picking an
 socket settings at upstream defaults. The application no longer inherits the
 streaming adapter's aggressive timeouts, predictive announcements and qBittorrent
 fingerprint. Explicit settings and the established native disk backend remain.
-Native tests cover idle accounting, file metadata, transient SQLite write failures,
-same-torrent removal/re-import, local upload/download integrity and restart.
 
 ## Peer discovery and diagnostics
 
@@ -88,13 +84,6 @@ not a guarantee that a peer has a complete copy or will provide upload bandwidth
 The expanded download card shows them, and an idle task with no connected peers
 is labelled as searching for download nodes. Small transfer rates use KiB/s or B/s.
 The C status struct and Dart FFI layout must be rebuilt together.
-
-`integration_test/torrent_test.dart` uses two local tracker tiers: the first replies
-successfully with no peers and the second supplies a real wire-protocol seeder.
-It verifies downloaded hashes and the diagnostic fields through DownloadRepository,
-alongside existing recovery, queue and sharing checks. This controlled test does
-not establish public-swarm throughput; network routing and seed availability still
-matter. Transport limits, DHT/PEX defaults and explicit pause ownership are retained.
 
 ## Persistent playback streaming
 
