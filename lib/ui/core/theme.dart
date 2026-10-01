@@ -1,6 +1,14 @@
 import 'package:flutter/material.dart';
 
-const pageGutter = 26.0;
+// Layout and spacing tokens; Design/foundations.md documents their use.
+const pageGutter = 24.0;
+const titleBarHeight = 44.0;
+const sidebarWidth = 208.0;
+const homeSideColumnWidth = 336.0;
+
+abstract final class Gap {
+  static const xs = 4.0, sm = 8.0, md = 12.0, lg = 16.0, xl = 24.0, xxl = 32.0;
+}
 
 const mint = Color(0xff22b388);
 const mintOnDark = Color(0xff73d7b2);
@@ -89,7 +97,8 @@ ThemeData appTheme(bool dark) {
     scaffoldBackgroundColor: dark
         ? scheme.surfaceContainerLowest
         : scheme.surfaceContainer,
-    fontFamily: 'Microsoft YaHei UI',
+    fontFamily: 'Resource Han Rounded',
+    fontFamilyFallback: const ['Microsoft YaHei UI', 'PingFang SC'],
     shadowColor: const Color(0xff203b30).withValues(alpha: dark ? .16 : .06),
     hoverColor: scheme.primary.withValues(alpha: .05),
     focusColor: scheme.primary.withValues(alpha: .12),

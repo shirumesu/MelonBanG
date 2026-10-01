@@ -12,6 +12,7 @@ There is no Node.js or Electron process and no external transcoding service.
 | libtorrent_flutter 2.0.0 | Dart FFI bindings and packaged native torrent engine | [GPL-3.0](https://pub.dev/packages/libtorrent_flutter/license) |
 | libtorrent 2.1.1 | BitTorrent protocol implementation | [Upstream licenses](https://github.com/arvidn/libtorrent/blob/RC_2_1/LICENSE) |
 | SQLite | Local database | [Public domain](https://sqlite.org/copyright.html) |
+| Resource Han Rounded 0.990 (CN Regular, Bold) | Bundled interface typeface | [SIL OFL 1.1](https://github.com/CyanoHao/Resource-Han-Rounded); full text in `assets/fonts/OFL.txt` |
 
 The pinned package versions are in `pubspec.lock`. Flutter's generated asset
 bundle includes the registered Dart package license notices. The local

@@ -35,14 +35,14 @@ class SubjectPosters extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) return const EmptyState(text: '这里还没有番剧');
-    Widget poster(int i) => _SubjectPoster(
+    Widget poster(int i) => SubjectPoster(
       onOpen: onOpen,
       item: items[i],
       rank: ranked ? i + 1 : null,
       tracking: tracking,
     );
     if (horizontal) {
-      return _HorizontalPosters(
+      return HorizontalPosters(
         storageId: key,
         ranked: ranked,
         itemCount: items.length,
@@ -67,8 +67,9 @@ class SubjectPosters extends StatelessWidget {
   }
 }
 
-class _HorizontalPosters extends StatefulWidget {
-  const _HorizontalPosters({
+class HorizontalPosters extends StatefulWidget {
+  const HorizontalPosters({
+    super.key,
     required this.ranked,
     required this.itemCount,
     required this.itemBuilder,
@@ -80,10 +81,10 @@ class _HorizontalPosters extends StatefulWidget {
   final Object? storageId;
 
   @override
-  State<_HorizontalPosters> createState() => _HorizontalPostersState();
+  State<HorizontalPosters> createState() => _HorizontalPostersState();
 }
 
-class _HorizontalPostersState extends State<_HorizontalPosters> {
+class _HorizontalPostersState extends State<HorizontalPosters> {
   final _scroll = ScrollController();
   bool _back = false, _forward = false;
   int _hoveredEdge = 0, _focusedEdge = 0;
@@ -234,23 +235,28 @@ class _HorizontalPostersState extends State<_HorizontalPosters> {
   );
 }
 
-class _SubjectPoster extends StatefulWidget {
-  const _SubjectPoster({
+class SubjectPoster extends StatefulWidget {
+  const SubjectPoster({
+    super.key,
     required this.item,
     required this.onOpen,
     this.rank,
     required this.tracking,
+    this.badge,
   });
   final Json item;
   final ValueChanged<Json> onOpen;
   final int? rank;
   final bool tracking;
 
+  /// Replaces the collection status badge with a highlighted label.
+  final String? badge;
+
   @override
-  State<_SubjectPoster> createState() => _SubjectPosterState();
+  State<SubjectPoster> createState() => _SubjectPosterState();
 }
 
-class _SubjectPosterState extends State<_SubjectPoster> {
+class _SubjectPosterState extends State<SubjectPoster> {
   bool hovered = false;
   bool focused = false;
   bool pressed = false;
@@ -343,7 +349,31 @@ class _SubjectPosterState extends State<_SubjectPoster> {
                           ),
                         ),
                       ),
-                    if (tracking && collectionLabels.containsKey(status))
+                    if (widget.badge case final badge?)
+                      Positioned(
+                        top: 10,
+                        left: 10,
+                        child: Container(
+                          constraints: const BoxConstraints(minHeight: 24),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: const BoxDecoration(
+                            color: coral,
+                            borderRadius: badgeBorderRadius,
+                          ),
+                          child: Text(
+                            badge,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      )
+                    else if (tracking && collectionLabels.containsKey(status))
                       Positioned(
                         top: 10,
                         left: 10,
@@ -452,9 +482,13 @@ class _SubjectPosterState extends State<_SubjectPoster> {
                 )
               else if (rank == null)
                 Text(
-                  item['episodeTotal'] == null
-                      ? '${item['platform'] ?? '动画'}'
-                      : '全 ${item['episodeTotal']} 话',
+                  [
+                    if (object(item['season'])['year'] != null)
+                      '${object(item['season'])['year']}',
+                    '${item['platform'] ?? '动画'}',
+                    if (item['episodeTotal'] != null)
+                      '${item['episodeTotal']} 话',
+                  ].join(' · '),
                   style: TextStyle(
                     fontSize: 11,
                     color: Theme.of(context).colorScheme.onSurfaceVariant,

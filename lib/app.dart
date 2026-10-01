@@ -72,6 +72,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   bool accountBusy = false;
   final homeFeedback = ActionFeedback();
   final syncFeedback = ActionFeedback();
+  List<String> recentSearches = [];
   Json? account, subject, playerSubject, subjectResume;
   Set<int>? cachedEpisodeIds;
   List<Json> resumable = [];
@@ -97,6 +98,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   void initState() {
     super.initState();
     dark = widget.preferences.getBool('dark') ?? false;
+    recentSearches = widget.preferences.getStringList('recentSearches') ?? [];
     playback = Playback(widget.service, widget.preferences);
     windowManager.addListener(this);
     unawaited(windowManager.setPreventClose(true));
@@ -328,7 +330,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
 
   void focusSearch() {
     if (fullScreen) unawaited(setFullScreen(false));
-    final needsNavigation = route == 'player' || route == 'settings';
+    // The title-bar search is hidden only while the player fills the window.
+    final needsNavigation = route == 'player' && windowFullScreen;
     void focus() {
       if (!mounted) return;
       searchFocus.requestFocus();
@@ -650,9 +653,30 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     }
   }
 
+  void rememberSearch(String query) {
+    setState(() {
+      recentSearches = [
+        query,
+        ...recentSearches.where((item) => item != query),
+      ].take(8).toList();
+    });
+    unawaited(
+      widget.preferences.setStringList('recentSearches', recentSearches),
+    );
+  }
+
+  void clearRecentSearches() {
+    setState(() => recentSearches = []);
+    unawaited(widget.preferences.remove('recentSearches'));
+  }
+
   Future<void> searchSubjects({String? query}) async {
     final requestedQuery = query ?? search.text.trim();
     if (!ready || requestedQuery.isEmpty) return;
+    search.text = requestedQuery;
+    searchFocus.unfocus();
+    rememberSearch(requestedQuery);
+    leavePlayer();
     if (route != 'search') rememberLocation();
     setState(() {
       route = 'search';
@@ -713,7 +737,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     _navigation++;
     setState(() {
       route = target;
-      if (['home', 'tracking', 'downloads'].contains(target)) {
+      if (['home', 'tracking', 'downloads', 'settings'].contains(target)) {
         selectedSection = target;
       } else if (target == 'calendar') {
         selectedSection = 'home';
@@ -864,7 +888,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
             children: [
               if (!fullScreen)
                 AppTitleBar(
-                  route: route,
                   immersive: route == 'player' && windowFullScreen,
                   dark: dark,
                   sidebarVisible: sidebarVisible,
@@ -873,18 +896,21 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                   onToggleSidebar: () =>
                       setState(() => sidebarVisible = !sidebarVisible),
                   onToggleTheme: () => setDark(!dark),
+                  search: search,
+                  searchFocusNode: searchFocus,
+                  onSearch: (query) => searchSubjects(query: query),
+                  recentSearches: recentSearches,
+                  onClearRecentSearches: clearRecentSearches,
                 ),
               Expanded(
                 child: Row(
                   children: [
-                    if (!fullScreen &&
-                        !(route == 'player' && windowFullScreen) &&
-                        route != 'settings')
+                    if (!fullScreen && !(route == 'player' && windowFullScreen))
                       MotionReveal(
                         visible: sidebarVisible,
                         axis: Axis.horizontal,
                         child: SizedBox(
-                          width: 236,
+                          width: sidebarWidth,
                           child: AppSidebar(
                             dark: dark,
                             route: route,
@@ -915,16 +941,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                     Expanded(
                       child: Column(
                         children: [
-                          if (!fullScreen &&
-                              route != 'settings' &&
-                              route != 'player')
-                            AppHeader(
-                              route: route,
-                              search: search,
-                              searchFocusNode: searchFocus,
-                              onSearch: searchSubjects,
-                              collectionCount: collection.length,
-                            ),
                           if (!ready && error != null && !fullScreen)
                             MaterialBanner(
                               content: Text(error!),
@@ -1012,7 +1028,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     switch (route) {
       case 'home':
         return HomePage(
-          dark: dark,
+          onOpenTracking: () => navigate('tracking'),
           today: today,
           trending: trending,
           resumable: resumable,
@@ -1037,6 +1053,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         );
       case 'search':
         return SearchPage(
+          query: resultQuery,
           results: results,
           busy: busy,
           total: resultTotal,
@@ -1132,7 +1149,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         );
       case 'settings':
         return SettingsPage(
-          onBack: goBack,
           account: account,
           sync: sync,
           needsAuthorization: widget.service.account.needsAuthorization,

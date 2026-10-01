@@ -8,6 +8,7 @@ import '../../data/resource_title.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
+import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'resource_widgets.dart';
 
@@ -280,379 +281,455 @@ class _ResourcesPageState extends State<ResourcesPage> {
           (provider) =>
               excludedProviders.contains(resourceProviderKey(provider)),
         );
+    final filtered =
+        quality != 'all' ||
+        group.isNotEmpty ||
+        includeUnknown ||
+        excludedProviders.isNotEmpty;
     final small = Theme.of(context).textTheme.bodySmall;
-    return PageScroll(
+    final background = Material.of(context).color!;
+    final form = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 10),
-        MelonPanel(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                titleOf(widget.subject ?? {}),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
+        Row(
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.all(Radius.circular(7)),
+              child: SizedBox(
+                width: 34,
+                height: 46,
+                child: SubjectCover(
+                  url: widget.subject?['coverUrl'],
+                  title: titleOf(widget.subject ?? {}),
+                  id: number(widget.subject?['subjectId']).toInt(),
                 ),
               ),
-              const SizedBox(height: 5),
-              Text(
-                episode == null ? '查找字幕组与视频版本' : '下载将关联到第 ${episode['sort']} 话',
-                style: small,
+            ),
+            const SizedBox(width: Gap.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    titleOf(widget.subject ?? {}),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    episode == null
+                        ? '查找字幕组与视频版本 · 集数留空可查找合集'
+                        : '下载将关联到第 ${episode['sort']} 话',
+                    style: small,
+                  ),
+                ],
               ),
-              const SizedBox(height: 17),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final keyword = TextField(
-                    key: const PageStorageKey('resource-query'),
-                    controller: widget.resourceSearch,
-                    focusNode: queryFocus,
-                    onChanged: (_) => setState(() {}),
-                    onSubmitted: (_) => search(),
-                    decoration: const InputDecoration(
-                      labelText: '资源关键词',
-                      prefixIcon: Icon(Icons.search, size: 19),
+            ),
+          ],
+        ),
+        const SizedBox(height: Gap.md),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final keyword = TextField(
+              key: const PageStorageKey('resource-query'),
+              controller: widget.resourceSearch,
+              focusNode: queryFocus,
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => search(),
+              decoration: const InputDecoration(
+                hintText: '资源关键词',
+                prefixIcon: Icon(Icons.search, size: 19),
+              ),
+            );
+            final episodeField = TextField(
+              key: const PageStorageKey('resource-episode'),
+              controller: episodeQuery,
+              focusNode: episodeFocus,
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => search(),
+              decoration: const InputDecoration(hintText: '集数，如 01 / S01E01'),
+            );
+            final button = Tooltip(
+              message: searchBusy ? '正在搜索资源…' : '搜索资源',
+              child: FilledButton(
+                onPressed: searchBusy ? null : search,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Opacity(
+                      opacity: searchBusy ? 0 : 1,
+                      child: const Text('搜索'),
                     ),
-                  );
-                  final episodeField = TextField(
-                    key: const PageStorageKey('resource-episode'),
-                    controller: episodeQuery,
-                    focusNode: episodeFocus,
-                    onChanged: (_) => setState(() {}),
-                    onSubmitted: (_) => search(),
-                    decoration: const InputDecoration(
-                      labelText: '集数关键词',
-                      hintText: '01 / S01E01',
-                    ),
-                  );
-                  final button = Tooltip(
-                    message: searchBusy ? '正在搜索资源…' : '搜索资源',
-                    child: FilledButton(
-                      onPressed: searchBusy ? null : search,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Opacity(
-                            opacity: searchBusy ? 0 : 1,
-                            child: const Text('搜索'),
-                          ),
-                          if (searchBusy)
-                            const SizedBox.square(
-                              dimension: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                        ],
+                    if (searchBusy)
+                      const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
                       ),
-                    ),
-                  );
-                  if (constraints.maxWidth < 490) {
-                    return Column(
-                      children: [
-                        keyword,
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(child: episodeField),
-                            const SizedBox(width: 10),
-                            button,
-                          ],
-                        ),
-                      ],
-                    );
-                  }
-                  return Row(
+                  ],
+                ),
+              ),
+            );
+            if (constraints.maxWidth < 490) {
+              return Column(
+                children: [
+                  keyword,
+                  const SizedBox(height: Gap.md),
+                  Row(
                     children: [
-                      Expanded(child: keyword),
-                      const SizedBox(width: 10),
-                      SizedBox(width: 145, child: episodeField),
+                      Expanded(child: episodeField),
                       const SizedBox(width: 10),
                       button,
                     ],
-                  );
-                },
-              ),
-              const SizedBox(height: 7),
-              Wrap(
-                spacing: 10,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  TextButton.icon(
-                    key: const ValueKey('resource-aliases-toggle'),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 0),
-                      textStyle: const TextStyle(fontSize: 12),
-                    ),
-                    onPressed: () =>
-                        changeForm(() => aliasesExpanded = !aliasesExpanded),
-                    icon: AnimatedRotation(
-                      turns: aliasesExpanded ? .25 : 0,
-                      duration: motionDuration(context, 150),
-                      child: const Icon(Icons.chevron_right, size: 17),
-                    ),
-                    label: Text(
-                      multipleNames
-                          ? '别名搜索 · ${names.where((name) => !excluded.contains(name)).length} 个名称'
-                          : '别名搜索 · 已关闭',
-                    ),
                   ),
-                  Text('集数留空可查找合集', style: small?.copyWith(fontSize: 11)),
                 ],
-              ),
-              AnimatedSize(
-                duration: motionDuration(context),
-                alignment: Alignment.topLeft,
-                curve: Curves.easeOutCubic,
-                child: aliasesExpanded
-                    ? Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Wrap(
-                          spacing: 7,
-                          runSpacing: 6,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            FilterChip(
-                              label: const Text('多个名称一起搜'),
-                              selected: multipleNames,
-                              onSelected: (value) =>
-                                  changeForm(() => multipleNames = value),
-                            ),
-                            if (multipleNames)
-                              for (final name in names.where(
-                                (name) =>
-                                    name != widget.resourceSearch.text.trim(),
-                              ))
-                                FilterChip(
-                                  label: Text(name),
-                                  selected: !excluded.contains(name),
-                                  onSelected: (value) => changeForm(
-                                    () => value
-                                        ? excluded.remove(name)
-                                        : excluded.add(name),
-                                  ),
-                                ),
-                          ],
-                        ),
-                      )
-                    : const SizedBox.shrink(),
-              ),
-              if (widget.providers.isNotEmpty || searchBusy) ...[
-                const SizedBox(height: 8),
-                ResourceProgress(
-                  providers: widget.providers,
-                  busy: searchBusy,
-                  excludedProviders: excludedProviders,
-                  onProviderSelected: (id, selected) => changeForm(
-                    () => selected
-                        ? excludedProviders.remove(id)
-                        : excludedProviders.add(id),
-                  ),
-                ),
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: keyword),
+                const SizedBox(width: 10),
+                SizedBox(width: 170, child: episodeField),
+                const SizedBox(width: 10),
+                button,
               ],
-            ],
-          ),
+            );
+          },
         ),
-        SectionTitle(
-          title: '资源结果',
-          subtitle: '${visible.length} / ${widget.candidates.length} 条',
+        const SizedBox(height: Gap.sm),
+        Wrap(
+          spacing: Gap.sm,
+          runSpacing: Gap.sm,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            TextButton.icon(
+              key: const ValueKey('resource-aliases-toggle'),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                textStyle: const TextStyle(fontSize: 12),
+              ),
+              onPressed: () =>
+                  changeForm(() => aliasesExpanded = !aliasesExpanded),
+              icon: AnimatedRotation(
+                turns: aliasesExpanded ? .25 : 0,
+                duration: motionDuration(context, 150),
+                child: const Icon(Icons.chevron_right, size: 17),
+              ),
+              label: Text(
+                multipleNames
+                    ? '别名搜索 · ${names.where((name) => !excluded.contains(name)).length} 个名称'
+                    : '别名搜索 · 已关闭',
+              ),
+            ),
+          ],
         ),
-        Padding(
-          padding: const EdgeInsets.only(bottom: 14),
-          child: Wrap(
-            spacing: 12,
-            runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text('画质', style: small),
-              SizedBox(
-                width: 278,
-                child: MelonSegmentedControl<String>(
-                  options: const {
-                    'all': '全部',
-                    '1080p': '1080p',
-                    '720p': '720p',
-                    '4K': '4K',
-                  },
-                  value: quality,
-                  semanticLabel: '按标题标注的画质筛选',
-                  onChanged: (value) => changeForm(() => quality = value),
-                ),
-              ),
-              MelonChoiceMenu<String>(
-                options: {'': '全部来源分组', for (final name in groups) name: name},
-                value: group,
-                icon: Icons.groups_outlined,
-                label: group.isEmpty ? '来源分组' : group,
-                tooltip: '资源站标注的发布分组；标题中的联合署名单独展示',
-                onSelected: (value) => changeForm(() => group = value),
-              ),
-              Tooltip(
-                message: '筛选时保留未标明画质或来源分组的资源',
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () =>
-                      changeForm(() => includeUnknown = !includeUnknown),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+        AnimatedSize(
+          duration: motionDuration(context),
+          alignment: Alignment.topLeft,
+          curve: Curves.easeOutCubic,
+          child: aliasesExpanded
+              ? Padding(
+                  padding: const EdgeInsets.only(top: Gap.sm),
+                  child: Wrap(
+                    spacing: 7,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      ExcludeFocus(
-                        child: Switch(
-                          value: includeUnknown,
-                          onChanged: (value) =>
-                              changeForm(() => includeUnknown = value),
-                        ),
+                      FilterChip(
+                        label: const Text('多个名称一起搜'),
+                        selected: multipleNames,
+                        onSelected: (value) =>
+                            changeForm(() => multipleNames = value),
                       ),
-                      const Padding(
-                        padding: EdgeInsets.only(right: 8),
-                        child: Text('含未确认', style: TextStyle(fontSize: 12)),
-                      ),
+                      if (multipleNames)
+                        for (final name in names.where(
+                          (name) => name != widget.resourceSearch.text.trim(),
+                        ))
+                          FilterChip(
+                            label: Text(name),
+                            selected: !excluded.contains(name),
+                            onSelected: (value) => changeForm(
+                              () => value
+                                  ? excluded.remove(name)
+                                  : excluded.add(name),
+                            ),
+                          ),
                     ],
                   ),
-                ),
-              ),
-              if (quality != 'all' ||
-                  group.isNotEmpty ||
-                  includeUnknown ||
-                  excludedProviders.isNotEmpty)
-                TextButton(onPressed: clearFilters, child: const Text('清除')),
-            ],
-          ),
+                )
+              : const SizedBox.shrink(),
         ),
-        if (visible.isNotEmpty) ...[
-          LayoutBuilder(
-            builder: (context, constraints) => constraints.maxWidth < 760
-                ? const SizedBox.shrink()
-                : Material(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius: BorderRadius.vertical(
-                      top: panelBorderRadius.topLeft,
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 13, 16, 11),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '资源 / 标题标注',
-                              style: small?.copyWith(fontSize: 11),
-                            ),
-                          ),
-                          const SizedBox(width: 18),
-                          SizedBox(
-                            width: 106,
-                            child: Text(
-                              '来源分组',
-                              style: small?.copyWith(fontSize: 11),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          SizedBox(
-                            width: 72,
-                            child: Text(
-                              '大小',
-                              style: small?.copyWith(fontSize: 11),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          SizedBox(
-                            width: 80,
-                            child: Text(
-                              '发布',
-                              style: small?.copyWith(fontSize: 11),
-                            ),
-                          ),
-                          SizedBox(
-                            width: widget.onDownloadWithMethod == null
-                                ? 100
-                                : 128,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+        if (widget.providers.isNotEmpty) ...[
+          const SizedBox(height: Gap.sm),
+          ResourceProviderChips(
+            providers: widget.providers,
+            excludedProviders: excludedProviders,
+            onProviderSelected: (id, selected) => changeForm(
+              () => selected
+                  ? excludedProviders.remove(id)
+                  : excludedProviders.add(id),
+            ),
           ),
-          for (var i = 0; i < visible.length; i++)
-            LayoutBuilder(
-              key: ValueKey(visible[i].$1['candidateId']),
-              builder: (context, constraints) => Material(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.vertical(
-                  top: i == 0 && constraints.maxWidth < 760
-                      ? panelBorderRadius.topLeft
-                      : Radius.zero,
-                  bottom: i == visible.length - 1
-                      ? panelBorderRadius.bottomLeft
-                      : Radius.zero,
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Column(
+        ],
+        if (searchBusy) ...[
+          const SizedBox(height: Gap.md),
+          ResourceSearchStatus(providers: widget.providers),
+        ],
+      ],
+    );
+    final filterBar = ColoredBox(
+      color: background,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: pageGutter),
+        child: Row(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
                   children: [
-                    if (i > 0)
-                      const Divider(height: 1, indent: 16, endIndent: 16),
-                    ResourceArrival(
-                      child: ResourceResultRow(
-                        candidate: visible[i].$1,
-                        info: visible[i].$2,
-                        expanded: expandedTitles.contains(
-                          '${visible[i].$1['candidateId']}',
-                        ),
-                        onExpand: () => changeForm(() {
-                          final id = '${visible[i].$1['candidateId']}';
-                          if (!expandedTitles.remove(id)) {
-                            expandedTitles.add(id);
-                          }
-                        }),
-                        phase: phaseFor(visible[i].$1, widget.defaultMethod),
-                        error: errorFor(visible[i].$1),
-                        onDownload: () =>
-                            download(visible[i].$1, widget.defaultMethod),
-                        defaultMethod: widget.defaultMethod,
-                        alternativePhase: phaseFor(
-                          visible[i].$1,
-                          widget.defaultMethod.other,
-                        ),
-                        onAlternative: widget.onDownloadWithMethod == null
-                            ? null
-                            : () => download(
-                                visible[i].$1,
-                                widget.defaultMethod.other,
-                              ),
+                    Text('画质', style: small),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: 278,
+                      child: MelonSegmentedControl<String>(
+                        options: const {
+                          'all': '全部',
+                          '1080p': '1080p',
+                          '720p': '720p',
+                          '4K': '4K',
+                        },
+                        value: quality,
+                        semanticLabel: '按标题标注的画质筛选',
+                        onChanged: (value) => changeForm(() => quality = value),
                       ),
                     ),
+                    const SizedBox(width: Gap.md),
+                    MelonChoiceMenu<String>(
+                      options: {
+                        '': '全部来源分组',
+                        for (final name in groups) name: name,
+                      },
+                      value: group,
+                      icon: Icons.groups_outlined,
+                      label: group.isEmpty ? '来源分组' : group,
+                      tooltip: '资源站标注的发布分组；标题中的联合署名单独展示',
+                      onSelected: (value) => changeForm(() => group = value),
+                    ),
+                    const SizedBox(width: Gap.sm),
+                    Tooltip(
+                      message: '筛选时保留未标明画质或来源分组的资源',
+                      child: InkWell(
+                        borderRadius: badgeBorderRadius,
+                        onTap: () =>
+                            changeForm(() => includeUnknown = !includeUnknown),
+                        child: Row(
+                          children: [
+                            ExcludeFocus(
+                              child: Switch(
+                                value: includeUnknown,
+                                onChanged: (value) =>
+                                    changeForm(() => includeUnknown = value),
+                              ),
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.only(right: Gap.sm),
+                              child: Text(
+                                '含未确认',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (filtered)
+                      TextButton(
+                        onPressed: clearFilters,
+                        child: const Text('清除筛选'),
+                      ),
                   ],
                 ),
               ),
             ),
-        ],
-        if (visible.isEmpty &&
-            (allProvidersExcluded ||
-                !searchBusy ||
-                widget.candidates.isNotEmpty))
-          EmptyState(
-            text: allProvidersExcluded
-                ? '已取消选择全部资源站'
-                : widget.candidates.isNotEmpty
-                ? '没有符合筛选条件的资源'
-                : providersFailed
-                ? '资源站暂时无法连接'
-                : '没有找到资源，试试其他名称或清空集数关键词',
-            action: allProvidersExcluded
-                ? () => changeForm(excludedProviders.clear)
-                : widget.candidates.isNotEmpty
-                ? clearFilters
-                : () {
-                    if (!providersFailed) episodeQuery.clear();
-                    search();
-                  },
-            actionLabel: allProvidersExcluded
-                ? '显示全部来源'
-                : widget.candidates.isNotEmpty
-                ? '清除筛选'
-                : !providersFailed && episodeQuery.text.isNotEmpty
-                ? '清空集数并搜索'
-                : '重新搜索',
+            const SizedBox(width: Gap.md),
+            Text(
+              '${visible.length} / ${widget.candidates.length} 条',
+              style: small?.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    final downloadWidth = widget.onDownloadWithMethod == null ? 100.0 : 128.0;
+    return CustomScrollView(
+      key: const PageStorageKey('page-scroll'),
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(
+            pageGutter,
+            Gap.lg,
+            pageGutter,
+            Gap.md,
           ),
+          sliver: SliverToBoxAdapter(child: form),
+        ),
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: _PinnedBar(height: 56, child: filterBar),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
+          sliver: SliverList.list(
+            children: [
+              if (visible.isNotEmpty)
+                LayoutBuilder(
+                  builder: (context, constraints) =>
+                      constraints.maxWidth < resourceTableWidth
+                      ? const SizedBox.shrink()
+                      : Material(
+                          color: Theme.of(context).colorScheme.surface,
+                          borderRadius: BorderRadius.vertical(
+                            top: panelBorderRadius.topLeft,
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 11, 16, 9),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '资源 · 标题标注',
+                                    style: small?.copyWith(fontSize: 11),
+                                  ),
+                                ),
+                                for (final (label, width) in [
+                                  ('来源分组', resourceGroupColumnWidth),
+                                  ('大小', resourceSizeColumnWidth),
+                                  ('发布', resourceDateColumnWidth),
+                                ]) ...[
+                                  const SizedBox(width: Gap.md),
+                                  SizedBox(
+                                    width: width,
+                                    child: Text(
+                                      label,
+                                      style: small?.copyWith(fontSize: 11),
+                                    ),
+                                  ),
+                                ],
+                                SizedBox(width: Gap.sm + downloadWidth),
+                              ],
+                            ),
+                          ),
+                        ),
+                ),
+              for (var i = 0; i < visible.length; i++)
+                LayoutBuilder(
+                  key: ValueKey(visible[i].$1['candidateId']),
+                  builder: (context, constraints) => Material(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.vertical(
+                      top: i == 0 && constraints.maxWidth < resourceTableWidth
+                          ? panelBorderRadius.topLeft
+                          : Radius.zero,
+                      bottom: i == visible.length - 1
+                          ? panelBorderRadius.bottomLeft
+                          : Radius.zero,
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      children: [
+                        if (i > 0)
+                          const Divider(height: 1, indent: 16, endIndent: 16),
+                        ResourceArrival(
+                          child: ResourceResultRow(
+                            candidate: visible[i].$1,
+                            info: visible[i].$2,
+                            expanded: expandedTitles.contains(
+                              '${visible[i].$1['candidateId']}',
+                            ),
+                            onExpand: () => changeForm(() {
+                              final id = '${visible[i].$1['candidateId']}';
+                              if (!expandedTitles.remove(id)) {
+                                expandedTitles.add(id);
+                              }
+                            }),
+                            phase: phaseFor(
+                              visible[i].$1,
+                              widget.defaultMethod,
+                            ),
+                            error: errorFor(visible[i].$1),
+                            onDownload: () =>
+                                download(visible[i].$1, widget.defaultMethod),
+                            defaultMethod: widget.defaultMethod,
+                            alternativePhase: phaseFor(
+                              visible[i].$1,
+                              widget.defaultMethod.other,
+                            ),
+                            onAlternative: widget.onDownloadWithMethod == null
+                                ? null
+                                : () => download(
+                                    visible[i].$1,
+                                    widget.defaultMethod.other,
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (visible.isEmpty &&
+                  (allProvidersExcluded ||
+                      !searchBusy ||
+                      widget.candidates.isNotEmpty))
+                EmptyState(
+                  text: allProvidersExcluded
+                      ? '已隐藏全部资源站的结果'
+                      : widget.candidates.isNotEmpty
+                      ? '没有符合筛选条件的资源'
+                      : providersFailed
+                      ? '资源站暂时无法连接'
+                      : '没有找到资源，试试其他名称或清空集数关键词',
+                  action: allProvidersExcluded
+                      ? () => changeForm(excludedProviders.clear)
+                      : widget.candidates.isNotEmpty
+                      ? clearFilters
+                      : () {
+                          if (!providersFailed) episodeQuery.clear();
+                          search();
+                        },
+                  actionLabel: allProvidersExcluded
+                      ? '显示全部资源站'
+                      : widget.candidates.isNotEmpty
+                      ? '清除筛选'
+                      : !providersFailed && episodeQuery.text.isNotEmpty
+                      ? '清空集数并搜索'
+                      : '重新搜索',
+                ),
+            ],
+          ),
+        ),
       ],
     );
   }
+}
+
+class _PinnedBar extends SliverPersistentHeaderDelegate {
+  const _PinnedBar({required this.height, required this.child});
+  final double height;
+  final Widget child;
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlaps) =>
+      SizedBox.expand(child: child);
+
+  @override
+  bool shouldRebuild(_PinnedBar oldDelegate) => true;
 }
