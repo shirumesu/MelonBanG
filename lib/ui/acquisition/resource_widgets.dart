@@ -5,10 +5,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/cache_method.dart';
 import '../../data/json.dart';
-import '../../data/resource_metadata.dart';
 import '../../data/resource_title.dart';
 import '../core/motion.dart';
-import '../core/page_widgets.dart';
 import '../core/theme.dart';
 
 enum ResourceDownloadPhase { idle, adding, added, failed }
@@ -84,10 +82,14 @@ class ResourceDownloadButton extends StatelessWidget {
               message: label,
               child: SizedBox(
                 width: 92,
-                child: TextButton.icon(
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    textStyle: const TextStyle(fontSize: 12),
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 34),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   onPressed: action,
                   icon: icon,
@@ -136,89 +138,120 @@ class ResourceDownloadButton extends StatelessWidget {
 String resourceProviderKey(Json provider) =>
     '${provider['providerId'] ?? provider['providerName'] ?? ''}';
 
-class ResourceProgress extends StatelessWidget {
-  const ResourceProgress({
+class ResourceProviderChips extends StatelessWidget {
+  const ResourceProviderChips({
     super.key,
     required this.providers,
-    required this.busy,
-    this.excludedProviders = const {},
-    this.onProviderSelected,
+    required this.excludedProviders,
+    required this.onProviderSelected,
   });
   final List<Json> providers;
-  final bool busy;
   final Set<String> excludedProviders;
-  final void Function(String, bool)? onProviderSelected;
+  final void Function(String, bool) onProviderSelected;
 
-  Widget providerChip(BuildContext context, Json provider) {
-    final id = resourceProviderKey(provider);
-    final selected = !excludedProviders.contains(id);
-    final label =
-        '${provider['providerName']} · ${resourceProviderLabel(provider)}';
-    final message =
-        '${provider['message'] ?? provider['metadataMessage'] ?? ''}';
-    final warning = ['error', 'partial'].contains(provider['status']);
-    if (onProviderSelected == null) {
-      return Tooltip(
-        message: message,
-        child: MelonBadge(label, color: warning ? gold : mint),
-      );
-    }
+  @override
+  Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return FilterChip(
-      key: ValueKey('resource-provider:$id'),
-      tooltip: [
-        selected
-            ? '点击隐藏${provider['providerName']}的资源'
-            : '点击显示${provider['providerName']}的资源',
-        if (message.isNotEmpty) message,
-      ].join('\n'),
-      selected: selected,
-      showCheckmark: true,
-      checkmarkColor: scheme.primary,
-      backgroundColor: scheme.surfaceContainerHigh,
-      selectedColor: scheme.primary.withValues(alpha: .12),
-      labelStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
-        fontWeight: FontWeight.w600,
-        color: selected ? scheme.primary : scheme.onSurfaceVariant,
-      ),
-      label: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label),
-          if (warning) ...[
-            const SizedBox(width: 5),
-            Icon(Icons.warning_amber_rounded, size: 15, color: scheme.tertiary),
-          ],
-        ],
-      ),
-      onSelected: (value) => onProviderSelected!(id, value),
+    final small = Theme.of(context).textTheme.bodySmall;
+    return Wrap(
+      spacing: Gap.sm,
+      runSpacing: Gap.sm,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Tooltip(
+          message: '点击资源站可显示或隐藏它的结果',
+          child: Text('资源站', style: small),
+        ),
+        for (final provider in providers)
+          Builder(
+            builder: (context) {
+              final id = resourceProviderKey(provider);
+              final shown = !excludedProviders.contains(id);
+              final name = '${provider['providerName']}';
+              final message =
+                  '${provider['message'] ?? provider['metadataMessage'] ?? ''}';
+              final status = switch (provider['status']) {
+                'loading' =>
+                  '搜索中 ${provider['completed']}/${provider['total']}',
+                'error' => '搜索失败',
+                _ => '${provider['resultCount'] ?? 0} 条',
+              };
+              final warning = ['error', 'partial'].contains(provider['status']);
+              final foreground = shown
+                  ? scheme.onSurface
+                  : scheme.onSurfaceVariant;
+              return FilterChip(
+                key: ValueKey('resource-provider:$id'),
+                tooltip: [
+                  shown ? '点击隐藏$name的结果' : '点击显示$name的结果',
+                  if (message.isNotEmpty) message,
+                ].join('\n'),
+                selected: shown,
+                showCheckmark: true,
+                checkmarkColor: scheme.primary,
+                avatar: shown
+                    ? null
+                    : Icon(
+                        Icons.visibility_off_outlined,
+                        size: 15,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                backgroundColor: scheme.surfaceContainerHigh.withValues(
+                  alpha: .5,
+                ),
+                selectedColor: scheme.surfaceContainerHigh,
+                label: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: name,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          decoration: shown ? null : TextDecoration.lineThrough,
+                        ),
+                      ),
+                      TextSpan(text: ' ${shown ? status : '已隐藏'}'),
+                      if (shown && provider['status'] == 'partial')
+                        TextSpan(
+                          text: ' · 部分名称失败',
+                          style: TextStyle(color: scheme.tertiary),
+                        ),
+                    ],
+                  ),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: warning && shown && provider['status'] == 'error'
+                        ? scheme.tertiary
+                        : foreground,
+                  ),
+                ),
+                onSelected: (value) => onProviderSelected(id, value),
+              );
+            },
+          ),
+      ],
     );
   }
+}
+
+class ResourceSearchStatus extends StatelessWidget {
+  const ResourceSearchStatus({super.key, required this.providers});
+  final List<Json> providers;
 
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          for (final provider in providers) providerChip(context, provider),
-        ],
+      const LinearProgressIndicator(minHeight: 2),
+      const SizedBox(height: Gap.sm),
+      Text(
+        providers.every((e) => number(e['resultCount']) == 0)
+            ? '正在查找资源，结果会陆续显示'
+            : providers.any((e) => e['status'] == 'loading')
+            ? '已找到的资源可直接下载，其余结果陆续加入'
+            : '正在补充字幕组信息，资源已可下载',
+        style: Theme.of(context).textTheme.bodySmall,
       ),
-      if (busy) ...[
-        const SizedBox(height: 12),
-        const LinearProgressIndicator(minHeight: 2),
-        const SizedBox(height: 8),
-        Text(
-          providers.every((e) => number(e['resultCount']) == 0)
-              ? '正在查找资源，结果会陆续显示'
-              : providers.any((e) => e['status'] == 'loading')
-              ? '已找到的资源可直接下载，其余结果陆续加入'
-              : '正在补充字幕组信息，资源已可下载',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      ],
     ],
   );
 }
@@ -285,6 +318,12 @@ String resourceDateLabel(Json candidate) {
   return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 }
 
+// Shared by the resource table header and its rows.
+const resourceTableWidth = 760.0;
+const resourceGroupColumnWidth = 120.0;
+const resourceSizeColumnWidth = 76.0;
+const resourceDateColumnWidth = 84.0;
+
 class ResourceResultRow extends StatelessWidget {
   const ResourceResultRow({
     super.key,
@@ -312,7 +351,7 @@ class ResourceResultRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final wide = constraints.maxWidth >= 760;
+      final wide = constraints.maxWidth >= resourceTableWidth;
       final scheme = Theme.of(context).colorScheme;
       final group = info.sourceGroups.isEmpty
           ? '待确认'
@@ -321,150 +360,212 @@ class ResourceResultRow extends StatelessWidget {
       final date = resourceDateLabel(candidate);
       final source = '${candidate['providerName'] ?? ''}';
       final small = Theme.of(context).textTheme.bodySmall;
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    info.displayTitle,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (info.labels.isNotEmpty) ...[
-                    const SizedBox(height: 7),
-                    Wrap(
-                      spacing: 5,
-                      runSpacing: 5,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text('标题标注', style: small?.copyWith(fontSize: 11)),
-                        for (final label in info.labels)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: scheme.surfaceContainerLow,
-                              borderRadius: BorderRadius.circular(5),
-                            ),
-                            child: Text(
-                              label,
-                              style: small?.copyWith(fontSize: 11),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                  if (info.notes.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        info.notes.join(' · '),
-                        style: small?.copyWith(
-                          fontSize: 11,
-                          color: info.episodeConflict ? scheme.error : null,
-                        ),
-                      ),
-                    ),
-                  if (!wide)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 7),
-                      child: Text(
-                        '来源分组：$group · $size · $date${source.isEmpty ? '' : ' · $source'}',
-                        style: small,
-                      ),
-                    ),
-                  TextButton.icon(
-                    key: ValueKey(
-                      'resource-original:${candidate['candidateId']}',
-                    ),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 0,
-                        vertical: 4,
-                      ),
-                      minimumSize: const Size(0, 30),
-                      foregroundColor: scheme.onSurfaceVariant,
-                      textStyle: const TextStyle(fontSize: 11),
-                    ),
-                    onPressed: onExpand,
-                    icon: AnimatedRotation(
-                      turns: expanded ? .25 : 0,
-                      duration: motionDuration(context, 150),
-                      child: const Icon(Icons.chevron_right, size: 15),
-                    ),
-                    label: Text(expanded ? '收起原名' : '完整原名'),
-                  ),
-                  AnimatedSize(
-                    duration: motionDuration(context),
-                    alignment: Alignment.topLeft,
-                    curve: Curves.easeOutCubic,
-                    child: expanded
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              SelectableText(
-                                info.title,
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              if (candidate['detailUrl'] != null)
-                                TextButton.icon(
-                                  onPressed: () => _openSource(context),
-                                  icon: const Icon(Icons.open_in_new, size: 13),
-                                  label: const Text('查看原始发布'),
-                                ),
-                            ],
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-                  if (error != null)
-                    Text(
-                      '添加失败：$error',
-                      style: small?.copyWith(color: scheme.error),
-                    ),
-                ],
+      final episodeLabel = info.episodeLabel;
+      final episodeNote = '$episodeLabel（标题）';
+      final labels = info.labels.where((label) => label != episodeNote);
+      final notes = info.notes.where((note) => note != episodeNote).toList();
+      Widget tag(String text, {Color? background, Color? foreground}) =>
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: background ?? scheme.surfaceContainerLow,
+              borderRadius: const BorderRadius.all(Radius.circular(5)),
+            ),
+            child: Text(
+              text,
+              style: small?.copyWith(
+                fontSize: 11,
+                color: foreground,
+                fontWeight: foreground == null ? null : FontWeight.w700,
               ),
             ),
-            if (wide) ...[
-              const SizedBox(width: 18),
-              SizedBox(
-                width: 106,
+          );
+      return InkWell(
+        key: ValueKey('resource-original:${candidate['candidateId']}'),
+        onTap: onExpand,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(group, style: small),
-                    const SizedBox(height: 3),
-                    Text(source, style: small?.copyWith(fontSize: 10)),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 1, right: 2),
+                          child: Tooltip(
+                            message: expanded ? '收起原名' : '展开完整原名',
+                            child: AnimatedRotation(
+                              turns: expanded ? .25 : 0,
+                              duration: motionDuration(context, 150),
+                              child: Icon(
+                                Icons.chevron_right,
+                                size: 16,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            info.displayTitle,
+                            maxLines: expanded ? null : 1,
+                            overflow: expanded ? null : TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 18),
+                      child: Wrap(
+                        spacing: 5,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (episodeLabel != null)
+                            tag(
+                              episodeLabel,
+                              background: info.episodeConflict
+                                  ? scheme.errorContainer
+                                  : scheme.primaryContainer,
+                              foreground: info.episodeConflict
+                                  ? scheme.onErrorContainer
+                                  : scheme.onPrimaryContainer,
+                            ),
+                          for (final label in labels) tag(label),
+                          if (notes.isNotEmpty)
+                            Text(
+                              notes.join(' · '),
+                              style: small?.copyWith(
+                                fontSize: 11,
+                                color: info.episodeConflict
+                                    ? scheme.error
+                                    : null,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (!wide)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 18, top: 5),
+                        child: Text(
+                          [
+                            group,
+                            size,
+                            date,
+                            if (source.isNotEmpty) source,
+                          ].join(' · '),
+                          style: small,
+                        ),
+                      ),
+                    AnimatedSize(
+                      duration: motionDuration(context),
+                      alignment: Alignment.topLeft,
+                      curve: Curves.easeOutCubic,
+                      child: expanded
+                          ? Padding(
+                              padding: const EdgeInsets.only(left: 18, top: 8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SelectableText(
+                                    info.title,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  if (candidate['detailUrl'] != null)
+                                    TextButton.icon(
+                                      style: TextButton.styleFrom(
+                                        padding: EdgeInsets.zero,
+                                      ),
+                                      onPressed: () => _openSource(context),
+                                      icon: const Icon(
+                                        Icons.open_in_new,
+                                        size: 13,
+                                      ),
+                                      label: const Text('查看原始发布'),
+                                    ),
+                                ],
+                              ),
+                            )
+                          : const SizedBox(width: double.infinity),
+                    ),
+                    if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 18, top: 4),
+                        child: Text(
+                          '添加失败：$error',
+                          style: small?.copyWith(color: scheme.error),
+                        ),
+                      ),
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
-              SizedBox(width: 72, child: Text(size, style: small)),
-              const SizedBox(width: 12),
+              if (wide) ...[
+                const SizedBox(width: Gap.md),
+                SizedBox(
+                  width: resourceGroupColumnWidth,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        group,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: small?.copyWith(color: scheme.onSurface),
+                      ),
+                      Text(source, style: small?.copyWith(fontSize: 10)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Gap.md),
+                SizedBox(
+                  width: resourceSizeColumnWidth,
+                  child: Text(
+                    size,
+                    style: small?.copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: Gap.md),
+                SizedBox(
+                  width: resourceDateColumnWidth,
+                  child: Text(
+                    date,
+                    style: small?.copyWith(
+                      fontSize: 11,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(width: Gap.sm),
               SizedBox(
-                width: 80,
-                child: Text(date, style: small?.copyWith(fontSize: 11)),
+                width: onAlternative == null ? 100 : 128,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: ResourceDownloadButton(
+                    phase: phase,
+                    error: error,
+                    showLabel: wide,
+                    onPressed: onDownload,
+                    defaultMethod: defaultMethod,
+                    onAlternative: onAlternative,
+                    alternativePhase: alternativePhase,
+                  ),
+                ),
               ),
             ],
-            const SizedBox(width: 8),
-            ResourceDownloadButton(
-              phase: phase,
-              error: error,
-              showLabel: wide,
-              onPressed: onDownload,
-              defaultMethod: defaultMethod,
-              onAlternative: onAlternative,
-              alternativePhase: alternativePhase,
-            ),
-          ],
+          ),
         ),
       );
     },

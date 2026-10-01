@@ -126,13 +126,3 @@ List<Json> mikanMetadata(String body) {
   }
   return result;
 }
-
-String resourceProviderLabel(Json provider) {
-  final count = '${provider['resultCount'] ?? 0} 条';
-  return switch (provider['status']) {
-    'loading' => '$count · 搜索中 ${provider['completed']}/${provider['total']}',
-    'error' => '搜索失败',
-    'partial' => '$count · 部分名称搜索失败',
-    _ => count,
-  };
-}

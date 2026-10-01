@@ -46,15 +46,17 @@ class SectionTitle extends StatelessWidget {
     this.subtitle,
     this.icon,
     this.color = coral,
+    this.top = 26,
   });
   final String title;
+  final double top;
   final String? subtitle;
   final Widget? trailing;
   final IconData? icon;
   final Color color;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 26, bottom: 14),
+    padding: EdgeInsets.only(top: top, bottom: 14),
     child: Row(
       children: [
         if (icon != null) ...[
