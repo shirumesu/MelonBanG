@@ -91,3 +91,10 @@ HTTP readers retain default priority outside the playback window for persistent
 downloads, including after seeks and trailing-cache eviction. Ephemeral streams
 retain on-demand selection. This prevents streaming from changing the wanted size
 or stopping a normal cache task before every file is complete.
+
+Cache hits consume the duplicate disk-read result so sequential prefetch does not
+retain every played piece after the trailing cache evicts it. Concurrent HTTP
+readers also wake on cached data when another reader consumes their shared disk
+result. Seeking only resumes ephemeral torrents; persistent downloads keep the
+application's pause and seeding policy even when an existing HTTP playback session
+seeks after caching completes.

@@ -57,12 +57,6 @@ class PlaybackLibrary {
           },
       ],
     };
-    current = session;
-    _comments.clear();
-    _loads.clear();
-    if (subjectId != null && episodeId != null) {
-      await store.put('episode_files', '$subjectId:$episodeId', {'path': path});
-    }
     return session;
   }
 
@@ -106,15 +100,33 @@ class PlaybackLibrary {
           },
       ],
     };
+    return session;
+  }
+
+  Future<void> activate(Json session) async {
+    final subjectId = session['subjectId'], episodeId = session['episodeId'];
+    try {
+      if (subjectId != null && episodeId != null) {
+        if (session['path'] case final String path) {
+          await store.put('episode_files', '$subjectId:$episodeId', {
+            'path': path,
+            if (session['downloadId'] != null) ...{
+              'downloadId': session['downloadId'],
+              'fileId': session['fileId'],
+            },
+          });
+        } else {
+          await store.put('online_episodes', '$subjectId:$episodeId', {
+            'online': true,
+          });
+        }
+      }
+    } catch (_) {
+      // Playback remains usable when its library binding cannot be saved.
+    }
     current = session;
     _comments.clear();
     _loads.clear();
-    if (subjectId != null && episodeId != null) {
-      await store.put('online_episodes', '$subjectId:$episodeId', {
-        'online': true,
-      });
-    }
-    return session;
   }
 
   Future<Json> fromDownload(
@@ -134,6 +146,8 @@ class PlaybackLibrary {
       episodeId: episodeId,
     );
     session['resumeKey'] = 'download:$id:${media['id']}';
+    session['downloadId'] = id;
+    session['fileId'] = media['id'];
     session['fileSize'] = media['size'];
     session['remoteSource'] = media['streamUrl'] != null;
     if (media['sourceHeaders'] != null) {
@@ -141,13 +155,6 @@ class PlaybackLibrary {
         ...object(session['source']),
         'headers': media['sourceHeaders'],
       };
-    }
-    if (subjectId != null && episodeId != null) {
-      await store.put('episode_files', '$subjectId:$episodeId', {
-        'path': media['path'],
-        'downloadId': id,
-        'fileId': media['id'],
-      });
     }
     return session;
   }

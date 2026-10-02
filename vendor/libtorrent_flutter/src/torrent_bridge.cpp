@@ -1024,7 +1024,11 @@ struct StreamEngine {
             }
         }
 
-        read_cv.notify_all();
+        {
+            // Cache completion also satisfies read waiters after a shared result is consumed.
+            std::lock_guard<std::mutex> lk(read_mu);
+            read_cv.notify_all();
+        }
         piece_cv.notify_all();
     }
 
@@ -1271,18 +1275,24 @@ static ReadResult read_piece_data(StreamEngine* s, int piece,
                                   int timeout_ms = 5000, int gen = -1) {
     if (gen < 0) gen = s->seek_generation.load();
 
-    // Check hot piece cache first — instant for re-reads
-    if (s->cache) {
-        auto* cp = s->cache->get_piece(piece);
-        if (cp) {
-            std::shared_lock<std::shared_mutex> lk(cp->mu);
-            if (!cp->buffer.empty() && cp->complete) {
-                ReadResult r;
-                r.data.assign(cp->buffer.begin(), cp->buffer.end());
-                r.ok = true;
-                return r;
+    auto* cached = s->cache ? s->cache->get_piece(piece) : nullptr;
+    const auto copy_cached = [cached]() {
+        ReadResult result;
+        if (cached) {
+            std::shared_lock<std::shared_mutex> lk(cached->mu);
+            if (!cached->buffer.empty() && cached->complete) {
+                result.data = cached->buffer;
+                result.ok = true;
             }
         }
+        return result;
+    };
+
+    // Consume duplicate prefetch results even when the hot cache answers first.
+    if (auto result = copy_cached(); result.ok) {
+        std::lock_guard<std::mutex> lk(s->read_mu);
+        s->read_results.erase(piece);
+        return result;
     }
 
     // Check if we already have a read result buffered
@@ -1306,13 +1316,20 @@ static ReadResult read_piece_data(StreamEngine* s, int piece,
     if (s->read_cv.wait_for(lk, chr::milliseconds(timeout_ms),
             [&]{ return !s->active.load()
                      || s->read_results.count(piece) > 0
-                     || s->seek_generation.load() != gen; })) {
+                     || s->seek_generation.load() != gen
+                     || (cached && [&] {
+                            std::shared_lock<std::shared_mutex> cache_lk(cached->mu);
+                            return cached->complete && !cached->buffer.empty();
+                        }()); })) {
         auto it = s->read_results.find(piece);
         if (it != s->read_results.end()) {
             ReadResult r = std::move(it->second);
             s->read_results.erase(it);
             return r;
         }
+        // Another HTTP reader may have consumed the same completed disk read.
+        lk.unlock();
+        return copy_cached();
     }
     return {};
 }
@@ -1714,13 +1731,12 @@ static void handle_connection(StreamEngine* s, socket_t cli, int reader_id) {
                     //   2. fire ONE deadline on the seek target so the
                     //      picker pivots NOW, before the first serve_range
                     //      iteration runs (~1ms later)
-                    //   3. force-resume in case the torrent went to seeding
                     s->handle.clear_piece_deadlines();
                     s->handle.piece_priority(
                         lt::piece_index_t(seek_piece), lt::top_priority);
                     s->handle.set_piece_deadline(
                         lt::piece_index_t(seek_piece), 0);
-                    s->handle.resume();
+                    if (!s->background_download) s->handle.resume();
                     // If the seek target is already on disk, kick a read
                     // immediately so serve_range's read_piece_data returns
                     // without an extra round-trip.
