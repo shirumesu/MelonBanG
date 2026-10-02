@@ -28,10 +28,22 @@ class Playback extends ChangeNotifier {
         unawaited(saveProgress());
       }),
     );
-    _lastAudibleVolume = player.state.volume > 0 ? player.state.volume : 80;
+    _lastAudibleVolume = preferences.getDouble(_volumeKey) ?? 80;
+    if (preferences.getBool(_mutedKey) == true) {
+      unawaited(player.setVolume(0));
+    } else {
+      unawaited(player.setVolume(_lastAudibleVolume));
+    }
     _subscriptions.add(
       player.stream.volume.listen((volume) {
         if (volume > 0) _lastAudibleVolume = volume;
+        if (Platform.environment['MELONBANG_MUTE_AUDIO'] == '1') return;
+        // Sliders emit continuously; persist once the value settles.
+        _volumeWrite?.cancel();
+        _volumeWrite = Timer(const Duration(milliseconds: 400), () {
+          unawaited(preferences.setDouble(_volumeKey, _lastAudibleVolume));
+          unawaited(preferences.setBool(_mutedKey, volume == 0));
+        });
       }),
     );
     _timer = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -45,7 +57,8 @@ class Playback extends ChangeNotifier {
   );
   late final VideoController video;
   final _subscriptions = <StreamSubscription<dynamic>>[];
-  Timer? _timer;
+  Timer? _timer, _volumeWrite;
+  static const _volumeKey = 'player-volume', _mutedKey = 'player-muted';
   Json? session;
   String? uri;
   String? error;
@@ -66,6 +79,18 @@ class Playback extends ChangeNotifier {
     final volume = player.state.volume;
     if (volume > 0) _lastAudibleVolume = volume;
     await player.setVolume(volume == 0 ? _lastAudibleVolume : 0);
+  }
+
+  /// Adjusts volume by [delta] percent and returns the new value.
+  Future<double> adjustVolume(double delta) async {
+    final next = (player.state.volume + delta).clamp(0.0, 100.0);
+    await player.setVolume(next);
+    return next;
+  }
+
+  void toggleDanmaku() {
+    danmakuEnabled = !danmakuEnabled;
+    notifyListeners();
   }
 
   Future<void> offsetSubtitle(double delta) async {
@@ -232,6 +257,7 @@ class Playback extends ChangeNotifier {
   Future<void> _close() async {
     _closed = true;
     _timer?.cancel();
+    _volumeWrite?.cancel();
     await _openQueue;
     await saveProgress();
     for (final subscription in _subscriptions) {

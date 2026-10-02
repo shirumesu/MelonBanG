@@ -7,10 +7,17 @@ import '../../data/cache_method.dart';
 import '../../data/json.dart';
 import '../../data/resource_title.dart';
 import '../core/motion.dart';
+import '../core/selection_controls.dart';
 import '../core/theme.dart';
 
 enum ResourceDownloadPhase { idle, adding, added, failed }
 
+/// Width of the download column; rows and the table header share it.
+double resourceDownloadWidth({required bool labelled, required bool split}) =>
+    (labelled ? 80.0 : 36.0) + (split ? 29.0 : 0);
+
+/// Split button: the main part uses the default cache method, the chevron
+/// lists every method so the choice is explicit.
 class ResourceDownloadButton extends StatelessWidget {
   const ResourceDownloadButton({
     super.key,
@@ -30,106 +37,216 @@ class ResourceDownloadButton extends StatelessWidget {
   final VoidCallback? onAlternative;
   final ResourceDownloadPhase alternativePhase;
 
+  static const _height = 34.0, _chevronWidth = 28.0, _menuWidth = 280.0;
+
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final busy =
         phase == ResourceDownloadPhase.adding ||
         alternativePhase == ResourceDownloadPhase.adding;
+    final split = onAlternative != null;
     final label = switch (phase) {
       ResourceDownloadPhase.idle =>
-        onAlternative == null ? '下载' : '下载 · 默认 ${defaultMethod.label}',
+        split ? '用 ${defaultMethod.label} 下载（默认）' : '下载',
       ResourceDownloadPhase.adding => '正在加入下载…',
       ResourceDownloadPhase.added => '已加入下载',
       ResourceDownloadPhase.failed =>
         '添加失败，点击重试${error == null ? '' : '\n$error'}',
     };
     final action =
-        [
+        busy ||
+            [
               ResourceDownloadPhase.adding,
               ResourceDownloadPhase.added,
-            ].contains(phase) ||
-            busy
+            ].contains(phase)
         ? null
         : onPressed;
+    final settled = phase == ResourceDownloadPhase.added;
+    final failed = phase == ResourceDownloadPhase.failed;
+    final background = settled || failed
+        ? scheme.surfaceContainerHigh
+        : scheme.primaryContainer;
+    final foreground = failed
+        ? scheme.tertiary
+        : settled
+        ? scheme.primary
+        : scheme.onPrimaryContainer;
     final icon = SizedBox.square(
-      dimension: 24,
+      dimension: 18,
       child: AnimatedSwitcher(
         duration: motionDuration(context, 150),
         child: busy
-            ? const Padding(
-                key: ValueKey(ResourceDownloadPhase.adding),
-                padding: EdgeInsets.all(3),
-                child: CircularProgressIndicator(strokeWidth: 2),
+            ? Padding(
+                key: const ValueKey(ResourceDownloadPhase.adding),
+                padding: const EdgeInsets.all(2),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: foreground,
+                ),
               )
             : Icon(
                 switch (phase) {
-                  ResourceDownloadPhase.added => Icons.check_circle_outline,
-                  ResourceDownloadPhase.failed => Icons.refresh,
-                  _ => Icons.download_outlined,
+                  ResourceDownloadPhase.added => Icons.check_rounded,
+                  ResourceDownloadPhase.failed => Icons.refresh_rounded,
+                  _ => Icons.download_rounded,
                 },
                 key: ValueKey(phase),
-                color: phase == ResourceDownloadPhase.failed ? gold : mint,
+                size: 18,
+                color: foreground,
               ),
       ),
     );
-    return Semantics(
-      liveRegion: phase != ResourceDownloadPhase.idle,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (showLabel)
-            Tooltip(
-              message: label,
-              child: SizedBox(
-                width: 92,
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, 34),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    textStyle: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  onPressed: action,
-                  icon: icon,
-                  label: Text(switch (phase) {
+    final left = split
+        ? const BorderRadius.horizontal(left: Radius.circular(12))
+        : controlBorderRadius;
+    final main = Tooltip(
+      message: label,
+      child: InkWell(
+        borderRadius: left,
+        onTap: action,
+        child: SizedBox(
+          width: showLabel ? 80 : 36,
+          height: _height,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              icon,
+              if (showLabel) ...[
+                const SizedBox(width: 5),
+                Text(
+                  switch (phase) {
                     ResourceDownloadPhase.adding => '加入中',
                     ResourceDownloadPhase.added => '已加入',
                     ResourceDownloadPhase.failed => '重试',
                     _ => '下载',
-                  }),
-                ),
-              ),
-            )
-          else
-            IconButton(tooltip: label, onPressed: action, icon: icon),
-          if (onAlternative != null)
-            PopupMenuButton<CacheMethod>(
-              tooltip: '其他缓存方式 · 默认 ${defaultMethod.label}',
-              enabled: !busy,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 140),
-              icon: const Icon(Icons.arrow_drop_down, size: 20),
-              iconSize: 20,
-              style: IconButton.styleFrom(
-                minimumSize: const Size(28, 40),
-                padding: EdgeInsets.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              onSelected: (_) => onAlternative!(),
-              itemBuilder: (_) => [
-                PopupMenuItem(
-                  value: defaultMethod.other,
-                  enabled: alternativePhase != ResourceDownloadPhase.added,
-                  child: Text(
-                    '${defaultMethod.other.label} 下载'
-                    '${alternativePhase == ResourceDownloadPhase.added ? ' · 已加入' : ''}',
+                  },
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: foreground,
                   ),
                 ),
               ],
+            ],
+          ),
+        ),
+      ),
+    );
+    return Semantics(
+      liveRegion: phase != ResourceDownloadPhase.idle,
+      child: AnimatedContainer(
+        duration: motionDuration(context, 150),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: controlBorderRadius,
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              main,
+              if (split) ...[
+                Container(
+                  width: 1,
+                  height: 18,
+                  color: foreground.withValues(alpha: .2),
+                ),
+                _methodMenu(context, busy, foreground),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _methodMenu(BuildContext context, bool busy, Color foreground) {
+    final scheme = Theme.of(context).colorScheme;
+    final small = Theme.of(context).textTheme.bodySmall;
+    MenuItemButton item(
+      CacheMethod method,
+      ResourceDownloadPhase state,
+      VoidCallback run,
+    ) {
+      final added = state == ResourceDownloadPhase.added;
+      return MenuItemButton(
+        style: const ButtonStyle(
+          minimumSize: WidgetStatePropertyAll(Size(_menuWidth - 10, 48)),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: controlBorderRadius),
+          ),
+        ),
+        onPressed: added || busy ? null : run,
+        leadingIcon: Icon(
+          method == CacheMethod.bt
+              ? Icons.hub_outlined
+              : Icons.cloud_download_outlined,
+          size: 18,
+          color: added ? scheme.onSurfaceVariant : scheme.primary,
+        ),
+        trailingIcon: added
+            ? Text('已加入', style: small?.copyWith(color: scheme.primary))
+            : method == defaultMethod
+            ? Text('默认', style: small)
+            : null,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('${method.label} 下载'),
+            Text(
+              method == CacheMethod.bt
+                  ? '本机直接下载，完成后可做种'
+                  : '先在 PikPak 云端离线，再下载到本机',
+              style: small?.copyWith(fontSize: 11),
             ),
-        ],
+          ],
+        ),
+      );
+    }
+
+    return MenuAnchor(
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(menuSurface(context)),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        padding: const WidgetStatePropertyAll(EdgeInsets.all(5)),
+        shape: const WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: controlBorderRadius),
+        ),
+        elevation: const WidgetStatePropertyAll(3),
+        minimumSize: const WidgetStatePropertyAll(Size(_menuWidth, 0)),
+        maximumSize: const WidgetStatePropertyAll(
+          Size(_menuWidth, double.infinity),
+        ),
+      ),
+      // Right-align the menu with the button so it stays inside the table.
+      alignmentOffset: const Offset(_chevronWidth - _menuWidth + 8, 4),
+      menuChildren: [
+        item(defaultMethod, phase, onPressed),
+        item(defaultMethod.other, alternativePhase, onAlternative!),
+      ],
+      builder: (context, controller, _) => Tooltip(
+        message: '选择下载方式',
+        child: InkWell(
+          borderRadius: const BorderRadius.horizontal(
+            right: Radius.circular(12),
+          ),
+          onTap: busy
+              ? null
+              : () =>
+                    controller.isOpen ? controller.close() : controller.open(),
+          child: SizedBox(
+            width: _chevronWidth,
+            height: _height,
+            child: Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 18,
+              color: foreground,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -138,101 +255,13 @@ class ResourceDownloadButton extends StatelessWidget {
 String resourceProviderKey(Json provider) =>
     '${provider['providerId'] ?? provider['providerName'] ?? ''}';
 
-class ResourceProviderChips extends StatelessWidget {
-  const ResourceProviderChips({
-    super.key,
-    required this.providers,
-    required this.excludedProviders,
-    required this.onProviderSelected,
-  });
-  final List<Json> providers;
-  final Set<String> excludedProviders;
-  final void Function(String, bool) onProviderSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final small = Theme.of(context).textTheme.bodySmall;
-    return Wrap(
-      spacing: Gap.sm,
-      runSpacing: Gap.sm,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        Tooltip(
-          message: '点击资源站可显示或隐藏它的结果',
-          child: Text('资源站', style: small),
-        ),
-        for (final provider in providers)
-          Builder(
-            builder: (context) {
-              final id = resourceProviderKey(provider);
-              final shown = !excludedProviders.contains(id);
-              final name = '${provider['providerName']}';
-              final message =
-                  '${provider['message'] ?? provider['metadataMessage'] ?? ''}';
-              final status = switch (provider['status']) {
-                'loading' =>
-                  '搜索中 ${provider['completed']}/${provider['total']}',
-                'error' => '搜索失败',
-                _ => '${provider['resultCount'] ?? 0} 条',
-              };
-              final warning = ['error', 'partial'].contains(provider['status']);
-              final foreground = shown
-                  ? scheme.onSurface
-                  : scheme.onSurfaceVariant;
-              return FilterChip(
-                key: ValueKey('resource-provider:$id'),
-                tooltip: [
-                  shown ? '点击隐藏$name的结果' : '点击显示$name的结果',
-                  if (message.isNotEmpty) message,
-                ].join('\n'),
-                selected: shown,
-                showCheckmark: true,
-                checkmarkColor: scheme.primary,
-                avatar: shown
-                    ? null
-                    : Icon(
-                        Icons.visibility_off_outlined,
-                        size: 15,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                backgroundColor: scheme.surfaceContainerHigh.withValues(
-                  alpha: .5,
-                ),
-                selectedColor: scheme.surfaceContainerHigh,
-                label: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(
-                        text: name,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          decoration: shown ? null : TextDecoration.lineThrough,
-                        ),
-                      ),
-                      TextSpan(text: ' ${shown ? status : '已隐藏'}'),
-                      if (shown && provider['status'] == 'partial')
-                        TextSpan(
-                          text: ' · 部分名称失败',
-                          style: TextStyle(color: scheme.tertiary),
-                        ),
-                    ],
-                  ),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: warning && shown && provider['status'] == 'error'
-                        ? scheme.tertiary
-                        : foreground,
-                  ),
-                ),
-                onSelected: (value) => onProviderSelected(id, value),
-              );
-            },
-          ),
-      ],
-    );
-  }
-}
+/// Per-site status line: "动漫花园 12 条 · 蜜柑计划 搜索中 2/5".
+String resourceProviderStatus(Json provider) => switch (provider['status']) {
+  'loading' => '搜索中 ${provider['completed']}/${provider['total']}',
+  'error' => '搜索失败',
+  'partial' => '${provider['resultCount'] ?? 0} 条 · 部分名称失败',
+  _ => '${provider['resultCount'] ?? 0} 条',
+};
 
 class ResourceSearchStatus extends StatelessWidget {
   const ResourceSearchStatus({super.key, required this.providers});
@@ -245,11 +274,15 @@ class ResourceSearchStatus extends StatelessWidget {
       const LinearProgressIndicator(minHeight: 2),
       const SizedBox(height: Gap.sm),
       Text(
-        providers.every((e) => number(e['resultCount']) == 0)
-            ? '正在查找资源，结果会陆续显示'
-            : providers.any((e) => e['status'] == 'loading')
-            ? '已找到的资源可直接下载，其余结果陆续加入'
-            : '正在补充字幕组信息，资源已可下载',
+        [
+          providers.every((e) => number(e['resultCount']) == 0)
+              ? '正在查找资源，结果会陆续显示'
+              : providers.any((e) => e['status'] == 'loading')
+              ? '已找到的资源可直接下载，其余结果陆续加入'
+              : '正在补充字幕组信息，资源已可下载',
+          for (final provider in providers)
+            '${provider['providerName']} ${resourceProviderStatus(provider)}',
+        ].join(' · '),
         style: Theme.of(context).textTheme.bodySmall,
       ),
     ],
@@ -550,7 +583,10 @@ class ResourceResultRow extends StatelessWidget {
               ],
               const SizedBox(width: Gap.sm),
               SizedBox(
-                width: onAlternative == null ? 100 : 128,
+                width: resourceDownloadWidth(
+                  labelled: wide,
+                  split: onAlternative != null,
+                ),
                 child: Align(
                   alignment: Alignment.centerRight,
                   child: ResourceDownloadButton(

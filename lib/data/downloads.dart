@@ -341,12 +341,10 @@ class DownloadRepository {
         ..._tasks.values.map((t) => {...t, 'provider': 'bt'}),
         ...objects(cloud?['tasks']),
       ],
-      'files': [
-        ..._files.values.expand((v) => v),
-        ...objects(cloud?['files']),
-      ],
+      'files': [..._files.values.expand((v) => v), ...objects(cloud?['files'])],
     };
   }
+
   Future<Json> addMagnet(
     String input, {
     int? subjectId,

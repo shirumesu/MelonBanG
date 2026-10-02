@@ -11,6 +11,9 @@ class ResourceTitleInfo {
     required this.notes,
     required this.sourceGroups,
     required this.titleCredits,
+    this.qualities = const {},
+    this.languages = const {},
+    this.subtitleForms = const {},
     this.quality,
     this.episodeLabel,
     this.episodeConflict = false,
@@ -20,7 +23,32 @@ class ResourceTitleInfo {
   final String? quality, episodeLabel;
   final List<String> labels, notes, sourceGroups, titleCredits;
   final bool episodeConflict;
+
+  /// Every output quality the title mentions; [quality] is set only when unique.
+  final Set<String> qualities;
+
+  /// Subtitle languages ([resourceLanguages]) and forms ([resourceSubtitleForms]).
+  final Set<String> languages, subtitleForms;
 }
+
+/// Filter vocabularies, in display order.
+const resourceQualities = ['4K', '1080p', '720p'];
+const resourceLanguages = ['简体', '繁体', '日文'];
+const resourceSubtitleForms = ['内封', '内嵌', '外挂'];
+
+final _languagePatterns = {
+  '简体': [
+    RegExp(r'简(?:繁|日|体|中|英)|[繁中]简|(?:^|[\[【(（\s_/&])简(?=$|[\]】)）\s_/&])'),
+    _token(r'CHS|SC|JPSC|ZHS|ZH-?HANS'),
+    // "GB" is also a size unit ("1.2 GB").
+    RegExp(r'(?<![a-z0-9.]|\d\s{1,2})GB(?![a-z0-9])', caseSensitive: false),
+  ],
+  '繁体': [
+    RegExp(r'繁(?:简|日|体|中|英)|[简中]繁|(?:^|[\[【(（\s_/&])繁(?=$|[\]】)）\s_/&])'),
+    _token(r'CHT|BIG5|TC|JPTC|ZHT|ZH-?HANT'),
+  ],
+  '日文': [RegExp(r'[简繁中]日|日[语文]|日(?:简|繁)'), _token(r'JP|JPN|JPSC|JPTC|JA')],
+};
 
 RegExp _token(String pattern) =>
     RegExp('(?<![a-z0-9])(?:$pattern)(?![a-z0-9])', caseSensitive: false);
@@ -57,6 +85,14 @@ ResourceTitleInfo describeResource(Json candidate) {
       '4K',
   };
   final quality = qualities.length == 1 ? qualities.single : null;
+  final languages = {
+    for (final entry in _languagePatterns.entries)
+      if (entry.value.any((pattern) => pattern.hasMatch(normalized))) entry.key,
+  };
+  final subtitleForms = {
+    for (final form in resourceSubtitleForms)
+      if (normalized.contains(form)) form,
+  };
   labels.addAll(qualities);
   if (_sourceQuality.hasMatch(normalized)) {
     labels.add('${_sourceQuality.firstMatch(normalized)!.group(0)}（片源）');
@@ -199,6 +235,9 @@ ResourceTitleInfo describeResource(Json candidate) {
     title: title,
     displayTitle: display,
     quality: quality,
+    qualities: qualities,
+    languages: languages,
+    subtitleForms: subtitleForms,
     labels: labels.toSet().toList(),
     notes: notes,
     sourceGroups: sourceGroups,
@@ -208,15 +247,22 @@ ResourceTitleInfo describeResource(Json candidate) {
   );
 }
 
+/// Each non-empty selection must overlap the title's annotations; titles
+/// without an annotation pass only when [includeUnknown] is set.
 bool matchesResourceSelection(
   ResourceTitleInfo info, {
-  String quality = 'all',
-  String group = '',
+  Set<String> qualities = const {},
+  Set<String> groups = const {},
+  Set<String> languages = const {},
+  Set<String> subtitleForms = const {},
   bool includeUnknown = true,
-}) =>
-    (quality == 'all' ||
-        info.quality == quality ||
-        (includeUnknown && info.quality == null)) &&
-    (group.isEmpty ||
-        info.sourceGroups.contains(group) ||
-        (includeUnknown && info.sourceGroups.isEmpty));
+}) {
+  bool matches(Set<String> selected, Iterable<String> values) =>
+      selected.isEmpty ||
+      values.any(selected.contains) ||
+      (includeUnknown && values.isEmpty);
+  return matches(qualities, info.qualities) &&
+      matches(groups, info.sourceGroups) &&
+      matches(languages, info.languages) &&
+      matches(subtitleForms, info.subtitleForms);
+}

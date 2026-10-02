@@ -101,9 +101,8 @@ class _PlayerSettingsState extends State<PlayerSettings> {
             children: [
               Expanded(
                 child: Text(switch (widget.menu) {
-                  PlayerMenu.audio => '音轨',
-                  PlayerMenu.danmaku => '弹幕',
-                  PlayerMenu.subtitles => '播放设置',
+                  PlayerMenu.danmaku => '弹幕设置',
+                  PlayerMenu.settings => '字幕与音轨',
                 }, style: Theme.of(context).textTheme.titleSmall),
               ),
               IconButton(
@@ -120,9 +119,11 @@ class _PlayerSettingsState extends State<PlayerSettings> {
             shrinkWrap: true,
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             children: switch (widget.menu) {
-              PlayerMenu.audio => audioSettings(),
               PlayerMenu.danmaku => danmakuSettings(),
-              PlayerMenu.subtitles => subtitleSettings(),
+              PlayerMenu.settings => [
+                ...subtitleSettings(),
+                ...audioSettings(),
+              ],
             },
           ),
         ),
@@ -180,27 +181,11 @@ class _PlayerSettingsState extends State<PlayerSettings> {
   );
 
   List<Widget> audioSettings() => [
-    trackChoices(false),
-    const SizedBox(height: 16),
-    StreamBuilder<double>(
-      stream: player.stream.volume,
-      initialData: player.state.volume,
-      builder: (_, snapshot) => Column(
-        children: [
-          Row(
-            children: [
-              const Expanded(child: Text('音量')),
-              Text('${snapshot.data!.round()}%'),
-            ],
-          ),
-          Slider(
-            value: snapshot.data!.clamp(0, 100),
-            max: 100,
-            onChanged: (value) => player.setVolume(value),
-          ),
-        ],
-      ),
+    const Padding(
+      padding: EdgeInsets.only(top: 20, bottom: 8),
+      child: Text('音轨'),
     ),
+    trackChoices(false),
   ];
 
   List<Widget> subtitleSettings() => [

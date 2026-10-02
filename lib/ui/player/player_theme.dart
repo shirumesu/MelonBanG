@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
 
+/// Player tweaks on top of the shell theme, which is dark when the app is
+/// dark or the player's lights are off.
 ThemeData playerTheme([ThemeData? theme]) {
   final base = theme ?? appTheme(true);
   final scheme = base.colorScheme;
@@ -45,4 +47,4 @@ ThemeData playerTheme([ThemeData? theme]) {
   );
 }
 
-enum PlayerMenu { audio, danmaku, subtitles }
+enum PlayerMenu { danmaku, settings }
