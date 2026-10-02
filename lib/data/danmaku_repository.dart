@@ -468,11 +468,12 @@ List<Json> normalizeComments(Iterable<Json> input) {
     final color = RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch('${comment['color']}')
         ? '${comment['color']}'
         : '#ffffff';
-    unique['${time.toDouble()}:$mode:$text'] = {
+    unique['${comment['sourceId'] ?? ''}:${time.toDouble()}:$mode:$text'] = {
       'timeSeconds': time.toDouble(),
       'text': text,
       'mode': mode,
       'color': color,
+      if (comment['sourceId'] != null) 'sourceId': comment['sourceId'],
     };
   }
   return unique.values.toList()..sort(

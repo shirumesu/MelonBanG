@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../app_services.dart';
+import '../../data/play_candidates.dart';
 import '../core/motion.dart';
 import '../core/theme.dart';
 import 'danmaku.dart';
@@ -32,6 +33,8 @@ class PlayerPage extends StatefulWidget {
     this.windowFullScreen = false,
     this.onWindowFullScreenChanged,
     this.onPlayFile,
+    this.onPlayCandidate,
+    this.onFindAllResources,
     this.lightsOff,
     this.onLightsChanged,
   });
@@ -46,6 +49,9 @@ class PlayerPage extends StatefulWidget {
   final Json downloads;
   final ValueChanged<Json> onEpisode;
   final void Function(String id, String? fileId)? onPlayFile;
+  final Future<void> Function(PlayCandidate candidate, Json episode)?
+  onPlayCandidate;
+  final ValueChanged<Json?>? onFindAllResources;
 
   /// Null when the app theme is already dark and there are no lights to switch.
   final bool? lightsOff;
@@ -74,7 +80,7 @@ class _PlayerPageState extends State<PlayerPage> {
   Set<int> localEpisodes = {};
   Timer? hideTimer, feedbackTimer;
   StreamSubscription<bool>? playingSubscription;
-  String? sessionId;
+  String? sessionId, lastNotice;
   Playback get playback => widget.playback;
   Player get player => playback.player;
   bool get immersive => widget.fullScreen || widget.windowFullScreen;
@@ -127,6 +133,10 @@ class _PlayerPageState extends State<PlayerPage> {
 
   void refresh() {
     if (!mounted) return;
+    if (playback.notice != null && playback.notice != lastNotice) {
+      lastNotice = playback.notice;
+      showFeedback(lastNotice!);
+    }
     final next = playback.session?['id'] as String?;
     if (next != sessionId) {
       sessionId = next;
@@ -139,6 +149,7 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   void dispose() {
     playback.removeListener(refresh);
+    playback.cancelAutoplay(notify: false);
     unawaited(playingSubscription?.cancel());
     focus.dispose();
     menuCloseFocus.dispose();
@@ -178,6 +189,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   void toggleLights() {
+    playback.cancelAutoplay();
     final off = widget.lightsOff;
     if (off == null) return;
     widget.onLightsChanged?.call(!off);
@@ -185,6 +197,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   void togglePanel() {
+    playback.cancelAutoplay();
     setState(() => panel = !(panel ?? false));
     focus.requestFocus();
     reveal();
@@ -211,6 +224,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   void toggleMenu(PlayerMenu value) {
+    playback.cancelAutoplay();
     resourcesOpen = false;
     if (menu == value) {
       closeMenu();
@@ -234,6 +248,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   void findResources(Json? episode) {
+    playback.cancelAutoplay();
     setState(() {
       resourceEpisode = episode?['episodeId'] as int?;
       resourcesOpen = true;
@@ -249,6 +264,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Future<void> seekRelative(int seconds) async {
+    playback.cancelAutoplay();
     final maximum = player.state.duration.inMilliseconds;
     final target = (player.state.position.inMilliseconds + seconds * 1000)
         .clamp(0, maximum > 0 ? maximum : 1 << 40);
@@ -263,6 +279,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Future<void> fullscreen() async {
+    playback.cancelAutoplay();
     await widget.onFullScreenChanged(!widget.fullScreen);
     if (mounted) {
       focus.requestFocus();
@@ -271,6 +288,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Future<void> windowFullscreen() async {
+    playback.cancelAutoplay();
     await widget.onWindowFullScreenChanged?.call(!widget.windowFullScreen);
     if (mounted) {
       focus.requestFocus();
@@ -287,6 +305,11 @@ class _PlayerPageState extends State<PlayerPage> {
         keyboard.isShiftPressed) {
       return KeyEventResult.ignored;
     }
+    if (event.logicalKey == LogicalKeyboardKey.escape &&
+        playback.autoplayTarget != null) {
+      playback.cancelAutoplay();
+      return KeyEventResult.handled;
+    }
     if (resourcesOpen && event.logicalKey == LogicalKeyboardKey.escape) {
       closeResources();
       return KeyEventResult.handled;
@@ -298,8 +321,12 @@ class _PlayerPageState extends State<PlayerPage> {
       }
       return KeyEventResult.ignored;
     }
-    if (event.logicalKey == LogicalKeyboardKey.space) {
-      unawaited(player.playOrPause());
+    if (event.logicalKey == LogicalKeyboardKey.period ||
+        event.logicalKey == LogicalKeyboardKey.comma) {
+      unawaited(stepFrame(event.logicalKey == LogicalKeyboardKey.period));
+    } else if (event.logicalKey == LogicalKeyboardKey.space) {
+      playback.cancelAutoplay();
+      unawaited(playback.playOrPause());
     } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
       unawaited(seekRelative(5));
     } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
@@ -332,6 +359,23 @@ class _PlayerPageState extends State<PlayerPage> {
     }
     reveal();
     return KeyEventResult.handled;
+  }
+
+  Future<void> stepFrame(bool forward) async {
+    try {
+      final position = await playback.stepFrame(forward);
+      if (!mounted) return;
+      final milliseconds = position.inMilliseconds;
+      final hours = (milliseconds ~/ 3600000).toString().padLeft(2, '0');
+      final minutes = ((milliseconds ~/ 60000) % 60).toString().padLeft(2, '0');
+      final seconds = ((milliseconds ~/ 1000) % 60).toString().padLeft(2, '0');
+      final fraction = (milliseconds % 1000).toString().padLeft(3, '0');
+      showFeedback(
+        '${forward ? '下一帧' : '上一帧'} · $hours:$minutes:$seconds.$fraction',
+      );
+    } catch (e) {
+      widget.onError(e);
+    }
   }
 
   String get title {
@@ -458,6 +502,9 @@ class _PlayerPageState extends State<PlayerPage> {
                               'resource-sheet:${widget.subject!['subjectId']}',
                             ),
                             service: widget.service,
+                            playback: playback,
+                            onPlayCandidate: widget.onPlayCandidate,
+                            onFindAllResources: widget.onFindAllResources,
                             subject: widget.subject!,
                             episodeId: resourceEpisode,
                             visible: resourcesOpen,
@@ -491,6 +538,7 @@ class _PlayerPageState extends State<PlayerPage> {
             children: [
               GestureDetector(
                 onTap: () {
+                  playback.cancelAutoplay();
                   if (menu != null) {
                     closeMenu();
                   } else {
@@ -542,6 +590,7 @@ class _PlayerPageState extends State<PlayerPage> {
                         buffering.data != true &&
                         !playback.opening &&
                         playback.error == null &&
+                        !playback.frameStepping &&
                         menu == null;
                     return Center(
                       child: IgnorePointer(
@@ -561,7 +610,10 @@ class _PlayerPageState extends State<PlayerPage> {
                                 iconSize: 40,
                                 padding: const EdgeInsets.all(14),
                                 color: Colors.white,
-                                onPressed: () => unawaited(player.play()),
+                                onPressed: () {
+                                  playback.cancelAutoplay();
+                                  unawaited(playback.resume());
+                                },
                                 icon: const Icon(Icons.play_arrow_rounded),
                               ),
                             ),
@@ -646,6 +698,66 @@ class _PlayerPageState extends State<PlayerPage> {
                   ),
                 ),
               ),
+              if (playback.autoplayTarget != null ||
+                  playback.autoplayMessage != null)
+                Positioned(
+                  right: 20,
+                  bottom: constraints.maxWidth < 680 ? 150 : 112,
+                  child: Material(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    elevation: 8,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            playback.autoplayTarget == null
+                                ? playback.autoplayMessage!
+                                : '即将播放第 ${playback.autoplayTarget!.episode['sort']} 话 · ${playback.autoplayTarget!.sourceLabel}',
+                          ),
+                          if (playback.autoplayTarget != null) ...[
+                            const SizedBox(height: 8),
+                            Text('${playback.autoplaySeconds} 秒后播放'),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TextButton(
+                                  onPressed: playback.playAutoplay,
+                                  child: const Text('立即播放'),
+                                ),
+                                TextButton(
+                                  onPressed: playback.cancelAutoplay,
+                                  child: const Text('取消'),
+                                ),
+                              ],
+                            ),
+                          ] else if (playback.autoplayEndEpisode != null)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TextButton(
+                                  onPressed: () => findResources(
+                                    playback.autoplayEndEpisode,
+                                  ),
+                                  child: const Text('查找资源'),
+                                ),
+                                if (widget.onFindAllResources != null)
+                                  TextButton(
+                                    onPressed: () => widget.onFindAllResources!(
+                                      playback.autoplayEndEpisode,
+                                    ),
+                                    child: const Text('改用 BT'),
+                                  ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               Positioned(
                 key: const ValueKey('player-controls'),
                 left: 0,
@@ -681,6 +793,7 @@ class _PlayerPageState extends State<PlayerPage> {
                             menu: menu,
                             dragging: dragging,
                             onDragStart: (value) {
+                              playback.cancelAutoplay();
                               setState(() => dragging = value);
                               hideTimer?.cancel();
                             },
@@ -703,14 +816,16 @@ class _PlayerPageState extends State<PlayerPage> {
                               null => null,
                               (final next, true) => '下一话 · 第 ${next['sort']} 话',
                               (final next, false) =>
-                                '第 ${next['sort']} 话未缓存 · 点击查找资源',
+                                '下一话 · 第 ${next['sort']} 话',
                             },
                             onNext: switch (nextEpisode) {
                               null => null,
                               (final next, true) => () => widget.onEpisode(
                                 next,
                               ),
-                              (final next, false) => () => findResources(next),
+                              (final next, false) => () => widget.onEpisode(
+                                next,
+                              ),
                             },
                             onPopupChanged: (value) {
                               controlsPopup = value;

@@ -262,11 +262,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
         borderRadius: controlBorderRadius,
         child: InkWell(
           borderRadius: controlBorderRadius,
-          onTap: current
-              ? null
-              : available
-              ? () => widget.onEpisode(episode)
-              : () => widget.onFindResources(episode),
+          onTap: current ? null : () => widget.onEpisode(episode),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(Gap.sm, Gap.sm, Gap.xs, Gap.sm),
             child: Row(
@@ -338,12 +334,10 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                     ],
                   ),
                 ),
-                if (!current)
-                  IconButton(
-                    tooltip: '查找第 ${episode['sort']} 话资源',
-                    icon: const Icon(Icons.search_rounded, size: 17),
-                    onPressed: () => widget.onFindResources(episode),
-                  ),
+                TextButton(
+                  onPressed: () => widget.onFindResources(episode),
+                  child: const Text('资源'),
+                ),
               ],
             ),
           ),

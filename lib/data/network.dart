@@ -72,6 +72,7 @@ class ApiClient {
     String method = 'GET',
     Object? body,
     Map<String, String> headers = const {},
+    Set<int> acceptedStatuses = const {},
   }) async {
     final abort = Completer<void>();
     final request = _request(
@@ -88,7 +89,9 @@ class ApiClient {
         timeout,
         onTimeout: () => _timedOut(uri, abort),
       );
-      _checkResponse(response, uri);
+      if (!acceptedStatuses.contains(response.statusCode)) {
+        _checkResponse(response, uri);
+      }
       return response;
     } finally {
       _active.remove(abort);

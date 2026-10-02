@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -12,6 +13,7 @@ import 'ui/acquisition/download_dialogs.dart';
 import 'ui/acquisition/downloads_page.dart';
 import 'ui/acquisition/resources_page.dart';
 import 'data/resource_metadata.dart';
+import 'data/play_candidates.dart';
 import 'ui/core/action_feedback.dart';
 import 'ui/core/app_chrome.dart';
 import 'ui/core/motion.dart';
@@ -21,6 +23,8 @@ import 'ui/core/subject_posters.dart';
 import 'ui/discovery/discovery_pages.dart';
 import 'ui/player/playback.dart';
 import 'ui/player/player_page.dart';
+import 'ui/player/candidate_resources.dart';
+import 'ui/sources/sources_page.dart';
 import 'ui/settings/bittorrent_settings.dart';
 import 'ui/settings/cache_settings.dart';
 import 'ui/settings/settings_page.dart';
@@ -108,6 +112,15 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   Future<void> _playbackOperations = Future.value();
   Future<void> _fullScreenOperations = Future.value();
   Completer<void>? _fullScreenTransition;
+  PlayCandidate? _activeCandidate;
+  Json? _candidateSubject, _candidateEpisode;
+  List<PlayCandidate> _playChoices = [];
+  int _selectionRequest = 0, _fallbackCount = 0;
+  bool _recoveringSource = false;
+  bool _onlineRefreshed = false;
+  Timer? _firstFrameDeadline, _bufferDeadline;
+  int _longBufferCount = 0;
+  DateTime? _lastLongBuffer;
 
   @override
   void initState() {
@@ -116,6 +129,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     playerLightsOff = widget.preferences.getBool('player-lights-off') ?? false;
     recentSearches = widget.preferences.getStringList('recentSearches') ?? [];
     playback = Playback(widget.service, widget.preferences);
+    playback.resolveNext = prepareAutoplay;
     windowManager.addListener(this);
     unawaited(windowManager.setPreventClose(true));
     unawaited(boot());
@@ -150,6 +164,39 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         }),
       );
       downloads = widget.service.downloads.snapshot();
+      widget.service.library.providerEnabled = playback.danmaku.sourceEnabled;
+      widget.service.online.addListener(sourcesChanged);
+      subscriptions.add(
+        playback.player.stream.error.listen((reason) {
+          if (_activeCandidate != null &&
+              !playback.opening &&
+              route == 'player') {
+            unawaited(recoverSource(reason));
+          }
+        }),
+      );
+      subscriptions.add(
+        playback.player.stream.buffering.listen((buffering) {
+          _bufferDeadline?.cancel();
+          if (buffering &&
+              _activeCandidate != null &&
+              !playback.opening &&
+              route == 'player') {
+            _bufferDeadline = Timer(const Duration(seconds: 15), () {
+              final now = DateTime.now();
+              if (_lastLongBuffer == null ||
+                  now.difference(_lastLongBuffer!) >
+                      const Duration(minutes: 2)) {
+                _longBufferCount = 0;
+              }
+              _lastLongBuffer = now;
+              if (++_longBufferCount >= 2) {
+                unawaited(recoverSource('播放反复长时间缓冲'));
+              }
+            });
+          }
+        }),
+      );
       setState(() => ready = true);
       if (widget.initialMedia != null) {
         await openVideo(widget.initialMedia);
@@ -275,6 +322,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
 
   void leavePlayer() {
     if (route != 'player') return;
+    playback.cancelAutoplay();
+    _selectionRequest++;
+    _firstFrameDeadline?.cancel();
+    _bufferDeadline?.cancel();
     _playbackRequest++;
     if (fullScreen) unawaited(setFullScreen(false));
     windowFullScreen = false;
@@ -298,7 +349,18 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     setState(() {
       route = previous.route;
       selectedSection = previous.section;
-      subject = previous.subject;
+      subject =
+          previous.accountId != widget.service.account.userId &&
+              previous.subject != null
+          ? {
+              ...previous.subject!,
+              'collection': null,
+              'episodes': [
+                for (final episode in objects(previous.subject!['episodes']))
+                  {...episode, 'status': 'unwatched'},
+              ],
+            }
+          : previous.subject;
       resourceEpisode = previous.resourceEpisode;
       resourceSearch.text = previous.resourceQuery;
       search.text = previous.query;
@@ -441,6 +503,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     final subjectId = episode == null ? null : subject?['subjectId'] as int?;
     final selected = path ?? (await selectVideo())?.path;
     if (selected == null || !mounted) return;
+    _selectionRequest++;
+    _activeCandidate = null;
+    _firstFrameDeadline?.cancel();
+    _bufferDeadline?.cancel();
     await queuePlayback(() async {
       await playback.openLocal(
         selected,
@@ -451,35 +517,429 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   }
 
   Future<void> startPlayback(Future<Json> Function() load) async {
+    _selectionRequest++;
+    _activeCandidate = null;
+    _firstFrameDeadline?.cancel();
+    _bufferDeadline?.cancel();
     await queuePlayback(() async {
       await playback.saveProgress();
       await playback.open(await load());
     });
   }
 
-  Future<void> queuePlayback(Future<void> Function() open) {
+  Future<void> queuePlayback(
+    Future<void> Function() open, {
+    bool reportFailure = true,
+    bool Function()? isCurrent,
+  }) {
     final ticket = ++_playbackRequest;
     final operation = _playbackOperations.then((_) async {
       if (!mounted || closing || ticket != _playbackRequest) return;
-      await perform(() async {
+      Future<void> action() async {
         await open();
-        showPlayback(ticket);
-      });
+        if (isCurrent?.call() ?? true) showPlayback(ticket);
+      }
+
+      if (reportFailure) {
+        await perform(action);
+      } else {
+        try {
+          await action();
+        } catch (_) {}
+      }
     });
     _playbackOperations = operation.catchError((Object _) {});
     return operation;
   }
 
   void playEpisode(Json episode) {
-    final subjectId = playback.session?['subjectId'] as int?;
-    if (subjectId == null) return;
-    unawaited(
-      startPlayback(
-        () => widget.service.library.episode(
-          subjectId,
-          episode['episodeId'] as int,
+    final current = playerSubject;
+    if (current != null) {
+      unawaited(
+        perform(() => selectEpisode(current, episode, useContinuity: true)),
+      );
+    }
+  }
+
+  void sourcesChanged() {
+    if (mounted && !closing) setState(() {});
+  }
+
+  Future<List<PlayCandidate>> episodeCandidates(
+    Json item,
+    Json episode, {
+    bool instantOnly = false,
+    bool useContinuity = false,
+  }) {
+    final settings = playback.settings;
+    return widget.service.selection.candidates(
+      item,
+      episode,
+      instantOnly: instantOnly,
+      useContinuity: useContinuity,
+      onlineFirst:
+          (subjectIsAiring(item)
+              ? settings.airingPriority
+              : settings.completedPriority) ==
+          'online',
+      language: settings.subtitleLanguage,
+    );
+  }
+
+  Future<void> selectEpisode(
+    Json item,
+    Json episode, {
+    bool useContinuity = false,
+  }) async {
+    playback.cancelAutoplay();
+    final request = ++_selectionRequest;
+    _activeCandidate = null;
+    _firstFrameDeadline?.cancel();
+    _bufferDeadline?.cancel();
+    final id = item['subjectId'] as int;
+    final episodeId = episode['episodeId'] as int;
+    final available = await widget.service.library.playableEpisodes(id);
+    if (!mounted || closing || request != _selectionRequest) return;
+    if (available.contains(episodeId)) {
+      final local = await widget.service.selection.candidates(
+        item,
+        episode,
+        instantOnly: true,
+        includeOnline: false,
+        useContinuity: useContinuity,
+        language: playback.settings.subtitleLanguage,
+      );
+      if (!mounted || closing || request != _selectionRequest) return;
+      final cached = local.where(
+        (candidate) => candidate.kind == PlayKind.local,
+      );
+      if (cached.isNotEmpty) {
+        await playCandidate(cached.first, item, episode);
+        return;
+      }
+    }
+    playback.showNotice('正在查找第 ${episode['sort']} 话资源');
+    final choices = await episodeCandidates(
+      item,
+      episode,
+      useContinuity: useContinuity,
+    );
+    if (!mounted || closing || request != _selectionRequest) return;
+    if (choices.isEmpty) {
+      subject = item;
+      await findResources(episode: episode);
+      return;
+    }
+    if (choices.first.possibleMatch) {
+      await showEpisodeResources(item, episode);
+      return;
+    }
+    await playCandidate(choices.first, item, episode, choices: choices);
+  }
+
+  Future<void> showEpisodeResources(Json item, Json episode) async {
+    playback.cancelAutoplay();
+    final target = navigation.currentState?.overlay?.context;
+    if (target == null) return;
+    await showDialog<void>(
+      context: target,
+      builder: (context) => Dialog(
+        child: SizedBox(
+          width: 900,
+          height: 580,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Gap.lg,
+                  Gap.sm,
+                  Gap.sm,
+                  Gap.sm,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '选择资源 · 第 ${episode['sort']} 话',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: CandidateResources(
+                  service: widget.service,
+                  playback: playback,
+                  subject: item,
+                  episode: episode,
+                  onPlay: (candidate) async {
+                    Navigator.pop(context);
+                    await playCandidate(candidate, item, episode);
+                  },
+                  onFindResources: () {
+                    Navigator.pop(context);
+                    subject = item;
+                    unawaited(findResources(episode: episode));
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  Future<void> playCandidate(
+    PlayCandidate candidate,
+    Json item,
+    Json episode, {
+    List<PlayCandidate>? choices,
+    bool recovery = false,
+    Duration? recoveryPosition,
+  }) async {
+    final request = recovery ? _selectionRequest : ++_selectionRequest;
+    if (!recovery) {
+      playback.cancelAutoplay();
+      _candidateSubject = item;
+      _candidateEpisode = episode;
+      _playChoices = choices ?? [];
+      _fallbackCount = 0;
+      _onlineRefreshed = false;
+      _longBufferCount = 0;
+      _lastLongBuffer = null;
+      _activeCandidate = null;
+    }
+    _firstFrameDeadline?.cancel();
+    _bufferDeadline?.cancel();
+    Object? failure;
+    await queuePlayback(
+      () async {
+        try {
+          final session = await widget.service.selection.load(
+            candidate,
+            item['subjectId'] as int,
+            episode['episodeId'] as int,
+          );
+          if (!mounted || closing || request != _selectionRequest) return;
+          if (recoveryPosition != null) {
+            session['startSeconds'] = recoveryPosition.inMilliseconds / 1000;
+          }
+          _activeCandidate = candidate;
+          await playback.open(session);
+          if (playback.error != null) throw StateError(playback.error!);
+          widget.service.selection.played(item['subjectId'] as int, candidate);
+          if (recovery) playback.showNotice('已切换到 ${candidate.sourceLabel}');
+          final sessionId = session['id'];
+          _firstFrameDeadline?.cancel();
+          _firstFrameDeadline = Timer(const Duration(seconds: 15), () {
+            unawaited(checkFirstFrame('$sessionId', request));
+          });
+        } catch (e) {
+          if (request == _selectionRequest) _activeCandidate = candidate;
+          failure = e;
+          rethrow;
+        }
+      },
+      reportFailure: false,
+      isCurrent: () => request == _selectionRequest,
+    );
+    if (failure != null && mounted && request == _selectionRequest) {
+      if (recovery) throw failure!;
+      await recoverSource('$failure');
+    }
+  }
+
+  Future<void> checkFirstFrame(String sessionId, int request) async {
+    bool current() =>
+        mounted &&
+        !closing &&
+        request == _selectionRequest &&
+        playback.session?['id'] == sessionId;
+    if (!current()) return;
+    final platform = playback.player.platform;
+    if (platform is! NativePlayer) return;
+    final fps = double.tryParse(await platform.getProperty('estimated-vf-fps'));
+    if (!current() || (fps != null && fps.isFinite && fps > 0)) return;
+    final seeking = await platform.getProperty('seeking') == 'yes';
+    if (!current()) return;
+    if (seeking ||
+        (!playback.player.state.playing && !playback.player.state.buffering)) {
+      _firstFrameDeadline = Timer(const Duration(seconds: 5), () {
+        unawaited(checkFirstFrame(sessionId, request));
+      });
+      return;
+    }
+    await recoverSource('15 秒内未产生视频画面');
+  }
+
+  Future<void> recoverSource(String reason) async {
+    var failed = _activeCandidate;
+    final item = _candidateSubject, episode = _candidateEpisode;
+    if (_recoveringSource ||
+        failed == null ||
+        item == null ||
+        episode == null ||
+        closing) {
+      return;
+    }
+    _recoveringSource = true;
+    final request = _selectionRequest;
+    _firstFrameDeadline?.cancel();
+    _bufferDeadline?.cancel();
+    try {
+      final saved = await widget.service.library.progress(
+        item['subjectId'] as int,
+        episode['episodeId'] as int,
+      );
+      final position =
+          playback.session?['subjectId'] == item['subjectId'] &&
+              playback.session?['episodeId'] == episode['episodeId']
+          ? playback.player.state.position
+          : Duration(
+              milliseconds: (number(saved?['positionSeconds']) * 1000).round(),
+            );
+      while (mounted && !closing && request == _selectionRequest) {
+        widget.service.selection.failed(failed!);
+        if (failed.kind == PlayKind.online && !_onlineRefreshed) {
+          _onlineRefreshed = true;
+          playback.showNotice('正在刷新播放地址');
+          try {
+            await playCandidate(
+              failed,
+              item,
+              episode,
+              recovery: true,
+              recoveryPosition: position,
+            );
+            if (playback.error == null) return;
+          } catch (error) {
+            reason = '$error';
+          }
+        }
+        if (_fallbackCount >= 3) break;
+        if (_playChoices.isEmpty) {
+          _playChoices = await episodeCandidates(
+            item,
+            episode,
+            instantOnly: true,
+            useContinuity: true,
+          );
+        }
+        final alternatives = _playChoices
+            .where(
+              (candidate) =>
+                  candidate.instant &&
+                  !candidate.possibleMatch &&
+                  candidate.id != failed!.id &&
+                  candidate.health >= 0,
+            )
+            .toList();
+        final alternative =
+            alternatives
+                .where((candidate) => candidate.provider == failed!.provider)
+                .firstOrNull ??
+            alternatives.firstOrNull;
+        if (!mounted || closing || request != _selectionRequest) return;
+        if (alternative == null) break;
+        _playChoices.removeWhere((candidate) => candidate.id == failed!.id);
+        failed = alternative;
+        _fallbackCount++;
+        _onlineRefreshed = false;
+        try {
+          await playCandidate(
+            alternative,
+            item,
+            episode,
+            recovery: true,
+            recoveryPosition: position,
+          );
+          if (playback.error == null) return;
+        } catch (error) {
+          reason = '$error';
+        }
+      }
+      if (mounted && request == _selectionRequest) {
+        await playback.player.pause();
+        playback.showNotice('暂无可立即播放的其他资源，请打开“资源”或改用 BT');
+        playback.showResourceFailure(episode);
+        showError(reason);
+        if (route != 'player') await showEpisodeResources(item, episode);
+      }
+    } catch (e) {
+      if (mounted && request == _selectionRequest) showError(e);
+    } finally {
+      _recoveringSource = false;
+    }
+  }
+
+  Future<AutoplayTarget?> prepareAutoplay(Json session) async {
+    final id = session['subjectId'] as int?,
+        currentId = session['episodeId'] as int?;
+    if (id == null || currentId == null) return null;
+    final item = playerSubject?['subjectId'] == id
+        ? playerSubject!
+        : await widget.service.tracking.subject(id);
+    final episodes =
+        objects(item['episodes'])
+            .where(
+              (e) => e['type'] == 0 || e['type'] == 'main' || e['type'] == null,
+            )
+            .toList()
+          ..sort((a, b) => number(a['sort']).compareTo(number(b['sort'])));
+    final current = episodes
+        .where((e) => e['episodeId'] == currentId)
+        .firstOrNull;
+    if (current == null) return null;
+    final next = episodes
+        .where((e) => number(e['sort']) > number(current['sort']))
+        .firstOrNull;
+    if (next == null) return null;
+    final date = DateTime.tryParse(
+      '${next['airdate'] ?? next['airDate'] ?? ''}',
+    );
+    if (date != null && date.isAfter(DateTime.now())) return null;
+    if ((await widget.service.library.playableEpisodes(id))
+        .contains(next['episodeId'])) {
+      final local = await widget.service.selection.candidates(
+        item,
+        next,
+        instantOnly: true,
+        includeOnline: false,
+        useContinuity: true,
+        language: playback.settings.subtitleLanguage,
+      );
+      if (local.isNotEmpty) {
+        return AutoplayTarget(
+          episode: next,
+          sourceLabel: local.first.sourceLabel,
+          play: () => playCandidate(local.first, item, next),
+        );
+      }
+    }
+    final choices = (await episodeCandidates(
+      item,
+      next,
+      instantOnly: true,
+      useContinuity: true,
+    )).where((c) => c.instant && !c.possibleMatch).toList();
+    if (choices.isEmpty) {
+      return AutoplayTarget(
+        episode: next,
+        sourceLabel: '',
+        unavailable: true,
+        play: () async {},
+      );
+    }
+    return AutoplayTarget(
+      episode: next,
+      sourceLabel: choices.first.sourceLabel,
+      play: () => playCandidate(choices.first, item, next, choices: choices),
     );
   }
 
@@ -519,6 +979,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
             ? null
             : CollectionStatus.parse('${mutation['status']}'),
         score: mutation['score'] as int?,
+        tags: (mutation['tags'] as List?)?.cast<String>(),
+        comment: mutation['comment'] as String?,
+        completeEpisodes: mutation['completeEpisodes'] == true,
       );
     } else {
       await widget.service.tracking.setEpisode(
@@ -544,8 +1007,19 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
               ...object(subject!['collection']),
               if (mutation['status'] != null) 'status': mutation['status'],
               if (mutation['score'] != null) 'score': mutation['score'],
-            }
-          else
+              if (mutation['status'] == 'wish') 'score': 0,
+              if (mutation['tags'] != null) 'tags': mutation['tags'],
+              if (mutation['comment'] != null) 'comment': mutation['comment'],
+            },
+          if (mutation['completeEpisodes'] == true)
+            'episodes': [
+              for (final episode in objects(subject!['episodes']))
+                if (isMainEpisode(episode))
+                  {...episode, 'status': 'watched'}
+                else
+                  episode,
+            ]
+          else if (mutation['kind'] != 'subjectCollection')
             'episodes': [
               for (final episode in objects(subject!['episodes']))
                 if (episode['episodeId'] == mutation['episodeId'])
@@ -753,7 +1227,13 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     _navigation++;
     setState(() {
       route = target;
-      if (['home', 'tracking', 'downloads', 'settings'].contains(target)) {
+      if ([
+        'home',
+        'tracking',
+        'downloads',
+        'sources',
+        'settings',
+      ].contains(target)) {
         selectedSection = target;
       } else if (target == 'calendar') {
         selectedSection = 'home';
@@ -772,6 +1252,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     }
     if (ready && target == 'calendar') {
       unawaited(loadCalendar());
+    }
+    if (ready && target == 'sources') {
+      unawaited(widget.service.online.refreshRules().catchError((Object _) {}));
     }
   }
 
@@ -857,6 +1340,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   @override
   void dispose() {
     closing = true;
+    _firstFrameDeadline?.cancel();
+    _bufferDeadline?.cancel();
+    if (ready) widget.service.online.removeListener(sourcesChanged);
     unawaited(
       _playbackOperations
           .then((_) => playback.close())
@@ -944,6 +1430,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                                 dark: dark,
                                 route: route,
                                 selectedRoute: selectedSection,
+                                sourcesWarning:
+                                    ready && widget.service.online.warning,
                                 nickname: '${account?['nickname'] ?? '尚未登录'}',
                                 username: account?['username'] as String?,
                                 avatarUrl: account?['avatarUrl'] as String?,
@@ -1012,6 +1500,21 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                                         onLightsChanged: setPlayerLights,
                                         subject: playerSubject,
                                         onEpisode: playEpisode,
+                                        onPlayCandidate: (candidate, episode) =>
+                                            playCandidate(
+                                              candidate,
+                                              playerSubject!,
+                                              episode,
+                                            ),
+                                        onFindAllResources: (episode) {
+                                          final current = playerSubject;
+                                          if (current == null) return;
+                                          subject = current;
+                                          leavePlayer();
+                                          unawaited(
+                                            findResources(episode: episode),
+                                          );
+                                        },
                                       )
                                     : PageStorage(
                                         bucket: pageStorage,
@@ -1071,12 +1574,15 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           today: today,
           trending: trending,
           resumable: resumable,
-          onResume: (item) => startPlayback(
-            () => widget.service.library.episode(
+          onResume: (item) => perform(() async {
+            final detail = await widget.service.tracking.subject(
               item['subjectId'] as int,
-              item['episodeId'] as int,
-            ),
-          ),
+            );
+            final episode = objects(detail['episodes'])
+                .where((e) => e['episodeId'] == item['episodeId'])
+                .firstOrNull;
+            if (episode != null) await selectEpisode(detail, episode);
+          }),
           watching: collection
               .where((item) => item['status'] == 'watching')
               .toList(),
@@ -1126,20 +1632,22 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         return SubjectPage(
           subject: item,
           loading: busy,
+          community: widget.service.tracking.community,
+          signedIn: account != null,
+          collectionSyncError: widget.service.tracking.lastSyncError,
+          onRetryCollectionSync: widget.service.tracking.flush,
           onUpdateTracking: updateTracking,
           onSaveTracking: saveTracking,
           resume: mediaSubjectId == item?['subjectId'] ? subjectResume : null,
           cachedEpisodeIds: mediaSubjectId == item?['subjectId']
               ? cachedEpisodeIds
               : null,
-          onFindResources: (episode) => findResources(episode: episode),
+          onFindResources: (episode) => episode == null
+              ? findResources()
+              : showEpisodeResources(item!, episode),
           onOpenEpisode: (episode) => openVideo(null, episode),
-          onPlayEpisode: (episode) => startPlayback(
-            () => widget.service.library.episode(
-              item!['subjectId'] as int,
-              episode['episodeId'] as int,
-            ),
-          ),
+          onPlayEpisode: (episode) =>
+              perform(() => selectEpisode(item!, episode)),
           onOpenSubject: openSubject,
         );
       case 'resources':
@@ -1186,8 +1694,19 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
             () => widget.service.library.fromDownload(id, fileId: fileId),
           ),
         );
+      case 'sources':
+        return SourcesPage(
+          repository: widget.service.online,
+          sources: widget.service.sources,
+          pikpak: widget.service.pikpak,
+          onPlay: (source) async {
+            _activeCandidate = null;
+            await startPlayback(() => widget.service.library.online(source));
+          },
+        );
       case 'settings':
         return SettingsPage(
+          playback: playback,
           account: account,
           sync: sync,
           needsAuthorization: widget.service.account.needsAuthorization,

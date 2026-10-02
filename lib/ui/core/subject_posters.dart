@@ -459,7 +459,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
           Row(
             children: [
               Text(
-                '★ ${scoreLabel(item['score'])}',
+                '★ ${scoreLabel(tracking ? item['userScore'] : item['score'])}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,

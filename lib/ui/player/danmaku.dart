@@ -23,6 +23,7 @@ class _DanmakuLayerState extends State<DanmakuLayer>
   final textCache = DanmakuTextCache();
   final layout = DanmakuLayout();
   Object? identity;
+  bool frozen = false;
   @override
   void initState() {
     super.initState();
@@ -37,7 +38,12 @@ class _DanmakuLayerState extends State<DanmakuLayer>
         playback.session?['id'],
         playback.uri,
         playback.opening,
+        playback.danmakuRevision,
       );
+      if (playback.frameStepping) {
+        frozen = true;
+        return;
+      }
       if (identity != nextIdentity) layout.clear();
       clock.value = motion.sample(
         elapsed: elapsed,
@@ -48,9 +54,10 @@ class _DanmakuLayerState extends State<DanmakuLayer>
             !state.completed &&
             !playback.opening,
         rate: state.rate,
-        reset: identity != nextIdentity,
+        reset: identity != nextIdentity || frozen,
       );
       identity = nextIdentity;
+      frozen = false;
     })..start();
   }
 
@@ -91,21 +98,28 @@ class DanmakuPainter extends CustomPainter {
     }
     textCache.beginFrame();
     final visible = layout.update(
-      comments: playback.comments,
+      comments: playback.visibleComments,
       time: clock.value,
       viewport: size,
       fontSize: playback.danmakuSize,
       area: playback.danmakuArea,
+      density: playback.danmaku.density,
       measure: (item) => _text(item).size,
     );
     for (final entry in visible) {
+      if (playback.danmaku.stroke) {
+        _text(
+          entry.item,
+          outline: true,
+        ).paint(canvas, entry.boundsAt(clock.value, size.width).topLeft);
+      }
       _text(entry.item)
           .paint(canvas, entry.boundsAt(clock.value, size.width).topLeft);
     }
     textCache.endFrame();
   }
 
-  TextPainter _text(Json item) {
+  TextPainter _text(Json item, {bool outline = false}) {
     final colorValue =
         int.tryParse(
           '${item['color'] ?? '#ffffff'}'.replaceFirst('#', ''),
@@ -116,6 +130,7 @@ class DanmakuPainter extends CustomPainter {
       '${item['text'] ?? ''}',
       Color(0xff000000 | colorValue).withValues(alpha: playback.danmakuOpacity),
       playback.danmakuSize,
+      outline: outline,
     );
   }
 
@@ -125,13 +140,18 @@ class DanmakuPainter extends CustomPainter {
 
 /// Keeps layout work out of animation frames and retains only the active window.
 class DanmakuTextCache {
-  final _painters = <(String, Color, double), TextPainter>{};
-  final _used = <(String, Color, double)>{};
+  final _painters = <(String, Color, double, bool), TextPainter>{};
+  final _used = <(String, Color, double, bool)>{};
 
   void beginFrame() => _used.clear();
 
-  TextPainter obtain(String text, Color color, double size) {
-    final key = (text, color, size);
+  TextPainter obtain(
+    String text,
+    Color color,
+    double size, {
+    bool outline = false,
+  }) {
+    final key = (text, color, size, outline);
     _used.add(key);
     return _painters.putIfAbsent(
       key,
@@ -141,10 +161,13 @@ class DanmakuTextCache {
           style: TextStyle(
             fontSize: size,
             fontWeight: FontWeight.w600,
-            color: color,
-            shadows: const [
-              Shadow(blurRadius: 3, color: Colors.black, offset: Offset(1, 1)),
-            ],
+            color: outline ? null : color,
+            foreground: outline
+                ? (Paint()
+                    ..style = PaintingStyle.stroke
+                    ..strokeWidth = 2
+                    ..color = Colors.black.withValues(alpha: color.a))
+                : null,
           ),
         ),
         textDirection: TextDirection.ltr,

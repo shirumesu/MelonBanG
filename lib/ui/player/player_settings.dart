@@ -11,6 +11,7 @@ import '../../data/danmaku_repository.dart';
 import '../../data/playback_library.dart';
 import '../core/theme.dart';
 import 'playback.dart';
+import 'danmaku_preferences_editor.dart';
 import 'player_theme.dart';
 
 class PlayerSettings extends StatefulWidget {
@@ -171,9 +172,9 @@ class _PlayerSettingsState extends State<PlayerSettings> {
                     : null,
                 onTap: () => perform(() async {
                   if (subtitle) {
-                    await player.setSubtitleTrack(track as SubtitleTrack);
+                    await playback.selectSubtitle(track as SubtitleTrack);
                   } else {
-                    await player.setAudioTrack(track as AudioTrack);
+                    await playback.selectAudio(track as AudioTrack);
                   }
                   refresh();
                 }),
@@ -240,37 +241,13 @@ class _PlayerSettingsState extends State<PlayerSettings> {
   });
 
   List<Widget> danmakuSettings() => [
-    SwitchListTile(
-      contentPadding: EdgeInsets.zero,
-      title: const Text('显示弹幕'),
-      value: playback.danmakuEnabled,
-      onChanged: (value) =>
-          changePresentation(() => playback.danmakuEnabled = value),
+    DanmakuPreferencesEditor(
+      preferences: playback.danmaku,
+      filters: false,
+      restore: false,
     ),
-    Text('字号 ${playback.danmakuSize.round()}'),
-    Slider(
-      value: playback.danmakuSize,
-      min: 14,
-      max: 36,
-      onChanged: (value) =>
-          changePresentation(() => playback.danmakuSize = value),
-    ),
-    Text('不透明度 ${(playback.danmakuOpacity * 100).round()}%'),
-    Slider(
-      value: playback.danmakuOpacity,
-      min: .2,
-      max: 1,
-      onChanged: (value) =>
-          changePresentation(() => playback.danmakuOpacity = value),
-    ),
-    Text('显示区域 ${(playback.danmakuArea * 100).round()}%'),
-    Slider(
-      value: playback.danmakuArea,
-      min: .2,
-      max: 1,
-      onChanged: (value) =>
-          changePresentation(() => playback.danmakuArea = value),
-    ),
+    const SizedBox(height: 12),
+    Text('来源', style: Theme.of(context).textTheme.titleSmall),
     const SizedBox(height: 12),
     FilledButton.icon(
       onPressed: busy
@@ -312,11 +289,17 @@ class _PlayerSettingsState extends State<PlayerSettings> {
             value: source['enabled'] == true,
             onChanged: busy
                 ? null
-                : (value) => loadDanmaku(
-                    () async =>
-                        widget.service.library.enable('${source['id']}', value),
-                  ),
+                : (value) {
+                    playback.danmaku.setProvider('${source['id']}', value);
+                    loadDanmaku(
+                      () async => widget.service.library.enable(
+                        '${source['id']}',
+                        value,
+                      ),
+                    );
+                  },
           ),
+          sourceOffset('${source['id']}'),
           for (final match in objects(source['candidates']))
             ListTile(
               dense: true,
@@ -414,7 +397,44 @@ class _PlayerSettingsState extends State<PlayerSettings> {
     const SizedBox(height: 12),
     Text('已加载 ${playback.comments.length} 条弹幕'),
     TextButton(onPressed: loadLocalComments, child: const Text('导入弹幕 JSON')),
+    DanmakuPreferencesEditor(preferences: playback.danmaku, display: false),
+    Align(
+      alignment: Alignment.centerRight,
+      child: TextButton(
+        onPressed: playback.danmaku.resetDisplay,
+        child: const Text('恢复默认'),
+      ),
+    ),
   ];
+  Widget sourceOffset(String provider) {
+    final current = playback.danmakuOffsets[provider] ?? 0;
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        for (final delta in [-5.0, -.5])
+          TextButton(
+            onPressed: () => perform(
+              () => playback.offsetDanmaku(provider, current + delta),
+            ),
+            child: Text('${delta}s'),
+          ),
+        Text('${current > 0 ? '+' : ''}${current.toStringAsFixed(1)}s'),
+        for (final delta in [.5, 5.0])
+          TextButton(
+            onPressed: () => perform(
+              () => playback.offsetDanmaku(provider, current + delta),
+            ),
+            child: Text('+${delta}s'),
+          ),
+        TextButton(
+          onPressed: () => perform(() => playback.offsetDanmaku(provider, 0)),
+          child: const Text('重置'),
+        ),
+      ],
+    );
+  }
+
   Future<void> loadDanmaku(Future<void> Function() load) async {
     if (busy) return;
     final ticket = ++_loadRequest;

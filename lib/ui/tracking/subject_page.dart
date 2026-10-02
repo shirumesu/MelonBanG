@@ -4,11 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/json.dart';
+import '../../data/bangumi_private.dart';
+import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'collection_labels.dart';
+import 'collection_editor.dart';
+import 'subject_community.dart';
 
 class SubjectPage extends StatefulWidget {
   const SubjectPage({
@@ -23,9 +27,17 @@ class SubjectPage extends StatefulWidget {
     this.resume,
     this.cachedEpisodeIds,
     this.loading = false,
+    this.signedIn = false,
+    this.community,
+    this.collectionSyncError,
+    this.onRetryCollectionSync,
   });
   final Json? subject;
   final bool loading;
+  final bool signedIn;
+  final BangumiPrivateClient? community;
+  final String? collectionSyncError;
+  final Future<void> Function()? onRetryCollectionSync;
   final Json? resume;
   final Set<int>? cachedEpisodeIds;
   final ValueChanged<Json> onUpdateTracking;
@@ -43,6 +55,13 @@ class _SubjectPageState extends State<SubjectPage> {
   Timer? _feedbackTimer;
   final _savingEpisodes = <int>{};
   final _episodeErrors = <int, String>{};
+  final _collectionIssue = ActionFeedback();
+
+  @override
+  void initState() {
+    super.initState();
+    _collectionIssue.issue = widget.collectionSyncError;
+  }
 
   bool _loadingPart(String part) {
     if (!widget.loading) return false;
@@ -66,6 +85,9 @@ class _SubjectPageState extends State<SubjectPage> {
   @override
   void didUpdateWidget(covariant SubjectPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.collectionSyncError != oldWidget.collectionSyncError) {
+      _collectionIssue.issue = widget.collectionSyncError;
+    }
     if (oldWidget.subject?['subjectId'] != widget.subject?['subjectId']) {
       _feedbackTimer?.cancel();
       _selectedStatus = _undoStatus = _collectionFeedback = _collectionError =
@@ -88,6 +110,7 @@ class _SubjectPageState extends State<SubjectPage> {
   void dispose() {
     _feedbackTimer?.cancel();
     current.dispose();
+    _collectionIssue.dispose();
     super.dispose();
   }
 
@@ -98,6 +121,39 @@ class _SubjectPageState extends State<SubjectPage> {
       widget.onUpdateTracking(mutation);
     }
   }
+
+  Future<void> _editCollection() async {
+    final subjectId = widget.subject?['subjectId'];
+    final user = widget.community?.account.userId;
+    final mutation = await showDialog<Json>(
+      context: context,
+      builder: (_) => CollectionEditor(
+        collection: object(widget.subject?['collection']),
+        popularTags: objects(widget.subject?['tags']),
+      ),
+    );
+    if (mutation == null ||
+        mutation.isEmpty ||
+        !mounted ||
+        !widget.signedIn ||
+        user != widget.community?.account.userId ||
+        widget.subject?['subjectId'] != subjectId) {
+      return;
+    }
+    await _collectionIssue.run(() async {
+      await _save({
+        'kind': 'subjectCollection',
+        'subjectId': subjectId,
+        ...mutation,
+      });
+      return widget.collectionSyncError;
+    });
+  }
+
+  Future<void> _retryCollection() => _collectionIssue.run(() async {
+    await widget.onRetryCollectionSync?.call();
+    return widget.collectionSyncError;
+  });
 
   Future<void> _saveCollection(String status, {bool undo = false}) async {
     if (_savingCollection || status == _collectionStatus) return;
@@ -205,8 +261,6 @@ class _SubjectPageState extends State<SubjectPage> {
         ? '加载剧集…'
         : next == null
         ? '暂无剧集'
-        : _available(next) == false
-        ? '查找 EP${next['sort']} 资源'
         : '${_isResume(next)
               ? '继续播放'
               : watched == episodes.length
@@ -345,6 +399,17 @@ class _SubjectPageState extends State<SubjectPage> {
             ],
           ),
         ),
+        if (widget.community case final client?) ...[
+          const SizedBox(height: 18),
+          SubjectCommunity(
+            key: ValueKey(
+              'community:${item['subjectId']}:${client.account.userId}',
+            ),
+            client: client,
+            subjectId: number(item['subjectId']).toInt(),
+            onOpenSubject: widget.onOpenSubject,
+          ),
+        ],
         if (objects(item['infoBox']).isNotEmpty ||
             object(item['collectionStats']).isNotEmpty) ...[
           const SizedBox(height: 18),
@@ -383,7 +448,8 @@ class _SubjectPageState extends State<SubjectPage> {
             ),
           ),
         ],
-        if (objects(item['relatedSubjects']).isNotEmpty) ...[
+        if (widget.community == null &&
+            objects(item['relatedSubjects']).isNotEmpty) ...[
           const SectionTitle(title: '关联作品', icon: Icons.movie_filter_outlined),
           SubjectPosters(
             onOpen: widget.onOpenSubject,
@@ -476,12 +542,7 @@ class _SubjectPageState extends State<SubjectPage> {
               onPressed: next == null || _episodesLoading
                   ? null
                   : () => _openEpisode(next),
-              icon: Icon(
-                next != null && _available(next) == false
-                    ? Icons.download_outlined
-                    : Icons.play_arrow_rounded,
-                size: 19,
-              ),
+              icon: const Icon(Icons.play_arrow_rounded, size: 19),
               label: Text(playLabel),
             ),
             OutlinedButton.icon(
@@ -497,13 +558,35 @@ class _SubjectPageState extends State<SubjectPage> {
           ],
         ),
         const SizedBox(height: 14),
-        MelonSegmentedControl<String>(
-          options: collectionLabels,
-          value: _collectionStatus,
-          onChanged: _savingCollection ? null : _saveCollection,
-          allowDrag: true,
-          semanticLabel: '收藏状态',
+        FeedbackIssue(
+          feedback: _collectionIssue,
+          onRetry: () => unawaited(_retryCollection()),
         ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            MelonSegmentedControl<String>(
+              options: collectionLabels,
+              value: _collectionStatus,
+              onChanged: _savingCollection ? null : _saveCollection,
+              allowDrag: true,
+              semanticLabel: '收藏状态',
+            ),
+            if (widget.signedIn)
+              TextButton.icon(
+                onPressed: _editCollection,
+                icon: const Icon(Icons.edit_outlined, size: 17),
+                label: const Text('编辑'),
+              ),
+          ],
+        ),
+        if (number(object(item['collection'])['score']) > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text('我的评分 · ${object(item['collection'])['score']}'),
+          ),
         const SizedBox(height: 4),
         Semantics(
           liveRegion: true,
@@ -589,16 +672,22 @@ class _SubjectPageState extends State<SubjectPage> {
                 : ' · 未缓存'}',
             style: const TextStyle(fontSize: 11),
           ),
-          trailing: IconButton.filledTonal(
-            tooltip:
-                '${available == false ? '查找资源' : '播放'} EP${episode['sort']}',
-            onPressed: _episodesLoading ? null : () => _openEpisode(episode),
-            icon: Icon(
-              available == false
-                  ? Icons.download_outlined
-                  : Icons.play_arrow_rounded,
-              size: 19,
-            ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: '查找 EP${episode['sort']} 资源',
+                onPressed: () => widget.onFindResources(episode),
+                icon: const Icon(Icons.download_outlined, size: 19),
+              ),
+              IconButton.filledTonal(
+                tooltip: '播放 EP${episode['sort']}',
+                onPressed: _episodesLoading
+                    ? null
+                    : () => _openEpisode(episode),
+                icon: const Icon(Icons.play_arrow_rounded, size: 19),
+              ),
+            ],
           ),
           onTap: () =>
               _episodes(episodeId: number(episode['episodeId']).toInt()),
@@ -622,11 +711,7 @@ class _SubjectPageState extends State<SubjectPage> {
       widget.cachedEpisodeIds?.contains(number(episode['episodeId']).toInt());
 
   void _openEpisode(Json episode) {
-    if (_available(episode) == false) {
-      widget.onFindResources(episode);
-    } else {
-      widget.onPlayEpisode(episode);
-    }
+    widget.onPlayEpisode(episode);
   }
 
   String _timestamp(double seconds) {
@@ -1162,21 +1247,17 @@ class _SubjectPageState extends State<SubjectPage> {
                               ),
                             ),
                             Tooltip(
-                              message: _available(selected) == false
-                                  ? '尚未缓存，请先查找资源'
-                                  : '播放已缓存视频',
+                              message: '选择来源并播放',
                               child: FilledButton.icon(
-                                onPressed: _available(selected) == false
-                                    ? null
-                                    : () {
-                                        Navigator.pop(dialogContext);
-                                        widget.onPlayEpisode(selected);
-                                      },
+                                onPressed: () {
+                                  Navigator.pop(dialogContext);
+                                  widget.onPlayEpisode(selected);
+                                },
                                 icon: const Icon(
                                   Icons.play_arrow_rounded,
                                   size: 20,
                                 ),
-                                label: const Text('播放已缓存视频'),
+                                label: const Text('播放'),
                               ),
                             ),
                           ],

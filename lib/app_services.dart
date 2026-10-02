@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/account.dart';
 import 'data/catalog.dart';
@@ -10,6 +11,8 @@ import 'data/credentials.dart';
 import 'data/danmaku_repository.dart';
 import 'data/downloads.dart';
 import 'data/network.dart';
+import 'data/online_sources/repository.dart';
+import 'data/play_selection.dart';
 import 'data/playback_library.dart';
 import 'data/pikpak.dart';
 import 'data/pikpak_downloads.dart';
@@ -50,6 +53,8 @@ class AppServices {
   late final SourceRepository sources;
   late final DanmakuRepository danmaku;
   late final PlaybackLibrary library;
+  late final OnlineSourceRepository online;
+  late final PlaySelectionRepository selection;
   Future<void>? _starting;
   Future<void>? _closing;
   final _dispose = <Future<void> Function()>[];
@@ -108,6 +113,17 @@ class AppServices {
     danmaku = DanmakuRepository(api, configuration: configuration);
     library = PlaybackLibrary(store, downloads, danmaku, catalog);
     _dispose.add(library.close);
+    online = OnlineSourceRepository(api, await SharedPreferences.getInstance());
+    _dispose.add(() async => online.dispose());
+    await online.initialize();
+    sources.providerEnabled = online.isEnabled;
+    selection = PlaySelectionRepository(
+      store,
+      library,
+      downloads,
+      sources,
+      online,
+    );
     await account.initialize();
     await downloads.initialize();
     tracking.start();

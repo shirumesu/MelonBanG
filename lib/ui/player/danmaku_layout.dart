@@ -63,9 +63,10 @@ class DanmakuLayout {
     required Size viewport,
     required double fontSize,
     required double area,
+    int density = 1,
     required Size Function(Json) measure,
   }) {
-    final configuration = (comments, viewport, fontSize, area);
+    final configuration = (comments, viewport, fontSize, area, density);
     if (_configuration != configuration ||
         _time == null ||
         time < _time! ||
@@ -78,16 +79,24 @@ class DanmakuLayout {
     const top = 16.0;
     final bottom = math.max(top, viewport.height - 75);
     final band = math.min(viewport.height * area, bottom - top);
+    final laneRatio = const [.35, .6, .85, 1.0][density.clamp(0, 3)];
+    final cap = const [30, 60, 100, 0][density.clamp(0, 3)];
     while (_next < comments.length) {
       final item = comments[_next];
       final start = number(item['timeSeconds']);
       if (start > time) break;
       _next++;
       _active.removeWhere((entry) => entry.end <= start);
-      if ('${item['text'] ?? ''}'.isEmpty || _active.length >= 100) continue;
+      if ('${item['text'] ?? ''}'.isEmpty ||
+          (cap > 0 && _active.length >= cap)) {
+        continue;
+      }
       final extent = measure(item);
       final step = math.max(fontSize, extent.height) + verticalGap;
-      for (var offset = 0.0; offset + extent.height <= band; offset += step) {
+      final laneCount = math.max(1, ((band / step) * laneRatio).ceil());
+      for (var lane = 0; lane < laneCount; lane++) {
+        final offset = lane * step;
+        if (offset + extent.height > band) break;
         final y = item['mode'] == 'bottom'
             ? bottom - extent.height - offset
             : top + offset;

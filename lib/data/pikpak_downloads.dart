@@ -67,6 +67,7 @@ class PikPakDownloadRepository {
     int? episodeId,
     String? coverUrl,
     String? title,
+    List<String> releaseGroups = const [],
   }) {
     _requireOpen();
     final owner = client.userId;
@@ -88,6 +89,7 @@ class PikPakDownloadRepository {
             subjectId,
             episodeId,
             coverUrl,
+            releaseGroups,
           ).whenComplete(() {
             _adding.remove(key);
           }),
@@ -102,6 +104,7 @@ class PikPakDownloadRepository {
     int? subjectId,
     int? episodeId,
     String? coverUrl,
+    List<String> releaseGroups,
   ) async {
     await _removing['$owner:$fingerprint'];
     _requireOpen();
@@ -111,7 +114,15 @@ class PikPakDownloadRepository {
               task['ownerId'] == owner && task['fingerprint'] == fingerprint,
         )
         .firstOrNull;
-    if (existing != null) return existing;
+    if (existing != null) {
+      if (releaseGroups.isNotEmpty &&
+          ((existing['releaseGroups'] as List?)?.isEmpty ?? true)) {
+        existing['releaseGroups'] = List<String>.of(releaseGroups);
+        await _persist(existing);
+        _emit();
+      }
+      return existing;
+    }
     final id = newId();
     final task = <String, dynamic>{
       'id': id,
@@ -122,6 +133,8 @@ class PikPakDownloadRepository {
       'input': input,
       'fingerprint': fingerprint,
       'title': title,
+      if (releaseGroups.isNotEmpty)
+        'releaseGroups': List<String>.of(releaseGroups),
       'savePath': p.join(directory, id),
       'subjectId': subjectId,
       'episodeId': episodeId,
