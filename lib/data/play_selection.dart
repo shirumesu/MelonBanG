@@ -33,6 +33,7 @@ class PlaySelectionRepository {
     bool instantOnly = false,
     bool includeOnline = true,
     bool onlineFirst = false,
+    bool forPlayback = false,
     String language = 'auto',
     bool useContinuity = false,
     void Function(List<PlayCandidate>)? onUpdate,
@@ -114,41 +115,54 @@ class PlaySelectionRepository {
         // A task awaiting metadata cannot supply a playable file yet.
       }
     }
-    await Future.wait([
-      if (includeOnline)
-        online
-            .candidates(subject, episode)
-            .then(
-              (rows) => add([
-                for (var i = 0; i < rows.length; i++)
-                  PlayCandidate.online(rows[i], i),
-              ]),
-            ),
-      if (!instantOnly)
-        sources
-            .search(
-              subjectId,
-              titleOf(subject),
-              alternativeNames: resourceNames(subject),
-              episodeId: episodeId,
-              episodeKeyword: resourceEpisodeKeyword(episode),
-              coverUrl: subject['coverUrl'] as String?,
-              onUpdate: (result) => add([
-                for (final (index, row) in objects(
-                  result['candidates'],
-                ).indexed)
-                  PlayCandidate.release(row, index),
-              ]),
-            )
-            .then(
-              (result) => add([
-                for (final (index, row) in objects(
-                  result['candidates'],
-                ).indexed)
-                  PlayCandidate.release(row, index),
-              ]),
-            ),
-    ]);
+    if (forPlayback && ranked().firstOrNull?.kind == PlayKind.local) {
+      return ranked();
+    }
+    final onlineRequest = includeOnline
+        ? online
+              .candidates(subject, episode)
+              .then(
+                (rows) => add([
+                  for (var i = 0; i < rows.length; i++)
+                    PlayCandidate.online(rows[i], i),
+                ]),
+              )
+        : Future<void>.value();
+    final sourceRequest = instantOnly
+        ? Future<void>.value()
+        : sources
+              .search(
+                subjectId,
+                titleOf(subject),
+                alternativeNames: resourceNames(subject),
+                episodeId: episodeId,
+                episodeKeyword: resourceEpisodeKeyword(episode),
+                coverUrl: subject['coverUrl'] as String?,
+                onUpdate: (result) => add([
+                  for (final (index, row) in objects(
+                    result['candidates'],
+                  ).indexed)
+                    PlayCandidate.release(row, index),
+                ]),
+              )
+              .then(
+                (result) => add([
+                  for (final (index, row) in objects(
+                    result['candidates'],
+                  ).indexed)
+                    PlayCandidate.release(row, index),
+                ]),
+              );
+    if (forPlayback && onlineFirst) {
+      // Search in parallel, but do not delay ready online playback for metadata.
+      sourceRequest.ignore();
+      await onlineRequest;
+      final preferred = ranked().firstOrNull;
+      if (preferred?.kind == PlayKind.online && !preferred!.possibleMatch) {
+        return ranked();
+      }
+    }
+    await Future.wait([onlineRequest, sourceRequest]);
     return ranked();
   }
 

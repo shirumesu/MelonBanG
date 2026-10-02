@@ -51,6 +51,7 @@ class SubjectPage extends StatefulWidget {
 class _SubjectPageState extends State<SubjectPage> {
   late final current = ValueNotifier<Json?>(widget.subject);
   String? _selectedStatus, _undoStatus, _collectionFeedback, _collectionError;
+  int? _undoScore;
   bool _savingCollection = false;
   Timer? _feedbackTimer;
   final _savingEpisodes = <int>{};
@@ -92,6 +93,7 @@ class _SubjectPageState extends State<SubjectPage> {
       _feedbackTimer?.cancel();
       _selectedStatus = _undoStatus = _collectionFeedback = _collectionError =
           null;
+      _undoScore = null;
       _savingCollection = false;
       _savingEpisodes.clear();
       _episodeErrors.clear();
@@ -146,6 +148,13 @@ class _SubjectPageState extends State<SubjectPage> {
         'subjectId': subjectId,
         ...mutation,
       });
+      if (mounted && widget.subject?['subjectId'] == subjectId) {
+        _feedbackTimer?.cancel();
+        setState(() {
+          _undoStatus = _collectionFeedback = null;
+          _undoScore = null;
+        });
+      }
       return widget.collectionSyncError;
     });
   }
@@ -159,6 +168,9 @@ class _SubjectPageState extends State<SubjectPage> {
     if (_savingCollection || status == _collectionStatus) return;
     final subjectId = widget.subject?['subjectId'];
     final previous = _collectionStatus;
+    final previousScore = number(object(widget.subject?['collection'])['score'])
+        .toInt();
+    final restoreScore = undo ? _undoScore : null;
     _feedbackTimer?.cancel();
     setState(() {
       _selectedStatus = status;
@@ -166,17 +178,22 @@ class _SubjectPageState extends State<SubjectPage> {
       _collectionError = null;
       _collectionFeedback = '正在保存…';
       _undoStatus = null;
+      _undoScore = null;
     });
     try {
       await _save({
         'kind': 'subjectCollection',
         'subjectId': subjectId,
         'status': status,
+        'score': ?restoreScore,
       });
       if (!mounted || widget.subject?['subjectId'] != subjectId) return;
       setState(() {
         _savingCollection = false;
         _undoStatus = undo ? null : previous;
+        _undoScore = !undo && status == 'wish' && previousScore > 0
+            ? previousScore
+            : null;
         _collectionFeedback = undo
             ? '已撤销'
             : previous == null
@@ -188,6 +205,7 @@ class _SubjectPageState extends State<SubjectPage> {
           setState(() {
             _collectionFeedback = null;
             _undoStatus = null;
+            _undoScore = null;
           });
         }
       });
@@ -198,6 +216,12 @@ class _SubjectPageState extends State<SubjectPage> {
         _savingCollection = false;
         _collectionFeedback = null;
         _collectionError = '保存失败：$error';
+        if (undo) {
+          _collectionError = null;
+          _collectionFeedback = '撤销失败：$error';
+          _undoStatus = status;
+          _undoScore = restoreScore;
+        }
       });
     }
   }
@@ -576,7 +600,7 @@ class _SubjectPageState extends State<SubjectPage> {
             ),
             if (widget.signedIn)
               TextButton.icon(
-                onPressed: _editCollection,
+                onPressed: _savingCollection ? null : _editCollection,
                 icon: const Icon(Icons.edit_outlined, size: 17),
                 label: const Text('编辑'),
               ),

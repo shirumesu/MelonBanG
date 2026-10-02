@@ -320,13 +320,17 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
 
   void rememberLocation() => history.add(location);
 
-  void leavePlayer() {
-    if (route != 'player') return;
+  void cancelPlaybackSelection() {
     playback.cancelAutoplay();
     _selectionRequest++;
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
     _playbackRequest++;
+  }
+
+  void leavePlayer() {
+    cancelPlaybackSelection();
+    if (route != 'player') return;
     if (fullScreen) unawaited(setFullScreen(false));
     windowFullScreen = false;
     _playbackOperations = _playbackOperations.then(
@@ -517,14 +521,21 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   }
 
   Future<void> startPlayback(Future<Json> Function() load) async {
-    _selectionRequest++;
+    final request = ++_selectionRequest;
     _activeCandidate = null;
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
     await queuePlayback(() async {
       await playback.saveProgress();
-      await playback.open(await load());
-    });
+      final session = await load();
+      if (!mounted || closing || request != _selectionRequest) {
+        widget.service.releasePlaybackStreams(
+          playback.session?['streamId'] as int?,
+        );
+        return;
+      }
+      await playback.open(session);
+    }, isCurrent: () => request == _selectionRequest);
   }
 
   Future<void> queuePlayback(
@@ -536,8 +547,19 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     final operation = _playbackOperations.then((_) async {
       if (!mounted || closing || ticket != _playbackRequest) return;
       Future<void> action() async {
+        final previousSessionId = playback.session?['id'];
         await open();
-        if (isCurrent?.call() ?? true) showPlayback(ticket);
+        if (!mounted ||
+            closing ||
+            ticket != _playbackRequest ||
+            !(isCurrent?.call() ?? true)) {
+          if (playback.session?['id'] != previousSessionId) {
+            await playback.player.pause();
+            await playback.saveProgress();
+          }
+          return;
+        }
+        showPlayback(ticket);
       }
 
       if (reportFailure) {
@@ -570,6 +592,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     Json episode, {
     bool instantOnly = false,
     bool useContinuity = false,
+    bool forPlayback = false,
   }) {
     final settings = playback.settings;
     return widget.service.selection.candidates(
@@ -577,6 +600,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       episode,
       instantOnly: instantOnly,
       useContinuity: useContinuity,
+      forPlayback: forPlayback,
       onlineFirst:
           (subjectIsAiring(item)
               ? settings.airingPriority
@@ -623,6 +647,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       item,
       episode,
       useContinuity: useContinuity,
+      forPlayback: true,
     );
     if (!mounted || closing || request != _selectionRequest) return;
     if (choices.isEmpty) {
@@ -638,7 +663,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   }
 
   Future<void> showEpisodeResources(Json item, Json episode) async {
-    playback.cancelAutoplay();
+    cancelPlaybackSelection();
     final target = navigation.currentState?.overlay?.context;
     if (target == null) return;
     await showDialog<void>(
@@ -726,7 +751,12 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
             item['subjectId'] as int,
             episode['episodeId'] as int,
           );
-          if (!mounted || closing || request != _selectionRequest) return;
+          if (!mounted || closing || request != _selectionRequest) {
+            widget.service.releasePlaybackStreams(
+              playback.session?['streamId'] as int?,
+            );
+            return;
+          }
           if (recoveryPosition != null) {
             session['startSeconds'] = recoveryPosition.inMilliseconds / 1000;
           }
@@ -1065,6 +1095,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   }
 
   Future<void> findResources({Json? episode}) async {
+    leavePlayer();
     if (route != 'resources') rememberLocation();
     resourceEpisode = episode?['episodeId'] as int?;
     final episodeKeyword = resourceEpisodeKeyword(episode);
@@ -1510,7 +1541,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                                           final current = playerSubject;
                                           if (current == null) return;
                                           subject = current;
-                                          leavePlayer();
                                           unawaited(
                                             findResources(episode: episode),
                                           );
@@ -1575,9 +1605,11 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           trending: trending,
           resumable: resumable,
           onResume: (item) => perform(() async {
+            final request = ++_selectionRequest;
             final detail = await widget.service.tracking.subject(
               item['subjectId'] as int,
             );
+            if (!mounted || closing || request != _selectionRequest) return;
             final episode = objects(detail['episodes'])
                 .where((e) => e['episodeId'] == item['episodeId'])
                 .firstOrNull;

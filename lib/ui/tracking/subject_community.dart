@@ -237,6 +237,19 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                     },
                   ),
                 ),
+                ListenableBuilder(
+                  listenable: Listenable.merge([_feedback, _relationsFeedback]),
+                  builder: (context, _) => IconButton(
+                    tooltip: '刷新社区',
+                    onPressed: _feedback.busy || _relationsFeedback.busy
+                        ? null
+                        : () {
+                            unawaited(_load(refresh: true));
+                            unawaited(_loadRelations(refresh: true));
+                          },
+                    icon: const Icon(Icons.refresh, size: 18),
+                  ),
+                ),
                 IconButton(
                   tooltip: '在 Bangumi 打开',
                   onPressed: () => _open('/subject/${widget.subjectId}'),

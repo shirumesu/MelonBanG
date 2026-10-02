@@ -65,6 +65,12 @@ class RuleOnlineSource implements OnlineSource {
             !body.trimLeft().startsWith('{')) {
           throw SourceVerificationRequired(uri.toString());
         }
+        if (engine == 'maccms-api') {
+          final payload = jsonDecode(body);
+          if (payload is! Map || payload['list'] is! List) {
+            throw const FormatException('视频源未返回有效的资源列表');
+          }
+        }
         currentBase = base;
         return (body, uri);
       } on SourceVerificationRequired {

@@ -360,7 +360,15 @@ class DanmakuRepository {
         Uri.https('comment.bilibili.com', '/$cid.xml'),
         headers: headers,
       );
-      comments.addAll(parseBilibiliXml(utf8.decode(xml.bodyBytes)));
+      List<int> bytes = xml.bodyBytes;
+      if (xml.headers['content-encoding']?.toLowerCase() == 'deflate') {
+        try {
+          bytes = zlib.decode(bytes);
+        } on FormatException {
+          bytes = ZLibDecoder(raw: true).convert(bytes);
+        }
+      }
+      comments.addAll(parseBilibiliXml(utf8.decode(bytes)));
     } catch (_) {
       /* Segmented comments can remain available independently. */
     }

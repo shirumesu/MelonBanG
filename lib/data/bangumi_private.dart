@@ -5,7 +5,7 @@ import 'network.dart';
 class BangumiPrivateClient {
   BangumiPrivateClient(this.account);
   final AccountRepository account;
-  final _cache = <String, Json>{};
+  final _cache = <String, ({DateTime savedAt, Json value})>{};
 
   Future<dynamic> _request(String path) async {
     final user = account.userId;
@@ -50,9 +50,14 @@ class BangumiPrivateClient {
     }.contains(segment)) {
       throw const FormatException('未知社区分段');
     }
-    final key = '${account.userId}:$subjectId:$segment:$offset';
-    if (!refresh) {
-      if (_cache[key] case final cached?) return cached;
+    final prefix = '${account.userId}:$subjectId:$segment:';
+    final key = '$prefix$offset';
+    final cached = _cache[key];
+    if (!refresh &&
+        cached != null &&
+        DateTime.now().difference(cached.savedAt) <
+            const Duration(minutes: 5)) {
+      return cached.value;
     }
     final response = object(
       await _request(
@@ -60,13 +65,16 @@ class BangumiPrivateClient {
       ),
     );
     final data = objects(response['data']);
-    return _cache[key] = {
+    final result = <String, dynamic>{
       'subjectId': subjectId,
       'data': data,
       'total': response['total'] is num
           ? number(response['total']).toInt()
           : offset + data.length,
     };
+    if (offset == 0) _cache.removeWhere((key, _) => key.startsWith(prefix));
+    _cache[key] = (savedAt: DateTime.now(), value: result);
+    return result;
   }
 
   Future<List<Json>> relations(int subjectId, {bool refresh = false}) async {

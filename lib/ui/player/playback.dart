@@ -209,6 +209,10 @@ class Playback extends ChangeNotifier {
       if (next['status'] == 'failed') {
         throw StateError('${next['errorMessage']}');
       }
+      // Fallback local sessions are not backed by the application library.
+      if (next['danmakuSources'] is List) {
+        await service.library.activate(next);
+      }
       session = next;
       comments = [];
       danmakuOffsets = {};
