@@ -28,6 +28,7 @@ import 'ui/player/candidate_resources.dart';
 import 'ui/sources/sources_page.dart';
 import 'ui/settings/bittorrent_settings.dart';
 import 'ui/settings/cache_settings.dart';
+import 'ui/core/cached_image.dart';
 import 'ui/settings/settings_page.dart';
 import 'ui/settings/storage_settings.dart';
 import 'ui/tracking/subject_page.dart';
@@ -1467,7 +1468,13 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       debugShowCheckedModeBanner: false,
       title: 'Melonbang',
       builder: (context, child) => ready
-          ? SubjectCoverScope(catalog: widget.service.catalog, child: child!)
+          ? ContentCacheScope(
+              cache: widget.service.cache,
+              child: SubjectCoverScope(
+                catalog: widget.service.catalog,
+                child: child!,
+              ),
+            )
           : child!,
       scaffoldMessengerKey: messages,
       navigatorKey: navigation,
@@ -1866,6 +1873,11 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
             ),
           ),
           storageSettings: StorageSettings(
+            onClearCache: () async {
+              await widget.service.cache.clear();
+              PaintingBinding.instance.imageCache.clear();
+              PaintingBinding.instance.imageCache.clearLiveImages();
+            },
             onExit: () => windowManager.close(),
             storage: widget.service.storage,
             dataDirectory: widget.service.dataDirectory!,

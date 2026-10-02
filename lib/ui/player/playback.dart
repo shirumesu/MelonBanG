@@ -223,7 +223,7 @@ class Playback extends ChangeNotifier {
       final platform = player.platform;
       if (platform is NativePlayer) {
         final filteredHls = object(next['source'])['playlist'] is String;
-        await platform.setProperty('demuxer', filteredHls ? 'lavf' : 'auto');
+        await platform.setProperty('demuxer', filteredHls ? 'lavf' : '');
         await platform.setProperty(
           'demuxer-lavf-format',
           filteredHls ? 'hls' : '',

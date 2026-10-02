@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/account.dart';
 import 'data/catalog.dart';
+import 'data/content_cache.dart';
 import 'data/credentials.dart';
 import 'data/danmaku_repository.dart';
 import 'data/downloads.dart';
@@ -56,6 +57,7 @@ class AppServices {
   late final AppStore store;
   late final AccountRepository account;
   late final CatalogRepository catalog;
+  late final ContentCache cache;
   late final TrackingRepository tracking;
   late final DownloadRepository downloads;
   late final PikPakClient pikpak;
@@ -90,6 +92,9 @@ class AppServices {
     await Directory(dataDirectory!).create(recursive: true);
     store = await AppStore.open(p.join(dataDirectory!, 'melonbang.sqlite'));
     _dispose.add(store.close);
+    cache = ContentCache(api, store);
+    _dispose.add(cache.close);
+    await cache.initialize();
     credentials ??= platformCredentials(
       Platform.isMacOS
           ? storage?.credentialIdentity ?? p.join(dataDirectory!, 'credentials')

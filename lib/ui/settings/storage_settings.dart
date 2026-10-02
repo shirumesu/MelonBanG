@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/storage_locations.dart';
 import '../../data/storage_usage.dart';
+import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
 
 class StorageSettings extends StatefulWidget {
@@ -11,12 +12,14 @@ class StorageSettings extends StatefulWidget {
     required this.storage,
     required this.dataDirectory,
     required this.mediaDirectory,
+    required this.onClearCache,
     this.onExit,
     this.readUsage = StorageUsage.measure,
   });
   final StorageLocations? storage;
   final VoidCallback? onExit;
   final String dataDirectory, mediaDirectory;
+  final Future<void> Function() onClearCache;
   final Future<StorageUsage> Function(String, String) readUsage;
   @override
   State<StorageSettings> createState() => _StorageSettingsState();
@@ -28,6 +31,19 @@ class _StorageSettingsState extends State<StorageSettings> {
   StorageUsage? usage;
   bool measuring = false;
   int measurement = 0;
+  final cleanup = ActionFeedback();
+
+  @override
+  void dispose() {
+    cleanup.dispose();
+    super.dispose();
+  }
+
+  Future<void> clearCache() => cleanup.run(() async {
+    await widget.onClearCache();
+    if (mounted) await refreshUsage();
+    return null;
+  });
 
   @override
   void initState() {
@@ -134,6 +150,27 @@ class _StorageSettingsState extends State<StorageSettings> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
+      const SectionTitle(title: '图片与番剧资料缓存'),
+      MelonPanel(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('封面、头像、立绘和番剧资料保存在本机，超过 120 天自动清理。'),
+            const SizedBox(height: 8),
+            const Text('清理后会按需重新加载。下载的视频、追番记录和播放进度会保留。'),
+            const SizedBox(height: 12),
+            FeedbackButton(
+              feedback: cleanup,
+              label: '清理缓存',
+              runningLabel: '正在清理…',
+              successLabel: '已清理',
+              icon: Icons.cleaning_services_outlined,
+              onPressed: clearCache,
+            ),
+            FeedbackIssue(feedback: cleanup, onRetry: clearCache),
+          ],
+        ),
+      ),
       for (final media in [false, true]) ...[
         SectionTitle(
           title: media ? '媒体缓存' : '应用数据',

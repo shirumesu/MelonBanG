@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'theme.dart';
 import 'subject_posters.dart' show imageDecodeWidth;
+import 'cached_image.dart';
 
 class AccountAvatar extends StatelessWidget {
   const AccountAvatar({
@@ -35,9 +36,12 @@ class AccountAvatar extends StatelessWidget {
         dimension: size,
         child: url == null || url!.isEmpty
             ? fallback
-            : Image.network(
-                url!,
-                cacheWidth: imageDecodeWidth(context, size),
+            : Image(
+                image: cachedImageProvider(
+                  context,
+                  url!,
+                  cacheWidth: imageDecodeWidth(context, size),
+                ),
                 fit: BoxFit.cover,
                 frameBuilder: (_, child, frame, synchronous) =>
                     frame == null && !synchronous ? fallback : child,

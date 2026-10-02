@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../data/json.dart';
 import '../../data/bangumi_private.dart';
 import '../core/action_feedback.dart';
+import '../core/cached_image.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
@@ -919,9 +920,15 @@ class _SubjectPageState extends State<SubjectPage> {
           height: character ? 108 : size,
           child: url == null
               ? placeholder('暂无头像')
-              : Image.network(
-                  url,
-                  cacheWidth: imageDecodeWidth(context, character ? 72 : size),
+              : Image(
+                  image: cachedImageProvider(
+                    context,
+                    url,
+                    cacheWidth: imageDecodeWidth(
+                      context,
+                      character ? 72 : size,
+                    ),
+                  ),
                   fit: character ? BoxFit.contain : BoxFit.cover,
                   alignment: character ? Alignment.topCenter : Alignment.center,
                   errorBuilder: (_, _, _) => placeholder('头像加载失败'),
@@ -962,8 +969,8 @@ class _SubjectPageState extends State<SubjectPage> {
                     const SizedBox(height: 12),
                     Expanded(
                       child: InteractiveViewer(
-                        child: Image.network(
-                          url,
+                        child: Image(
+                          image: cachedImageProvider(context, url),
                           fit: BoxFit.contain,
                           errorBuilder: (_, _, _) =>
                               const Center(child: Text('图片加载失败')),
