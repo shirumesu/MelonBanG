@@ -69,6 +69,21 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   String? todayError;
   String? todayDate;
   bool closing = false, sidebarVisible = true, windowFullScreen = false;
+
+  /// The player starts with the sidebar collapsed so the video gets the width;
+  /// toggling it there does not change the other pages.
+  bool playerSidebarVisible = false;
+
+  /// "关灯" in the light theme darkens only the player; remembered across runs.
+  bool playerLightsOff = false;
+
+  void setPlayerLights(bool off) {
+    setState(() => playerLightsOff = off);
+    unawaited(widget.preferences.setBool('player-lights-off', off));
+  }
+
+  bool get showSidebar =>
+      route == 'player' ? playerSidebarVisible : sidebarVisible;
   bool accountBusy = false;
   final homeFeedback = ActionFeedback();
   final syncFeedback = ActionFeedback();
@@ -98,6 +113,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   void initState() {
     super.initState();
     dark = widget.preferences.getBool('dark') ?? false;
+    playerLightsOff = widget.preferences.getBool('player-lights-off') ?? false;
     recentSearches = widget.preferences.getStringList('recentSearches') ?? [];
     playback = Playback(widget.service, widget.preferences);
     windowManager.addListener(this);
@@ -883,114 +899,137 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           const SingleActivator(LogicalKeyboardKey.bracketLeft, meta: true):
               goBack,
         },
-        child: Scaffold(
-          body: Column(
-            children: [
-              if (!fullScreen)
-                AppTitleBar(
-                  immersive: route == 'player' && windowFullScreen,
-                  dark: dark,
-                  sidebarVisible: sidebarVisible,
-                  onBack: history.isEmpty ? null : goBack,
-                  backLabel: '返回',
-                  onToggleSidebar: () =>
-                      setState(() => sidebarVisible = !sidebarVisible),
-                  onToggleTheme: () => setDark(!dark),
-                  search: search,
-                  searchFocusNode: searchFocus,
-                  onSearch: (query) => searchSubjects(query: query),
-                  recentSearches: recentSearches,
-                  onClearRecentSearches: clearRecentSearches,
-                ),
-              Expanded(
-                child: Row(
-                  children: [
-                    if (!fullScreen && !(route == 'player' && windowFullScreen))
-                      MotionReveal(
-                        visible: sidebarVisible,
-                        axis: Axis.horizontal,
-                        child: SizedBox(
-                          width: sidebarWidth,
-                          child: AppSidebar(
-                            dark: dark,
-                            route: route,
-                            selectedRoute: selectedSection,
-                            nickname: '${account?['nickname'] ?? '尚未登录'}',
-                            username: account?['username'] as String?,
-                            avatarUrl: account?['avatarUrl'] as String?,
-                            watchingCount: collection
-                                .where((item) => item['status'] == 'watching')
-                                .length,
-                            downloadCount: objects(downloads['tasks'])
-                                .where(
-                                  (task) =>
-                                      [
-                                        'metadata',
-                                        'downloading',
-                                        'ready',
-                                        'queued',
-                                        'checking',
-                                      ].contains(task['status']) &&
-                                      number(task['progress']) < 1,
-                                )
-                                .length,
-                            onNavigate: navigate,
+        child: Builder(
+          // One animated theme for the whole window: entering the player or
+          // switching its lights fades between light and dark.
+          builder: (context) => AnimatedTheme(
+            data: appTheme(dark || (route == 'player' && playerLightsOff)),
+            duration: motionDuration(context, 300),
+            curve: Curves.easeInOut,
+            child: Scaffold(
+              body: Column(
+                children: [
+                  if (!fullScreen)
+                    AppTitleBar(
+                      immersive: route == 'player' && windowFullScreen,
+                      dark: dark,
+                      sidebarVisible: showSidebar,
+                      onBack: history.isEmpty ? null : goBack,
+                      backLabel: '返回',
+                      onToggleSidebar: () => setState(() {
+                        if (route == 'player') {
+                          playerSidebarVisible = !playerSidebarVisible;
+                        } else {
+                          sidebarVisible = !sidebarVisible;
+                        }
+                      }),
+                      onToggleTheme: () => setDark(!dark),
+                      search: search,
+                      searchFocusNode: searchFocus,
+                      onSearch: (query) => searchSubjects(query: query),
+                      recentSearches: recentSearches,
+                      onClearRecentSearches: clearRecentSearches,
+                    ),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        if (!fullScreen &&
+                            !(route == 'player' && windowFullScreen))
+                          MotionReveal(
+                            visible: showSidebar,
+                            axis: Axis.horizontal,
+                            child: SizedBox(
+                              width: sidebarWidth,
+                              child: AppSidebar(
+                                dark: dark,
+                                route: route,
+                                selectedRoute: selectedSection,
+                                nickname: '${account?['nickname'] ?? '尚未登录'}',
+                                username: account?['username'] as String?,
+                                avatarUrl: account?['avatarUrl'] as String?,
+                                watchingCount: collection
+                                    .where(
+                                      (item) => item['status'] == 'watching',
+                                    )
+                                    .length,
+                                downloadCount: objects(downloads['tasks'])
+                                    .where(
+                                      (task) =>
+                                          [
+                                            'metadata',
+                                            'downloading',
+                                            'ready',
+                                            'queued',
+                                            'checking',
+                                          ].contains(task['status']) &&
+                                          number(task['progress']) < 1,
+                                    )
+                                    .length,
+                                onNavigate: navigate,
+                              ),
+                            ),
+                          ),
+                        Expanded(
+                          child: Column(
+                            children: [
+                              if (!ready && error != null && !fullScreen)
+                                MaterialBanner(
+                                  content: Text(error!),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => openVideo(),
+                                      child: const Text('打开本地视频'),
+                                    ),
+                                  ],
+                                ),
+                              if (busy && !fullScreen)
+                                const LinearProgressIndicator(minHeight: 2),
+                              Expanded(
+                                child: route == 'player'
+                                    ? PlayerPage(
+                                        key: playerPageKey,
+                                        playback: playback,
+                                        service: widget.service,
+                                        onError: showError,
+                                        onBack: goBack,
+                                        fullScreen: fullScreen,
+                                        windowFullScreen: windowFullScreen,
+                                        onWindowFullScreenChanged:
+                                            setWindowFullScreen,
+                                        downloads: downloads,
+                                        onPlayFile: (id, fileId) =>
+                                            startPlayback(
+                                              () => widget.service.library
+                                                  .fromDownload(
+                                                    id,
+                                                    fileId: fileId,
+                                                  ),
+                                            ),
+                                        onFullScreenChanged: setFullScreen,
+                                        lightsOff: dark
+                                            ? null
+                                            : playerLightsOff,
+                                        onLightsChanged: setPlayerLights,
+                                        subject: playerSubject,
+                                        onEpisode: playEpisode,
+                                      )
+                                    : PageStorage(
+                                        bucket: pageStorage,
+                                        child: PageEntrance(
+                                          key: PageStorageKey(pageIdentity),
+                                          child: page(),
+                                        ),
+                                      ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                    Expanded(
-                      child: Column(
-                        children: [
-                          if (!ready && error != null && !fullScreen)
-                            MaterialBanner(
-                              content: Text(error!),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => openVideo(),
-                                  child: const Text('打开本地视频'),
-                                ),
-                              ],
-                            ),
-                          if (busy && !fullScreen)
-                            const LinearProgressIndicator(minHeight: 2),
-                          Expanded(
-                            child: route == 'player'
-                                ? PlayerPage(
-                                    key: playerPageKey,
-                                    playback: playback,
-                                    service: widget.service,
-                                    onError: showError,
-                                    onBack: goBack,
-                                    fullScreen: fullScreen,
-                                    windowFullScreen: windowFullScreen,
-                                    onWindowFullScreenChanged:
-                                        setWindowFullScreen,
-                                    downloads: downloads,
-                                    onPlayFile: (id, fileId) => startPlayback(
-                                      () => widget.service.library.fromDownload(
-                                        id,
-                                        fileId: fileId,
-                                      ),
-                                    ),
-                                    onFullScreenChanged: setFullScreen,
-                                    subject: playerSubject,
-                                    onEpisode: playEpisode,
-                                  )
-                                : PageStorage(
-                                    bucket: pageStorage,
-                                    child: PageEntrance(
-                                      key: PageStorageKey(pageIdentity),
-                                      child: page(),
-                                    ),
-                                  ),
-                          ),
-                        ],
-                      ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

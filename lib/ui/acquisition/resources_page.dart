@@ -5,7 +5,6 @@ import '../../data/cache_method.dart';
 import '../../data/json.dart';
 import '../../data/resource_metadata.dart';
 import '../../data/resource_title.dart';
-import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
@@ -47,12 +46,12 @@ class _ResourcesPageState extends State<ResourcesPage> {
   final queryFocus = FocusNode(), episodeFocus = FocusNode();
   final excluded = <String>{}, expandedTitles = <String>{};
   final excludedProviders = <String>{};
+  final qualities = <String>{}, groups = <String>{};
+  final languages = <String>{}, subtitleForms = <String>{};
   final downloadPhases = <String, ResourceDownloadPhase>{};
   final downloadErrors = <String, String>{};
   final annotations = <String, ResourceTitleInfo>{};
-  String quality = 'all', group = '';
-  bool includeUnknown = false;
-  bool multipleNames = true, aliasesExpanded = false, searching = false;
+  bool includeUnknown = false, searching = false;
   PageStorageBucket? storage;
   bool formRestored = false, restoringForm = false;
   late String activeStorageId;
@@ -89,11 +88,10 @@ class _ResourcesPageState extends State<ResourcesPage> {
       activeStorageId = storageId;
       restoringForm = true;
       episodeQuery.text = resourceEpisodeKeyword(selectedEpisode);
-      quality = 'all';
-      group = '';
       includeUnknown = false;
-      multipleNames = true;
-      aliasesExpanded = false;
+      for (final set in [qualities, groups, languages, subtitleForms]) {
+        set.clear();
+      }
       excluded.clear();
       excludedProviders.clear();
       expandedTitles.clear();
@@ -110,12 +108,14 @@ class _ResourcesPageState extends State<ResourcesPage> {
     restoringForm = true;
     episodeQuery.text =
         saved['episode'] as String? ?? resourceEpisodeKeyword(selectedEpisode);
-    quality = saved['quality'] as String? ?? 'all';
-    group = saved['sourceGroup'] as String? ?? '';
+    Iterable<String> strings(Object? value) =>
+        value is List ? value.whereType<String>() : const [];
+    qualities.addAll(strings(saved['qualities']));
+    groups.addAll(strings(saved['sourceGroups']));
+    languages.addAll(strings(saved['languages']));
+    subtitleForms.addAll(strings(saved['subtitleForms']));
     includeUnknown = saved['includeUnknown'] as bool? ?? false;
-    multipleNames = saved['multipleNames'] as bool? ?? true;
-    aliasesExpanded = saved['aliasesExpanded'] as bool? ?? false;
-    excluded.addAll((saved['excluded'] as List? ?? []).whereType<String>());
+    excluded.addAll(strings(saved['excluded']));
     excludedProviders.addAll(
       (saved['excludedProviders'] as List? ?? []).whereType<String>(),
     );
@@ -129,11 +129,11 @@ class _ResourcesPageState extends State<ResourcesPage> {
     if (restoringForm || !mounted) return;
     storage?.writeState(context, {
       'episode': episodeQuery.text,
-      'quality': quality,
-      'sourceGroup': group,
+      'qualities': qualities.toList(),
+      'sourceGroups': groups.toList(),
+      'languages': languages.toList(),
+      'subtitleForms': subtitleForms.toList(),
       'includeUnknown': includeUnknown,
-      'multipleNames': multipleNames,
-      'aliasesExpanded': aliasesExpanded,
       'excluded': excluded.toList(),
       'excludedProviders': excludedProviders.toList(),
       'expandedTitles': expandedTitles.toList(),
@@ -158,11 +158,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
     setState(() => searching = true);
     try {
       await widget.onSearch(
-        multipleNames
-            ? resourceNames(widget.subject ?? {})
-                  .where((e) => !excluded.contains(e))
-                  .toList()
-            : [],
+        resourceNames(widget.subject ?? {})
+            .where((e) => !excluded.contains(e))
+            .toList(),
         episodeQuery.text,
       );
     } catch (_) {
@@ -176,11 +174,23 @@ class _ResourcesPageState extends State<ResourcesPage> {
   }
 
   void clearFilters() => changeForm(() {
-    quality = 'all';
-    group = '';
+    for (final set in [qualities, groups, languages, subtitleForms]) {
+      set.clear();
+    }
     includeUnknown = false;
     excludedProviders.clear();
   });
+
+  void toggle(Set<String> set, String value, bool selected) =>
+      changeForm(() => selected ? set.add(value) : set.remove(value));
+
+  static String summary(Set<String> selected, List<String> order) {
+    if (selected.length == 1) return selected.single;
+    final ordered = order.where(selected.contains).toList();
+    return ordered.length == selected.length && selected.length <= 2
+        ? ordered.join(' / ')
+        : '${selected.length} 项';
+  }
 
   String downloadKey(Json candidate, CacheMethod method) =>
       '${candidate['candidateId']}:${method.name}';
@@ -252,25 +262,56 @@ class _ResourcesPageState extends State<ResourcesPage> {
   @override
   Widget build(BuildContext context) {
     final names = resourceNames(widget.subject ?? {});
+    final aliases = names
+        .where((name) => name != widget.resourceSearch.text.trim())
+        .toList();
     final annotated = widget.candidates
         .map((candidate) => (candidate, annotate(candidate)))
         .toList();
-    final visible = annotated
+    final fromShownProviders = annotated
         .where(
-          (entry) =>
-              !excludedProviders.contains(resourceProviderKey(entry.$1)) &&
-              matchesResourceSelection(
-                entry.$2,
-                quality: quality,
-                group: group,
-                includeUnknown: includeUnknown,
-              ),
+          (entry) => !excludedProviders.contains(resourceProviderKey(entry.$1)),
         )
         .toList();
-    final groups = {
-      ...annotated.expand((entry) => entry.$2.sourceGroups),
-      if (group.isNotEmpty) group,
-    }.toList()..sort();
+    final visible = fromShownProviders
+        .where(
+          (entry) => matchesResourceSelection(
+            entry.$2,
+            qualities: qualities,
+            groups: groups,
+            languages: languages,
+            subtitleForms: subtitleForms,
+            includeUnknown: includeUnknown,
+          ),
+        )
+        .toList();
+    // Option counts cover results from the shown sites, before other filters.
+    Map<String, int> tally(Iterable<String> Function(ResourceTitleInfo) of) {
+      final counts = <String, int>{};
+      for (final entry in fromShownProviders) {
+        for (final value in of(entry.$2)) {
+          counts[value] = (counts[value] ?? 0) + 1;
+        }
+      }
+      return counts;
+    }
+
+    final qualityCounts = tally((info) => info.qualities);
+    final groupCounts = tally((info) => info.sourceGroups);
+    final languageCounts = tally((info) => info.languages);
+    final formCounts = tally((info) => info.subtitleForms);
+    final groupNames = {...groupCounts.keys, ...groups}.toList()
+      ..sort((a, b) {
+        final byCount = (groupCounts[b] ?? 0).compareTo(groupCounts[a] ?? 0);
+        return byCount != 0 ? byCount : a.compareTo(b);
+      });
+    MelonFilterOption<String> counted(String value, Map<String, int> counts) =>
+        MelonFilterOption(
+          value,
+          value,
+          detail: '${counts[value] ?? 0}',
+          enabled: (counts[value] ?? 0) > 0,
+        );
     final episode = selectedEpisode;
     final providersFailed =
         widget.providers.isNotEmpty &&
@@ -282,12 +323,40 @@ class _ResourcesPageState extends State<ResourcesPage> {
               excludedProviders.contains(resourceProviderKey(provider)),
         );
     final filtered =
-        quality != 'all' ||
-        group.isNotEmpty ||
+        [
+          qualities,
+          groups,
+          languages,
+          subtitleForms,
+        ].any((e) => e.isNotEmpty) ||
         includeUnknown ||
         excludedProviders.isNotEmpty;
     final small = Theme.of(context).textTheme.bodySmall;
     final background = Material.of(context).color!;
+    final includedAliases = aliases.where((name) => !excluded.contains(name));
+    final aliasMenu = MelonFilterMenu<String>(
+      key: const ValueKey('resource-aliases-toggle'),
+      compact: true,
+      label: '别名',
+      active: includedAliases.isNotEmpty,
+      summary: '${includedAliases.length}',
+      tooltip: '同时用勾选的别名搜索，结果合并显示',
+      sections: [
+        MelonFilterSection([
+          for (final name in aliases) MelonFilterOption(name, name),
+        ], title: aliases.isEmpty ? '没有其他名称' : '同时搜索这些名称'),
+      ],
+      selected: includedAliases.toSet(),
+      onToggle: (name, selected) => changeForm(
+        () => selected ? excluded.remove(name) : excluded.add(name),
+      ),
+      actions: [
+        if (aliases.isNotEmpty)
+          includedAliases.isEmpty
+              ? ('全部勾选', () => changeForm(() => excluded.removeAll(aliases)))
+              : ('全部取消', () => changeForm(() => excluded.addAll(aliases))),
+      ],
+    );
     final form = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -337,9 +406,13 @@ class _ResourcesPageState extends State<ResourcesPage> {
               focusNode: queryFocus,
               onChanged: (_) => setState(() {}),
               onSubmitted: (_) => search(),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: '资源关键词',
-                prefixIcon: Icon(Icons.search, size: 19),
+                prefixIcon: const Icon(Icons.search, size: 19),
+                suffixIcon: Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: aliasMenu,
+                ),
               ),
             );
             final episodeField = TextField(
@@ -348,7 +421,10 @@ class _ResourcesPageState extends State<ResourcesPage> {
               focusNode: episodeFocus,
               onChanged: (_) => setState(() {}),
               onSubmitted: (_) => search(),
-              decoration: const InputDecoration(hintText: '集数，如 01 / S01E01'),
+              decoration: const InputDecoration(
+                hintText: '如 01 / S01E01',
+                prefixText: '集数  ',
+              ),
             );
             final button = Tooltip(
               message: searchBusy ? '正在搜索资源…' : '搜索资源',
@@ -389,94 +465,28 @@ class _ResourcesPageState extends State<ResourcesPage> {
               children: [
                 Expanded(child: keyword),
                 const SizedBox(width: 10),
-                SizedBox(width: 170, child: episodeField),
+                SizedBox(width: 168, child: episodeField),
                 const SizedBox(width: 10),
                 button,
               ],
             );
           },
         ),
-        const SizedBox(height: Gap.sm),
-        Wrap(
-          spacing: Gap.sm,
-          runSpacing: Gap.sm,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            TextButton.icon(
-              key: const ValueKey('resource-aliases-toggle'),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                textStyle: const TextStyle(fontSize: 12),
-              ),
-              onPressed: () =>
-                  changeForm(() => aliasesExpanded = !aliasesExpanded),
-              icon: AnimatedRotation(
-                turns: aliasesExpanded ? .25 : 0,
-                duration: motionDuration(context, 150),
-                child: const Icon(Icons.chevron_right, size: 17),
-              ),
-              label: Text(
-                multipleNames
-                    ? '别名搜索 · ${names.where((name) => !excluded.contains(name)).length} 个名称'
-                    : '别名搜索 · 已关闭',
-              ),
-            ),
-          ],
-        ),
-        AnimatedSize(
-          duration: motionDuration(context),
-          alignment: Alignment.topLeft,
-          curve: Curves.easeOutCubic,
-          child: aliasesExpanded
-              ? Padding(
-                  padding: const EdgeInsets.only(top: Gap.sm),
-                  child: Wrap(
-                    spacing: 7,
-                    runSpacing: 6,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      FilterChip(
-                        label: const Text('多个名称一起搜'),
-                        selected: multipleNames,
-                        onSelected: (value) =>
-                            changeForm(() => multipleNames = value),
-                      ),
-                      if (multipleNames)
-                        for (final name in names.where(
-                          (name) => name != widget.resourceSearch.text.trim(),
-                        ))
-                          FilterChip(
-                            label: Text(name),
-                            selected: !excluded.contains(name),
-                            onSelected: (value) => changeForm(
-                              () => value
-                                  ? excluded.remove(name)
-                                  : excluded.add(name),
-                            ),
-                          ),
-                    ],
-                  ),
-                )
-              : const SizedBox.shrink(),
-        ),
-        if (widget.providers.isNotEmpty) ...[
-          const SizedBox(height: Gap.sm),
-          ResourceProviderChips(
-            providers: widget.providers,
-            excludedProviders: excludedProviders,
-            onProviderSelected: (id, selected) => changeForm(
-              () => selected
-                  ? excludedProviders.remove(id)
-                  : excludedProviders.add(id),
-            ),
-          ),
-        ],
         if (searchBusy) ...[
           const SizedBox(height: Gap.md),
           ResourceSearchStatus(providers: widget.providers),
         ],
       ],
     );
+    final providerWarning = widget.providers.any(
+      (provider) => ['error', 'partial'].contains(provider['status']),
+    );
+    final shownProviders = widget.providers
+        .where(
+          (provider) =>
+              !excludedProviders.contains(resourceProviderKey(provider)),
+        )
+        .length;
     final filterBar = ColoredBox(
       color: background,
       child: Padding(
@@ -488,73 +498,163 @@ class _ResourcesPageState extends State<ResourcesPage> {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    Text('画质', style: small),
-                    const SizedBox(width: 10),
-                    SizedBox(
-                      width: 278,
-                      child: MelonSegmentedControl<String>(
-                        options: const {
-                          'all': '全部',
-                          '1080p': '1080p',
-                          '720p': '720p',
-                          '4K': '4K',
+                    for (final menu in <Widget>[
+                      MelonFilterMenu<String>(
+                        key: const ValueKey('resource-filter-providers'),
+                        label: '资源站',
+                        icon: Icons.public_rounded,
+                        active: excludedProviders.isNotEmpty,
+                        summary: '$shownProviders / ${widget.providers.length}',
+                        warning: providerWarning,
+                        tooltip: providerWarning
+                            ? '有资源站搜索失败，打开查看'
+                            : '显示或隐藏资源站的结果',
+                        sections: [
+                          MelonFilterSection(
+                            [
+                              for (final provider in widget.providers)
+                                MelonFilterOption(
+                                  resourceProviderKey(provider),
+                                  '${provider['providerName']}',
+                                  detail: resourceProviderStatus(provider),
+                                  detailColor:
+                                      [
+                                        'error',
+                                        'partial',
+                                      ].contains(provider['status'])
+                                      ? Theme.of(context).colorScheme.tertiary
+                                      : null,
+                                ),
+                            ],
+                            title: widget.providers.isEmpty ? '搜索后显示资源站' : null,
+                          ),
+                        ],
+                        selected: {
+                          for (final provider in widget.providers)
+                            if (!excludedProviders.contains(
+                              resourceProviderKey(provider),
+                            ))
+                              resourceProviderKey(provider),
                         },
-                        value: quality,
-                        semanticLabel: '按标题标注的画质筛选',
-                        onChanged: (value) => changeForm(() => quality = value),
-                      ),
-                    ),
-                    const SizedBox(width: Gap.md),
-                    MelonChoiceMenu<String>(
-                      options: {
-                        '': '全部来源分组',
-                        for (final name in groups) name: name,
-                      },
-                      value: group,
-                      icon: Icons.groups_outlined,
-                      label: group.isEmpty ? '来源分组' : group,
-                      tooltip: '资源站标注的发布分组；标题中的联合署名单独展示',
-                      onSelected: (value) => changeForm(() => group = value),
-                    ),
-                    const SizedBox(width: Gap.sm),
-                    Tooltip(
-                      message: '筛选时保留未标明画质或来源分组的资源',
-                      child: InkWell(
-                        borderRadius: badgeBorderRadius,
-                        onTap: () =>
-                            changeForm(() => includeUnknown = !includeUnknown),
-                        child: Row(
-                          children: [
-                            ExcludeFocus(
-                              child: Switch(
-                                value: includeUnknown,
-                                onChanged: (value) =>
-                                    changeForm(() => includeUnknown = value),
-                              ),
-                            ),
-                            const Padding(
-                              padding: EdgeInsets.only(right: Gap.sm),
-                              child: Text(
-                                '含未确认',
-                                style: TextStyle(fontSize: 12),
-                              ),
-                            ),
-                          ],
+                        onToggle: (id, selected) => changeForm(
+                          () => selected
+                              ? excludedProviders.remove(id)
+                              : excludedProviders.add(id),
                         ),
+                        actions: [
+                          if (excludedProviders.isNotEmpty)
+                            ('全部显示', () => changeForm(excludedProviders.clear)),
+                        ],
+                      ),
+                      MelonFilterMenu<String>(
+                        key: const ValueKey('resource-filter-quality'),
+                        label: '画质',
+                        icon: Icons.high_quality_outlined,
+                        summary: summary(qualities, resourceQualities),
+                        tooltip: '按标题标注的输出画质筛选',
+                        sections: [
+                          MelonFilterSection([
+                            for (final value in resourceQualities)
+                              counted(value, qualityCounts),
+                          ]),
+                        ],
+                        selected: qualities,
+                        onToggle: (value, on) => toggle(qualities, value, on),
+                        actions: [
+                          if (qualities.isNotEmpty)
+                            ('清除', () => changeForm(qualities.clear)),
+                        ],
+                      ),
+                      MelonFilterMenu<String>(
+                        key: const ValueKey('resource-filter-groups'),
+                        label: '字幕组',
+                        icon: Icons.groups_outlined,
+                        summary: summary(groups, groupNames),
+                        tooltip: '资源站标注的发布分组；标题中的联合署名单独展示',
+                        sections: [
+                          MelonFilterSection([
+                            for (final name in groupNames)
+                              counted(name, groupCounts),
+                          ], title: groupNames.isEmpty ? '暂无字幕组信息' : null),
+                        ],
+                        selected: groups,
+                        onToggle: (value, on) => toggle(groups, value, on),
+                        actions: [
+                          if (groups.isNotEmpty)
+                            ('清除', () => changeForm(groups.clear)),
+                        ],
+                      ),
+                      MelonFilterMenu<String>(
+                        key: const ValueKey('resource-filter-language'),
+                        label: '字幕',
+                        icon: Icons.subtitles_outlined,
+                        active:
+                            languages.isNotEmpty || subtitleForms.isNotEmpty,
+                        summary: summary(
+                          {...languages, ...subtitleForms},
+                          [...resourceLanguages, ...resourceSubtitleForms],
+                        ),
+                        tooltip: '同一组内满足任一项即可，例如勾选“简体”也包含简繁、简日双语',
+                        sections: [
+                          MelonFilterSection([
+                            for (final value in resourceLanguages)
+                              counted(value, languageCounts),
+                          ], title: '字幕语言'),
+                          MelonFilterSection([
+                            for (final value in resourceSubtitleForms)
+                              counted(value, formCounts),
+                          ], title: '字幕形式'),
+                        ],
+                        selected: {...languages, ...subtitleForms},
+                        onToggle: (value, on) => toggle(
+                          resourceLanguages.contains(value)
+                              ? languages
+                              : subtitleForms,
+                          value,
+                          on,
+                        ),
+                        actions: [
+                          if (languages.isNotEmpty || subtitleForms.isNotEmpty)
+                            (
+                              '清除',
+                              () => changeForm(() {
+                                languages.clear();
+                                subtitleForms.clear();
+                              }),
+                            ),
+                        ],
+                      ),
+                    ]) ...[menu, const SizedBox(width: Gap.sm)],
+                    Tooltip(
+                      message: '筛选时保留标题没有标明画质、字幕组或字幕的资源',
+                      child: FilterChip(
+                        label: const Text('含未标明'),
+                        selected: includeUnknown,
+                        backgroundColor: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHigh,
+                        showCheckmark: true,
+                        checkmarkColor: Theme.of(context).colorScheme.primary,
+                        onSelected: (value) =>
+                            changeForm(() => includeUnknown = value),
                       ),
                     ),
-                    if (filtered)
+                    if (filtered) ...[
+                      const SizedBox(width: Gap.xs),
                       TextButton(
                         onPressed: clearFilters,
                         child: const Text('清除筛选'),
                       ),
+                    ],
                   ],
                 ),
               ),
             ),
             const SizedBox(width: Gap.md),
             Text(
-              '${visible.length} / ${widget.candidates.length} 条',
+              filtered
+                  ? '${visible.length} / ${widget.candidates.length} 条'
+                  : '${widget.candidates.length} 条',
               style: small?.copyWith(
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
@@ -563,7 +663,10 @@ class _ResourcesPageState extends State<ResourcesPage> {
         ),
       ),
     );
-    final downloadWidth = widget.onDownloadWithMethod == null ? 100.0 : 128.0;
+    final downloadWidth = resourceDownloadWidth(
+      labelled: true,
+      split: widget.onDownloadWithMethod != null,
+    );
     return CustomScrollView(
       key: const PageStorageKey('page-scroll'),
       slivers: [

@@ -339,3 +339,222 @@ class MelonChoiceMenu<T> extends StatelessWidget {
     ),
   );
 }
+
+class MelonFilterOption<T> {
+  const MelonFilterOption(
+    this.value,
+    this.label, {
+    this.detail,
+    this.detailColor,
+    this.enabled = true,
+  });
+  final T value;
+  final String label;
+  final String? detail;
+  final Color? detailColor;
+  final bool enabled;
+}
+
+class MelonFilterSection<T> {
+  const MelonFilterSection(this.options, {this.title});
+  final String? title;
+  final List<MelonFilterOption<T>> options;
+}
+
+/// Multi-select filter: a compact button that opens a checklist and stays open
+/// while toggling. [active] fills the button so applied filters stand out.
+class MelonFilterMenu<T> extends StatelessWidget {
+  const MelonFilterMenu({
+    super.key,
+    required this.label,
+    required this.sections,
+    required this.selected,
+    required this.onToggle,
+    this.active,
+    this.summary,
+    this.icon,
+    this.warning = false,
+    this.tooltip,
+    this.actions = const [],
+    this.compact = false,
+  });
+
+  final String label;
+  final List<MelonFilterSection<T>> sections;
+  final Set<T> selected;
+  final void Function(T value, bool selected) onToggle;
+
+  /// Defaults to "anything selected".
+  final bool? active;
+
+  /// Shown after the label when active, e.g. "1080p" or "2 项".
+  final String? summary;
+  final IconData? icon;
+  final bool warning;
+  final String? tooltip;
+
+  /// Menu footer actions such as "清除".
+  final List<(String, VoidCallback)> actions;
+
+  /// Text-only trigger for use inside a field.
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final small = Theme.of(context).textTheme.bodySmall;
+    final on = active ?? selected.isNotEmpty;
+    Widget check(bool value) => AnimatedContainer(
+      duration: motionDuration(context, 120),
+      width: 16,
+      height: 16,
+      decoration: BoxDecoration(
+        color: value ? scheme.primary : Colors.transparent,
+        borderRadius: const BorderRadius.all(Radius.circular(5)),
+        border: Border.all(
+          color: value ? scheme.primary : scheme.onSurfaceVariant,
+          width: 1.5,
+        ),
+      ),
+      child: value
+          ? Icon(Icons.check_rounded, size: 12, color: scheme.onPrimary)
+          : null,
+    );
+    return MenuAnchor(
+      crossAxisUnconstrained: false,
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(menuSurface(context)),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        padding: const WidgetStatePropertyAll(EdgeInsets.all(5)),
+        shape: const WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: controlBorderRadius),
+        ),
+        elevation: const WidgetStatePropertyAll(3),
+        maximumSize: const WidgetStatePropertyAll(Size(360, 440)),
+      ),
+      menuChildren: [
+        for (final (index, section) in sections.indexed) ...[
+          if (index > 0) const Divider(height: 9, indent: 8, endIndent: 8),
+          if (section.title case final title?)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+              child: Text(title, style: small?.copyWith(fontSize: 11)),
+            ),
+          for (final option in section.options)
+            MenuItemButton(
+              closeOnActivate: false,
+              style: const ButtonStyle(
+                minimumSize: WidgetStatePropertyAll(Size(200, 38)),
+                shape: WidgetStatePropertyAll(
+                  RoundedRectangleBorder(borderRadius: controlBorderRadius),
+                ),
+              ),
+              onPressed: option.enabled || selected.contains(option.value)
+                  ? () =>
+                        onToggle(option.value, !selected.contains(option.value))
+                  : null,
+              leadingIcon: check(selected.contains(option.value)),
+              trailingIcon: option.detail == null
+                  ? null
+                  : Padding(
+                      padding: const EdgeInsets.only(left: Gap.lg),
+                      child: Text(
+                        option.detail!,
+                        style: small?.copyWith(
+                          color: option.detailColor,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 220),
+                child: Text(
+                  option.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+        ],
+        if (actions.isNotEmpty) ...[
+          const Divider(height: 9, indent: 8, endIndent: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              for (final (text, action) in actions)
+                TextButton(onPressed: action, child: Text(text)),
+            ],
+          ),
+        ],
+      ],
+      builder: (context, controller, _) {
+        void toggle() =>
+            controller.isOpen ? controller.close() : controller.open();
+        final text = on && summary != null ? '$label · $summary' : label;
+        final content = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 16),
+              const SizedBox(width: 6),
+            ],
+            Flexible(
+              child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+            if (warning) ...[
+              const SizedBox(width: 5),
+              Icon(
+                Icons.error_outline_rounded,
+                size: 15,
+                color: scheme.tertiary,
+              ),
+            ],
+            const SizedBox(width: 4),
+            const Icon(Icons.keyboard_arrow_down_rounded, size: 17),
+          ],
+        );
+        return Tooltip(
+          message: tooltip ?? '',
+          child: compact
+              ? TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: on
+                        ? scheme.primary
+                        : scheme.onSurfaceVariant,
+                    minimumSize: const Size(0, 32),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
+                  onPressed: toggle,
+                  child: content,
+                )
+              : TextButton(
+                  style: TextButton.styleFrom(
+                    backgroundColor: on
+                        ? scheme.primaryContainer
+                        : scheme.surfaceContainerHigh,
+                    foregroundColor: on
+                        ? scheme.onPrimaryContainer
+                        : scheme.onSurface,
+                    minimumSize: const Size(0, 36),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  onPressed: toggle,
+                  child: content,
+                ),
+        );
+      },
+    );
+  }
+}
+
+/// Popup menus sit on panels; in dark mode a lighter fill keeps their edge visible.
+Color menuSurface(BuildContext context) {
+  final scheme = Theme.of(context).colorScheme;
+  return scheme.brightness == Brightness.dark
+      ? scheme.surfaceContainerHigh
+      : scheme.surface;
+}
