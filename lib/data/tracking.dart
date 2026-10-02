@@ -41,10 +41,22 @@ class TrackingRepository {
 
   String _collection(String user) => 'collection:$user';
   String _episodes(String user) => 'episodes:$user';
-  Future<List<Json>> collection() async =>
-      (await store.list(_collection(account.userId)))
-          .map(catalog.summary)
-          .toList();
+  Future<List<Json>> collection() async {
+    final user = account.userId;
+    final items = await store.list(_collection(user));
+    final progress = await store.list(_episodes(user));
+    return items.map((item) {
+      item['watchedEpisodes'] ??= progress
+          .where(
+            (episode) =>
+                episode['subjectId'] == item['subjectId'] &&
+                episode['status'] == 'watched',
+          )
+          .length;
+      return catalog.summary(item);
+    }).toList();
+  }
+
   Future<Json> syncState() async => {
     'pendingMutationCount': (await store.pending(account.userId)).length,
     'lastSyncError': lastSyncError,
@@ -143,6 +155,7 @@ class TrackingRepository {
         'episodeId': episodeId,
         'status': status.key,
       },
+      episodeCollectionScope: _collection(user),
     );
     _changed();
     unawaited(flush());
@@ -166,6 +179,12 @@ class TrackingRepository {
     final username = Uri.encodeComponent('${account.session!['username']}');
     final remote = <String, Json>{};
     try {
+      // Keep pending episode counts even if the outbox finishes during the pull.
+      final pendingEpisodeSubjects = (await store.pending(user))
+          .map((row) => object(row['body']))
+          .where((body) => body['kind'] == 'episode')
+          .map((body) => '${body['subjectId']}')
+          .toSet();
       for (var offset = 0; ; offset += 50) {
         if (user != account.userId || _closed) return;
         final response = object(
@@ -206,6 +225,7 @@ class TrackingRepository {
         entityKind: 'subject',
         requestedAt: requestedAt,
         replace: true,
+        preserveEpisodeCounts: pendingEpisodeSubjects,
       );
       lastSyncedAt = DateTime.now().toIso8601String();
       lastSyncError = null;
@@ -244,7 +264,16 @@ class TrackingRepository {
 
   Future<void> _refreshEpisodes(int subjectId, String user) async {
     final requestedAt = DateTime.now().millisecondsSinceEpoch;
-    for (var offset = 0; ; offset += 100) {
+    final preserveEntities = (await store.pending(user))
+        .map((row) => object(row['body']))
+        .where(
+          (body) => body['kind'] == 'episode' && body['subjectId'] == subjectId,
+        )
+        .map((body) => 'episode:${body['episodeId']}')
+        .toSet();
+    final remote = <String, Json>{};
+    int? total;
+    for (var offset = 0; ;) {
       final response = object(
         await account.request(
           '/v0/users/-/collections/$subjectId/episodes?limit=100&offset=$offset',
@@ -252,7 +281,11 @@ class TrackingRepository {
       );
       final rows = objects(response['data']);
       if (user != account.userId || _closed) return;
-      final remote = <String, Json>{};
+      final count = response['total'];
+      if (count is! int || count < 0 || (total != null && total != count)) {
+        throw const FormatException('章节列表未完整接收，请重新同步');
+      }
+      total = count;
       for (final row in rows) {
         final id = object(row['episode'])['id'];
         final value = number(row['type']).toInt();
@@ -267,18 +300,23 @@ class TrackingRepository {
           'status': status.key,
         };
       }
-      await store.mergeRemote(
-        _episodes(user),
-        remote,
-        account: user,
-        entityKind: 'episode',
-        requestedAt: requestedAt,
-      );
-      if (rows.length < 100 ||
-          offset + rows.length >= number(response['total'])) {
-        break;
+      offset += rows.length;
+      if (offset == total && remote.length == total) break;
+      if (rows.isEmpty || offset >= total) {
+        throw const FormatException('章节列表未完整接收，请重新同步');
       }
     }
+    await store.mergeRemote(
+      _episodes(user),
+      remote,
+      account: user,
+      entityKind: 'episode',
+      requestedAt: requestedAt,
+      preserveEntities: preserveEntities,
+      episodeCollectionScope: _collection(user),
+      episodeSubjectId: subjectId,
+    );
+    _changed();
   }
 
   Future<void> flush() =>

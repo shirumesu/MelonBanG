@@ -237,7 +237,7 @@ class PlaybackLibrary {
     }
     Future<Json>? detailRequest;
     final enabled = objects(session['danmakuSources'])
-        .where((s) => s['enabled'] == true)
+        .where((s) => s['enabled'] == true && s['id'] != 'local')
         .map((s) => '${s['id']}');
     await Future.wait(
       enabled.map(
@@ -325,6 +325,25 @@ class PlaybackLibrary {
       loadSource('dandanplay', '$episodeId');
   Future<void> loadSource(String provider, String locator) {
     return _load(provider, () => _fetch(provider, locator), locator: locator);
+  }
+
+  bool importComments(String sessionId, List<Json> comments) {
+    final session = current;
+    if (session == null || session['id'] != sessionId) return false;
+    final imported = normalizeComments(comments);
+    _comments['local'] = imported;
+    final sources = objects(session['danmakuSources']);
+    if (!sources.any((source) => source['id'] == 'local')) {
+      sources.add({'id': 'local', 'label': '本地 JSON'});
+    }
+    sources.firstWhere((source) => source['id'] == 'local').addAll({
+      'enabled': true,
+      'status': 'ready',
+      'count': imported.length,
+    });
+    session['danmakuSources'] = sources;
+    _merge();
+    return true;
   }
 
   Future<void> _load(

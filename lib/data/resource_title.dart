@@ -247,21 +247,24 @@ ResourceTitleInfo describeResource(Json candidate) {
   );
 }
 
-/// Each non-empty selection must overlap the title's annotations; titles
-/// without an annotation pass only when [includeUnknown] is set.
+/// Each non-empty selection must overlap the title's confirmed annotations;
+/// unconfirmed annotations pass only when [includeUnknown] is set.
 bool matchesResourceSelection(
   ResourceTitleInfo info, {
   Set<String> qualities = const {},
   Set<String> groups = const {},
   Set<String> languages = const {},
   Set<String> subtitleForms = const {},
-  bool includeUnknown = true,
+  bool includeUnknown = false,
 }) {
   bool matches(Set<String> selected, Iterable<String> values) =>
       selected.isEmpty ||
       values.any(selected.contains) ||
       (includeUnknown && values.isEmpty);
-  return matches(qualities, info.qualities) &&
+  return matches(
+        qualities,
+        info.quality == null ? const [] : [info.quality!],
+      ) &&
       matches(groups, info.sourceGroups) &&
       matches(languages, info.languages) &&
       matches(subtitleForms, info.subtitleForms);

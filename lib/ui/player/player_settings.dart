@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 
 import '../../app_services.dart';
+import '../../data/danmaku_repository.dart';
+import '../../data/playback_library.dart';
 import '../core/theme.dart';
 import 'playback.dart';
 import 'player_theme.dart';
@@ -43,6 +45,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
   String? _sessionId;
   int _searchRequest = 0;
   int _loadRequest = 0;
+  int _importRequest = 0;
   bool get busy => loading || manualSearching;
   Playback get playback => widget.playback;
   Player get player => playback.player;
@@ -59,6 +62,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
       _sessionId = sessionId;
       _searchRequest++;
       _loadRequest++;
+      _importRequest++;
       matches = [];
       loading = manualSearching = manualSearched = false;
       manualError = loadError = null;
@@ -484,7 +488,10 @@ class _PlayerSettingsState extends State<PlayerSettings> {
   }
 
   Future<void> loadLocalComments() async {
-    final sessionId = playback.session?['id'];
+    final session = playback.session;
+    final sessionId = session?['id'];
+    if (sessionId is! String) return;
+    final ticket = ++_importRequest;
     final file = await openFile(
       acceptedTypeGroups: [
         const XTypeGroup(label: 'Danmaku JSON', extensions: ['json']),
@@ -492,24 +499,32 @@ class _PlayerSettingsState extends State<PlayerSettings> {
     );
     if (file != null) {
       await perform(() async {
-        final decoded = jsonDecode(await File(file.path).readAsString());
+        final content = await File(file.path).readAsString();
+        if (!mounted ||
+            ticket != _importRequest ||
+            sessionId != playback.session?['id']) {
+          return;
+        }
+        final decoded = jsonDecode(content);
         if (decoded is! List) {
           throw const FormatException('弹幕文件应为数组，包含 timeSeconds、text 和 mode。');
         }
-        final comments =
-            objects(decoded)
-                .where(
-                  (item) =>
-                      item['timeSeconds'] is num && item['text'] is String,
-                )
-                .toList()
-              ..sort(
-                (a, b) =>
-                    number(a['timeSeconds'])
-                        .compareTo(number(b['timeSeconds'])),
-              );
-        if (mounted && sessionId == playback.session?['id']) {
-          changePresentation(() => playback.comments = comments);
+        final comments = objects(decoded)
+            .where((item) => item['text'] is String)
+            .map((item) => {...item, 'mode': item['mode'] ?? 'scroll'})
+            .toList();
+        PlaybackLibrary? library;
+        try {
+          library = widget.service.library;
+        } catch (_) {
+          // Standalone local playback can precede application service startup.
+        }
+        if (library?.importComments(sessionId, comments) == true) {
+          playback.accept(library!.current!);
+        } else if (session?['standalone'] == true) {
+          changePresentation(
+            () => playback.comments = normalizeComments(comments),
+          );
         }
       });
     }
