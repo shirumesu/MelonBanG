@@ -327,6 +327,9 @@ String readCharArray(Array<Char> arr, int maxLen) {
 }
 
 // ─── Cross-platform library resolution ──────────────────────────────────────
+@Native<Pointer<Utf8> Function()>(symbol: 'lt_library_path')
+external Pointer<Utf8> _macosLibraryPath();
+
 DynamicLibrary _openNativeLib() {
   const libName = 'libtorrent_flutter';
   if (Platform.isWindows) {
@@ -334,10 +337,7 @@ DynamicLibrary _openNativeLib() {
   } else if (Platform.isAndroid || Platform.isLinux) {
     return DynamicLibrary.open('lib$libName.so');
   } else if (Platform.isMacOS) {
-    final executable = File(Platform.resolvedExecutable).parent;
-    return DynamicLibrary.open(
-      '${executable.path}/../Frameworks/lib$libName.dylib',
-    );
+    return DynamicLibrary.open(_macosLibraryPath().toDartString());
   } else if (Platform.isIOS) {
     return DynamicLibrary.process();
   }

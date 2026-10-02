@@ -19,13 +19,16 @@ The Windows plugin prefers package configs so libtorrent's Boost dependency uses
 BoostConfig.cmake without the removed FindBoost module warning on CMake 3.30+.
 Setting CMP0167 only in the plugin does not reach vcpkg's captured macro policy scope.
 
-The macOS CocoaPod builds the same bridge with CMake against Homebrew libtorrent
-2.1. Its build script copies the native dependency closure and rewrites dylib
-references to relative loader paths before CocoaPods embeds and signs them.
-Generated libraries and build caches are ignored. The Dart loader resolves the
-bridge from the app bundle's Frameworks directory, independent of the working
-directory. Re-run `pod install` after changing the native bridge or Homebrew
-dependencies. Builds target the host architecture.
+The macOS Dart build hook builds the same bridge with CMake and bundles it as a
+native code asset. Pinned libtorrent 2.1.2 and OpenSSL 3.6.5 sources are downloaded
+with SHA-256 verification and linked statically; Homebrew supplies only the build
+tools and Boost headers. All native code uses the hook's target architecture and
+macOS deployment version, independent of the host's OS version or Homebrew bottle
+requirements. Only C bridge symbols are exported. Flutter embeds and signs the
+single resulting library, and its native asset resolver locates it at runtime.
+Sources and compilation caches stay in the generated hook output directory.
+Ordinary `flutter build macos` rebuilds changed bridge sources without CocoaPods
+or a manual native preparation step.
 
 Engine `dispose` destroys the session without calling the destructive upstream
 `disposeAll`; explicit torrent removal still supports file deletion. Native libraries

@@ -146,12 +146,11 @@ packages:
     source: hosted
     version: "0.9.4+1"
   file_selector_macos:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: file_selector_macos
-      sha256: d57c62362766b5e7ae739448650b66c6aab7a68ba7ecc65e04018652645ae0f4
-      url: "https://pub.dev"
-    source: hosted
+      path: "vendor/file_selector_macos"
+      relative: true
+    source: path
     version: "0.9.5+1"
   file_selector_platform_interface:
     dependency: transitive
@@ -347,13 +346,12 @@ packages:
     source: hosted
     version: "1.2.1"
   media_kit_libs_macos_video:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: media_kit_libs_macos_video
-      sha256: f26aa1452b665df288e360393758f84b911f70ffb3878032e1aabba23aa1032d
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.1.4"
+      path: "vendor/media_kit_libs_macos_video"
+      relative: true
+    source: path
+    version: "1.1.5"
   media_kit_libs_video:
     dependency: "direct main"
     description:

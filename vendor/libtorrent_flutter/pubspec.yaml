@@ -12,13 +12,15 @@ topics:
   - ffi
 
 environment:
-  sdk: ^3.5.0
-  flutter: '>=3.3.0'
+  sdk: ^3.10.0
+  flutter: '>=3.38.0'
 
 dependencies:
+  code_assets: ^2.1.0
   ffi: ^2.1.0
   flutter:
     sdk: flutter
+  hooks: ^2.2.0
 
 dev_dependencies:
   ffigen: ^12.0.0
@@ -29,7 +31,10 @@ flutter:
     platforms:
       windows:
         ffiPlugin: true
-      macos:
-        ffiPlugin: true
   assets:
     - assets/cacert.pem
+  licenses:
+    - macos/licenses/boost.txt
+    - macos/licenses/libtorrent.txt
+    - macos/licenses/native-dependencies.txt
+    - macos/licenses/openssl.txt
