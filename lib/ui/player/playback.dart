@@ -179,7 +179,9 @@ class Playback extends ChangeNotifier {
       }
       service.releasePlaybackStreams(next['streamId'] as int?);
       await player.play();
-      if (!_closed && service.library.current?['id'] == next['id']) {
+      if (!_closed &&
+          next['standalone'] != true &&
+          service.library.current?['id'] == next['id']) {
         unawaited(
           service.library.autoMatch(
             player.state.duration.inMilliseconds / 1000,
@@ -215,7 +217,8 @@ class Playback extends ChangeNotifier {
       if (!File(path).existsSync()) rethrow;
       // Local playback remains usable independently of account/download services.
       next = {
-        'id': 'local',
+        'id': newId(),
+        'standalone': true,
         'title': Uri.file(path).pathSegments.last,
         'source': {'url': Uri.file(path).toString()},
         'status': 'ready',

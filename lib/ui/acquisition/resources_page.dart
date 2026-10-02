@@ -296,7 +296,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
       return counts;
     }
 
-    final qualityCounts = tally((info) => info.qualities);
+    final qualityCounts = tally(
+      (info) => info.quality == null ? const [] : [info.quality!],
+    );
     final groupCounts = tally((info) => info.sourceGroups);
     final languageCounts = tally((info) => info.languages);
     final formCounts = tally((info) => info.subtitleForms);
