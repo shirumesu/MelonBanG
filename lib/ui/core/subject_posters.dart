@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../data/catalog.dart';
 import '../../data/json.dart';
 import '../tracking/collection_labels.dart';
+import 'cached_image.dart';
 import 'page_widgets.dart';
 import 'motion.dart';
 import 'theme.dart';
@@ -641,11 +642,14 @@ class _SubjectCoverState extends State<SubjectCover> {
           ? SizedBox.expand(key: ValueKey('placeholder:$id'), child: fallback)
           : LayoutBuilder(
               key: ValueKey('$id:$address'),
-              builder: (context, constraints) => Image.network(
-                address,
-                cacheWidth: imageDecodeWidth(
+              builder: (context, constraints) => Image(
+                image: cachedImageProvider(
                   context,
-                  constraints.maxWidth.isFinite ? constraints.maxWidth : 512,
+                  address,
+                  cacheWidth: imageDecodeWidth(
+                    context,
+                    constraints.maxWidth.isFinite ? constraints.maxWidth : 512,
+                  ),
                 ),
                 key: ValueKey('$id:$address'),
                 fit: widget.fit,

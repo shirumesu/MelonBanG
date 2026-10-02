@@ -14,9 +14,10 @@ class AppStore {
       await databaseFactoryFfi.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 2,
+          version: 3,
           onUpgrade: (db, oldVersion, _) async {
             if (oldVersion < 2) await _createIndexes(db);
+            if (oldVersion < 3) await _createImageCache(db);
           },
           onCreate: (db, _) async {
             await db.execute(
@@ -26,9 +27,19 @@ class AppStore {
               'CREATE TABLE mutations (sequence INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT NOT NULL, entity TEXT NOT NULL, body TEXT NOT NULL)',
             );
             await _createIndexes(db);
+            await _createImageCache(db);
           },
         ),
       ),
+    );
+  }
+
+  static Future<void> _createImageCache(Database db) async {
+    await db.execute(
+      'CREATE TABLE cached_images (url TEXT PRIMARY KEY, bytes BLOB NOT NULL, saved INTEGER NOT NULL)',
+    );
+    await db.execute(
+      'CREATE INDEX cached_images_saved ON cached_images(saved)',
     );
   }
 
