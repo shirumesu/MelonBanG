@@ -87,17 +87,23 @@ class RuleOnlineSource implements OnlineSource {
     final rows = <String, Json>{};
     Object? issue;
     var completed = false;
+    Future<List<Json>> query(String name) async {
+      final (body, uri) = await request(object(rule['search']), {
+        'query': name,
+      });
+      return engine == 'maccms-api'
+          ? array(object(jsonDecode(body))['list'])
+                .map((value) => _maccmsSubject(object(value)))
+                .toList()
+          : _rows(body, object(rule['search']), uri);
+    }
+
     for (final name
         in names.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet()) {
       try {
-        final (body, uri) = await request(object(rule['search']), {
-          'query': name,
-        });
-        final parsed = engine == 'maccms-api'
-            ? array(object(jsonDecode(body))['list'])
-                  .map((value) => _maccmsSubject(object(value)))
-                  .toList()
-            : _rows(body, object(rule['search']), uri);
+        var parsed = await query(name);
+        final compact = name.replaceAll(RegExp(r'\s+'), '');
+        if (parsed.isEmpty && compact != name) parsed = await query(compact);
         for (final row in parsed) {
           if ('${row['title'] ?? ''}'.isNotEmpty) {
             rows['${row['id'] ?? row['url']}'] = row;

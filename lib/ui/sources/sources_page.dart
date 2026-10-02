@@ -31,15 +31,15 @@ class SourcesPage extends StatefulWidget {
 class _SourcesPageState extends State<SourcesPage> {
   final _update = ActionFeedback(),
       _probe = ActionFeedback(),
-      _search = ActionFeedback(),
-      _resolve = ActionFeedback(),
       _runtimeIssue = ActionFeedback(),
       _engineIssue = ActionFeedback();
+  var _search = ActionFeedback(), _resolve = ActionFeedback();
   final _query = TextEditingController();
   String? _selected;
   bool _narrowDetail = false;
+  bool _searched = false;
   List<Json> _subjects = [], _episodes = [];
-  Json? _subject, _resolved;
+  Json? _subject, _episode, _resolved;
   int _generation = 0;
   OnlineSourceRepository get repository => widget.repository;
   List<Json> get entries => [
@@ -138,12 +138,18 @@ class _SourcesPageState extends State<SourcesPage> {
   );
   void _select(String id) {
     _generation++;
+    _search.dispose();
+    _resolve.dispose();
     setState(() {
+      _search = ActionFeedback();
+      _resolve = ActionFeedback();
       _selected = id;
       _narrowDetail = true;
+      _searched = false;
       _subjects = [];
       _episodes = [];
       _subject = null;
+      _episode = null;
       _resolved = null;
     });
   }
@@ -157,9 +163,11 @@ class _SourcesPageState extends State<SourcesPage> {
       final rows = await repository.search(id, [query], refresh: true);
       if (mounted && generation == _generation) {
         setState(() {
+          _searched = true;
           _subjects = rows;
           _subject = null;
           _episodes = [];
+          _episode = null;
           _resolved = null;
         });
       }
@@ -176,6 +184,7 @@ class _SourcesPageState extends State<SourcesPage> {
         setState(() {
           _subject = site;
           _episodes = rows;
+          _episode = null;
           _resolved = null;
         });
       }
@@ -186,7 +195,10 @@ class _SourcesPageState extends State<SourcesPage> {
   void _resolveEpisode(Json episode) {
     if (_resolve.busy) return;
     final generation = _generation;
-    setState(() => _resolved = null);
+    setState(() {
+      _episode = episode;
+      _resolved = null;
+    });
     _resolve.run(() async {
       final value = await repository.resolve({'ref': episode['ref']});
       if (mounted && generation == _generation) {
@@ -227,20 +239,13 @@ class _SourcesPageState extends State<SourcesPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('视频源', style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: Gap.sm),
-                    Wrap(
-                      spacing: Gap.md,
-                      runSpacing: Gap.sm,
-                      crossAxisAlignment: WrapCrossAlignment.center,
+                    Row(
                       children: [
-                        Text(
-                          '规则 ${repository.version} · ${repository.ruleOrigin}',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                        Text(
-                          '更新 ${snapshotDate(repository.snapshot['updatedAt'])}',
-                          style: Theme.of(context).textTheme.bodySmall,
+                        Expanded(
+                          child: Text(
+                            '视频源',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
                         ),
                         FeedbackButton(
                           feedback: _update,
@@ -272,6 +277,10 @@ class _SourcesPageState extends State<SourcesPage> {
                           }),
                         ),
                       ],
+                    ),
+                    Text(
+                      '规则 ${repository.version} · ${repository.ruleOrigin} · ${snapshotDate(repository.snapshot['updatedAt'])}',
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                     FeedbackIssue(
                       feedback: _update,
@@ -311,8 +320,7 @@ class _SourcesPageState extends State<SourcesPage> {
                     : Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          SizedBox(width: 280, child: _list(selected)),
-                          const VerticalDivider(width: 1),
+                          SizedBox(width: 244, child: _list(selected)),
                           Expanded(
                             child: selected == null
                                 ? const SizedBox()
@@ -331,32 +339,43 @@ class _SourcesPageState extends State<SourcesPage> {
     padding: const EdgeInsets.fromLTRB(pageGutter, 0, Gap.md, Gap.lg),
     children: [
       for (final group in ['在线源', 'BT 索引', '网盘']) ...[
-        SectionTitle(title: group, top: Gap.sm),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.md, Gap.lg, Gap.md, Gap.sm),
+          child: Text(group, style: Theme.of(context).textTheme.titleSmall),
+        ),
         for (final entry in entries.where(
           (e) => (e['group'] ?? '在线源') == group,
         ))
-          ListTile(
-            selected: selected?['id'] == entry['id'],
-            title: Text('${entry['name']}'),
-            subtitle: Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(top: Gap.xs),
+          Padding(
+            padding: const EdgeInsets.only(bottom: Gap.xs),
+            child: ListTile(
+              dense: true,
+              minTileHeight: 56,
+              contentPadding: const EdgeInsets.only(
+                left: Gap.md,
+                right: Gap.sm,
+              ),
+              selected: selected?['id'] == entry['id'],
+              titleTextStyle: Theme.of(context).textTheme.titleSmall,
+              title: Text('${entry['name']}'),
+              subtitle: Align(
+                alignment: Alignment.centerLeft,
                 child: MelonBadge(
                   label(repository.status('${entry['id']}')),
                   color: color(repository.status('${entry['id']}')),
                 ),
               ),
+              trailing: Switch(
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                value:
+                    repository.isEnabled('${entry['id']}') &&
+                    entry['disabled'] != true,
+                onChanged: entry['disabled'] == true
+                    ? null
+                    : (value) => repository.setEnabled('${entry['id']}', value),
+              ),
+              onTap: () => _select('${entry['id']}'),
             ),
-            trailing: Switch(
-              value:
-                  repository.isEnabled('${entry['id']}') &&
-                  entry['disabled'] != true,
-              onChanged: entry['disabled'] == true
-                  ? null
-                  : (value) => repository.setEnabled('${entry['id']}', value),
-            ),
-            onTap: () => _select('${entry['id']}'),
           ),
       ],
     ],
@@ -389,35 +408,44 @@ class _SourcesPageState extends State<SourcesPage> {
           ),
         SectionTitle(
           title: '${entry['name']}',
-          top: Gap.sm,
+          top: 0,
           trailing: MelonBadge(
             label(repository.status(id)),
             color: color(repository.status(id)),
           ),
         ),
         MelonPanel(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Gap.lg,
+            vertical: Gap.md,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SelectableText('当前域名：$domain'),
-              const SizedBox(height: Gap.sm),
-              Text(
-                '引擎：${entry['engine']}${online ? ' · 规则 ${repository.version}' : ''}',
+              Row(
+                children: [
+                  Expanded(child: SelectableText(domain)),
+                  const SizedBox(width: Gap.sm),
+                  TextButton.icon(
+                    onPressed: () => launchUrl(
+                      Uri.parse('${entry['website'] ?? domain}'),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                    icon: const Icon(Icons.open_in_new, size: 16),
+                    label: const Text('打开站点'),
+                  ),
+                ],
               ),
-              const SizedBox(height: Gap.sm),
-              TextButton.icon(
-                onPressed: () => launchUrl(
-                  Uri.parse('${entry['website'] ?? domain}'),
-                  mode: LaunchMode.externalApplication,
-                ),
-                icon: const Icon(Icons.open_in_new, size: 18),
-                label: const Text('在浏览器打开站点'),
+              Text(
+                '${entry['engine']}${online ? ' · 规则 ${repository.version}' : ''}',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
           ),
         ),
         SectionTitle(
           title: '测试结果',
+          top: Gap.lg,
           trailing: FeedbackButton(
             feedback: _probe,
             label: '测试此源',
@@ -430,54 +458,26 @@ class _SourcesPageState extends State<SourcesPage> {
             }),
           ),
         ),
-        if (repository.results[id] case final steps?) ...[
-          for (final step in steps)
-            Card(
-              child: ExpansionTile(
-                leading: step['status'] == 'loading'
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(
-                        step['status'] == 'ready'
-                            ? Icons.check_circle_outline
-                            : Icons.error_outline,
-                        color: color('${step['status']}'),
-                      ),
-                title: Text('${step['label']}'),
-                subtitle: Text(
-                  '${step['milliseconds'] ?? '…'} ms${step['statusCode'] == null ? '' : ' · HTTP ${step['statusCode']}'}',
-                ),
-                initiallyExpanded: step['status'] == 'error',
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(Gap.md),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (step['url'] != null)
-                          SelectableText('${step['url']}'),
-                        if (step['error'] != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: Gap.sm),
-                            child: SelectableText(
-                              '${step['error']}',
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.error,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
+        if (repository.results[id] case final steps?)
+          MelonPanel(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                for (var index = 0; index < steps.length; index++) ...[
+                  if (index > 0)
+                    const Divider(height: 1, indent: Gap.lg, endIndent: Gap.lg),
+                  _diagnostic(id, steps[index]),
                 ],
-              ),
+              ],
             ),
-        ] else
-          const Text('健康状态只保存在本次运行中。点击测试查看搜索与播放链路。'),
+          )
+        else
+          Text(
+            '检查搜索与播放链路，结果仅保留于本次运行。',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         if (online) ...[
-          const SectionTitle(title: '手动试搜'),
+          const SectionTitle(title: '手动搜索', top: Gap.lg),
           Row(
             children: [
               Expanded(
@@ -499,37 +499,71 @@ class _SourcesPageState extends State<SourcesPage> {
             ],
           ),
           FeedbackIssue(feedback: _search, onRetry: () => _manualSearch(id)),
-          for (final site in _subjects)
-            ListTile(
-              title: Text('${site['title']}'),
-              subtitle: Text('${site['year'] ?? ''}'),
-              selected: _subject?['id'] == site['id'],
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _search.busy ? null : () => _loadEpisodes(id, site),
+          if (_searched &&
+              _subjects.isEmpty &&
+              !_search.busy &&
+              _search.issue == null)
+            Padding(
+              padding: const EdgeInsets.only(top: Gap.sm),
+              child: Text(
+                '没有匹配条目，请换个名称搜索。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          if (_subjects.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: Gap.sm),
+              child: MelonPanel(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    for (final site in _subjects)
+                      ListTile(
+                        dense: true,
+                        minTileHeight: 44,
+                        title: Text('${site['title']}'),
+                        selected: _subject?['id'] == site['id'],
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '${site['year'] ?? ''}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            const SizedBox(width: Gap.sm),
+                            const Icon(Icons.chevron_right, size: 18),
+                          ],
+                        ),
+                        onTap: _search.busy
+                            ? null
+                            : () => _loadEpisodes(id, site),
+                      ),
+                  ],
+                ),
+              ),
             ),
           if (_subject != null)
             SectionTitle(
               title: '${_subject!['title']} · ${_episodes.length} 个播放入口',
+              top: Gap.lg,
             ),
-          for (final episode in _episodes)
-            ListTile(
-              title: Text('${episode['label']}'),
-              subtitle: Text('${episode['line']}'),
-              trailing: const Icon(Icons.link),
-              onTap: _resolve.busy ? null : () => _resolveEpisode(episode),
-            ),
+          if (_episodes.isNotEmpty) _episodeChoices(),
           FeedbackIssue(
             feedback: _resolve,
             onRetry: () {
-              if (_episodes.isNotEmpty) _resolveEpisode(_episodes.first);
+              if (_episode != null) _resolveEpisode(_episode!);
             },
           ),
           if (_resolved != null)
             MelonPanel(
+              padding: const EdgeInsets.all(Gap.lg),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SelectableText('${_resolved!['url']}'),
+                  SelectableText(
+                    '${_resolved!['url']}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                   const SizedBox(height: Gap.sm),
                   if (_resolved!['playlist'] != null)
                     const Text('已过滤验证过的插入广告分片'),
@@ -551,6 +585,103 @@ class _SourcesPageState extends State<SourcesPage> {
       ],
     );
   }
+
+  Widget _diagnostic(String id, Json step) => ExpansionTile(
+    key: ValueKey('$id:${step['label']}:${step['status']}'),
+    dense: true,
+    minTileHeight: 44,
+    tilePadding: const EdgeInsets.symmetric(horizontal: Gap.lg),
+    childrenPadding: const EdgeInsets.fromLTRB(Gap.lg, 0, Gap.lg, Gap.md),
+    shape: const Border(),
+    collapsedShape: const Border(),
+    leading: step['status'] == 'loading'
+        ? const SizedBox.square(
+            dimension: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : Icon(
+            step['status'] == 'ready'
+                ? Icons.check_circle_outline
+                : step['status'] == 'error'
+                ? Icons.error_outline
+                : Icons.schedule,
+            size: 18,
+            color: color('${step['status']}'),
+          ),
+    title: Row(
+      children: [
+        Expanded(child: Text('${step['label']}')),
+        const SizedBox(width: Gap.sm),
+        Text(
+          '${step['milliseconds'] ?? '…'} ms${step['statusCode'] == null ? '' : ' · HTTP ${step['statusCode']}'}',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
+    ),
+    initiallyExpanded: step['status'] == 'error',
+    children: [
+      Align(
+        alignment: Alignment.centerLeft,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (step['url'] != null)
+              SelectableText(
+                '${step['url']}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            if (step['error'] != null)
+              Padding(
+                padding: const EdgeInsets.only(top: Gap.sm),
+                child: SelectableText(
+                  '${step['error']}',
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+          ],
+        ),
+      ),
+    ],
+  );
+
+  Widget _episodeChoices() => MelonPanel(
+    padding: const EdgeInsets.all(Gap.lg),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final line in _episodes.map((e) => '${e['line']}').toSet()) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: Gap.sm),
+            child: Text(line, style: Theme.of(context).textTheme.titleSmall),
+          ),
+          Wrap(
+            spacing: Gap.sm,
+            runSpacing: Gap.sm,
+            children: [
+              for (final episode in _episodes.where(
+                (e) => '${e['line']}' == line,
+              ))
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(64, 36),
+                    padding: const EdgeInsets.symmetric(horizontal: Gap.md),
+                    backgroundColor: _episode == episode
+                        ? Theme.of(context).colorScheme.primaryContainer
+                        : Theme.of(context).colorScheme.surfaceContainerHigh,
+                  ),
+                  onPressed: _resolve.busy
+                      ? null
+                      : () => _resolveEpisode(episode),
+                  child: Text('${episode['label']}'),
+                ),
+            ],
+          ),
+          const SizedBox(height: Gap.sm),
+        ],
+      ],
+    ),
+  );
 }
 
 String snapshotDate(dynamic value) {
