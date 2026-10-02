@@ -39,3 +39,21 @@ The macOS podspec also leaves `$(inherited)` unquoted in
 `GCC_PREPROCESSOR_DEFINITIONS`. Quoting the expansion combines CocoaPods' debug
 macros into one `POD_CONFIGURATION_DEBUG` definition and triggers redefinition
 warnings in Swift's Clang importer. Keep the inherited macros as separate tokens.
+
+## macOS Swift Package Manager
+
+The macOS sources use the upstream Swift package layout and explicit Apple
+framework and `Mpv` imports. Existing Windows disposal and macOS texture
+visibility patches are preserved. The podspec points to the same source tree.
+
+The package depends on Flutter's generated `FlutterFramework` package and the
+local `media_kit_libs_macos_video` package's real `Mpv` binary product. This
+application always ships video libraries, so the Swift package requires them
+instead of silently compiling the upstream no-video stub. Native frameworks
+are downloaded and embedded by Swift Package Manager using the libraries
+package's checksum-pinned upstream artifacts.
+
+The Swift compiler passes the same `GL_SILENCE_DEPRECATION` and
+`COREVIDEO_SILENCE_GL_DEPRECATION` macros to its Clang importer as CocoaPods.
+These silence only the intentional OpenGL/Core Video API deprecations while
+preserving other compiler warnings.
