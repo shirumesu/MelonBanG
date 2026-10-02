@@ -48,25 +48,25 @@ class TrackingRepository {
   Future<List<Json>> collection() async {
     final user = account.userId;
     final items = await store.list(_collection(user));
-    final progress = await store.list(_episodes(user));
+    final watched = items.any((item) => item['watchedEpisodes'] == null)
+        ? await store.watchedEpisodeCounts(_episodes(user))
+        : const <int, int>{};
     return items.map((item) {
-      item['watchedEpisodes'] ??= progress
-          .where(
-            (episode) =>
-                episode['subjectId'] == item['subjectId'] &&
-                episode['status'] == 'watched',
-          )
-          .length;
+      item['watchedEpisodes'] ??= watched[item['subjectId']] ?? 0;
       return catalog.summary(item);
     }).toList();
   }
 
   Future<Json> syncState() async => {
-    'pendingMutationCount': (await store.pending(account.userId)).length,
+    'pendingMutationCount': await store.pendingCount(account.userId),
     'lastSyncError': lastSyncError,
     'lastSyncedAt': lastSyncedAt,
   };
-  Future<Json> subject(int id, {void Function(Json)? onAvailable}) async {
+  Future<Json> subject(
+    int id, {
+    void Function(Json)? onAvailable,
+    bool forPlayback = false,
+  }) async {
     final user = account.userId;
     Future<void> publish(Json detail) async {
       if (onAvailable != null) {
@@ -75,14 +75,23 @@ class TrackingRepository {
     }
 
     // Public detail and personal progress are independent network requests.
+    final personal = refreshEpisodes(id, useCache: true).catchError((Object e) {
+      if (user == account.userId) lastSyncError = e.toString();
+    });
+    if (forPlayback) {
+      unawaited(personal);
+      return _withProgress(
+        await catalog.subject(id, forPlayback: true),
+        user,
+        id,
+      );
+    }
     final values = await Future.wait<dynamic>([
       catalog.subject(id, onAvailable: publish).then((detail) async {
         await publish(detail);
         return detail;
       }),
-      refreshEpisodes(id, useCache: true).catchError((Object e) {
-        if (user == account.userId) lastSyncError = e.toString();
-      }),
+      personal,
     ]);
     return _withProgress(object(values[0]), user, id);
   }
@@ -90,7 +99,7 @@ class TrackingRepository {
   Future<Json> _withProgress(Json detail, String user, int id) async {
     if (user != account.userId) throw StateError('账号已经切换');
     final item = await store.get(_collection(user), '$id');
-    final progress = await store.list(_episodes(user));
+    final progress = await store.list(_episodes(user), subjectId: id);
     if (user != account.userId) throw StateError('账号已经切换');
     final status = {for (final e in progress) '${e['episodeId']}': e['status']};
     return {
@@ -417,6 +426,8 @@ class TrackingRepository {
     final attempted = <int>{};
     final blocked = <String>{};
     String? error;
+    final previousError = lastSyncError;
+    var changed = false;
     try {
       while (!_closed && user == account.userId) {
         final rows = (await store.pending(user))
@@ -468,6 +479,7 @@ class TrackingRepository {
               );
             }
             await store.acknowledge(sequence);
+            changed = true;
           } on ApiException catch (e) {
             // A rejected item must not prevent unrelated valid edits syncing.
             // Stop on connection/server/account failures until the next retry.
@@ -485,7 +497,7 @@ class TrackingRepository {
     } catch (e) {
       if (user == account.userId) lastSyncError = e.toString();
     }
-    _changed();
+    if (changed || previousError != lastSyncError) _changed();
   }
 
   void _changed() {

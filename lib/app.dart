@@ -14,6 +14,7 @@ import 'ui/acquisition/downloads_page.dart';
 import 'ui/acquisition/resources_page.dart';
 import 'data/resource_metadata.dart';
 import 'data/play_candidates.dart';
+import 'data/network.dart';
 import 'ui/core/action_feedback.dart';
 import 'ui/core/app_chrome.dart';
 import 'ui/core/motion.dart';
@@ -104,7 +105,28 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       results = [],
       candidates = [],
       providers = [];
-  Json downloads = {}, sync = {};
+  final downloadState = ValueNotifier<Json>({});
+  final downloadCount = ValueNotifier<int>(0);
+  Json get downloads => downloadState.value;
+  Json sync = {};
+
+  void acceptDownloads(Json value) {
+    downloadState.value = value;
+    downloadCount.value = objects(value['tasks'])
+        .where(
+          (task) =>
+              [
+                'metadata',
+                'downloading',
+                'ready',
+                'queued',
+                'checking',
+              ].contains(task['status']) &&
+              number(task['progress']) < 1,
+        )
+        .length;
+  }
+
   int? resourceEpisode;
   int _navigation = 0;
   int? _subjectRequest;
@@ -116,6 +138,21 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   Json? _candidateSubject, _candidateEpisode;
   List<PlayCandidate> _playChoices = [];
   int _selectionRequest = 0, _fallbackCount = 0;
+  RequestCancellation _selectionCancel = RequestCancellation();
+  RequestCancellation _resourceCancel = RequestCancellation();
+
+  int nextSelection() {
+    _selectionCancel.cancel();
+    _selectionCancel = RequestCancellation();
+    return ++_selectionRequest;
+  }
+
+  int nextNavigation() {
+    _resourceCancel.cancel();
+    _resourceRequest++;
+    return ++_navigation;
+  }
+
   bool _recoveringSource = false;
   bool _onlineRefreshed = false;
   Timer? _firstFrameDeadline, _bufferDeadline;
@@ -149,7 +186,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
               )
               .join('|');
           final changed = availability(downloads) != availability(value);
-          setState(() => downloads = value);
+          acceptDownloads(value);
           if (changed && ready && ['home', 'subject'].contains(route)) {
             unawaited(perform(refreshPlaybackAvailability));
           }
@@ -163,9 +200,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           if (mounted) unawaited(perform(refreshPersonal));
         }),
       );
-      downloads = widget.service.downloads.snapshot();
+      acceptDownloads(widget.service.downloads.snapshot());
       widget.service.library.providerEnabled = playback.danmaku.sourceEnabled;
       widget.service.online.addListener(sourcesChanged);
+      widget.service.downloadsAvailable.addListener(sourcesChanged);
       subscriptions.add(
         playback.player.stream.error.listen((reason) {
           if (_activeCandidate != null &&
@@ -322,7 +360,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
 
   void cancelPlaybackSelection() {
     playback.cancelAutoplay();
-    _selectionRequest++;
+    nextSelection();
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
     _playbackRequest++;
@@ -349,7 +387,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       return;
     }
     final previous = history.removeLast();
-    _navigation++;
+    nextNavigation();
     setState(() {
       route = previous.route;
       selectedSection = previous.section;
@@ -459,6 +497,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   Future<void> perform(Future<void> Function() action) async {
     try {
       await action();
+    } on RequestCancelled {
+      return;
     } catch (e) {
       showError(e);
     }
@@ -472,7 +512,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     }
     leavePlayer();
     if (route != 'subject' || subject?['subjectId'] != id) rememberLocation();
-    final ticket = ++_navigation;
+    final ticket = nextNavigation();
     _subjectRequest = ticket;
     setState(() {
       route = 'subject';
@@ -507,7 +547,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     final subjectId = episode == null ? null : subject?['subjectId'] as int?;
     final selected = path ?? (await selectVideo())?.path;
     if (selected == null || !mounted) return;
-    _selectionRequest++;
+    nextSelection();
     _activeCandidate = null;
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
@@ -521,7 +561,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   }
 
   Future<void> startPlayback(Future<Json> Function() load) async {
-    final request = ++_selectionRequest;
+    final request = nextSelection();
     _activeCandidate = null;
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
@@ -593,6 +633,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     bool instantOnly = false,
     bool useContinuity = false,
     bool forPlayback = false,
+    RequestCancellation? cancel,
   }) {
     final settings = playback.settings;
     return widget.service.selection.candidates(
@@ -601,6 +642,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       instantOnly: instantOnly,
       useContinuity: useContinuity,
       forPlayback: forPlayback,
+      cancel: cancel ?? _selectionCancel,
       onlineFirst:
           (subjectIsAiring(item)
               ? settings.airingPriority
@@ -616,7 +658,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     bool useContinuity = false,
   }) async {
     playback.cancelAutoplay();
-    final request = ++_selectionRequest;
+    final request = nextSelection();
     _activeCandidate = null;
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
@@ -630,6 +672,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         episode,
         instantOnly: true,
         includeOnline: false,
+        cancel: _selectionCancel,
         useContinuity: useContinuity,
         language: playback.settings.subtitleLanguage,
       );
@@ -728,7 +771,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     bool recovery = false,
     Duration? recoveryPosition,
   }) async {
-    final request = recovery ? _selectionRequest : ++_selectionRequest;
+    final request = recovery ? _selectionRequest : nextSelection();
+    final cancellation = _selectionCancel;
     if (!recovery) {
       playback.cancelAutoplay();
       _candidateSubject = item;
@@ -750,6 +794,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
             candidate,
             item['subjectId'] as int,
             episode['episodeId'] as int,
+            cancel: cancellation,
           );
           if (!mounted || closing || request != _selectionRequest) {
             widget.service.releasePlaybackStreams(
@@ -820,6 +865,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     }
     _recoveringSource = true;
     final request = _selectionRequest;
+    final cancellation = _selectionCancel;
+    var searchedAlternatives = false;
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
     try {
@@ -853,15 +900,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           }
         }
         if (_fallbackCount >= 3) break;
-        if (_playChoices.isEmpty) {
-          _playChoices = await episodeCandidates(
-            item,
-            episode,
-            instantOnly: true,
-            useContinuity: true,
-          );
-        }
-        final alternatives = _playChoices
+        List<PlayCandidate> healthyChoices() => _playChoices
             .where(
               (candidate) =>
                   candidate.instant &&
@@ -870,6 +909,18 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                   candidate.health >= 0,
             )
             .toList();
+        var alternatives = healthyChoices();
+        if (alternatives.isEmpty && !searchedAlternatives) {
+          searchedAlternatives = true;
+          _playChoices = await episodeCandidates(
+            item,
+            episode,
+            instantOnly: true,
+            useContinuity: true,
+            cancel: cancellation,
+          );
+          alternatives = healthyChoices();
+        }
         final alternative =
             alternatives
                 .where((candidate) => candidate.provider == failed!.provider)
@@ -909,12 +960,13 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   }
 
   Future<AutoplayTarget?> prepareAutoplay(Json session) async {
+    final cancellation = _selectionCancel;
     final id = session['subjectId'] as int?,
         currentId = session['episodeId'] as int?;
     if (id == null || currentId == null) return null;
     final item = playerSubject?['subjectId'] == id
         ? playerSubject!
-        : await widget.service.tracking.subject(id);
+        : await widget.service.tracking.subject(id, forPlayback: true);
     final episodes =
         objects(item['episodes'])
             .where(
@@ -941,6 +993,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         next,
         instantOnly: true,
         includeOnline: false,
+        cancel: cancellation,
         useContinuity: true,
         language: playback.settings.subtitleLanguage,
       );
@@ -956,6 +1009,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       item,
       next,
       instantOnly: true,
+      cancel: cancellation,
       useContinuity: true,
     )).where((c) => c.instant && !c.possibleMatch).toList();
     if (choices.isEmpty) {
@@ -978,7 +1032,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     final sessionId = playback.session?['id'];
     final subjectId = playback.session?['subjectId'] as int?;
     if (route != 'player') rememberLocation();
-    _navigation++;
+    nextNavigation();
     setState(() {
       route = 'player';
       busy = false;
@@ -987,7 +1041,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     if (subjectId == null || !ready) return;
     unawaited(
       perform(() async {
-        final detail = await widget.service.tracking.subject(subjectId);
+        final detail = await widget.service.tracking.subject(
+          subjectId,
+          forPlayback: true,
+        );
         if (mounted && sessionId == playback.session?['id']) {
           setState(() => playerSubject = detail);
         }
@@ -1109,7 +1166,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       'episode': episodeKeyword,
     }, identifier: formId);
     resourceSearch.text = titleOf(subject ?? {});
-    _navigation++;
+    nextNavigation();
     setState(() {
       route = 'resources';
       candidates = [];
@@ -1125,6 +1182,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     if (subject == null) return;
     final searchNames = names ?? resourceNames(subject!);
     if (resourceSearch.text.trim().isEmpty && searchNames.isEmpty) return;
+    _resourceCancel.cancel();
+    final cancellation = _resourceCancel = RequestCancellation();
     final ticket = ++_resourceRequest;
     final navigation = _navigation;
     final subjectId = subject!['subjectId'] as int;
@@ -1142,6 +1201,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         await widget.service.sources.search(
           subjectId,
           keyword,
+          cancel: cancellation,
           episodeId: episodeId,
           alternativeNames: searchNames,
           episodeKeyword: episodeKeyword,
@@ -1217,7 +1277,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   }
 
   Future<void> _loadSearchPage(int offset) async {
-    final ticket = ++_navigation;
+    final ticket = nextNavigation();
     final previousResults = results.take(offset).toList();
     final requestedQuery = resultQuery;
     setState(() {
@@ -1255,7 +1315,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     if (target == route) return;
     leavePlayer();
     rememberLocation();
-    _navigation++;
+    nextNavigation();
     setState(() {
       route = target;
       if ([
@@ -1373,7 +1433,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     closing = true;
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
-    if (ready) widget.service.online.removeListener(sourcesChanged);
+    if (ready) {
+      widget.service.online.removeListener(sourcesChanged);
+      widget.service.downloadsAvailable.removeListener(sourcesChanged);
+    }
     unawaited(
       _playbackOperations
           .then((_) => playback.close())
@@ -1382,6 +1445,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     for (final subscription in subscriptions) {
       unawaited(subscription.cancel());
     }
+    _selectionCancel.cancel();
+    _resourceCancel.cancel();
+    downloadState.dispose();
+    downloadCount.dispose();
     homeFeedback.dispose();
     syncFeedback.dispose();
     search.dispose();
@@ -1457,34 +1524,25 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                             axis: Axis.horizontal,
                             child: SizedBox(
                               width: sidebarWidth,
-                              child: AppSidebar(
-                                dark: dark,
-                                route: route,
-                                selectedRoute: selectedSection,
-                                sourcesWarning:
-                                    ready && widget.service.online.warning,
-                                nickname: '${account?['nickname'] ?? '尚未登录'}',
-                                username: account?['username'] as String?,
-                                avatarUrl: account?['avatarUrl'] as String?,
-                                watchingCount: collection
-                                    .where(
-                                      (item) => item['status'] == 'watching',
-                                    )
-                                    .length,
-                                downloadCount: objects(downloads['tasks'])
-                                    .where(
-                                      (task) =>
-                                          [
-                                            'metadata',
-                                            'downloading',
-                                            'ready',
-                                            'queued',
-                                            'checking',
-                                          ].contains(task['status']) &&
-                                          number(task['progress']) < 1,
-                                    )
-                                    .length,
-                                onNavigate: navigate,
+                              child: ValueListenableBuilder<int>(
+                                valueListenable: downloadCount,
+                                builder: (context, count, _) => AppSidebar(
+                                  dark: dark,
+                                  route: route,
+                                  selectedRoute: selectedSection,
+                                  sourcesWarning:
+                                      ready && widget.service.online.warning,
+                                  nickname: '${account?['nickname'] ?? '尚未登录'}',
+                                  username: account?['username'] as String?,
+                                  avatarUrl: account?['avatarUrl'] as String?,
+                                  watchingCount: collection
+                                      .where(
+                                        (item) => item['status'] == 'watching',
+                                      )
+                                      .length,
+                                  downloadCount: count,
+                                  onNavigate: navigate,
+                                ),
                               ),
                             ),
                           ),
@@ -1515,7 +1573,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                                         windowFullScreen: windowFullScreen,
                                         onWindowFullScreenChanged:
                                             setWindowFullScreen,
-                                        downloads: downloads,
+                                        downloads: downloadState,
                                         onPlayFile: (id, fileId) =>
                                             startPlayback(
                                               () => widget.service.library
@@ -1574,6 +1632,32 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     unawaited(widget.preferences.setBool('dark', value));
   }
 
+  Widget downloadsSection(Widget Function() content) => ListenableBuilder(
+    listenable: Listenable.merge([
+      widget.service.downloadsAvailable,
+      widget.service.downloadIssue,
+    ]),
+    builder: (context, _) {
+      if (widget.service.downloadsAvailable.value) return content();
+      final issue = widget.service.downloadIssue.value;
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Center(
+          child: issue == null
+              ? const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('正在恢复缓存任务…'),
+                  ],
+                )
+              : Text('缓存任务恢复失败：$issue'),
+        ),
+      );
+    },
+  );
+
   Widget page() {
     if (!ready) {
       return error == null
@@ -1605,9 +1689,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           trending: trending,
           resumable: resumable,
           onResume: (item) => perform(() async {
-            final request = ++_selectionRequest;
+            final request = nextSelection();
             final detail = await widget.service.tracking.subject(
               item['subjectId'] as int,
+              forPlayback: true,
             );
             if (!mounted || closing || request != _selectionRequest) return;
             final episode = objects(detail['episodes'])
@@ -1694,10 +1779,12 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           onSearch: (names, episode) =>
               searchResources(names: names, episodeKeyword: episode),
           onDownload: (candidate) async {
+            await widget.service.downloadsReady;
             await widget.service.sources.enqueue('${candidate['candidateId']}');
           },
           defaultMethod: widget.service.downloads.defaultMethod,
           onDownloadWithMethod: (candidate, method) async {
+            await widget.service.downloadsReady;
             await widget.service.sources.enqueue(
               '${candidate['candidateId']}',
               method: method,
@@ -1705,25 +1792,34 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           },
         );
       case 'downloads':
-        return DownloadsPage(
-          downloads: downloads,
-          onAddMagnet: addMagnet,
-          onAddTorrent: addTorrent,
-          onOpenVideo: () => openVideo(),
-          onExplore: () => navigate('home'),
-          onRemove: confirmRemoval,
-          onStopSeeding: (task) => perform(
-            () => widget.service.downloads.stopSeeding('${task['id']}'),
-          ),
-          onTogglePause: (task) => perform(() async {
-            if (['paused', 'failed', 'completed'].contains(task['status'])) {
-              await widget.service.downloads.resume('${task['id']}');
-            } else {
-              await widget.service.downloads.pause('${task['id']}');
-            }
-          }),
-          onPlay: (id, fileId) => startPlayback(
-            () => widget.service.library.fromDownload(id, fileId: fileId),
+        return downloadsSection(
+          () => ValueListenableBuilder<Json>(
+            valueListenable: downloadState,
+            builder: (context, value, _) => DownloadsPage(
+              downloads: value,
+              onAddMagnet: addMagnet,
+              onAddTorrent: addTorrent,
+              onOpenVideo: () => openVideo(),
+              onExplore: () => navigate('home'),
+              onRemove: confirmRemoval,
+              onStopSeeding: (task) => perform(
+                () => widget.service.downloads.stopSeeding('${task['id']}'),
+              ),
+              onTogglePause: (task) => perform(() async {
+                if ([
+                  'paused',
+                  'failed',
+                  'completed',
+                ].contains(task['status'])) {
+                  await widget.service.downloads.resume('${task['id']}');
+                } else {
+                  await widget.service.downloads.pause('${task['id']}');
+                }
+              }),
+              onPlay: (id, fileId) => startPlayback(
+                () => widget.service.library.fromDownload(id, fileId: fileId),
+              ),
+            ),
           ),
         );
       case 'sources':
@@ -1745,27 +1841,29 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           accountBusy: accountBusy,
           dark: dark,
           dataDirectory: widget.service.dataDirectory,
-          cacheSettings: CacheSettings(
-            defaultMethod: widget.service.downloads.defaultMethod,
-            onMethodChanged: widget.service.downloads.saveCacheMethod,
-            account: widget.service.pikpak.session,
-            needsAuthorization: widget.service.pikpak.needsAuthorization,
-            verificationUrl: widget.service.pikpak.verificationUrl,
-            onUnlock: () async {
-              await widget.service.pikpak.unlock();
-              await widget.service.downloads.pikpak!.accountChanged();
-              if (mounted) setState(() {});
-            },
-            onLogin: (username, password) async {
-              await widget.service.pikpak.signIn(username, password);
-              await widget.service.downloads.pikpak!.accountChanged();
-              if (mounted) setState(() {});
-            },
-            onLogout: () async {
-              await widget.service.pikpak.signOut();
-              await widget.service.downloads.pikpak!.accountChanged();
-              if (mounted) setState(() {});
-            },
+          cacheSettings: downloadsSection(
+            () => CacheSettings(
+              defaultMethod: widget.service.downloads.defaultMethod,
+              onMethodChanged: widget.service.downloads.saveCacheMethod,
+              account: widget.service.pikpak.session,
+              needsAuthorization: widget.service.pikpak.needsAuthorization,
+              verificationUrl: widget.service.pikpak.verificationUrl,
+              onUnlock: () async {
+                await widget.service.pikpak.unlock();
+                await widget.service.downloads.pikpak!.accountChanged();
+                if (mounted) setState(() {});
+              },
+              onLogin: (username, password) async {
+                await widget.service.pikpak.signIn(username, password);
+                await widget.service.downloads.pikpak!.accountChanged();
+                if (mounted) setState(() {});
+              },
+              onLogout: () async {
+                await widget.service.pikpak.signOut();
+                await widget.service.downloads.pikpak!.accountChanged();
+                if (mounted) setState(() {});
+              },
+            ),
           ),
           storageSettings: StorageSettings(
             onExit: () => windowManager.close(),
@@ -1783,8 +1881,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
             }
           }),
           syncBusy: syncFeedback.busy,
-          bitTorrentSettings: BitTorrentSettingsPanel(
-            downloads: widget.service.downloads,
+          bitTorrentSettings: downloadsSection(
+            () => BitTorrentSettingsPanel(downloads: widget.service.downloads),
           ),
           onThemeChanged: setDark,
           onCancelSignIn: () => perform(() async {
@@ -1823,6 +1921,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     );
     if (uri != null && uri.trim().isNotEmpty) {
       await perform(() async {
+        await widget.service.downloadsReady;
         await widget.service.downloads.addMagnet(uri.trim());
       });
     }
@@ -1836,6 +1935,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     );
     if (file != null) {
       await perform(() async {
+        await widget.service.downloadsReady;
         await widget.service.downloads.addTorrent(
           await file.readAsBytes(),
           file.name,

@@ -355,14 +355,25 @@ class Playback extends ChangeNotifier {
     notifyListeners();
   }
 
+  (Object, Object?, double, double, bool)? _lastProgress;
+
   Future<void> saveProgress({bool ended = false}) {
     if (uri == null || session == null || opening) return _progressWrites;
-    final savedUri = session!['resumeKey'] ?? uri!;
+    final savedUri = '${session!['resumeKey'] ?? uri!}';
     final savedSession = session!;
     ended = error == null && (ended || player.state.completed);
     final position = player.state.position.inMilliseconds / 1000;
     final duration = player.state.duration.inMilliseconds / 1000;
     final completed = ended;
+    final signature = (
+      savedUri,
+      savedSession['id'],
+      position,
+      duration,
+      completed,
+    );
+    if (_lastProgress == signature) return _progressWrites;
+    _lastProgress = signature;
     return _progressWrites = _progressWrites.then((_) async {
       try {
         await preferences.setDouble(
@@ -371,6 +382,7 @@ class Playback extends ChangeNotifier {
         );
         await service.library.save(savedSession, position, duration, completed);
       } catch (_) {
+        if (_lastProgress == signature) _lastProgress = null;
         /* Playback is independent of progress storage availability. */
       }
     });

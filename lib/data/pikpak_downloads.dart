@@ -52,12 +52,21 @@ class PikPakDownloadRepository {
     _emit();
   }
 
-  Json snapshot() => {
-    'tasks': _tasks.values
-        .map((task) => object(jsonDecode(jsonEncode(task))))
-        .toList(),
-    'files': _tasks.values.expand((task) => objects(task['files'])).toList(),
-  };
+  Json snapshot() {
+    final tasks = [
+      for (final task in _tasks.values)
+        {
+          ...task,
+          'files': [
+            for (final file in objects(task['files'])) {...file},
+          ],
+        },
+    ];
+    return {
+      'tasks': tasks,
+      'files': tasks.expand((task) => objects(task['files'])).toList(),
+    };
+  }
 
   bool contains(String id) => _tasks.containsKey(id);
 
@@ -407,25 +416,25 @@ class PikPakDownloadRepository {
     var received = offset, lastBytes = offset, lastTick = 0;
     final clock = Stopwatch()..start();
     try {
-      await for (final bytes in response.stream.timeout(
-        const Duration(seconds: 45),
-      )) {
-        if (!_active(task)) break;
-        received += bytes.length;
-        if (received > expected) throw StateError('PikPak 文件内容超出预期大小');
-        sink.add(bytes);
-        file['downloadedBytes'] = received;
-        file['progress'] = received / expected;
-        final now = clock.elapsedMilliseconds;
-        if (now - lastTick >= 500) {
-          task['downloadSpeedBytesPerSecond'] =
-              ((received - lastBytes) * 1000 / (now - lastTick)).round();
-          lastTick = now;
-          lastBytes = received;
-          _updateProgress(task);
-          _emit();
-        }
-      }
+      await sink.addStream(
+        response.stream.timeout(const Duration(seconds: 45)).map((bytes) {
+          if (!_active(task)) throw StateError('缓存任务已停止');
+          received += bytes.length;
+          if (received > expected) throw StateError('PikPak 文件内容超出预期大小');
+          file['downloadedBytes'] = received;
+          file['progress'] = received / expected;
+          final now = clock.elapsedMilliseconds;
+          if (now - lastTick >= 500) {
+            task['downloadSpeedBytesPerSecond'] =
+                ((received - lastBytes) * 1000 / (now - lastTick)).round();
+            lastTick = now;
+            lastBytes = received;
+            _updateProgress(task);
+            _emit();
+          }
+          return bytes;
+        }),
+      );
       await sink.flush();
     } finally {
       await sink.close();

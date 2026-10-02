@@ -1,10 +1,73 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:http/http.dart' as http;
 
 import 'json.dart';
+
+class RequestCancelled implements Exception {
+  const RequestCancelled();
+  @override
+  String toString() => '请求已取消';
+}
+
+class RequestCancellation {
+  bool _cancelled = false;
+  final _listeners = <void Function()>{};
+  bool get isCancelled => _cancelled;
+  void throwIfCancelled() {
+    if (_cancelled) throw const RequestCancelled();
+  }
+
+  void Function() listen(void Function() listener) {
+    if (_cancelled) {
+      listener();
+      return () {};
+    }
+    _listeners.add(listener);
+    return () => _listeners.remove(listener);
+  }
+
+  void cancel() {
+    if (_cancelled) return;
+    _cancelled = true;
+    for (final listener in _listeners.toList()) {
+      listener();
+    }
+    _listeners.clear();
+  }
+}
+
+Future<dynamic> decodeJsonBytes(List<int> bytes) async =>
+    bytes.length < 256 * 1024
+    ? jsonDecode(utf8.decode(bytes))
+    : Isolate.run(() => jsonDecode(utf8.decode(bytes)));
+
+class _HostRequests {
+  int active = 0;
+  final waiting = Queue<Completer<void>>();
+  Future<T> run<T>(Future<T> Function() action) async {
+    if (active >= 4) {
+      final slot = Completer<void>();
+      waiting.add(slot);
+      await slot.future;
+    } else {
+      active++;
+    }
+    try {
+      return await action();
+    } finally {
+      if (waiting.isEmpty) {
+        active--;
+      } else {
+        waiting.removeFirst().complete();
+      }
+    }
+  }
+}
 
 class ApiException implements Exception {
   const ApiException(this.status, this.host, {this.reason});
@@ -22,6 +85,7 @@ class ApiClient {
     : client = client ?? http.Client();
   final Duration timeout;
   final _active = <Completer<void>>{};
+  final _hosts = <String, _HostRequests>{};
   bool _closed = false;
   final http.Client client;
   http.AbortableRequest _request(
@@ -73,7 +137,9 @@ class ApiClient {
     Object? body,
     Map<String, String> headers = const {},
     Set<int> acceptedStatuses = const {},
+    RequestCancellation? cancel,
   }) async {
+    cancel?.throwIfCancelled();
     final abort = Completer<void>();
     final request = _request(
       uri,
@@ -83,33 +149,59 @@ class ApiClient {
       headers: headers,
     );
     _active.add(abort);
+    final unsubscribe = cancel?.listen(() {
+      if (!abort.isCompleted) abort.complete();
+    });
     try {
-      final receiving = client.send(request).then(http.Response.fromStream);
-      final response = await receiving.timeout(
-        timeout,
-        onTimeout: () => _timedOut(uri, abort),
-      );
+      final queue = _hosts.putIfAbsent(uri.host, _HostRequests.new);
+      final receiving = queue
+          .run(() {
+            if (abort.isCompleted) throw const RequestCancelled();
+            return client.send(request).then(http.Response.fromStream);
+          })
+          .whenComplete(() {
+            if (queue.active == 0) _hosts.remove(uri.host);
+          });
+      final response = await Future.any([
+        receiving,
+        abort.future.then<http.Response>((_) => throw const RequestCancelled()),
+      ]).timeout(timeout, onTimeout: () => _timedOut(uri, abort));
       if (!acceptedStatuses.contains(response.statusCode)) {
         _checkResponse(response, uri);
       }
+      cancel?.throwIfCancelled();
       return response;
+    } catch (_) {
+      cancel?.throwIfCancelled();
+      rethrow;
     } finally {
+      unsubscribe?.call();
       _active.remove(abort);
     }
   }
 
-  Stream<Json> ndjson(Uri uri) async* {
+  Stream<Json> ndjson(
+    Uri uri, {
+    Map<String, String> headers = const {},
+    void Function(Map<String, String>)? onHeaders,
+  }) async* {
     final abort = Completer<void>();
     final request = _request(
       uri,
       abort: abort,
-      headers: const {'Accept': 'application/x-ndjson'},
+      headers: {'Accept': 'application/x-ndjson', ...headers},
     );
     _active.add(abort);
     try {
       final response = await client
           .send(request)
           .timeout(timeout, onTimeout: () => _timedOut(uri, abort));
+      onHeaders?.call(response.headers);
+      if (response.statusCode == 304) {
+        await response.stream.drain<void>();
+        yield {'type': 'notModified'};
+        return;
+      }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         _checkResponse(
           await http.Response.fromStream(response)
@@ -129,7 +221,11 @@ class ApiClient {
             },
           );
       await for (final line in lines) {
-        yield object(jsonDecode(line));
+        yield object(
+          line.length < 256 * 1024
+              ? jsonDecode(line)
+              : await Isolate.run(() => jsonDecode(line)),
+        );
       }
     } finally {
       if (!abort.isCompleted) abort.complete();
@@ -142,16 +238,18 @@ class ApiClient {
     String method = 'GET',
     Object? body,
     Map<String, String> headers = const {},
+    RequestCancellation? cancel,
   }) async {
     final response = await send(
       uri,
       method: method,
       body: body,
       headers: headers,
+      cancel: cancel,
     );
     return response.bodyBytes.isEmpty
         ? null
-        : jsonDecode(utf8.decode(response.bodyBytes));
+        : await decodeJsonBytes(response.bodyBytes);
   }
 
   Future<Json> map(
@@ -159,8 +257,16 @@ class ApiClient {
     String method = 'GET',
     Object? body,
     Map<String, String> headers = const {},
-  }) async =>
-      object(await json(uri, method: method, body: body, headers: headers));
+    RequestCancellation? cancel,
+  }) async => object(
+    await json(
+      uri,
+      method: method,
+      body: body,
+      headers: headers,
+      cancel: cancel,
+    ),
+  );
   void close() {
     if (_closed) return;
     _closed = true;

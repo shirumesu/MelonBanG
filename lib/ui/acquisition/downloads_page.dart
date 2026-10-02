@@ -41,10 +41,25 @@ class _DownloadsPageState extends State<DownloadsPage> {
   String statusFilter = '所有状态';
   final expanded = <String>{};
   StateSetter? _refreshFileDialog;
+  final filesByTask = <Object?, List<Json>>{};
+
+  void indexFiles() {
+    filesByTask.clear();
+    for (final file in objects(widget.downloads['files'])) {
+      filesByTask.putIfAbsent(file['downloadId'], () => []).add(file);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    indexFiles();
+  }
 
   @override
   void didUpdateWidget(covariant DownloadsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.downloads != widget.downloads) indexFiles();
     if (_refreshFileDialog != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _refreshFileDialog?.call(() {});
@@ -147,11 +162,15 @@ class _DownloadsPageState extends State<DownloadsPage> {
         for (final group in [('进行中', active), ('已缓存', cached)]) ...[
           if (group.$2.isNotEmpty) ...[
             SectionTitle(title: group.$1, subtitle: '${group.$2.length} 个任务'),
-            for (final task in group.$2)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _task(context, task),
+            PageSliver(
+              child: SliverList.builder(
+                itemCount: group.$2.length,
+                itemBuilder: (context, index) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _task(context, group.$2[index]),
+                ),
               ),
+            ),
           ],
         ],
         if (visible.isEmpty)
@@ -174,9 +193,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         ['paused', 'failed'].contains(task['status']) ||
         (task['status'] == 'completed' && task['seedingStopped'] == true);
     final stoppedByPolicy = task['status'] == 'completed' && !canResume;
-    final files = objects(widget.downloads['files'])
-        .where((f) => f['downloadId'] == task['id'])
-        .toList();
+    final files = filesByTask[task['id']] ?? const <Json>[];
     final videos = files.where((f) => f['mediaKind'] == 'video').toList();
     final playable =
         !['checking', 'failed'].contains(task['status']) && videos.isNotEmpty;

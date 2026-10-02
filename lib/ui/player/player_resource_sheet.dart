@@ -114,6 +114,7 @@ class _PlayerResourceSheetState extends State<PlayerResourceSheet> {
                     ),
                   )
                 : CandidateResources(
+                    active: widget.visible,
                     service: widget.service,
                     playback: widget.playback,
                     subject: widget.subject,

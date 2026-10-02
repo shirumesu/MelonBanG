@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -29,7 +30,7 @@ class PlayerPage extends StatefulWidget {
     required this.onFullScreenChanged,
     required this.onEpisode,
     this.subject,
-    this.downloads = const {},
+    required this.downloads,
     this.windowFullScreen = false,
     this.onWindowFullScreenChanged,
     this.onPlayFile,
@@ -46,7 +47,7 @@ class PlayerPage extends StatefulWidget {
   final Future<void> Function(bool) onFullScreenChanged;
   final Future<void> Function(bool)? onWindowFullScreenChanged;
   final Json? subject;
-  final Json downloads;
+  final ValueListenable<Json> downloads;
   final ValueChanged<Json> onEpisode;
   final void Function(String id, String? fileId)? onPlayFile;
   final Future<void> Function(PlayCandidate candidate, Json episode)?
@@ -213,13 +214,13 @@ class _PlayerPageState extends State<PlayerPage> {
     final next = episodes[index + 1];
     final id = next['episodeId'] as int;
     final tasks = subjectTasks(
-      widget.downloads,
+      widget.downloads.value,
       widget.subject?['subjectId'] as int?,
     );
     return (
       next,
       localEpisodes.contains(id) ||
-          playableTask(widget.downloads, tasks, id) != null,
+          playableTask(widget.downloads.value, tasks, id) != null,
     );
   }
 
@@ -443,18 +444,24 @@ class _PlayerPageState extends State<PlayerPage> {
                       ),
                       child: SizedBox(
                         width: libraryWidth,
-                        child: PlayerLibraryPanel(
-                          key: ValueKey(playback.session?['subjectId']),
-                          service: widget.service,
-                          subjectId: playback.session?['subjectId'] as int?,
-                          subject: widget.subject,
-                          episodeId: playback.session?['episodeId'] as int?,
-                          title: '${playback.session?['title'] ?? '播放器'}',
-                          downloads: widget.downloads,
-                          localEpisodes: localEpisodes,
-                          onEpisode: widget.onEpisode,
-                          onFindResources: findResources,
-                          onPlayFile: widget.onPlayFile ?? (_, _) {},
+                        child: ValueListenableBuilder<Json>(
+                          valueListenable: widget.downloads,
+                          builder: (context, downloads, _) =>
+                              PlayerLibraryPanel(
+                                key: ValueKey(playback.session?['subjectId']),
+                                service: widget.service,
+                                subjectId:
+                                    playback.session?['subjectId'] as int?,
+                                subject: widget.subject,
+                                episodeId:
+                                    playback.session?['episodeId'] as int?,
+                                title: '${playback.session?['title'] ?? '播放器'}',
+                                downloads: downloads,
+                                localEpisodes: localEpisodes,
+                                onEpisode: widget.onEpisode,
+                                onFindResources: findResources,
+                                onPlayFile: widget.onPlayFile ?? (_, _) {},
+                              ),
                         ),
                       ),
                     ),

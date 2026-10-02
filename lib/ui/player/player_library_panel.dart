@@ -16,13 +16,16 @@ Future<Set<int>> loadLocalEpisodes(
   List<Json> episodes,
 ) async {
   final available = <int>{};
-  for (final episode in episodes) {
-    final episodeId = episode['episodeId'] as int;
-    final saved = await service.store.get(
-      'episode_files',
-      '$subjectId:$episodeId',
-    );
-    if (saved != null &&
+  final episodeIds = {for (final episode in episodes) episode['episodeId']};
+  final mappings = await service.store.entries(
+    'episode_files',
+    idPrefix: '$subjectId:',
+  );
+  for (final entry in mappings.entries) {
+    final episodeId = int.tryParse(entry.key.substring('$subjectId:'.length));
+    final saved = entry.value;
+    if (episodeId != null &&
+        episodeIds.contains(episodeId) &&
         saved['downloadId'] == null &&
         await File('${saved['path']}').exists()) {
       available.add(episodeId);
@@ -84,21 +87,62 @@ class PlayerLibraryPanel extends StatefulWidget {
 }
 
 class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
-  final currentKey = GlobalKey();
+  final episodeScroll = ScrollController();
+  static const episodeHeight = 58.0;
+  final filesByTask = <Object?, List<Json>>{};
+  final tasksByEpisode = <Object?, List<Json>>{};
+  List<Json> _tasks = [];
   String tab = 'episodes';
   String? error;
-  List<Json> get episodes => objects(widget.subject?['episodes']);
-  List<Json> get tasks => subjectTasks(widget.downloads, widget.subjectId);
+  List<Json> episodes = [];
+  final episodesById = <Object?, Json>{};
+
+  void indexEpisodes() {
+    episodes = objects(widget.subject?['episodes']);
+    episodesById.clear();
+    for (final episode in episodes) {
+      episodesById[episode['episodeId']] = episode;
+    }
+  }
+
+  List<Json> get tasks => _tasks;
+
+  void indexDownloads() {
+    _tasks = subjectTasks(widget.downloads, widget.subjectId);
+    filesByTask.clear();
+    tasksByEpisode.clear();
+    for (final file in objects(widget.downloads['files'])) {
+      if (file['mediaKind'] == 'video') {
+        filesByTask.putIfAbsent(file['downloadId'], () => []).add(file);
+      }
+    }
+    for (final task in _tasks) {
+      tasksByEpisode.putIfAbsent(task['episodeId'], () => []).add(task);
+    }
+  }
+
+  @override
+  void dispose() {
+    episodeScroll.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
     super.initState();
+    indexDownloads();
+    indexEpisodes();
     revealCurrent();
   }
 
   @override
   void didUpdateWidget(PlayerLibraryPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.downloads != widget.downloads ||
+        oldWidget.subjectId != widget.subjectId) {
+      indexDownloads();
+    }
+    if (oldWidget.subject != widget.subject) indexEpisodes();
     if (oldWidget.episodeId != widget.episodeId ||
         oldWidget.subject != widget.subject) {
       revealCurrent();
@@ -106,10 +150,18 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
   }
 
   void revealCurrent() => WidgetsBinding.instance.addPostFrameCallback((_) {
-    final target = currentKey.currentContext;
-    if (target != null && target.mounted) {
-      unawaited(Scrollable.ensureVisible(target, alignment: .3));
-    }
+    if (!mounted || !episodeScroll.hasClients || tab == 'tasks') return;
+    final index = episodes.indexWhere(
+      (episode) => episode['episodeId'] == widget.episodeId,
+    );
+    if (index < 0) return;
+    final position = episodeScroll.position;
+    episodeScroll.jumpTo(
+      (index * episodeHeight - position.viewportDimension * .3).clamp(
+        0.0,
+        position.maxScrollExtent,
+      ),
+    );
   });
 
   Future<void> toggleTask(Json task) async {
@@ -124,15 +176,13 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
     }
   }
 
-  List<Json> filesFor(Json task) => taskVideoFiles(widget.downloads, task);
+  List<Json> filesFor(Json task) => filesByTask[task['id']] ?? const [];
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
-    final current = episodes
-        .where((e) => e['episodeId'] == widget.episodeId)
-        .firstOrNull;
+    final current = episodesById[widget.episodeId];
     final tasks = this.tasks;
     final showTasks = tab == 'tasks' && tasks.isNotEmpty;
     return Material(
@@ -191,7 +241,10 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                     'tasks': '本作缓存 · ${tasks.length}',
                   },
                   value: showTasks ? 'tasks' : 'episodes',
-                  onChanged: (value) => setState(() => tab = value),
+                  onChanged: (value) {
+                    setState(() => tab = value);
+                    if (value == 'episodes') revealCurrent();
+                  },
                 ),
               ),
             if (error != null)
@@ -206,27 +259,37 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                 ),
               ),
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(Gap.sm, 0, Gap.sm, Gap.lg),
-                children: showTasks
-                    ? [
-                        for (final task in tasks)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: Gap.sm,
-                            ),
-                            child: taskTile(task),
-                          ),
-                      ]
-                    : [
-                        if (episodes.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.all(Gap.sm),
-                            child: Text('暂未获取到章节信息，可点“找资源”搜索本作。', style: small),
-                          ),
-                        for (final episode in episodes) episodeRow(episode),
-                      ],
-              ),
+              child: showTasks
+                  ? ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(
+                        Gap.sm,
+                        0,
+                        Gap.sm,
+                        Gap.lg,
+                      ),
+                      itemCount: tasks.length,
+                      itemBuilder: (_, index) => Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
+                        child: taskTile(tasks[index]),
+                      ),
+                    )
+                  : episodes.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(Gap.sm),
+                      child: Text('暂未获取到章节信息，可点“找资源”搜索本作。', style: small),
+                    )
+                  : ListView.builder(
+                      controller: episodeScroll,
+                      padding: const EdgeInsets.fromLTRB(
+                        Gap.sm,
+                        0,
+                        Gap.sm,
+                        Gap.lg,
+                      ),
+                      itemExtent: episodeHeight,
+                      itemCount: episodes.length,
+                      itemBuilder: (_, index) => episodeRow(episodes[index]),
+                    ),
             ),
           ],
         ],
@@ -239,8 +302,14 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
     final small = Theme.of(context).textTheme.bodySmall;
     final id = episode['episodeId'] as int;
     final current = id == widget.episodeId;
-    final related = tasks.where((t) => t['episodeId'] == id).toList();
-    final complete = playableTask(widget.downloads, related, id);
+    final related = tasksByEpisode[id] ?? const <Json>[];
+    final complete = related
+        .where(
+          (task) =>
+              !['checking', 'failed'].contains(task['status']) &&
+              filesFor(task).length == 1,
+        )
+        .firstOrNull;
     final task = complete ?? related.firstOrNull;
     final available =
         current || widget.localEpisodes.contains(id) || complete != null;
@@ -253,7 +322,6 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
         : '未缓存 · 点击查找资源';
     final title = titleOf(episode);
     return Padding(
-      key: current ? currentKey : null,
       padding: const EdgeInsets.only(bottom: 2),
       child: Material(
         color: current
@@ -348,9 +416,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
 
   Widget taskTile(Json task) {
     final progress = number(task['progress']).clamp(0.0, 1.0);
-    final episode = episodes
-        .where((e) => e['episodeId'] == task['episodeId'])
-        .firstOrNull;
+    final episode = episodesById[task['episodeId']];
     final files = filesFor(task);
     return Padding(
       padding: const EdgeInsets.only(top: 8),

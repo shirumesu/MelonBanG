@@ -252,16 +252,7 @@ static void fill_status(lt_torrent_status& out, int64_t id,
     out.num_seeds     = st.num_seeds;
     out.num_pieces    = (int32_t)st.num_pieces;
 
-    int have = 0;
-    if (st.has_metadata && !st.pieces.empty() && st.pieces.size() > 0) {
-        int sz = static_cast<int>(st.pieces.size());
-        for (int i = 0; i < sz; ++i) {
-            try {
-                if (st.pieces.get_bit(lt::piece_index_t(i))) have++;
-            } catch (...) { break; }
-        }
-    }
-    out.pieces_done = (int32_t)have;
+    out.pieces_done = st.num_pieces;
 
     out.is_paused   = (st.flags & lt::torrent_flags::paused) ? 1 : 0;
     out.is_finished = (st.progress >= 0.999f && st.is_finished) ? 1 : 0;
@@ -2298,7 +2289,7 @@ TORRENT_API int lt_get_all_statuses(lt_session_t session,
         if (n >= max) break;
         if (!kv.second.is_valid()) continue;
         try {
-            lt::torrent_status st = kv.second.status(lt::torrent_handle::query_pieces);
+            lt::torrent_status st = kv.second.status({});
             fill_status(out[n], kv.first, st);
             out[n].dht_nodes = sw->bt_config.disable_dht ? -1 : sw->dht_nodes.load();
             n++;
@@ -2315,7 +2306,7 @@ TORRENT_API int lt_get_status(lt_session_t session, lt_torrent_id id,
     auto it = sw->handles.find(id);
     if (it == sw->handles.end() || !it->second.is_valid()) return 0;
     try {
-        fill_status(*out, id, it->second.status(lt::torrent_handle::query_pieces));
+        fill_status(*out, id, it->second.status({}));
         out->dht_nodes = sw->bt_config.disable_dht ? -1 : sw->dht_nodes.load();
         return 1;
     } catch (...) { return 0; }

@@ -687,132 +687,143 @@ class _ResourcesPageState extends State<ResourcesPage> {
         ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
-          sliver: SliverList.list(
-            children: [
-              if (visible.isNotEmpty)
-                LayoutBuilder(
-                  builder: (context, constraints) =>
-                      constraints.maxWidth < resourceTableWidth
-                      ? const SizedBox.shrink()
-                      : Material(
-                          color: Theme.of(context).colorScheme.surface,
-                          borderRadius: BorderRadius.vertical(
-                            top: panelBorderRadius.topLeft,
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 11, 16, 9),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    '资源 · 标题标注',
-                                    style: small?.copyWith(fontSize: 11),
+          sliver: SliverList.builder(
+            itemCount: visible.length + 2,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return visible.isEmpty
+                    ? const SizedBox.shrink()
+                    : LayoutBuilder(
+                        builder: (context, constraints) =>
+                            constraints.maxWidth < resourceTableWidth
+                            ? const SizedBox.shrink()
+                            : Material(
+                                color: Theme.of(context).colorScheme.surface,
+                                borderRadius: BorderRadius.vertical(
+                                  top: panelBorderRadius.topLeft,
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    11,
+                                    16,
+                                    9,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '资源 · 标题标注',
+                                          style: small?.copyWith(fontSize: 11),
+                                        ),
+                                      ),
+                                      for (final (label, width) in [
+                                        ('来源分组', resourceGroupColumnWidth),
+                                        ('大小', resourceSizeColumnWidth),
+                                        ('发布', resourceDateColumnWidth),
+                                      ]) ...[
+                                        const SizedBox(width: Gap.md),
+                                        SizedBox(
+                                          width: width,
+                                          child: Text(
+                                            label,
+                                            style: small?.copyWith(
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                      SizedBox(width: Gap.sm + downloadWidth),
+                                    ],
                                   ),
                                 ),
-                                for (final (label, width) in [
-                                  ('来源分组', resourceGroupColumnWidth),
-                                  ('大小', resourceSizeColumnWidth),
-                                  ('发布', resourceDateColumnWidth),
-                                ]) ...[
-                                  const SizedBox(width: Gap.md),
-                                  SizedBox(
-                                    width: width,
-                                    child: Text(
-                                      label,
-                                      style: small?.copyWith(fontSize: 11),
-                                    ),
-                                  ),
-                                ],
-                                SizedBox(width: Gap.sm + downloadWidth),
-                              ],
-                            ),
+                              ),
+                      );
+              }
+              if (index == visible.length + 1) {
+                return (visible.isEmpty &&
+                        (allProvidersExcluded ||
+                            !searchBusy ||
+                            widget.candidates.isNotEmpty))
+                    ? EmptyState(
+                        text: allProvidersExcluded
+                            ? '已隐藏全部资源站的结果'
+                            : widget.candidates.isNotEmpty
+                            ? '没有符合筛选条件的资源'
+                            : providersFailed
+                            ? '资源站暂时无法连接'
+                            : '没有找到资源，试试其他名称或清空集数关键词',
+                        action: allProvidersExcluded
+                            ? () => changeForm(excludedProviders.clear)
+                            : widget.candidates.isNotEmpty
+                            ? clearFilters
+                            : () {
+                                if (!providersFailed) episodeQuery.clear();
+                                search();
+                              },
+                        actionLabel: allProvidersExcluded
+                            ? '显示全部资源站'
+                            : widget.candidates.isNotEmpty
+                            ? '清除筛选'
+                            : !providersFailed && episodeQuery.text.isNotEmpty
+                            ? '清空集数并搜索'
+                            : '重新搜索',
+                      )
+                    : const SizedBox.shrink();
+              }
+              final i = index - 1;
+              return LayoutBuilder(
+                key: ValueKey(visible[i].$1['candidateId']),
+                builder: (context, constraints) => Material(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.vertical(
+                    top: i == 0 && constraints.maxWidth < resourceTableWidth
+                        ? panelBorderRadius.topLeft
+                        : Radius.zero,
+                    bottom: i == visible.length - 1
+                        ? panelBorderRadius.bottomLeft
+                        : Radius.zero,
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    children: [
+                      if (i > 0)
+                        const Divider(height: 1, indent: 16, endIndent: 16),
+                      ResourceArrival(
+                        child: ResourceResultRow(
+                          candidate: visible[i].$1,
+                          info: visible[i].$2,
+                          expanded: expandedTitles.contains(
+                            '${visible[i].$1['candidateId']}',
                           ),
-                        ),
-                ),
-              for (var i = 0; i < visible.length; i++)
-                LayoutBuilder(
-                  key: ValueKey(visible[i].$1['candidateId']),
-                  builder: (context, constraints) => Material(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius: BorderRadius.vertical(
-                      top: i == 0 && constraints.maxWidth < resourceTableWidth
-                          ? panelBorderRadius.topLeft
-                          : Radius.zero,
-                      bottom: i == visible.length - 1
-                          ? panelBorderRadius.bottomLeft
-                          : Radius.zero,
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Column(
-                      children: [
-                        if (i > 0)
-                          const Divider(height: 1, indent: 16, endIndent: 16),
-                        ResourceArrival(
-                          child: ResourceResultRow(
-                            candidate: visible[i].$1,
-                            info: visible[i].$2,
-                            expanded: expandedTitles.contains(
-                              '${visible[i].$1['candidateId']}',
-                            ),
-                            onExpand: () => changeForm(() {
-                              final id = '${visible[i].$1['candidateId']}';
-                              if (!expandedTitles.remove(id)) {
-                                expandedTitles.add(id);
-                              }
-                            }),
-                            phase: phaseFor(
-                              visible[i].$1,
-                              widget.defaultMethod,
-                            ),
-                            error: errorFor(visible[i].$1),
-                            onDownload: () =>
-                                download(visible[i].$1, widget.defaultMethod),
-                            defaultMethod: widget.defaultMethod,
-                            alternativePhase: phaseFor(
-                              visible[i].$1,
-                              widget.defaultMethod.other,
-                            ),
-                            onAlternative: widget.onDownloadWithMethod == null
-                                ? null
-                                : () => download(
-                                    visible[i].$1,
-                                    widget.defaultMethod.other,
-                                  ),
+                          onExpand: () => changeForm(() {
+                            final id = '${visible[i].$1['candidateId']}';
+                            if (!expandedTitles.remove(id)) {
+                              expandedTitles.add(id);
+                            }
+                          }),
+                          phase: phaseFor(visible[i].$1, widget.defaultMethod),
+                          error: errorFor(visible[i].$1),
+                          onDownload: () =>
+                              download(visible[i].$1, widget.defaultMethod),
+                          defaultMethod: widget.defaultMethod,
+                          alternativePhase: phaseFor(
+                            visible[i].$1,
+                            widget.defaultMethod.other,
                           ),
+                          onAlternative: widget.onDownloadWithMethod == null
+                              ? null
+                              : () => download(
+                                  visible[i].$1,
+                                  widget.defaultMethod.other,
+                                ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
-              if (visible.isEmpty &&
-                  (allProvidersExcluded ||
-                      !searchBusy ||
-                      widget.candidates.isNotEmpty))
-                EmptyState(
-                  text: allProvidersExcluded
-                      ? '已隐藏全部资源站的结果'
-                      : widget.candidates.isNotEmpty
-                      ? '没有符合筛选条件的资源'
-                      : providersFailed
-                      ? '资源站暂时无法连接'
-                      : '没有找到资源，试试其他名称或清空集数关键词',
-                  action: allProvidersExcluded
-                      ? () => changeForm(excludedProviders.clear)
-                      : widget.candidates.isNotEmpty
-                      ? clearFilters
-                      : () {
-                          if (!providersFailed) episodeQuery.clear();
-                          search();
-                        },
-                  actionLabel: allProvidersExcluded
-                      ? '显示全部资源站'
-                      : widget.candidates.isNotEmpty
-                      ? '清除筛选'
-                      : !providersFailed && episodeQuery.text.isNotEmpty
-                      ? '清空集数并搜索'
-                      : '重新搜索',
-                ),
-            ],
+              );
+            },
           ),
         ),
       ],

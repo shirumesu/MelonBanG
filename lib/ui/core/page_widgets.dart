@@ -6,11 +6,41 @@ class PageScroll extends StatelessWidget {
   const PageScroll({super.key, required this.children});
   final List<Widget> children;
   @override
-  Widget build(BuildContext context) => ListView(
-    key: const PageStorageKey('page-scroll'),
-    padding: const EdgeInsets.fromLTRB(pageGutter, 6, pageGutter, 40),
-    children: children,
-  );
+  Widget build(BuildContext context) {
+    final slivers = <Widget>[];
+    var boxes = <Widget>[];
+    void flush() {
+      if (boxes.isEmpty) return;
+      slivers.add(SliverList.list(children: boxes));
+      boxes = [];
+    }
+
+    for (final child in children) {
+      if (child is PageSliver) {
+        flush();
+        slivers.add(child);
+      } else {
+        boxes.add(child);
+      }
+    }
+    flush();
+    return CustomScrollView(
+      key: const PageStorageKey('page-scroll'),
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(pageGutter, 6, pageGutter, 40),
+          sliver: SliverMainAxisGroup(slivers: slivers),
+        ),
+      ],
+    );
+  }
+}
+
+class PageSliver extends StatelessWidget {
+  const PageSliver({super.key, required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => child;
 }
 
 class MelonPanel extends StatelessWidget {

@@ -172,10 +172,12 @@ class _TrackingPageState extends State<TrackingPage> {
                 : widget.onExplore,
           )
         else
-          SubjectPosters(
-            onOpen: widget.onOpenSubject,
-            items: items,
-            tracking: true,
+          PageSliver(
+            child: SubjectPosterGrid(
+              onOpen: widget.onOpenSubject,
+              items: items,
+              tracking: true,
+            ),
           ),
       ],
     );

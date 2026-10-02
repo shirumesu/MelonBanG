@@ -17,9 +17,12 @@ class SourceVerificationRequired implements Exception {
 }
 
 abstract class OnlineSource {
-  Future<List<Json>> searchSubjects(Iterable<String> names);
-  Future<List<Json>> episodes(Json subject);
-  Future<Json> resolve(Json ref);
+  Future<List<Json>> searchSubjects(
+    Iterable<String> names, {
+    RequestCancellation? cancel,
+  });
+  Future<List<Json>> episodes(Json subject, {RequestCancellation? cancel});
+  Future<Json> resolve(Json ref, {RequestCancellation? cancel});
 }
 
 class RuleOnlineSource implements OnlineSource {
@@ -38,19 +41,25 @@ class RuleOnlineSource implements OnlineSource {
     (match) => Uri.encodeComponent('${values[match[1]] ?? ''}'),
   );
 
-  Future<(String, Uri)> request(Json step, Json values) async {
+  Future<(String, Uri)> request(
+    Json step,
+    Json values, {
+    RequestCancellation? cancel,
+  }) async {
     final bases = <String>{
       ?currentBase,
       ...array(rule['baseUrls']).map((value) => '$value'),
     };
     Object? issue;
     for (final base in bases) {
+      cancel?.throwIfCancelled();
       final uri = Uri.parse(base).resolve(template('${step['url']}', values));
       lastRequest = uri;
       lastStatus = null;
       try {
         final response = await api.send(
           uri,
+          cancel: cancel,
           headers: {
             ...headers,
             ...object(step['headers']).map((k, v) => MapEntry(k, '$v')),
@@ -82,6 +91,7 @@ class RuleOnlineSource implements OnlineSource {
         }
         issue = error;
       } catch (error) {
+        cancel?.throwIfCancelled();
         issue = error;
       }
     }
@@ -89,14 +99,17 @@ class RuleOnlineSource implements OnlineSource {
   }
 
   @override
-  Future<List<Json>> searchSubjects(Iterable<String> names) async {
+  Future<List<Json>> searchSubjects(
+    Iterable<String> names, {
+    RequestCancellation? cancel,
+  }) async {
     final rows = <String, Json>{};
     Object? issue;
     var completed = false;
     Future<List<Json>> query(String name) async {
       final (body, uri) = await request(object(rule['search']), {
         'query': name,
-      });
+      }, cancel: cancel);
       return engine == 'maccms-api'
           ? array(object(jsonDecode(body))['list'])
                 .map((value) => _maccmsSubject(object(value)))
@@ -106,6 +119,7 @@ class RuleOnlineSource implements OnlineSource {
 
     for (final name
         in names.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet()) {
+      cancel?.throwIfCancelled();
       try {
         var parsed = await query(name);
         final compact = name.replaceAll(RegExp(r'\s+'), '');
@@ -119,6 +133,7 @@ class RuleOnlineSource implements OnlineSource {
       } on SourceVerificationRequired {
         rethrow;
       } catch (error) {
+        cancel?.throwIfCancelled();
         issue = error;
       }
     }
@@ -137,12 +152,19 @@ class RuleOnlineSource implements OnlineSource {
   };
 
   @override
-  Future<List<Json>> episodes(Json subject) async {
+  Future<List<Json>> episodes(
+    Json subject, {
+    RequestCancellation? cancel,
+  }) async {
+    cancel?.throwIfCancelled();
     if (engine == 'maccms-api') {
-      final (body, _) = await request(object(rule['detail']), {
-        'id': subject['id'],
-      });
-      final raw = object(array(object(jsonDecode(body))['list']).firstOrNull);
+      var raw = object(subject['raw']);
+      if ('${raw['vod_play_url'] ?? ''}'.isEmpty) {
+        final (body, _) = await request(object(rule['detail']), {
+          'id': subject['id'],
+        }, cancel: cancel);
+        raw = object(array(object(jsonDecode(body))['list']).firstOrNull);
+      }
       final lines = '${raw['vod_play_from'] ?? ''}'.split(r'$$$');
       final groups = '${raw['vod_play_url'] ?? ''}'.split(r'$$$');
       final result = <Json>[];
@@ -168,7 +190,11 @@ class RuleOnlineSource implements OnlineSource {
       }
       return result;
     }
-    final (body, uri) = await request(object(rule['detail']), subject);
+    final (body, uri) = await request(
+      object(rule['detail']),
+      subject,
+      cancel: cancel,
+    );
     return _rows(body, object(rule['detail']), uri)
         .map(
           (row) => {
@@ -187,11 +213,12 @@ class RuleOnlineSource implements OnlineSource {
   }
 
   @override
-  Future<Json> resolve(Json ref) async {
+  Future<Json> resolve(Json ref, {RequestCancellation? cancel}) async {
+    cancel?.throwIfCancelled();
     var address = '${ref['url'] ?? ''}';
     if (engine == 'maccms-api') {
       // Read the current catalogue entry so expiring links can be refreshed.
-      final rows = await episodes({'id': ref['subjectId']});
+      final rows = await episodes({'id': ref['subjectId']}, cancel: cancel);
       final fresh = rows
           .where(
             (row) =>
@@ -206,6 +233,7 @@ class RuleOnlineSource implements OnlineSource {
       final (body, uri) = await request(
         step.isEmpty ? {'url': address} : step,
         {...ref, 'url': address},
+        cancel: cancel,
       );
       if (engine == 'maccms-html') {
         final match = RegExp(r'player_\w+\s*=\s*(\{[^\n]+?\})\s*[;\n<]')

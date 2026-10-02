@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -38,6 +39,14 @@ class AppServices {
   String? dataDirectory;
   StorageLocations? storage;
   final startupStatus = ValueNotifier<String>('正在启动…');
+  final downloadsAvailable = ValueNotifier<bool>(false);
+  final downloadIssue = ValueNotifier<String?>(null);
+  Future<void>? _restoringDownloads;
+  Future<void> get downloadsReady async {
+    await start();
+    await _restoringDownloads;
+  }
+
   bool _downloadsCreated = false;
 
   void releasePlaybackStreams(int? keep) {
@@ -109,6 +118,7 @@ class AppServices {
     );
     _downloadsCreated = true;
     _dispose.add(downloads.close);
+    await downloads.loadPreferences();
     sources = SourceRepository(api, downloads);
     danmaku = DanmakuRepository(api, configuration: configuration);
     library = PlaybackLibrary(store, downloads, danmaku, catalog);
@@ -125,8 +135,18 @@ class AppServices {
       online,
     );
     await account.initialize();
-    await downloads.initialize();
     tracking.start();
+    _restoringDownloads = downloads.initialize();
+    unawaited(
+      _restoringDownloads!.then(
+        (_) {
+          downloadsAvailable.value = true;
+        },
+        onError: (Object error) {
+          downloadIssue.value = error.toString();
+        },
+      ),
+    );
   }
 
   Future<void> close() => _closing ??= _close();
@@ -141,6 +161,11 @@ class AppServices {
       // Partially initialized services still own resources that need closing.
     }
     api.close();
+    try {
+      await _restoringDownloads;
+    } catch (_) {
+      // The local recovery error remains available to the downloads page.
+    }
     Object? failure;
     StackTrace? stack;
     for (final dispose in _dispose.reversed) {

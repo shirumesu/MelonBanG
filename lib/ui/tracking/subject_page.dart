@@ -425,13 +425,15 @@ class _SubjectPageState extends State<SubjectPage> {
         ),
         if (widget.community case final client?) ...[
           const SizedBox(height: 18),
-          SubjectCommunity(
-            key: ValueKey(
-              'community:${item['subjectId']}:${client.account.userId}',
+          PageSliver(
+            child: SubjectCommunity(
+              key: ValueKey(
+                'community:${item['subjectId']}:${client.account.userId}',
+              ),
+              client: client,
+              subjectId: number(item['subjectId']).toInt(),
+              onOpenSubject: widget.onOpenSubject,
             ),
-            client: client,
-            subjectId: number(item['subjectId']).toInt(),
-            onOpenSubject: widget.onOpenSubject,
           ),
         ],
         if (objects(item['infoBox']).isNotEmpty ||
@@ -919,6 +921,7 @@ class _SubjectPageState extends State<SubjectPage> {
               ? placeholder('暂无头像')
               : Image.network(
                   url,
+                  cacheWidth: imageDecodeWidth(context, character ? 72 : size),
                   fit: character ? BoxFit.contain : BoxFit.cover,
                   alignment: character ? Alignment.topCenter : Alignment.center,
                   errorBuilder: (_, _, _) => placeholder('头像加载失败'),
@@ -1157,56 +1160,58 @@ class _SubjectPageState extends State<SubjectPage> {
                       ),
                       const SizedBox(height: 14),
                       Flexible(
-                        child: SingleChildScrollView(
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              for (final episode in episodes)
-                                Tooltip(
-                                  message:
-                                      'EP${episode['sort']} · ${titleOf(episode)} · ${episode['status'] == 'watched' ? '已看' : '未看'}${_available(episode) == null
-                                          ? ''
-                                          : _available(episode)!
-                                          ? ' · 已缓存'
-                                          : ' · 未缓存'}',
-                                  child: SizedBox(
-                                    width: 58,
-                                    child: OutlinedButton(
-                                      style: OutlinedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 10,
-                                        ),
-                                        backgroundColor:
-                                            episode['episodeId'] ==
-                                                selected?['episodeId']
-                                            ? Theme.of(context)
-                                                  .colorScheme
-                                                  .primaryContainer
-                                            : null,
-                                      ),
-                                      onPressed: () => updateDialog(
-                                        () => selectedId = number(
-                                          episode['episodeId'],
-                                        ).toInt(),
-                                      ),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Text('${episode['sort']}'),
-                                          if (episode['status'] ==
-                                              'watched') ...[
-                                            const SizedBox(width: 3),
-                                            const Icon(Icons.check, size: 12),
-                                          ],
-                                        ],
-                                      ),
+                        child: GridView.builder(
+                          gridDelegate:
+                              const SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: 70,
+                                mainAxisExtent: 44,
+                                crossAxisSpacing: 8,
+                                mainAxisSpacing: 8,
+                              ),
+                          itemCount: episodes.length,
+                          itemBuilder: (context, index) {
+                            final episode = episodes[index];
+                            return Tooltip(
+                              message:
+                                  'EP${episode['sort']} · ${titleOf(episode)} · ${episode['status'] == 'watched' ? '已看' : '未看'}${_available(episode) == null
+                                      ? ''
+                                      : _available(episode)!
+                                      ? ' · 已缓存'
+                                      : ' · 未缓存'}',
+                              child: SizedBox(
+                                width: 58,
+                                child: OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 10,
                                     ),
+                                    backgroundColor:
+                                        episode['episodeId'] ==
+                                            selected?['episodeId']
+                                        ? Theme.of(context)
+                                              .colorScheme
+                                              .primaryContainer
+                                        : null,
+                                  ),
+                                  onPressed: () => updateDialog(
+                                    () => selectedId = number(
+                                      episode['episodeId'],
+                                    ).toInt(),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text('${episode['sort']}'),
+                                      if (episode['status'] == 'watched') ...[
+                                        const SizedBox(width: 3),
+                                        const Icon(Icons.check, size: 12),
+                                      ],
+                                    ],
                                   ),
                                 ),
-                            ],
-                          ),
+                              ),
+                            );
+                          },
                         ),
                       ),
                       if (selected != null) ...[
