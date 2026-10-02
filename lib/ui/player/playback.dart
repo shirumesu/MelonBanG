@@ -22,13 +22,13 @@ class Playback extends ChangeNotifier {
     video = VideoController(player);
     _subscriptions.add(
       player.stream.error.listen((value) {
-        error = value;
+        error ??= value;
         notifyListeners();
       }),
     );
     _subscriptions.add(
       player.stream.completed.listen((done) {
-        if (done && !opening) {
+        if (done && !opening && error == null) {
           unawaited(saveProgress(ended: true));
           unawaited(_prepareAutoplay());
         }
@@ -355,7 +355,7 @@ class Playback extends ChangeNotifier {
     if (uri == null || session == null || opening) return _progressWrites;
     final savedUri = session!['resumeKey'] ?? uri!;
     final savedSession = session!;
-    ended = ended || player.state.completed;
+    ended = error == null && (ended || player.state.completed);
     final position = player.state.position.inMilliseconds / 1000;
     final duration = player.state.duration.inMilliseconds / 1000;
     final completed = ended;

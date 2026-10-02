@@ -548,11 +548,9 @@ String filterPlaylist(String text, Uri base) {
         .where((line) => line.isNotEmpty && !line.startsWith('#'))
         .map((line) => base.resolve(line.trim()))
         .toList();
+    // Content segments may use a separate CDN host from the playlist.
     if (segments.isEmpty ||
-        segments.every(
-          (segment) =>
-              segment.host == base.host && segment.path.startsWith(directory),
-        )) {
+        segments.every((segment) => segment.path.startsWith(directory))) {
       kept.add(block.replaceAll('#EXT-X-ENDLIST', '').trim());
     }
   }
