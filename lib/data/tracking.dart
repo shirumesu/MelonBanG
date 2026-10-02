@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'account.dart';
+import 'bangumi_private.dart';
 import 'catalog.dart';
+import 'collection_edit.dart';
 import 'json.dart';
 import 'network.dart';
 import 'store.dart';
@@ -16,6 +18,8 @@ class TrackingRepository {
   final AppStore store;
   final AccountRepository account;
   final CatalogRepository catalog;
+  late final community = BangumiPrivateClient(account);
+  int? _sendingSequence;
   Future<void>? _flushing;
   Timer? _retry;
   bool _closed = false;
@@ -93,7 +97,12 @@ class TrackingRepository {
       ...detail,
       'collection': item == null
           ? null
-          : {'status': item['status'], 'score': item['userScore']},
+          : {
+              'status': item['status'],
+              'score': item['userScore'],
+              'tags': item['collectionTags'] ?? [],
+              'comment': item['comment'] ?? '',
+            },
       'episodes': objects(detail['episodes'])
           .map(
             (e) => {...e, 'status': status['${e['episodeId']}'] ?? 'unwatched'},
@@ -106,31 +115,91 @@ class TrackingRepository {
     int subjectId, {
     CollectionStatus? status,
     int? score,
+    List<String>? tags,
+    String? comment,
+    bool completeEpisodes = false,
   }) async {
     if (subjectId <= 0 || (score != null && (score < 0 || score > 10))) {
       throw const FormatException('收藏信息无效');
+    }
+    tags = tags == null ? null : normalizeCollectionTags(tags);
+    if (comment != null && comment.runes.length > collectionCommentLimit) {
+      throw const FormatException('吐槽最多 $collectionCommentLimit 字');
     }
     final user = account.userId;
     final current =
         await store.get(_collection(user), '$subjectId') ??
         await catalog.subject(subjectId);
     if (_closed || user != account.userId) throw StateError('账号已经切换');
+    if ((status?.key ?? current['status'] ?? 'wish') == 'wish') {
+      if (score != null && score > 0) {
+        throw const FormatException('想看状态不能评分，请先选择其他收藏状态');
+      }
+      if (status == CollectionStatus.wish && number(current['userScore']) > 0) {
+        score = 0;
+      }
+    }
+    final fields = {
+      'type': ?status?.remoteValue,
+      'rate': ?score,
+      'tags': ?tags,
+      'comment': ?comment,
+    };
+    List<int> episodeIds = [];
+    if (completeEpisodes) {
+      if ((status?.key ?? current['status']) != 'completed') {
+        throw const FormatException('仅在标为看过时完成全部正片');
+      }
+      final detail = await catalog.subject(subjectId);
+      episodeIds = objects(detail['episodes'])
+          .where(
+            (episode) =>
+                episode['type'] == null ||
+                episode['type'] == 0 ||
+                episode['type'] == 'main',
+          )
+          .map((episode) => number(episode['episodeId']).toInt())
+          .where((id) => id > 0)
+          .toSet()
+          .toList();
+      if (_closed || user != account.userId) throw StateError('账号已经切换');
+    }
+    if (fields.isEmpty && !completeEpisodes) return;
     final mutation = {
       'kind': 'subject',
       'subjectId': subjectId,
-      'status': ?status?.key,
-      'score': ?score,
+      'fields': fields,
     };
-    await store.mutate(
-      _collection(user),
-      '$subjectId',
-      {'subjectId': subjectId, 'status': ?status?.key, 'userScore': ?score},
-      user,
-      'subject:$subjectId',
-      mutation,
-      defaults: {...current, 'status': current['status'] ?? 'wish'},
-      initialMutation: const {'status': 'wish'},
-    );
+    if (fields.isNotEmpty) {
+      await store.mutate(
+        _collection(user),
+        '$subjectId',
+        {
+          'subjectId': subjectId,
+          'status': ?status?.key,
+          'userScore': ?score,
+          'collectionTags': ?tags,
+          'comment': ?comment,
+        },
+        user,
+        'subject:$subjectId',
+        mutation,
+        defaults: {...current, 'status': current['status'] ?? 'wish'},
+        initialMutation: const {
+          'fields': {'type': 1},
+        },
+        excludePendingSequence: _sendingSequence,
+      );
+    }
+    if (episodeIds.isNotEmpty) {
+      await store.markEpisodes(
+        _episodes(user),
+        _collection(user),
+        user,
+        subjectId,
+        episodeIds,
+      );
+    }
     _changed();
     unawaited(flush());
   }
@@ -180,9 +249,21 @@ class TrackingRepository {
     final remote = <String, Json>{};
     try {
       // Keep pending episode counts even if the outbox finishes during the pull.
-      final pendingEpisodeSubjects = (await store.pending(user))
+      final requestMutations = await store.pending(user);
+      final pendingFields = <String, Set<String>>{};
+      for (final row in requestMutations) {
+        final body = object(row['body']);
+        if (body['kind'] == 'subject') {
+          pendingFields
+              .putIfAbsent('${body['subjectId']}', () => {})
+              .addAll(collectionMutationFields(body).keys);
+        }
+      }
+      final pendingEpisodeSubjects = requestMutations
           .map((row) => object(row['body']))
-          .where((body) => body['kind'] == 'episode')
+          .where(
+            (body) => body['kind'] == 'episode' || body['kind'] == 'episodes',
+          )
           .map((body) => '${body['subjectId']}')
           .toSet();
       for (var offset = 0; ; offset += 50) {
@@ -194,6 +275,7 @@ class TrackingRepository {
         );
         final rows = objects(response['data']);
         for (final row in rows) {
+          if (number(row['type']) == 0) continue;
           final s = object(row['subject']);
           final id = row['subject_id'];
           remote['$id'] = {
@@ -210,6 +292,8 @@ class TrackingRepository {
             'status': CollectionStatus.fromRemote(number(row['type']).toInt())
                 .key,
             'userScore': row['rate'],
+            'collectionTags': row['tags'] is List ? row['tags'] : [],
+            'comment': row['comment'] ?? '',
             'watchedEpisodes': row['ep_status'],
           };
         }
@@ -226,6 +310,7 @@ class TrackingRepository {
         requestedAt: requestedAt,
         replace: true,
         preserveEpisodeCounts: pendingEpisodeSubjects,
+        preserveFields: pendingFields,
       );
       lastSyncedAt = DateTime.now().toIso8601String();
       lastSyncError = null;
@@ -264,13 +349,18 @@ class TrackingRepository {
 
   Future<void> _refreshEpisodes(int subjectId, String user) async {
     final requestedAt = DateTime.now().millisecondsSinceEpoch;
-    final preserveEntities = (await store.pending(user))
-        .map((row) => object(row['body']))
-        .where(
-          (body) => body['kind'] == 'episode' && body['subjectId'] == subjectId,
-        )
-        .map((body) => 'episode:${body['episodeId']}')
-        .toSet();
+    final preserveEntities = <String>{};
+    for (final row in await store.pending(user)) {
+      final body = object(row['body']);
+      if (body['subjectId'] != subjectId) continue;
+      if (body['kind'] == 'episode') {
+        preserveEntities.add('episode:${body['episodeId']}');
+      } else if (body['kind'] == 'episodes') {
+        for (final id in body['episodeIds'] as List? ?? []) {
+          preserveEntities.add('episode:$id');
+        }
+      }
+    }
     final remote = <String, Json>{};
     int? total;
     for (var offset = 0; ;) {
@@ -336,8 +426,8 @@ class TrackingRepository {
         // Bangumi requires a subject collection before accepting episode edits.
         // Preserve order within each entity, but send collection edits first.
         rows.sort((a, b) {
-          final aEpisode = object(a['body'])['kind'] == 'episode' ? 1 : 0;
-          final bEpisode = object(b['body'])['kind'] == 'episode' ? 1 : 0;
+          final aEpisode = object(a['body'])['kind'] == 'subject' ? 0 : 1;
+          final bEpisode = object(b['body'])['kind'] == 'subject' ? 0 : 1;
           final kind = aEpisode.compareTo(bEpisode);
           return kind != 0
               ? kind
@@ -350,22 +440,23 @@ class TrackingRepository {
           final entity = '${row['entity']}';
           final input = object(row['body']);
           if (blocked.contains(entity) ||
-              (input['kind'] == 'episode' &&
+              (input['kind'] != 'subject' &&
                   blocked.contains('subject:${input['subjectId']}'))) {
             continue;
           }
           try {
+            _sendingSequence = sequence;
             if (input['kind'] == 'subject') {
               await account.request(
                 '/v0/users/-/collections/${input['subjectId']}',
                 method: 'POST',
-                body: {
-                  'type': input['status'] == null
-                      ? null
-                      : CollectionStatus.parse('${input['status']}')
-                            .remoteValue,
-                  'rate': input['score'],
-                }..removeWhere((_, v) => v == null),
+                body: collectionMutationFields(input),
+              );
+            } else if (input['kind'] == 'episodes') {
+              await account.request(
+                '/v0/users/-/collections/${input['subjectId']}/episodes',
+                method: 'PATCH',
+                body: {'episode_id': input['episodeIds'], 'type': 2},
               );
             } else {
               await account.request(
@@ -385,6 +476,8 @@ class TrackingRepository {
             error ??= input['kind'] == 'episode' && e.status == 400
                 ? '章节 ${input['episodeId']} 同步失败，请先收藏对应番剧后重试。'
                 : e.toString();
+          } finally {
+            _sendingSequence = null;
           }
         }
       }

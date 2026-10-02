@@ -322,12 +322,14 @@ class AppSidebar extends StatelessWidget {
     this.username,
     this.avatarUrl,
     this.selectedRoute,
+    this.sourcesWarning = false,
   });
   final bool dark;
   final String route, nickname;
   final String? username, avatarUrl;
   final String? selectedRoute;
   final int watchingCount, downloadCount;
+  final bool sourcesWarning;
   final ValueChanged<String> onNavigate;
   @override
   Widget build(BuildContext context) => Container(
@@ -402,6 +404,13 @@ class AppSidebar extends StatelessWidget {
           downloadCount > 0 ? '$downloadCount 下载中' : null,
         ),
         const Spacer(),
+        _nav(
+          context,
+          'sources',
+          '视频源',
+          Icons.video_library_outlined,
+          sourcesWarning ? '●' : null,
+        ),
         _nav(context, 'settings', '设置', Icons.settings_outlined),
         const SizedBox(height: Gap.sm),
         Material(

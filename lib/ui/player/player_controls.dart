@@ -58,7 +58,12 @@ class PlayerControls extends StatelessWidget {
   Player get player => playback.player;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => Listener(
+    onPointerDown: (_) => playback.cancelAutoplay(),
+    child: _transport(context),
+  );
+
+  Widget _transport(BuildContext context) => Container(
     padding: const EdgeInsets.fromLTRB(Gap.lg, 56, Gap.lg, Gap.sm),
     decoration: const BoxDecoration(
       gradient: LinearGradient(
@@ -105,7 +110,7 @@ class PlayerControls extends StatelessWidget {
                           tooltip: playing.data == true ? '暂停（空格）' : '播放（空格）',
                           iconSize: 28,
                           onPressed: () {
-                            unawaited(player.playOrPause());
+                            unawaited(playback.playOrPause());
                             onReveal();
                           },
                           icon: Icon(
@@ -634,6 +639,14 @@ class _SpeedMenu extends StatelessWidget {
                 ),
               ),
             ),
+          const Divider(height: 8),
+          MenuItemButton(
+            onPressed: () {
+              unawaited(player.setRate(1));
+              onFeedback('倍速 1×');
+            },
+            child: const Text('恢复 1×'),
+          ),
         ],
         builder: (context, controller, _) => _TextAction(
           label: rate == 1 ? '倍速' : speedLabel(rate),

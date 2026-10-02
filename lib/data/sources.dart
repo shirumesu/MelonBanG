@@ -12,6 +12,7 @@ class SourceRepository {
   SourceRepository(this.api, this.downloads);
   final ApiClient api;
   final DownloadRepository downloads;
+  bool Function(String provider)? providerEnabled;
   final _candidates = <String, Json>{};
   Future<Json> search(
     int subjectId,
@@ -36,15 +37,16 @@ class SourceRepository {
     final candidates = <String, Json>{};
     final providers = [
       for (final source in [('dmhy', '动漫花园'), ('mikan', '蜜柑计划')])
-        <String, dynamic>{
-          'providerId': source.$1,
-          'providerName': source.$2,
-          'status': 'loading',
-          'resultCount': 0,
-          'completed': 0,
-          'failed': 0,
-          'total': keywords.length,
-        },
+        if (providerEnabled?.call(source.$1) ?? true)
+          <String, dynamic>{
+            'providerId': source.$1,
+            'providerName': source.$2,
+            'status': 'loading',
+            'resultCount': 0,
+            'completed': 0,
+            'failed': 0,
+            'total': keywords.length,
+          },
     ];
     bool current() => isCurrent?.call() ?? true;
     Json snapshot() => {
@@ -183,6 +185,9 @@ class SourceRepository {
     final locator = '${candidate['locator']}';
     final subjectId = candidate['subjectId'] as int;
     episodeId ??= candidate['episodeId'] as int?;
+    final releaseGroups = (candidate['releaseGroups'] as List? ?? const [])
+        .whereType<String>()
+        .toList();
     if (locator.startsWith('magnet:')) {
       return downloads.addMagnet(
         locator,
@@ -190,6 +195,7 @@ class SourceRepository {
         subjectId: subjectId,
         episodeId: episodeId,
         coverUrl: candidate['coverUrl'] as String?,
+        releaseGroups: releaseGroups,
       );
     }
     final response = await api.send(Uri.parse(locator));
@@ -200,6 +206,7 @@ class SourceRepository {
       subjectId: subjectId,
       episodeId: episodeId,
       coverUrl: candidate['coverUrl'] as String?,
+      releaseGroups: releaseGroups,
     );
   }
 }

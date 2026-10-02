@@ -17,6 +17,21 @@ String newId() => base64Url
     .encode(List.generate(18, (_) => Random.secure().nextInt(256)))
     .replaceAll('=', '');
 
+Json collectionMutationFields(Json mutation) => mutation['fields'] is Map
+    ? object(mutation['fields'])
+    : {
+        if (mutation['status'] != null)
+          'type': CollectionStatus.parse('${mutation['status']}').remoteValue,
+        if (mutation['score'] != null) 'rate': mutation['score'],
+      };
+
+const collectionFieldNames = {
+  'type': 'status',
+  'rate': 'userScore',
+  'tags': 'collectionTags',
+  'comment': 'comment',
+};
+
 enum CollectionStatus {
   wish(1),
   completed(2),

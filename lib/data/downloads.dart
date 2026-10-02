@@ -351,6 +351,7 @@ class DownloadRepository {
     int? episodeId,
     String? coverUrl,
     CacheMethod? method,
+    List<String> releaseGroups = const [],
   }) async {
     if (_closed) throw StateError('下载器已关闭');
     final uri = Uri.tryParse(input.trim());
@@ -363,6 +364,7 @@ class DownloadRepository {
         subjectId: subjectId,
         episodeId: episodeId,
         coverUrl: coverUrl ?? await _cachedCover(subjectId),
+        releaseGroups: releaseGroups,
       );
     }
     return _add(
@@ -373,6 +375,7 @@ class DownloadRepository {
       subjectId,
       episodeId,
       coverUrl: coverUrl,
+      releaseGroups: releaseGroups,
     );
   }
 
@@ -383,6 +386,7 @@ class DownloadRepository {
     int? episodeId,
     String? coverUrl,
     CacheMethod? method,
+    List<String> releaseGroups = const [],
   }) async {
     if (_closed) throw StateError('下载器已关闭');
     if (bytes.isEmpty) throw const FormatException('种子文件为空');
@@ -397,6 +401,7 @@ class DownloadRepository {
         subjectId: subjectId,
         episodeId: episodeId,
         coverUrl: coverUrl ?? await _cachedCover(subjectId),
+        releaseGroups: releaseGroups,
       );
     }
     return _add(
@@ -408,6 +413,7 @@ class DownloadRepository {
       episodeId,
       metadataBytes: bytes,
       coverUrl: coverUrl,
+      releaseGroups: releaseGroups,
     );
   }
 
@@ -420,6 +426,7 @@ class DownloadRepository {
     int? episodeId, {
     Uint8List? metadataBytes,
     String? coverUrl,
+    List<String> releaseGroups = const [],
   }) => _adding.putIfAbsent(
     fingerprint,
     () =>
@@ -432,6 +439,7 @@ class DownloadRepository {
           episodeId,
           metadataBytes: metadataBytes,
           coverUrl: coverUrl,
+          releaseGroups: releaseGroups,
         ).whenComplete(() {
           _adding.remove(fingerprint);
         }),
@@ -446,6 +454,7 @@ class DownloadRepository {
     int? episodeId, {
     Uint8List? metadataBytes,
     String? coverUrl,
+    List<String> releaseGroups = const [],
   }) async {
     if (_closed) throw StateError('下载器已关闭');
     await _removing[fingerprint];
@@ -453,7 +462,15 @@ class DownloadRepository {
     final existing = _tasks.values
         .where((t) => t['fingerprint'] == fingerprint)
         .firstOrNull;
-    if (existing != null) return existing;
+    if (existing != null) {
+      if (releaseGroups.isNotEmpty &&
+          ((existing['releaseGroups'] as List?)?.isEmpty ?? true)) {
+        existing['releaseGroups'] = List<String>.of(releaseGroups);
+        await _persist('${existing['id']}', existing);
+        _emit();
+      }
+      return existing;
+    }
     final resolvedCover = coverUrl ?? await _cachedCover(subjectId);
     if (_closed) throw StateError('下载器已关闭');
     await _engine();
@@ -474,6 +491,8 @@ class DownloadRepository {
       'input': input,
       'fingerprint': fingerprint,
       'title': title,
+      if (releaseGroups.isNotEmpty)
+        'releaseGroups': List<String>.of(releaseGroups),
       'savePath': savePath,
       'subjectId': subjectId,
       'episodeId': episodeId,

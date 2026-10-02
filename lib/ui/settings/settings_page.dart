@@ -4,6 +4,9 @@ import '../../data/json.dart';
 import '../core/account_avatar.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
+import '../core/selection_controls.dart';
+import '../player/playback.dart';
+import '../player/danmaku_preferences_editor.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
@@ -17,12 +20,14 @@ class SettingsPage extends StatefulWidget {
     required this.onCancelSignIn,
     required this.onThemeChanged,
     this.onSync,
+    this.playback,
     this.storageSettings,
     this.cacheSettings,
     this.syncBusy = false,
     this.needsAuthorization = false,
     this.accountBusy = false,
   });
+  final Playback? playback;
   final Widget? storageSettings;
   final Widget? cacheSettings;
   final VoidCallback? onSync;
@@ -238,6 +243,7 @@ class _SettingsPageState extends State<SettingsPage> {
       PageScroll(
         key: const PageStorageKey('settings-playback'),
         children: [
+          if (widget.playback != null) ...playbackSettings(),
           const SectionTitle(title: '播放快捷键'),
           MelonPanel(
             padding: EdgeInsets.zero,
@@ -246,6 +252,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 for (final (i, (action, keys)) in const [
                   ('播放 / 暂停', 'Space'),
                   ('后退 / 前进 5 秒', '← / →'),
+                  ('上一帧 / 下一帧', ', / .'),
                   ('显示屏全屏', 'F / F11'),
                   ('退出全屏或关闭菜单', 'Esc'),
                   ('静音', 'M'),
@@ -297,6 +304,90 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     ],
   );
+  List<Widget> playbackSettings() {
+    final playback = widget.playback!;
+    final prefs = playback.settings;
+    Widget choice(
+      String title,
+      Map<String, String> values,
+      String value,
+      ValueChanged<String> change,
+    ) => SettingRow(
+      title: title,
+      trailing: MelonChoiceMenu<String>(
+        options: values,
+        value: value,
+        onSelected: change,
+      ),
+    );
+    return [
+      const SectionTitle(title: '播放偏好'),
+      ListenableBuilder(
+        listenable: prefs,
+        builder: (_, _) => MelonPanel(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              SettingRow(
+                title: '自动连播',
+                subtitle: '播放完毕后等待 5 秒，接续已有或在线资源',
+                trailing: Switch(
+                  value: prefs.autoplay,
+                  onChanged: prefs.setAutoplay,
+                ),
+              ),
+              choice(
+                '字幕语言',
+                const {'chs': '简体中文', 'cht': '繁体中文', 'ja': '日语', 'auto': '自动'},
+                prefs.subtitleLanguage,
+                prefs.setSubtitleLanguage,
+              ),
+              choice(
+                '音轨语言',
+                const {'ja': '日语', 'zh': '中文', 'auto': '自动'},
+                prefs.audioLanguage,
+                prefs.setAudioLanguage,
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: prefs.resetLanguages,
+                  child: const Text('恢复语言默认'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      const SectionTitle(title: '来源优先级'),
+      ListenableBuilder(
+        listenable: prefs,
+        builder: (_, _) => MelonPanel(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              choice(
+                '放送中的番',
+                const {'bt': 'BT 优先', 'online': '在线优先'},
+                prefs.airingPriority,
+                prefs.setAiringPriority,
+              ),
+              choice(
+                '已完结的番',
+                const {'bt': 'BT 优先', 'online': '在线优先'},
+                prefs.completedPriority,
+                prefs.setCompletedPriority,
+              ),
+            ],
+          ),
+        ),
+      ),
+      const SectionTitle(title: '弹幕'),
+      MelonPanel(
+        child: DanmakuPreferencesEditor(preferences: playback.danmaku),
+      ),
+    ];
+  }
 }
 
 /// A settings line: label and explanation on the left, its control at the end.

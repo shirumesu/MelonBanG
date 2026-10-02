@@ -16,6 +16,7 @@ class PlaybackLibrary {
   final DownloadRepository downloads;
   final DanmakuRepository danmaku;
   final CatalogRepository catalog;
+  bool Function(String provider)? providerEnabled;
   final changes = StreamController<Json>.broadcast();
   Json? current;
   final _comments = <String, List<Json>>{};
@@ -50,7 +51,7 @@ class PlaybackLibrary {
           {
             'id': source.$1,
             'label': source.$2,
-            'enabled': true,
+            'enabled': providerEnabled?.call(source.$1) ?? true,
             'status': 'idle',
             'count': 0,
           },
@@ -65,14 +66,72 @@ class PlaybackLibrary {
     return session;
   }
 
-  Future<Json> fromDownload(String id, {String? fileId}) async {
+  Future<Json> online(
+    Json source, {
+    int? subjectId,
+    int? episodeId,
+    String? provider,
+    String? line,
+    Json? ref,
+    String? title,
+  }) async {
+    final session = <String, dynamic>{
+      'id': newId(),
+      'title': title ?? '在线视频',
+      'source': source,
+      'resumeKey': subjectId != null && episodeId != null
+          ? 'online:$subjectId:$episodeId'
+          : null,
+      'status': 'ready',
+      'subjectId': subjectId,
+      'episodeId': episodeId,
+      'provider': provider,
+      'line': line,
+      'onlineRef': ref,
+      'remoteSource': true,
+      'standalone': subjectId == null || episodeId == null,
+      'danmaku': <Json>[],
+      'danmakuSources': [
+        for (final entry in [
+          ('dandanplay', '弹弹play'),
+          ('bilibili', 'Bilibili'),
+          ('bahamut', '巴哈姆特'),
+        ])
+          {
+            'id': entry.$1,
+            'label': entry.$2,
+            'enabled': providerEnabled?.call(entry.$1) ?? true,
+            'status': 'idle',
+            'count': 0,
+          },
+      ],
+    };
+    current = session;
+    _comments.clear();
+    _loads.clear();
+    if (subjectId != null && episodeId != null) {
+      await store.put('online_episodes', '$subjectId:$episodeId', {
+        'online': true,
+      });
+    }
+    return session;
+  }
+
+  Future<Json> fromDownload(
+    String id, {
+    String? fileId,
+    int? subjectId,
+    int? episodeId,
+  }) async {
     final media = await downloads.openMedia(id, fileId: fileId);
+    subjectId ??= media['subjectId'] as int?;
+    episodeId ??= media['episodeId'] as int?;
     final session = await local(
       '${media['path']}',
       streamUrl: media['streamUrl'] as String?,
       streamId: media['streamId'] as int?,
-      subjectId: media['subjectId'] as int?,
-      episodeId: media['episodeId'] as int?,
+      subjectId: subjectId,
+      episodeId: episodeId,
     );
     session['resumeKey'] = 'download:$id:${media['id']}';
     session['fileSize'] = media['size'];
@@ -83,12 +142,12 @@ class PlaybackLibrary {
         'headers': media['sourceHeaders'],
       };
     }
-    if (media['subjectId'] != null && media['episodeId'] != null) {
-      await store.put(
-        'episode_files',
-        '${media['subjectId']}:${media['episodeId']}',
-        {'path': media['path'], 'downloadId': id, 'fileId': media['id']},
-      );
+    if (subjectId != null && episodeId != null) {
+      await store.put('episode_files', '$subjectId:$episodeId', {
+        'path': media['path'],
+        'downloadId': id,
+        'fileId': media['id'],
+      });
     }
     return session;
   }
@@ -100,6 +159,8 @@ class PlaybackLibrary {
         return fromDownload(
           downloadId,
           fileId: localFile!['fileId'] as String?,
+          subjectId: subjectId,
+          episodeId: episodeId,
         );
       }
       await store.remove('episode_files', '$subjectId:$episodeId');
@@ -184,7 +245,9 @@ class PlaybackLibrary {
           !duration.isFinite ||
           position <= 0 ||
           duration <= position ||
-          !await _available(subjectId, episodeId)) {
+          (!await _available(subjectId, episodeId) &&
+              await store.get('online_episodes', '$subjectId:$episodeId') ==
+                  null)) {
         continue;
       }
       final cached = await store.get('catalog', 'detail:$subjectId');
@@ -244,7 +307,7 @@ class PlaybackLibrary {
         (provider) => _load(provider, () async {
           final saved = await store.get(
             'danmaku_matches',
-            '${session['path']}:$provider',
+            '${session['path'] ?? session['resumeKey']}:$provider',
           );
           if (saved != null) {
             return _fetch(provider, '${saved['locator']}');
@@ -368,9 +431,11 @@ class PlaybackLibrary {
       final comments = await fetch();
       if (!identical(current, session) || _loads[provider] != ticket) return;
       if (locator != null) {
-        await store.put('danmaku_matches', '${session['path']}:$provider', {
-          'locator': locator,
-        });
+        await store.put(
+          'danmaku_matches',
+          '${session['path'] ?? session['resumeKey']}:$provider',
+          {'locator': locator},
+        );
         if (!identical(current, session) || _loads[provider] != ticket) return;
       }
       _comments[provider] = comments ?? [];
@@ -416,7 +481,11 @@ class PlaybackLibrary {
     current!['danmaku'] = normalizeComments(
       objects(current!['danmakuSources'])
           .where((s) => s['enabled'] == true)
-          .expand((s) => _comments[s['id']] ?? <Json>[]),
+          .expand(
+            (s) => (_comments[s['id']] ?? <Json>[]).map(
+              (comment) => {...comment, 'sourceId': s['id']},
+            ),
+          ),
     );
     changes.add(Map<String, dynamic>.from(current!));
   }
