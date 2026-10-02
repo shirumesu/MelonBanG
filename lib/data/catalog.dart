@@ -33,7 +33,9 @@ class CatalogRepository {
     if (_closed || id <= 0 || _covers.containsKey(id)) return Future.value();
     return _coverRequests.putIfAbsent(id, () async {
       try {
-        final cached = await store.get('catalog', 'detail:$id');
+        final cached =
+            await store.get('catalog', 'detail:$id') ??
+            await store.get('catalog', 'playback-detail:$id');
         if (!_closed && cached != null && !_covers.containsKey(id)) {
           _rememberCover(object(object(cached['value'])['data']));
         }
@@ -49,7 +51,7 @@ class CatalogRepository {
     Duration ttl = const Duration(minutes: 5),
     bool refresh = false,
     FutureOr<void> Function(dynamic)? onCached,
-    Future<dynamic> Function()? load,
+    Future<({dynamic value, String? etag})> Function(Json? cached)? load,
   }) async {
     if (_closed) throw StateError('番剧服务已关闭');
     final cached = await store.get('catalog', key);
@@ -65,15 +67,16 @@ class CatalogRepository {
     try {
       return await _requests.putIfAbsent(key, () async {
         try {
-          final value = await (load == null
-              ? api.json(Uri.parse('$origin$path'))
-              : load());
+          final result = await (load == null
+              ? _read(Uri.parse('$origin$path'), cached)
+              : load(cached));
           if (_closed) throw StateError('番剧服务已关闭');
           await store.put('catalog', key, {
-            'value': value,
+            'value': result.value,
+            'etag': result.etag,
             'savedAt': DateTime.now().millisecondsSinceEpoch,
           });
-          return value;
+          return result.value;
         } finally {
           _requests.remove(key);
         }
@@ -82,6 +85,33 @@ class CatalogRepository {
       if (!refresh && cached != null) return cached['value'];
       rethrow;
     }
+  }
+
+  Future<({dynamic value, String? etag})> _read(Uri uri, Json? cached) async {
+    final response = await api.send(
+      uri,
+      headers: {'If-None-Match': ?cached?['etag'] as String?},
+      acceptedStatuses: const {304},
+    );
+    return (
+      value: response.statusCode == 304
+          ? _revalidated(cached, response.headers)
+          : await decodeJsonBytes(response.bodyBytes),
+      etag: response.headers['etag'] ?? cached?['etag'] as String?,
+    );
+  }
+
+  dynamic _revalidated(Json? cached, Map<String, String> headers) {
+    if (cached == null) throw const FormatException('缓存响应缺少本地内容');
+    final value = object(cached['value']);
+    return {
+      ...value,
+      'cache': {
+        ...object(value['cache']),
+        'expiresAt': ?headers['x-cache-expires-at'],
+        'stale': headers['x-cache-stale'] == 'true',
+      },
+    };
   }
 
   bool _serverFresh(dynamic value, int now) {
@@ -203,8 +233,8 @@ class CatalogRepository {
   Future<List<Json>> calendar({void Function(List<Json>)? onCached}) async {
     final response = object(
       await _cached(
-        'week:$scheduleDate',
-        '/v1/schedule/latest?days=7',
+        'week-forward:$scheduleDate',
+        '/v1/schedule/latest?startDate=$scheduleDate&dayCount=7&view=byDate',
         ttl: const Duration(hours: 1),
         onCached: onCached == null
             ? null
@@ -217,7 +247,12 @@ class CatalogRepository {
   List<Json> _calendar(dynamic value) {
     final response = object(value);
     final byDate = object(response['byDate']);
-    final dates = byDate.keys.toList()..sort();
+    final start = DateTime.parse('${scheduleDate}T00:00:00Z');
+    final dates = List.generate(
+      7,
+      (index) =>
+          start.add(Duration(days: index)).toIso8601String().substring(0, 10),
+    );
     const labels = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
     return dates.map((date) {
       final day = DateTime.parse(date).weekday;
@@ -235,15 +270,19 @@ class CatalogRepository {
   Future<Json> subject(
     int id, {
     FutureOr<void> Function(Json)? onAvailable,
+    bool forPlayback = false,
   }) async {
     if (id <= 0) throw const FormatException('番剧编号无效');
     // Detail and list caches have distinct keys; a search cannot erase detail.
     Json? available;
-    final uri = Uri.parse('$origin/v1/subjects/$id?includeHtml=false');
+    final path =
+        '/v1/subjects/$id?includeHtml=false&streamVersion=2'
+        '&view=${forPlayback ? 'playback' : 'full'}';
+    final uri = Uri.parse('$origin$path');
     final response = object(
       await _cached(
-        'detail:$id',
-        '/v1/subjects/$id?includeHtml=false',
+        forPlayback ? 'playback-detail:$id' : 'detail:$id',
+        path,
         ttl: const Duration(hours: 1),
         onCached: onAvailable == null
             ? null
@@ -251,19 +290,32 @@ class CatalogRepository {
                 available = object(object(value)['data']);
                 await onAvailable(_subject(id, value));
               },
-        load: () async {
-          await for (final message in api.ndjson(uri)) {
+        load: (cached) async {
+          var headers = <String, String>{};
+          await for (final message in api.ndjson(
+            uri,
+            headers: {'If-None-Match': ?cached?['etag'] as String?},
+            onHeaders: (value) => headers = value,
+          )) {
             switch (message['type']) {
               case 'snapshot':
               case 'patch':
-                final pending = message['pending'] as List<dynamic>;
-                available = {
-                  ...?available,
-                  ...Map.fromEntries(
-                    object(message['data']).entries
-                        .where((entry) => !pending.contains(entry.key)),
-                  ),
-                };
+                final pending = message['pending'] as List<dynamic>? ?? [];
+                final append = (message['append'] as List?) ?? const [];
+                available = message['type'] == 'snapshot'
+                    ? {...object(message['data'])}
+                    : {...?available};
+                for (final entry in object(message['data']).entries) {
+                  if (append.contains(entry.key)) {
+                    final previous = available![entry.key] as List? ?? const [];
+                    available![entry.key] = [
+                      ...previous,
+                      ...entry.value as List,
+                    ];
+                  } else if (!pending.contains(entry.key)) {
+                    available![entry.key] = entry.value;
+                  }
+                }
                 if (onAvailable != null) {
                   await onAvailable({
                     ..._subject(id, {'data': available}),
@@ -271,7 +323,19 @@ class CatalogRepository {
                   });
                 }
               case 'complete':
-                return {'data': message['data'], 'cache': message['cache']};
+                final data = message['data'] ?? available;
+                if (data == null) throw const FormatException('番剧详情响应缺少内容');
+                return (
+                  value: {'data': data, 'cache': message['cache']},
+                  etag:
+                      headers['etag'] ??
+                      object(message['cache'])['etag'] as String?,
+                );
+              case 'notModified':
+                return (
+                  value: _revalidated(cached, headers),
+                  etag: headers['etag'] ?? cached?['etag'] as String?,
+                );
               case 'error':
                 throw StateError(
                   '番剧详情加载失败：${object(message['error'])['message']}',

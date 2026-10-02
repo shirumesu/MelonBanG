@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -255,14 +256,9 @@ class DanmakuRepository {
   }) async {
     String? hash;
     if (!filenameOnly) {
-      final file = File(path);
-      final handle = await file.open();
-      try {
-        hash = md5.convert(await handle.read(16 * 1024 * 1024)).toString();
-      } finally {
-        await handle.close();
-      }
-      fileSize = await file.length();
+      final fingerprint = await Isolate.run(() => _fileFingerprint(path));
+      hash = fingerprint.$1;
+      fileSize = fingerprint.$2;
     }
     final value = await _dandan(
       '/api/v2/match',
@@ -299,20 +295,22 @@ class DanmakuRepository {
     if (value['success'] == false) {
       throw StateError('弹弹play弹幕获取失败：${value['errorMessage'] ?? '未知错误'}');
     }
-    return normalizeComments(
-      objects(value['comments']).map((c) {
-        final fields = '${c['p']}'.split(',');
-        return {
-          'timeSeconds': double.tryParse(fields.first),
-          'mode': fields.length > 1
-              ? _mode(int.tryParse(fields[1]) ?? 1)
-              : 'scroll',
-          'color': fields.length > 2
-              ? _color(int.tryParse(fields[2]) ?? 0xffffff)
-              : '#ffffff',
-          'text': c['m'],
-        };
-      }),
+    return Isolate.run(
+      () => normalizeComments(
+        objects(value['comments']).map((c) {
+          final fields = '${c['p']}'.split(',');
+          return {
+            'timeSeconds': double.tryParse(fields.first),
+            'mode': fields.length > 1
+                ? _mode(int.tryParse(fields[1]) ?? 1)
+                : 'scroll',
+            'color': fields.length > 2
+                ? _color(int.tryParse(fields[2]) ?? 0xffffff)
+                : '#ffffff',
+            'text': c['m'],
+          };
+        }),
+      ),
     );
   }
 
@@ -360,15 +358,12 @@ class DanmakuRepository {
         Uri.https('comment.bilibili.com', '/$cid.xml'),
         headers: headers,
       );
-      List<int> bytes = xml.bodyBytes;
-      if (xml.headers['content-encoding']?.toLowerCase() == 'deflate') {
-        try {
-          bytes = zlib.decode(bytes);
-        } on FormatException {
-          bytes = ZLibDecoder(raw: true).convert(bytes);
-        }
-      }
-      comments.addAll(parseBilibiliXml(utf8.decode(bytes)));
+      final bytes = xml.bodyBytes;
+      final deflated =
+          xml.headers['content-encoding']?.toLowerCase() == 'deflate';
+      comments.addAll(
+        await Isolate.run(() => _decodeBilibiliXml(bytes, deflated)),
+      );
     } catch (_) {
       /* Segmented comments can remain available independently. */
     }
@@ -386,7 +381,12 @@ class DanmakuRepository {
               }),
               headers: headers,
             );
-            comments.addAll(parseBilibiliSegment(response.bodyBytes));
+            final bytes = response.bodyBytes;
+            comments.addAll(
+              await Isolate.run(
+                () => parseBilibiliSegment(bytes, normalize: false),
+              ),
+            );
           } catch (e) {
             failure = e;
           }
@@ -396,7 +396,7 @@ class DanmakuRepository {
     if (comments.isEmpty && failure != null) {
       throw StateError('Bilibili 弹幕获取失败：$failure');
     }
-    return normalizeComments(comments);
+    return Isolate.run(() => normalizeComments(comments));
   }
 
   Future<List<Json>> bahamut(String locator) async {
@@ -413,18 +413,20 @@ class DanmakuRepository {
         'Referer': 'https://ani.gamer.com.tw/animeVideo.php?sn=$sn',
       },
     );
-    return normalizeComments(
-      objects(value).map(
-        (c) => {
-          'timeSeconds': number(c['time']) / 10,
-          'text': c['text'],
-          'color': c['color'],
-          'mode': switch (c['position']) {
-            1 => 'top',
-            2 => 'bottom',
-            _ => 'scroll',
+    return Isolate.run(
+      () => normalizeComments(
+        objects(value).map(
+          (c) => {
+            'timeSeconds': number(c['time']) / 10,
+            'text': c['text'],
+            'color': c['color'],
+            'mode': switch (c['position']) {
+              1 => 'top',
+              2 => 'bottom',
+              _ => 'scroll',
+            },
           },
-        },
+        ),
       ),
     );
   }
@@ -489,8 +491,32 @@ List<Json> normalizeComments(Iterable<Json> input) {
   );
 }
 
-List<Json> parseBilibiliXml(String xml) => normalizeComments(
-  XmlDocument.parse(xml).findAllElements('d').map((d) {
+Future<(String, int)> _fileFingerprint(String path) async {
+  final file = File(path);
+  final handle = await file.open();
+  try {
+    return (
+      md5.convert(await handle.read(16 * 1024 * 1024)).toString(),
+      await file.length(),
+    );
+  } finally {
+    await handle.close();
+  }
+}
+
+List<Json> _decodeBilibiliXml(List<int> bytes, bool deflated) {
+  if (deflated) {
+    try {
+      bytes = zlib.decode(bytes);
+    } on FormatException {
+      bytes = ZLibDecoder(raw: true).convert(bytes);
+    }
+  }
+  return parseBilibiliXml(utf8.decode(bytes), normalize: false);
+}
+
+List<Json> parseBilibiliXml(String xml, {bool normalize = true}) {
+  final rows = XmlDocument.parse(xml).findAllElements('d').map((d) {
     final fields = (d.getAttribute('p') ?? '').split(',');
     return {
       'timeSeconds': double.tryParse(fields.first),
@@ -500,11 +526,12 @@ List<Json> parseBilibiliXml(String xml) => normalizeComments(
           : '#ffffff',
       'text': d.innerText,
     };
-  }),
-);
+  }).toList();
+  return normalize ? normalizeComments(rows) : rows;
+}
 
 /// Decode only the fields needed from DmSegMobileReply / DanmakuElem.
-List<Json> parseBilibiliSegment(Uint8List bytes) {
+List<Json> parseBilibiliSegment(Uint8List bytes, {bool normalize = true}) {
   final rows = <Json>[];
   try {
     final outer = CodedBufferReader(bytes);
@@ -540,5 +567,5 @@ List<Json> parseBilibiliSegment(Uint8List bytes) {
   } on InvalidProtocolBufferException catch (e) {
     throw FormatException('Invalid danmaku protobuf: $e');
   }
-  return normalizeComments(rows);
+  return normalize ? normalizeComments(rows) : rows;
 }

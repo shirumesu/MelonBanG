@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'theme.dart';
+import 'subject_posters.dart' show imageDecodeWidth;
 
 class AccountAvatar extends StatelessWidget {
   const AccountAvatar({
@@ -36,6 +37,7 @@ class AccountAvatar extends StatelessWidget {
             ? fallback
             : Image.network(
                 url!,
+                cacheWidth: imageDecodeWidth(context, size),
                 fit: BoxFit.cover,
                 frameBuilder: (_, child, frame, synchronous) =>
                     frame == null && !synchronous ? fallback : child,

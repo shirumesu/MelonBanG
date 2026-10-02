@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../app_services.dart';
 import '../../data/cache_method.dart';
 import '../../data/play_candidates.dart';
+import '../../data/network.dart';
 import '../acquisition/resource_widgets.dart';
 import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
@@ -22,7 +23,9 @@ class CandidateResources extends StatefulWidget {
     required this.episode,
     required this.onPlay,
     this.onFindResources,
+    this.active = true,
   });
+  final bool active;
   final AppServices service;
   final Playback playback;
   final Json subject, episode;
@@ -33,6 +36,7 @@ class CandidateResources extends StatefulWidget {
 }
 
 class _CandidateResourcesState extends State<CandidateResources> {
+  RequestCancellation cancellation = RequestCancellation();
   final feedback = ActionFeedback();
   ActionFeedback searchFeedback = ActionFeedback();
   PlayCandidate? failedPlay;
@@ -46,13 +50,25 @@ class _CandidateResourcesState extends State<CandidateResources> {
   @override
   void initState() {
     super.initState();
-    unawaited(load());
+    if (widget.active) unawaited(load());
   }
 
   @override
   void didUpdateWidget(CandidateResources oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.subject['subjectId'] != widget.subject['subjectId'] ||
+    if (!widget.active) {
+      if (oldWidget.subject['subjectId'] != widget.subject['subjectId'] ||
+          oldWidget.episode['episodeId'] != widget.episode['episodeId']) {
+        candidates = [];
+        phases.clear();
+        loading = true;
+      }
+      cancellation.cancel();
+      request++;
+      return;
+    }
+    if ((!oldWidget.active && (loading || candidates.isEmpty)) ||
+        oldWidget.subject['subjectId'] != widget.subject['subjectId'] ||
         oldWidget.episode['episodeId'] != widget.episode['episodeId']) {
       candidates = [];
       phases.clear();
@@ -61,6 +77,8 @@ class _CandidateResourcesState extends State<CandidateResources> {
   }
 
   Future<void> load() async {
+    cancellation.cancel();
+    final currentCancellation = cancellation = RequestCancellation();
     final ticket = ++request;
     searchFeedback.dispose();
     final status = searchFeedback = ActionFeedback();
@@ -88,6 +106,7 @@ class _CandidateResourcesState extends State<CandidateResources> {
         await widget.service.selection.candidates(
           widget.subject,
           widget.episode,
+          cancel: currentCancellation,
           onlineFirst: priority == 'online',
           language: settings.subtitleLanguage,
           useContinuity:
@@ -159,6 +178,7 @@ class _CandidateResourcesState extends State<CandidateResources> {
   @override
   void dispose() {
     request++;
+    cancellation.cancel();
     feedback.dispose();
     searchFeedback.dispose();
     super.dispose();

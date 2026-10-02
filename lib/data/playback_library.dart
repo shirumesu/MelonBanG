@@ -162,6 +162,7 @@ class PlaybackLibrary {
   Future<Json> episode(int subjectId, int episodeId) async {
     final localFile = await store.get('episode_files', '$subjectId:$episodeId');
     if (localFile?['downloadId'] case final String downloadId) {
+      await downloads.ready;
       if (downloads.contains(downloadId)) {
         return fromDownload(
           downloadId,
@@ -191,8 +192,15 @@ class PlaybackLibrary {
   Future<Json?> progress(int subjectId, int episodeId) =>
       store.get('playback_progress', '$subjectId:$episodeId');
 
-  Future<bool> _available(int subjectId, int episodeId) async {
-    final binding = await store.get('episode_files', '$subjectId:$episodeId');
+  Future<bool> _available(
+    int subjectId,
+    int episodeId, {
+    Json? binding,
+    bool lookupBinding = true,
+  }) async {
+    if (lookupBinding) {
+      binding = await store.get('episode_files', '$subjectId:$episodeId');
+    }
     try {
       final Json media;
       if (binding?['downloadId'] case final String id) {
@@ -213,21 +221,32 @@ class PlaybackLibrary {
 
   Future<Set<int>> playableEpisodes(int subjectId) async {
     final ids = <int>{};
-    for (final key in (await store.entries('episode_files')).keys) {
+    final bindings = await store.entries(
+      'episode_files',
+      idPrefix: '$subjectId:',
+    );
+    for (final key in bindings.keys) {
       final parts = key.split(':');
       if (parts.length == 2 && int.tryParse(parts.first) == subjectId) {
         final id = int.tryParse(parts.last);
         if (id != null) ids.add(id);
       }
     }
-    for (final task in objects(downloads.snapshot()['tasks'])) {
+    for (final task in downloads.tasksForSubject(subjectId)) {
       if (task['subjectId'] == subjectId && task['episodeId'] is int) {
         ids.add(task['episodeId'] as int);
       }
     }
     final available = <int>{};
     for (final id in ids) {
-      if (await _available(subjectId, id)) available.add(id);
+      if (await _available(
+        subjectId,
+        id,
+        binding: bindings['$subjectId:$id'],
+        lookupBinding: false,
+      )) {
+        available.add(id);
+      }
     }
     return available;
   }
@@ -235,43 +254,56 @@ class PlaybackLibrary {
   Future<List<Json>> recent({int limit = 8, int? forSubject}) async {
     final result = <Json>[];
     final subjects = <int>{};
-    for (final entry in (await store.entries('playback_progress')).entries) {
-      final parts = entry.key.split(':');
-      if (parts.length != 2) continue;
-      final subjectId = int.tryParse(parts.first);
-      final episodeId = int.tryParse(parts.last);
-      if (forSubject != null && subjectId != forSubject) continue;
-      final value = entry.value;
-      final position = number(value['positionSeconds']);
-      final duration = number(value['durationSeconds']);
-      if (subjectId == null ||
-          episodeId == null ||
-          subjects.contains(subjectId) ||
-          value['completed'] == true ||
-          !position.isFinite ||
-          !duration.isFinite ||
-          position <= 0 ||
-          duration <= position ||
-          (!await _available(subjectId, episodeId) &&
-              await store.get('online_episodes', '$subjectId:$episodeId') ==
-                  null)) {
-        continue;
+    if (limit <= 0) return result;
+    const pageSize = 32;
+    for (var offset = 0; ; offset += pageSize) {
+      final page = await store.entries(
+        'playback_progress',
+        idPrefix: forSubject == null ? null : '$forSubject:',
+        limit: pageSize,
+        offset: offset,
+      );
+      for (final entry in page.entries) {
+        final parts = entry.key.split(':');
+        if (parts.length != 2) continue;
+        final subjectId = int.tryParse(parts.first);
+        final episodeId = int.tryParse(parts.last);
+        if (forSubject != null && subjectId != forSubject) continue;
+        final value = entry.value;
+        final position = number(value['positionSeconds']);
+        final duration = number(value['durationSeconds']);
+        if (subjectId == null ||
+            episodeId == null ||
+            subjects.contains(subjectId) ||
+            value['completed'] == true ||
+            !position.isFinite ||
+            !duration.isFinite ||
+            position <= 0 ||
+            duration <= position ||
+            (!await _available(subjectId, episodeId) &&
+                await store.get('online_episodes', '$subjectId:$episodeId') ==
+                    null)) {
+          continue;
+        }
+        final cached =
+            await store.get('catalog', 'detail:$subjectId') ??
+            await store.get('catalog', 'playback-detail:$subjectId');
+        final detail = object(object(cached?['value'])['data']);
+        final episodes = objects(detail['episodes'])
+            .where((e) => e['episodeId'] == episodeId);
+        result.add({
+          ...catalog.summary(detail),
+          ...value,
+          'subjectId': subjectId,
+          'episodeId': episodeId,
+          'episodeSort': episodes.isEmpty
+              ? null
+              : episodes.first['ep'] ?? episodes.first['sort'],
+        });
+        subjects.add(subjectId);
+        if (result.length >= limit) return result;
       }
-      final cached = await store.get('catalog', 'detail:$subjectId');
-      final detail = object(object(cached?['value'])['data']);
-      final episodes = objects(detail['episodes'])
-          .where((e) => e['episodeId'] == episodeId);
-      result.add({
-        ...catalog.summary(detail),
-        ...value,
-        'subjectId': subjectId,
-        'episodeId': episodeId,
-        'episodeSort': episodes.isEmpty
-            ? null
-            : episodes.first['ep'] ?? episodes.first['sort'],
-      });
-      subjects.add(subjectId);
-      if (result.length >= limit) break;
+      if (page.length < pageSize) break;
     }
     return result;
   }
@@ -400,7 +432,9 @@ class PlaybackLibrary {
   bool importComments(String sessionId, List<Json> comments) {
     final session = current;
     if (session == null || session['id'] != sessionId) return false;
-    final imported = normalizeComments(comments);
+    final imported = normalizeComments(
+      comments.map((comment) => {...comment, 'sourceId': 'local'}),
+    );
     _comments['local'] = imported;
     final sources = objects(session['danmakuSources']);
     if (!sources.any((source) => source['id'] == 'local')) {
@@ -485,15 +519,33 @@ class PlaybackLibrary {
 
   void _merge() {
     if (current == null) return;
-    current!['danmaku'] = normalizeComments(
-      objects(current!['danmakuSources'])
-          .where((s) => s['enabled'] == true)
-          .expand(
-            (s) => (_comments[s['id']] ?? <Json>[]).map(
-              (comment) => {...comment, 'sourceId': s['id']},
-            ),
-          ),
-    );
+    final enabled = objects(current!['danmakuSources'])
+        .where((source) => source['enabled'] == true)
+        .map((source) => '${source['id']}')
+        .toList();
+    final positions = List<int>.filled(enabled.length, 0);
+    final merged = <Json>[];
+    while (true) {
+      var earliest = -1;
+      for (var i = 0; i < enabled.length; i++) {
+        final rows = _comments[enabled[i]] ?? const <Json>[];
+        if (positions[i] >= rows.length) continue;
+        if (earliest == -1 ||
+            number(rows[positions[i]]['timeSeconds']) <
+                number(
+                  _comments[enabled[earliest]]![positions[earliest]]['timeSeconds'],
+                )) {
+          earliest = i;
+        }
+      }
+      if (earliest == -1) break;
+      final provider = enabled[earliest];
+      merged.add({
+        ..._comments[provider]![positions[earliest]++],
+        'sourceId': provider,
+      });
+    }
+    current!['danmaku'] = merged;
     changes.add(Map<String, dynamic>.from(current!));
   }
 

@@ -23,7 +23,10 @@ class SourceRepository {
     String? coverUrl,
     void Function(Json)? onUpdate,
     bool Function()? isCurrent,
+    RequestCancellation? cancel,
+    bool includeMetadata = true,
   }) async {
+    cancel?.throwIfCancelled();
     final keywords = {keyword.trim(), ...alternativeNames.map((e) => e.trim())}
         .where((e) => e.isNotEmpty)
         .map(
@@ -48,7 +51,8 @@ class SourceRepository {
             'total': keywords.length,
           },
     ];
-    bool current() => isCurrent?.call() ?? true;
+    bool current() =>
+        cancel?.isCancelled != true && (isCurrent?.call() ?? true);
     Json snapshot() => {
       'candidates': candidates.values
           .map((e) => <String, dynamic>{...e})
@@ -63,7 +67,11 @@ class SourceRepository {
     Future<String> page(Uri uri) => pages.putIfAbsent(
       uri,
       () async => utf8.decode(
-        (await api.send(uri, headers: {'Accept': 'text/html'})).bodyBytes,
+        (await api.send(
+          uri,
+          headers: {'Accept': 'text/html'},
+          cancel: cancel,
+        )).bodyBytes,
       ),
     );
     final metadata = <String, Json>{};
@@ -126,6 +134,7 @@ class SourceRepository {
           try {
             final response = await api.send(
               uri,
+              cancel: cancel,
               headers: {
                 'Accept': 'application/rss+xml,application/xml,text/xml',
               },
@@ -166,7 +175,7 @@ class SourceRepository {
             }
             emit();
           }
-          if (succeeded) await details(provider, name);
+          if (succeeded && includeMetadata) await details(provider, name);
         }),
       ),
     );
@@ -176,6 +185,7 @@ class SourceRepository {
       if (_candidates.length <= 3000) break;
       if (!activeIds.contains(id)) _candidates.remove(id);
     }
+    cancel?.throwIfCancelled();
     return snapshot();
   }
 

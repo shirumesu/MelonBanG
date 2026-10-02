@@ -14,7 +14,10 @@ class AppStore {
       await databaseFactoryFfi.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 1,
+          version: 2,
+          onUpgrade: (db, oldVersion, _) async {
+            if (oldVersion < 2) await _createIndexes(db);
+          },
           onCreate: (db, _) async {
             await db.execute(
               'CREATE TABLE documents (scope TEXT NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(scope,id))',
@@ -22,9 +25,25 @@ class AppStore {
             await db.execute(
               'CREATE TABLE mutations (sequence INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT NOT NULL, entity TEXT NOT NULL, body TEXT NOT NULL)',
             );
+            await _createIndexes(db);
           },
         ),
       ),
+    );
+  }
+
+  static Future<void> _createIndexes(Database db) async {
+    await db.execute(
+      'CREATE INDEX documents_recent ON documents(scope, updated DESC, id ASC)',
+    );
+    await db.execute(
+      "CREATE INDEX documents_subject ON documents(scope, json_extract(body, '\$.subjectId'))",
+    );
+    await db.execute(
+      'CREATE INDEX mutations_account ON mutations(account, sequence)',
+    );
+    await db.execute(
+      'CREATE INDEX mutations_entity ON mutations(account, entity, sequence)',
     );
   }
 
@@ -39,22 +58,88 @@ class AppStore {
         : object(jsonDecode(rows.first['body'] as String));
   }
 
-  Future<List<Json>> list(String scope) async => (await database.query(
-    'documents',
-    where: 'scope=?',
-    whereArgs: [scope],
-    orderBy: 'updated DESC',
-  )).map((r) => object(jsonDecode(r['body'] as String))).toList();
+  Future<List<Json>> list(
+    String scope, {
+    int? subjectId,
+    String? idPrefix,
+    int? limit,
+    int offset = 0,
+  }) async => (await entries(
+    scope,
+    subjectId: subjectId,
+    idPrefix: idPrefix,
+    limit: limit,
+    offset: offset,
+  )).values.toList();
 
-  Future<Map<String, Json>> entries(String scope) async => {
-    for (final row in await database.query(
-      'documents',
-      where: 'scope=?',
-      whereArgs: [scope],
-      orderBy: 'updated DESC, id ASC',
+  Future<List<Json>> listPrefix(String scope, String prefix) =>
+      list(scope, idPrefix: prefix);
+
+  Future<Map<String, Json>> entries(
+    String scope, {
+    int? subjectId,
+    String? idPrefix,
+    int? limit,
+    int offset = 0,
+  }) async {
+    final clauses = ['scope=?'];
+    final arguments = <Object?>[scope];
+    if (subjectId != null) {
+      clauses.add("json_extract(body, '\$.subjectId')=?");
+      arguments.add(subjectId);
+    }
+    if (idPrefix != null) {
+      clauses.add('id>=? AND id<?');
+      arguments.addAll([idPrefix, '$idPrefix\uffff']);
+    }
+    return {
+      for (final row in await database.query(
+        'documents',
+        columns: ['id', 'body'],
+        where: clauses.join(' AND '),
+        whereArgs: arguments,
+        orderBy: 'updated DESC, id ASC',
+        limit: limit,
+        offset: offset,
+      ))
+        row['id'] as String: object(jsonDecode(row['body'] as String)),
+    };
+  }
+
+  Future<int> pendingCount(String account) async =>
+      (await database.rawQuery(
+            'SELECT COUNT(*) AS count FROM mutations WHERE account=?',
+            [account],
+          )).single['count']
+          as int;
+
+  Future<Map<int, int>> watchedEpisodeCounts(String scope) async => {
+    for (final row in await database.rawQuery(
+      "SELECT json_extract(body, '\$.subjectId') AS subject, COUNT(*) AS count "
+      "FROM documents WHERE scope=? AND json_extract(body, '\$.status')='watched' "
+      "GROUP BY json_extract(body, '\$.subjectId')",
+      [scope],
     ))
-      row['id'] as String: object(jsonDecode(row['body'] as String)),
+      if (row['subject'] is int) row['subject'] as int: row['count'] as int,
   };
+
+  Future<void> putAll(String scope, Map<String, Json> values) async {
+    if (values.isEmpty) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await database.transaction((tx) async {
+      final batch = tx.batch();
+      for (final entry in values.entries) {
+        batch.insert('documents', {
+          'scope': scope,
+          'id': entry.key,
+          'body': jsonEncode(entry.value),
+          'updated': now,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
   Future<void> put(String scope, String id, Json body) async {
     await database.insert('documents', {
       'scope': scope,
@@ -116,8 +201,10 @@ class AppStore {
       final pending = pendingRows.map((row) => row['entity']).toSet();
       final local = await tx.query(
         'documents',
-        where: 'scope=?',
-        whereArgs: [scope],
+        where: episodeSubjectId == null
+            ? 'scope=?'
+            : "scope=? AND json_extract(body, '\$.subjectId')=?",
+        whereArgs: [scope, ?episodeSubjectId],
       );
       final merged = Map<String, Json>.from(values);
       final updated = <String, int>{};
@@ -289,8 +376,8 @@ class AppStore {
           final watched = body['watchedEpisodes'] == null
               ? (await tx.query(
                       'documents',
-                      where: 'scope=?',
-                      whereArgs: [scope],
+                      where: "scope=? AND json_extract(body, '\$.subjectId')=?",
+                      whereArgs: [scope, value['subjectId']],
                     ))
                     .map((row) => object(jsonDecode(row['body'] as String)))
                     .where(
@@ -384,7 +471,11 @@ class AppStore {
       if (collection.isNotEmpty) {
         final body = object(jsonDecode(collection.single['body'] as String));
         body['watchedEpisodes'] =
-            (await tx.query('documents', where: 'scope=?', whereArgs: [scope]))
+            (await tx.query(
+                  'documents',
+                  where: "scope=? AND json_extract(body, '\$.subjectId')=?",
+                  whereArgs: [scope, subjectId],
+                ))
                 .map((row) => object(jsonDecode(row['body'] as String)))
                 .where(
                   (episode) =>

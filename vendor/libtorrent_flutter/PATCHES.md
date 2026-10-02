@@ -70,6 +70,11 @@ refreshed, including total upload and errors. File queries populate size and
 verified downloaded bytes using libtorrent's piece-granularity `file_progress`.
 The C file-info struct and Dart FFI layout must be rebuilt together.
 
+Status queries omit `query_pieces`: the application does not consume the piece
+bitfield, and copying and counting every piece on each UI poll is unnecessary.
+The bridge uses libtorrent's existing `num_pieces` counter for `pieces_done`;
+restored-file verification and verified file progress remain unchanged.
+
 Session creation now leaves libtorrent's transport, connection, piece-picking and
 socket settings at upstream defaults. The application no longer inherits the
 streaming adapter's aggressive timeouts, predictive announcements and qBittorrent

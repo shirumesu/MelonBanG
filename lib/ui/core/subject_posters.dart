@@ -49,22 +49,43 @@ class SubjectPosters extends StatelessWidget {
         itemBuilder: poster,
       );
     }
-    return LayoutBuilder(
-      builder: (context, constraints) => GridView.builder(
-        key: const PageStorageKey('poster-grid'),
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: items.length,
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: (constraints.maxWidth / 184).floor().clamp(1, 8),
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 20,
-          childAspectRatio: .65,
-        ),
-        itemBuilder: (_, i) => poster(i),
-      ),
+    return CustomScrollView(
+      slivers: [
+        SubjectPosterGrid(items: items, onOpen: onOpen, tracking: tracking),
+      ],
     );
   }
+}
+
+class SubjectPosterGrid extends StatelessWidget {
+  const SubjectPosterGrid({
+    super.key,
+    required this.items,
+    required this.onOpen,
+    this.tracking = false,
+  });
+  final List<Json> items;
+  final ValueChanged<Json> onOpen;
+  final bool tracking;
+
+  @override
+  Widget build(BuildContext context) => SliverLayoutBuilder(
+    builder: (context, constraints) => SliverGrid.builder(
+      itemCount: items.length,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: (constraints.crossAxisExtent / 184).floor().clamp(1, 8),
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 20,
+        childAspectRatio: .65,
+      ),
+      itemBuilder: (_, i) => SubjectPoster(
+        key: ValueKey(items[i]['subjectId']),
+        onOpen: onOpen,
+        item: items[i],
+        tracking: tracking,
+      ),
+    ),
+  );
 }
 
 class HorizontalPosters extends StatefulWidget {
@@ -512,6 +533,12 @@ Color collectionColor(String status) => switch (status) {
   _ => mint,
 };
 
+int imageDecodeWidth(BuildContext context, double width) =>
+    ((width * MediaQuery.devicePixelRatioOf(context) / 64).ceil() * 64).clamp(
+      64,
+      2048,
+    );
+
 class SubjectCoverScope extends InheritedWidget {
   const SubjectCoverScope({
     super.key,
@@ -612,24 +639,31 @@ class _SubjectCoverState extends State<SubjectCover> {
       duration: motionDuration(context),
       child: address == null
           ? SizedBox.expand(key: ValueKey('placeholder:$id'), child: fallback)
-          : Image.network(
-              address,
+          : LayoutBuilder(
               key: ValueKey('$id:$address'),
-              fit: widget.fit,
-              frameBuilder: (context, child, frame, synchronous) => Stack(
-                fit: StackFit.expand,
-                children: [
-                  fallback,
-                  AnimatedOpacity(
-                    opacity: frame == null ? 0 : 1,
-                    duration: synchronous
-                        ? Duration.zero
-                        : motionDuration(context),
-                    child: child,
-                  ),
-                ],
+              builder: (context, constraints) => Image.network(
+                address,
+                cacheWidth: imageDecodeWidth(
+                  context,
+                  constraints.maxWidth.isFinite ? constraints.maxWidth : 512,
+                ),
+                key: ValueKey('$id:$address'),
+                fit: widget.fit,
+                frameBuilder: (context, child, frame, synchronous) => Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    fallback,
+                    AnimatedOpacity(
+                      opacity: frame == null ? 0 : 1,
+                      duration: synchronous
+                          ? Duration.zero
+                          : motionDuration(context),
+                      child: child,
+                    ),
+                  ],
+                ),
+                errorBuilder: (_, _, _) => fallback,
               ),
-              errorBuilder: (_, _, _) => fallback,
             ),
     );
   }

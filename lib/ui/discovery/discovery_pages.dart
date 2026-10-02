@@ -1200,10 +1200,13 @@ class _SearchPageState extends State<SearchPage> {
   Widget build(BuildContext context) {
     final results = widget.results;
     return NotificationListener<ScrollMetricsNotification>(
-      onNotification: (notification) => loadMoreIfNeeded(notification.metrics),
+      onNotification: (notification) => notification.depth == 0
+          ? loadMoreIfNeeded(notification.metrics)
+          : false,
       child: NotificationListener<ScrollUpdateNotification>(
-        onNotification: (notification) =>
-            loadMoreIfNeeded(notification.metrics),
+        onNotification: (notification) => notification.depth == 0
+            ? loadMoreIfNeeded(notification.metrics)
+            : false,
         child: PageScroll(
           children: [
             SectionTitle(
@@ -1221,7 +1224,12 @@ class _SearchPageState extends State<SearchPage> {
             else if (results.isEmpty)
               const EmptyState(text: '没有找到匹配的番剧，换个名称或别名试试')
             else
-              SubjectPosters(onOpen: widget.onOpenSubject, items: results),
+              PageSliver(
+                child: SubjectPosterGrid(
+                  onOpen: widget.onOpenSubject,
+                  items: results,
+                ),
+              ),
             if (results.isNotEmpty && widget.error != null)
               EmptyState(
                 text: widget.error!,
@@ -1266,22 +1274,20 @@ class CalendarPage extends StatefulWidget {
 }
 
 class _CalendarPageState extends State<CalendarPage> {
-  int selected = DateTime.now().weekday;
+  String? selected;
   bool restored = false;
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!restored) {
-      selected =
-          PageStorage.maybeOf(context)
-                  ?.readState(context, identifier: 'calendar-day')
-              as int? ??
-          selected;
+      final saved = PageStorage.maybeOf(context)
+          ?.readState(context, identifier: 'calendar-day');
+      if (saved is String) selected = saved;
       restored = true;
     }
   }
 
-  void selectDay(int day) {
+  void selectDay(String day) {
     setState(() => selected = day);
     PageStorage.maybeOf(context)
         ?.writeState(context, day, identifier: 'calendar-day');
@@ -1289,11 +1295,28 @@ class _CalendarPageState extends State<CalendarPage> {
 
   @override
   Widget build(BuildContext context) {
-    final days = {
-      for (final day in widget.calendar)
-        number(object(day['weekday'])['id']).toInt(): day,
-    };
-    final items = objects(days[selected]?['items']);
+    final shanghaiNow = DateTime.now().toUtc().add(const Duration(hours: 8));
+    final today = DateTime.utc(
+      shanghaiNow.year,
+      shanghaiNow.month,
+      shanghaiNow.day,
+    );
+    final dates = [
+      for (var i = 0; i < 7; i++)
+        today.add(Duration(days: i)).toIso8601String().substring(0, 10),
+    ];
+    final days = {for (final day in widget.calendar) '${day['date']}': day};
+    final selectedDate = dates.contains(selected) ? selected! : dates.first;
+    final items = objects(days[selectedDate]?['items']);
+    String weekday(String date) => [
+      '周一',
+      '周二',
+      '周三',
+      '周四',
+      '周五',
+      '周六',
+      '周日',
+    ][DateTime.parse('${date}T00:00:00Z').weekday - 1];
     return Column(
       children: [
         Container(
@@ -1308,14 +1331,14 @@ class _CalendarPageState extends State<CalendarPage> {
             itemBuilder: (context, i) => SizedBox(
               width: 82,
               child: Semantics(
-                selected: selected == i + 1,
+                selected: selectedDate == dates[i],
                 child: TextButton(
                   style: TextButton.styleFrom(
                     textStyle: DefaultTextStyle.of(context).style,
-                    backgroundColor: selected == i + 1
+                    backgroundColor: selectedDate == dates[i]
                         ? Theme.of(context).colorScheme.secondaryContainer
                         : Theme.of(context).colorScheme.surface,
-                    foregroundColor: selected == i + 1
+                    foregroundColor: selectedDate == dates[i]
                         ? Theme.of(context).colorScheme.onSecondaryContainer
                         : Theme.of(context).colorScheme.onSurface,
                     padding: EdgeInsets.zero,
@@ -1323,14 +1346,14 @@ class _CalendarPageState extends State<CalendarPage> {
                       borderRadius: posterBorderRadius,
                     ),
                   ),
-                  onPressed: () => selectDay(i + 1),
+                  onPressed: () => selectDay(dates[i]),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][i],
+                        weekday(dates[i]),
                         style: TextStyle(
-                          color: selected == i + 1
+                          color: selectedDate == dates[i]
                               ? Theme.of(context)
                                     .colorScheme
                                     .onSecondaryContainer
@@ -1341,9 +1364,9 @@ class _CalendarPageState extends State<CalendarPage> {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'][i],
+                        dates[i].substring(5).replaceAll('-', '/'),
                         style: TextStyle(
-                          color: selected == i + 1
+                          color: selectedDate == dates[i]
                               ? Theme.of(context)
                                     .colorScheme
                                     .onSecondaryContainer
@@ -1352,9 +1375,9 @@ class _CalendarPageState extends State<CalendarPage> {
                         ),
                       ),
                       Text(
-                        '${objects(days[i + 1]?['items']).length} 部',
+                        '${objects(days[dates[i]]?['items']).length} 部',
                         style: TextStyle(
-                          color: selected == i + 1
+                          color: selectedDate == dates[i]
                               ? Theme.of(context)
                                     .colorScheme
                                     .onSecondaryContainer
@@ -1373,7 +1396,7 @@ class _CalendarPageState extends State<CalendarPage> {
           child: PageScroll(
             children: [
               SectionTitle(
-                title: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][selected - 1],
+                title: '${weekday(selectedDate)} · $selectedDate',
                 subtitle: '${items.length} 部放送',
                 icon: Icons.calendar_month_outlined,
               ),
@@ -1384,7 +1407,7 @@ class _CalendarPageState extends State<CalendarPage> {
                 )
               else
                 PageEntrance(
-                  key: ValueKey(selected),
+                  key: ValueKey(selectedDate),
                   child: BroadcastTimeline(
                     items: items,
                     onOpen: widget.onOpenSubject,

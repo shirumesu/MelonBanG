@@ -3,6 +3,7 @@ import 'dart:io';
 import 'cache_method.dart';
 import 'downloads.dart';
 import 'json.dart';
+import 'network.dart';
 import 'online_sources/repository.dart';
 import 'play_candidates.dart';
 import 'playback_library.dart';
@@ -37,7 +38,9 @@ class PlaySelectionRepository {
     String language = 'auto',
     bool useContinuity = false,
     void Function(List<PlayCandidate>)? onUpdate,
+    RequestCancellation? cancel,
   }) async {
+    cancel?.throwIfCancelled();
     final subjectId = subject['subjectId'] as int;
     final episodeId = episode['episodeId'] as int;
     final found = <String, PlayCandidate>{};
@@ -48,6 +51,7 @@ class PlaySelectionRepository {
       continuity: useContinuity ? continuity[subjectId] : null,
     );
     void add(Iterable<PlayCandidate> values) {
+      if (cancel?.isCancelled == true) return;
       for (final candidate in values) {
         candidate.health = -(_failures[candidate.id] ?? 0);
         found[candidate.id] = candidate;
@@ -71,8 +75,7 @@ class PlaySelectionRepository {
         ),
       ]);
     }
-    final snapshot = downloads.snapshot();
-    for (final task in objects(snapshot['tasks'])) {
+    for (final task in downloads.tasksForSubject(subjectId)) {
       final bound = binding?['downloadId'] == task['id'];
       if (task['subjectId'] != subjectId ||
           (!bound && task['episodeId'] != episodeId)) {
@@ -120,7 +123,12 @@ class PlaySelectionRepository {
     }
     final onlineRequest = includeOnline
         ? online
-              .candidates(subject, episode)
+              .candidates(
+                subject,
+                episode,
+                cancel: cancel,
+                firstReady: forPlayback && !useContinuity,
+              )
               .then(
                 (rows) => add([
                   for (var i = 0; i < rows.length; i++)
@@ -138,6 +146,9 @@ class PlaySelectionRepository {
                 episodeId: episodeId,
                 episodeKeyword: resourceEpisodeKeyword(episode),
                 coverUrl: subject['coverUrl'] as String?,
+                cancel: cancel,
+                includeMetadata: !forPlayback,
+                isCurrent: () => cancel?.isCancelled != true,
                 onUpdate: (result) => add([
                   for (final (index, row) in objects(
                     result['candidates'],
@@ -163,17 +174,20 @@ class PlaySelectionRepository {
       }
     }
     await Future.wait([onlineRequest, sourceRequest]);
+    cancel?.throwIfCancelled();
     return ranked();
   }
 
   Future<Json> load(
     PlayCandidate candidate,
     int subjectId,
-    int episodeId,
-  ) async {
+    int episodeId, {
+    RequestCancellation? cancel,
+  }) async {
+    cancel?.throwIfCancelled();
     if (candidate.kind == PlayKind.online) {
       return library.online(
-        await online.resolve(candidate.ref),
+        await online.resolve(candidate.ref, cancel: cancel),
         subjectId: subjectId,
         episodeId: episodeId,
         provider: candidate.provider,
@@ -206,6 +220,7 @@ class PlaySelectionRepository {
     final id = '${task['id']}';
     final deadline = DateTime.now().add(const Duration(seconds: 45));
     while (DateTime.now().isBefore(deadline)) {
+      cancel?.throwIfCancelled();
       try {
         downloads.media(id);
         return await library.fromDownload(id);

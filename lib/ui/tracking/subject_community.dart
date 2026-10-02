@@ -36,13 +36,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   List<Json> _relations = [];
   late String _account = widget.client.account.userId;
   int _generation = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_load());
-    unawaited(_loadRelations());
-  }
+  bool _requested = false;
 
   @override
   void didUpdateWidget(SubjectCommunity oldWidget) {
@@ -54,8 +48,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
       _pages.clear();
       _totals.clear();
       _relations = [];
-      unawaited(_load());
-      unawaited(_loadRelations());
+      _requested = false;
     }
   }
 
@@ -68,6 +61,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   }
 
   Future<void> _load({bool refresh = false}) async {
+    if (!_requested) return;
     final requestedSegment = segment;
     final subjectId = widget.subjectId;
     final generation = _generation;
@@ -99,6 +93,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   }
 
   Future<void> _loadRelations({bool refresh = false}) async {
+    if (!_requested) return;
     final generation = _generation;
     final subjectId = widget.subjectId;
     await _relationsFeedback.run(() async {
@@ -214,135 +209,188 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      MelonPanel(
+  Widget build(BuildContext context) => SliverLayoutBuilder(
+    builder: (context, constraints) {
+      if (!_requested && constraints.remainingCacheExtent > 0) {
+        _requested = true;
+        final generation = _generation;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || generation != _generation) return;
+          unawaited(_load());
+          unawaited(_loadRelations());
+        });
+      }
+      return _content(context);
+    },
+  );
+
+  Widget _content(BuildContext context) => SliverMainAxisGroup(
+    slivers: [
+      DecoratedSliver(
+        decoration: BoxDecoration(
+          color: CardTheme.of(context).color ?? Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        sliver: SliverPadding(
+          padding: const EdgeInsets.all(20),
+          sliver: SliverMainAxisGroup(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: MelonSegmentedControl<String>(
+                            options: const {
+                              'comments': '吐槽',
+                              'reviews': '评论',
+                              'topics': '讨论',
+                            },
+                            value: segment,
+                            onChanged: (value) {
+                              setState(() => segment = value);
+                              if (!_pages.containsKey(value)) {
+                                unawaited(_load());
+                              }
+                            },
+                          ),
+                        ),
+                        ListenableBuilder(
+                          listenable: Listenable.merge([
+                            _feedback,
+                            _relationsFeedback,
+                          ]),
+                          builder: (context, _) => IconButton(
+                            tooltip: '刷新社区',
+                            onPressed: _feedback.busy || _relationsFeedback.busy
+                                ? null
+                                : () {
+                                    unawaited(_load(refresh: true));
+                                    unawaited(_loadRelations(refresh: true));
+                                  },
+                            icon: const Icon(Icons.refresh, size: 18),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '在 Bangumi 打开',
+                          onPressed: () =>
+                              _open('/subject/${widget.subjectId}'),
+                          icon: const Icon(Icons.open_in_new, size: 18),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    FeedbackIssue(
+                      feedback: _feedback,
+                      onRetry: () => unawaited(_load(refresh: true)),
+                    ),
+                  ],
+                ),
+              ),
+              ListenableBuilder(
+                listenable: _feedback,
+                builder: (context, _) {
+                  final rows = _pages[segment] ?? [];
+                  return SliverMainAxisGroup(
+                    slivers: [
+                      if (rows.isEmpty)
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Text(
+                              _feedback.busy
+                                  ? '正在加载…'
+                                  : _feedback.issue == null
+                                  ? '这里还没有内容'
+                                  : '内容暂时无法读取',
+                            ),
+                          ),
+                        ),
+                      SliverList.builder(
+                        itemCount: rows.length,
+                        itemBuilder: (_, index) => _row(rows[index]),
+                      ),
+                      if (rows.length < (_totals[segment] ?? 0))
+                        SliverToBoxAdapter(
+                          child: Center(
+                            child: TextButton(
+                              onPressed: _feedback.busy
+                                  ? null
+                                  : () => unawaited(_load()),
+                              child: Text(_feedback.busy ? '正在加载…' : '加载更多'),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      SliverToBoxAdapter(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: MelonSegmentedControl<String>(
-                    options: const {
-                      'comments': '吐槽',
-                      'reviews': '评论',
-                      'topics': '讨论',
-                    },
-                    value: segment,
-                    onChanged: (value) {
-                      setState(() => segment = value);
-                      if (!_pages.containsKey(value)) unawaited(_load());
-                    },
-                  ),
-                ),
-                ListenableBuilder(
-                  listenable: Listenable.merge([_feedback, _relationsFeedback]),
-                  builder: (context, _) => IconButton(
-                    tooltip: '刷新社区',
-                    onPressed: _feedback.busy || _relationsFeedback.busy
-                        ? null
-                        : () {
-                            unawaited(_load(refresh: true));
-                            unawaited(_loadRelations(refresh: true));
-                          },
-                    icon: const Icon(Icons.refresh, size: 18),
-                  ),
-                ),
-                IconButton(
-                  tooltip: '在 Bangumi 打开',
-                  onPressed: () => _open('/subject/${widget.subjectId}'),
-                  icon: const Icon(Icons.open_in_new, size: 18),
-                ),
-              ],
+            const SizedBox(height: 18),
+            const SectionTitle(
+              title: '关联作品',
+              icon: Icons.movie_filter_outlined,
             ),
-            const SizedBox(height: 16),
             FeedbackIssue(
-              feedback: _feedback,
-              onRetry: () => unawaited(_load(refresh: true)),
+              feedback: _relationsFeedback,
+              onRetry: () => unawaited(_loadRelations(refresh: true)),
             ),
             ListenableBuilder(
-              listenable: _feedback,
-              builder: (context, _) {
-                final rows = _pages[segment] ?? [];
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (rows.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: Text(
-                          _feedback.busy
-                              ? '正在加载…'
-                              : _feedback.issue == null
-                              ? '这里还没有内容'
-                              : '内容暂时无法读取',
-                        ),
+              listenable: _relationsFeedback,
+              builder: (context, _) => _relations.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Text(
+                        _relationsFeedback.busy ? '正在加载关联作品…' : '暂无关联作品',
                       ),
-                    for (final row in rows) _row(row),
-                    if (rows.length < (_totals[segment] ?? 0))
-                      Center(
-                        child: TextButton(
-                          onPressed: _feedback.busy
-                              ? null
-                              : () => unawaited(_load()),
-                          child: Text(_feedback.busy ? '正在加载…' : '加载更多'),
-                        ),
-                      ),
-                  ],
-                );
-              },
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final group in ['前传', '续集', '番外', '总集篇', '其他'])
+                          if (_relations.any(
+                            (row) => _group(row) == group,
+                          )) ...[
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: Text(
+                                group,
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                            ),
+                            HorizontalPosters(
+                              storageId: 'relations:${widget.subjectId}:$group',
+                              ranked: false,
+                              itemCount: _relations
+                                  .where((row) => _group(row) == group)
+                                  .length,
+                              itemBuilder: (index) {
+                                final row = _relations
+                                    .where((row) => _group(row) == group)
+                                    .elementAt(index);
+                                return SubjectPoster(
+                                  item: row,
+                                  onOpen: widget.onOpenSubject,
+                                  tracking: false,
+                                  badge: '${row['relation']}',
+                                );
+                              },
+                            ),
+                          ],
+                      ],
+                    ),
             ),
           ],
         ),
-      ),
-      const SizedBox(height: 18),
-      const SectionTitle(title: '关联作品', icon: Icons.movie_filter_outlined),
-      FeedbackIssue(
-        feedback: _relationsFeedback,
-        onRetry: () => unawaited(_loadRelations(refresh: true)),
-      ),
-      ListenableBuilder(
-        listenable: _relationsFeedback,
-        builder: (context, _) => _relations.isEmpty
-            ? Padding(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                child: Text(_relationsFeedback.busy ? '正在加载关联作品…' : '暂无关联作品'),
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (final group in ['前传', '续集', '番外', '总集篇', '其他'])
-                    if (_relations.any((row) => _group(row) == group)) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Text(
-                          group,
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                      ),
-                      HorizontalPosters(
-                        storageId: 'relations:${widget.subjectId}:$group',
-                        ranked: false,
-                        itemCount: _relations
-                            .where((row) => _group(row) == group)
-                            .length,
-                        itemBuilder: (index) {
-                          final row = _relations
-                              .where((row) => _group(row) == group)
-                              .elementAt(index);
-                          return SubjectPoster(
-                            item: row,
-                            onOpen: widget.onOpenSubject,
-                            tracking: false,
-                            badge: '${row['relation']}',
-                          );
-                        },
-                      ),
-                    ],
-                ],
-              ),
       ),
     ],
   );

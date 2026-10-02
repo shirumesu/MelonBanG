@@ -13,6 +13,12 @@ import 'builtin.dart';
 import 'engine.dart';
 export 'engine.dart' show onlineEngineVersion, SourceVerificationRequired;
 
+class _SourceRead {
+  final cancel = RequestCancellation();
+  late Future<List<Json>> value;
+  int users = 0;
+}
+
 class OnlineSourceRepository extends ChangeNotifier {
   OnlineSourceRepository(
     this.api,
@@ -26,7 +32,8 @@ class OnlineSourceRepository extends ChangeNotifier {
   final errors = <String, String>{};
   final results = <String, List<Json>>{};
   final _engines = <String, RuleOnlineSource>{};
-  final _searches = <String, Future<List<Json>>>{};
+  final _reads = <String, _SourceRead>{};
+  final _cache = <String, ({DateTime expires, List<Json> rows})>{};
   Json snapshot = object(jsonDecode(builtinSourceRules));
   String ruleOrigin = '安装包内置';
   String? updateIssue;
@@ -59,7 +66,7 @@ class OnlineSourceRepository extends ChangeNotifier {
   Future<void> setEnabled(String id, bool enabled) async {
     await preferences.setBool('source-enabled-$id', enabled);
     if (enabled && health[id] == 'verification') health.remove(id);
-    _searches.clear();
+    _clearReads();
     _notify();
   }
 
@@ -139,7 +146,7 @@ class OnlineSourceRepository extends ChangeNotifier {
       checkedAt = DateTime.now();
       updateIssue = null;
       _engines.clear();
-      _searches.clear();
+      _clearReads();
       _notify();
     } catch (error) {
       updateIssue = '规则更新失败，继续使用$ruleOrigin：$error';
@@ -152,33 +159,126 @@ class OnlineSourceRepository extends ChangeNotifier {
     String id,
     Iterable<String> names, {
     bool refresh = false,
+    RequestCancellation? cancel,
+    bool Function(List<Json>)? enough,
   }) async {
-    final keys = names.toList();
-    final key = '$id:${keys.join('|')}';
-    if (refresh) _searches.remove(key);
     try {
-      final rows = await _searches.putIfAbsent(
-        key,
-        () => source(id).searchSubjects(keys),
-      );
+      final rows = <String, Json>{};
+      Object? failure;
+      var succeeded = false;
+      for (final name
+          in names.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet()) {
+        cancel?.throwIfCancelled();
+        final key = '$version:search:$id:$name';
+        if (refresh) _cache.remove(key);
+        try {
+          final values = await _cachedRead(
+            key,
+            (token) => source(id).searchSubjects([name], cancel: token),
+            cancel: cancel,
+          );
+          succeeded = true;
+          for (final row in values) {
+            rows['${row['id'] ?? row['url']}'] = row;
+          }
+          if (enough?.call(rows.values.toList()) == true) break;
+        } on SourceVerificationRequired {
+          rethrow;
+        } catch (error) {
+          cancel?.throwIfCancelled();
+          failure = error;
+        }
+      }
+      if (!succeeded && failure != null) throw failure;
       health[id] = 'ready';
       errors.remove(id);
       _notify();
-      return rows;
+      return rows.values.toList();
     } catch (error) {
-      _searches.remove(key);
+      cancel?.throwIfCancelled();
       failed(id, error);
       rethrow;
     }
   }
 
-  Future<List<Json>> episodes(String id, Json subject) async {
+  Future<List<Json>> episodes(
+    String id,
+    Json subject, {
+    RequestCancellation? cancel,
+  }) async {
     try {
-      return await source(id).episodes(subject);
+      return await _cachedRead(
+        '$version:episodes:$id:${subject['id'] ?? subject['url']}',
+        (token) => source(id).episodes(subject, cancel: token),
+        cancel: cancel,
+      );
     } catch (error) {
+      cancel?.throwIfCancelled();
       failed(id, error);
       rethrow;
     }
+  }
+
+  Future<List<Json>> _cachedRead(
+    String key,
+    Future<List<Json>> Function(RequestCancellation) load, {
+    RequestCancellation? cancel,
+  }) async {
+    cancel?.throwIfCancelled();
+    final cached = _cache.remove(key);
+    if (cached != null && cached.expires.isAfter(DateTime.now())) {
+      _cache[key] = cached;
+      return cached.rows;
+    }
+    var read = _reads[key];
+    if (read == null || read.cancel.isCancelled) {
+      final created = _SourceRead();
+      read = created;
+      _reads[key] = created;
+      created.value = load(created.cancel)
+          .then((rows) {
+            created.cancel.throwIfCancelled();
+            _cache[key] = (
+              expires: DateTime.now().add(const Duration(minutes: 5)),
+              rows: rows,
+            );
+            while (_cache.length > 64) {
+              _cache.remove(_cache.keys.first);
+            }
+            return rows;
+          })
+          .whenComplete(() {
+            if (identical(_reads[key], created)) _reads.remove(key);
+          });
+    }
+    final active = read;
+    active.users++;
+    final cancelled = Completer<List<Json>>();
+    final stop = cancel?.listen(() {
+      if (!cancelled.isCompleted) {
+        cancelled.completeError(const RequestCancelled());
+      }
+    });
+    try {
+      return await Future.any([
+        active.value,
+        if (cancel != null) cancelled.future,
+      ]);
+    } finally {
+      stop?.call();
+      active.users--;
+      if (active.users == 0 && identical(_reads[key], active)) {
+        active.cancel.cancel();
+      }
+    }
+  }
+
+  void _clearReads() {
+    for (final read in _reads.values) {
+      read.cancel.cancel();
+    }
+    _reads.clear();
+    _cache.clear();
   }
 
   void failed(String id, Object error) {
@@ -187,18 +287,35 @@ class OnlineSourceRepository extends ChangeNotifier {
     _notify();
   }
 
-  Future<List<Json>> candidates(Json subject, Json episode) async {
+  Future<List<Json>> candidates(
+    Json subject,
+    Json episode, {
+    RequestCancellation? cancel,
+    bool firstReady = false,
+  }) async {
     final names = resourceNames(subject);
     final result = <Json>[];
-    await Future.wait(
+    final operation = RequestCancellation();
+    final stop = cancel?.listen(operation.cancel);
+    final ready = Completer<List<Json>>();
+    final all = Future.wait(
       rules.where(usable).map((rule) async {
         final id = '${rule['id']}';
         try {
-          final matches = await search(id, names);
+          final matches = await search(
+            id,
+            names,
+            cancel: operation,
+            enough: firstReady
+                ? (rows) => rows.any(
+                    (site) => onlineMatchScore(subject, site, names) >= .84,
+                  )
+                : null,
+          );
           for (final site in matches) {
             final score = onlineMatchScore(subject, site, names);
             if (score < .55) continue;
-            final rows = await episodes(id, site);
+            final rows = await episodes(id, site, cancel: operation);
             for (final row in rows.where(
               (row) => onlineEpisodeMatches('${row['label']}', episode),
             )) {
@@ -224,15 +341,31 @@ class OnlineSourceRepository extends ChangeNotifier {
               });
             }
           }
+          if (firstReady &&
+              !ready.isCompleted &&
+              result.any((row) => row['possibleMatch'] != true)) {
+            ready.complete(List<Json>.of(result));
+          }
         } catch (_) {
           /* Failed providers retain their health while others remain usable. */
         }
       }),
-    );
-    return result;
+    ).then((_) => List<Json>.of(result));
+    try {
+      final rows = await (firstReady ? Future.any([ready.future, all]) : all);
+      cancel?.throwIfCancelled();
+      if (firstReady && !rows.any((row) => row['possibleMatch'] != true)) {
+        return await candidates(subject, episode, cancel: cancel);
+      }
+      return rows;
+    } finally {
+      stop?.call();
+      operation.cancel();
+    }
   }
 
-  Future<Json> resolve(Json candidate) async {
+  Future<Json> resolve(Json candidate, {RequestCancellation? cancel}) async {
+    cancel?.throwIfCancelled();
     final ref = object(candidate['ref']).isEmpty
         ? candidate
         : object(candidate['ref']);
@@ -245,13 +378,14 @@ class OnlineSourceRepository extends ChangeNotifier {
       throw StateError('该视频源需要更新应用');
     }
     try {
-      final resolved = await source(id).resolve(ref);
+      final resolved = await source(id).resolve(ref, cancel: cancel);
       if (resolved['kind'] == 'hls' &&
           object(rule['playlistFilter'])['foreignPathBlocks'] == true) {
         final manifest = await playlist(
           Uri.parse('${resolved['url']}'),
           object(resolved['headers']).map((k, v) => MapEntry(k, '$v')),
           filter: true,
+          cancel: cancel,
         );
         resolved['playlist'] = manifest.$1;
       }
@@ -260,7 +394,7 @@ class OnlineSourceRepository extends ChangeNotifier {
       _notify();
       return resolved;
     } catch (error) {
-      failed(id, error);
+      if (cancel?.isCancelled != true) failed(id, error);
       rethrow;
     }
   }
@@ -269,9 +403,10 @@ class OnlineSourceRepository extends ChangeNotifier {
     Uri uri,
     Map<String, String> headers, {
     bool filter = false,
+    RequestCancellation? cancel,
   }) async {
     for (var depth = 0; depth < 4; depth++) {
-      final response = await api.send(uri, headers: headers);
+      final response = await api.send(uri, headers: headers, cancel: cancel);
       final text = utf8.decode(response.bodyBytes);
       if (!text.trimLeft().startsWith('#EXTM3U')) {
         throw StateError('站点没有返回有效 m3u8');
@@ -432,6 +567,7 @@ class OnlineSourceRepository extends ChangeNotifier {
 
   @override
   void dispose() {
+    _clearReads();
     _closed = true;
     super.dispose();
   }
