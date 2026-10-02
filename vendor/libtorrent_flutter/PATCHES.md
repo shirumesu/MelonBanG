@@ -49,6 +49,10 @@ stays disabled: DownloadRepository owns queue admission and explicit pause state
 `lt_save_metadata` exports acquired metadata (including tracker tiers) so magnets
 can be restored from a torrent file without rediscovering metadata online. Data
 pieces are still verified on restart, rather than assumed valid through seed mode.
+Torrent files load with `load_torrent_file`; metadata exports use
+`get_resume_data(save_info_dict)` and `write_torrent_file_buf`, allowing missing v2
+piece layers while a magnet is incomplete. File queries combine `layout()` with
+`get_renamed_files()` to retain the engine's on-disk names without deprecated APIs.
 Settings now apply per-torrent connection limits to ordinary downloads, honor the
 listen port, and apply IPv6/TCP/uTP switches in both directions when toggled.
 The session no longer imposes a fixed four-times cap or floor of 200. Per-torrent

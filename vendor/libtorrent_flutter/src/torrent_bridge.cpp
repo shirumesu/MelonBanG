@@ -29,7 +29,8 @@
 #include <openssl/ssl.h>
 #endif
 
-#include <libtorrent/create_torrent.hpp>
+#include <libtorrent/load_torrent.hpp>
+#include <libtorrent/write_resume_data.hpp>
 #include <fstream>
 #include <filesystem>
 #include <libtorrent/session.hpp>
@@ -1204,7 +1205,7 @@ struct SessionWrapper {
                                 try {
                                     auto ti = mra->handle.torrent_file();
                                     if (ti) {
-                                        int nf = ti->files().num_files();
+                                        int nf = ti->num_files();
                                         std::vector<lt::download_priority_t> p(
                                             (size_t)nf, lt::dont_download);
                                         mra->handle.prioritize_files(p);
@@ -1747,7 +1748,10 @@ static void handle_connection(StreamEngine* s, socket_t cli, int reader_id) {
             // get filename — port of stream.go MIME detection
             std::string filename = "video.mp4";
             if (s->ti) {
-                try { filename = std::string(s->ti->files().file_name(lt::file_index_t{s->file_index})); }
+                try {
+                    const auto renames = s->handle.get_renamed_files();
+                    filename = std::string(renames.file_name(s->ti->layout(), lt::file_index_t{s->file_index}));
+                }
                 catch (...) {}
             }
 
@@ -2187,10 +2191,9 @@ TORRENT_API lt_torrent_id lt_add_torrent_file(lt_session_t session,
     auto* sw = to_sw(session);
     try {
         lt::error_code ec;
-        auto ti = std::make_shared<lt::torrent_info>(fp, ec);
+        auto atp = lt::load_torrent_file(fp, ec, {});
         if (ec) { set_err(ec.message()); return -1; }
-        lt::add_torrent_params atp;
-        atp.ti = ti; atp.save_path = path;
+        atp.save_path = path;
         if (add_flags & 2) atp.flags |= lt::torrent_flags::paused;
         else atp.flags &= ~lt::torrent_flags::paused;
         if (add_flags & 4) atp.flags |= lt::torrent_flags::stop_when_ready;
@@ -2266,10 +2269,9 @@ TORRENT_API int lt_save_metadata(lt_session_t session, lt_torrent_id id,
         if (it == sw->handles.end()) return 0;
         auto ti = it->second.torrent_file();
         if (!ti) return 0;
-        lt::create_torrent creator(*ti);
-        for (const auto& tracker : it->second.trackers())
-            creator.add_tracker(tracker.url, tracker.tier);
-        const auto bytes = creator.generate_buf();
+        const auto atp = it->second.get_resume_data(lt::torrent_handle::save_info_dict);
+        const auto bytes = lt::write_torrent_file_buf(atp,
+            lt::write_flags::allow_missing_piece_layer | lt::write_flags::include_dht_nodes);
         std::ofstream file(std::filesystem::u8path(path), std::ios::binary);
         file.write(bytes.data(), bytes.size());
         file.close();
@@ -2346,7 +2348,8 @@ TORRENT_API int lt_get_files(lt_session_t session, lt_torrent_id id,
 #endif
             return 0;
         }
-        const lt::file_storage& fs = ti->files();
+        const lt::file_storage& fs = ti->layout();
+        const auto renames = it->second.get_renamed_files();
         std::vector<std::int64_t> progress;
         it->second.file_progress(progress, lt::torrent_handle::piece_granularity);
         int n = 0;
@@ -2355,9 +2358,9 @@ TORRENT_API int lt_get_files(lt_session_t session, lt_torrent_id id,
             out[n].index = i;
             out[n].size = fs.file_size(fi);
             out[n].downloaded_bytes = i < static_cast<int>(progress.size()) ? progress[i] : 0;
-            std::string nm = std::string(fs.file_name(fi));
+            std::string nm = std::string(renames.file_name(fs, fi));
             out[n].is_streamable = is_streamable(nm) ? 1 : 0;
-            std::string pt = fs.file_path(fi);
+            std::string pt = renames.file_path(fs, fi);
             std::strncpy(out[n].name, nm.c_str(), sizeof(out[n].name) - 1);
             std::strncpy(out[n].path, pt.c_str(), sizeof(out[n].path) - 1);
             out[n].name[sizeof(out[n].name) - 1] = 0;
@@ -2367,7 +2370,7 @@ TORRENT_API int lt_get_files(lt_session_t session, lt_torrent_id id,
         __android_log_print(ANDROID_LOG_INFO, "libtorrent_flutter", "lt_get_files: successfully processed %d files", n);
 #endif
         return n;
-    } catch (const std::exception& e) {
+    } catch ([[maybe_unused]] const std::exception& e) {
 #ifdef __ANDROID__
         __android_log_print(ANDROID_LOG_ERROR, "libtorrent_flutter", "lt_get_files exception: %s", e.what());
 #endif
@@ -2390,7 +2393,7 @@ TORRENT_API void lt_set_file_priorities(lt_session_t session, lt_torrent_id id,
     try {
         auto ti = it->second.torrent_file();
         if (!ti) return;
-        int nf = ti->files().num_files();
+        int nf = ti->num_files();
         std::vector<lt::download_priority_t> p;
         p.reserve(nf);
         for (int i = 0; i < nf; ++i)
@@ -2421,14 +2424,15 @@ TORRENT_API lt_stream_id lt_start_stream(lt_session_t session,
 
     auto ti = handle.torrent_file();
     if (!ti) { set_err("no metadata yet"); return -1; }
-    const lt::file_storage& fs = ti->files();
+    const lt::file_storage& fs = ti->layout();
+    const auto renames = handle.get_renamed_files();
 
     // auto-select largest streamable file
     if (file_index < 0) {
         int64_t best = -1; file_index = 0;
         for (int i = 0; i < fs.num_files(); ++i) {
             int64_t sz = fs.file_size(lt::file_index_t{i});
-            if (sz > best && is_streamable(std::string(fs.file_name(lt::file_index_t{i})))) {
+            if (sz > best && is_streamable(std::string(renames.file_name(fs, lt::file_index_t{i})))) {
                 best = sz; file_index = i;
             }
         }
@@ -2662,7 +2666,7 @@ TORRENT_API void lt_stop_stream(lt_session_t session, lt_stream_id sid) {
         try {
             auto ti2 = stream->handle.torrent_file();
             if (ti2) {
-                int nf = ti2->files().num_files();
+                int nf = ti2->num_files();
                 std::vector<lt::download_priority_t> p((size_t)nf, lt::default_priority);
                 stream->handle.prioritize_files(p);
             }
