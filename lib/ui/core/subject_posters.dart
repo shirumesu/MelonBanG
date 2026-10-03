@@ -19,7 +19,7 @@ class ArtPlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final line = scheme.onSurfaceVariant.withValues(alpha: .55);
+    final line = scheme.onSurfaceVariant.withValues(alpha: .6);
     return Semantics(
       label: label.isEmpty ? '暂无图片' : label,
       image: true,
@@ -28,19 +28,11 @@ class ArtPlaceholder extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(8),
           child: Center(
-            child: ColorFiltered(
-              // The asset is black lines on white: map darkness to opacity.
-              colorFilter: ColorFilter.matrix([
-                0, 0, 0, 0, line.r * 255, //
-                0, 0, 0, 0, line.g * 255,
-                0, 0, 0, 0, line.b * 255,
-                -line.a, 0, 0, 0, line.a * 255,
-              ]),
-              child: Image.asset(
-                'assets/images/akkarin.jpg',
-                fit: BoxFit.contain,
-                excludeFromSemantics: true,
-              ),
+            child: Image.asset(
+              'assets/images/akkarin.png',
+              color: line,
+              fit: BoxFit.contain,
+              excludeFromSemantics: true,
             ),
           ),
         ),

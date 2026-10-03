@@ -50,7 +50,7 @@ flutter:
   # Licence shipped alongside the bundled font, as the OFL requires.
   assets:
     - assets/fonts/OFL.txt
-    - assets/images/akkarin.jpg
+    - assets/images/akkarin.png
 
   fonts:
     - family: Resource Han Rounded

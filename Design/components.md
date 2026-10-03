@@ -17,7 +17,7 @@
 | 组件 | 用法 |
 | --- | --- |
 | `SubjectCover` | 所有封面图都用它：加载中和缺图时显示 `ArtPlaceholder` |
-| `ArtPlaceholder` | 封面和角色立绘的统一占位：中性底色上按主题着色的“透明阿卡林”线稿，不用彩色渐变，避免空位抢颜色 |
+| `ArtPlaceholder` | 封面和角色立绘的统一占位：中性底色上按主题着色的“透明阿卡林”线稿，不用彩色渐变，避免空位抢颜色。几乎纯色（如 Bangumi 的空白上传）的图片也按缺失处理 |
 | `SubjectPoster` | 竖版海报卡，番名压在封面底部；`badge` 用于“今日更新”这类强调标签 |
 | `SubjectPosters` | 网格（搜索结果、追番）或横栏（`horizontal: true`） |
 | `HorizontalPosters` | 横向滚动栏，悬停边缘时出现翻页按钮；可混排不同卡片 |
