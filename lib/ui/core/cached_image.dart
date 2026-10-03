@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -53,13 +54,33 @@ class _CachedImage extends ImageProvider<_CachedImage> {
 
   Future<ui.Codec> _load(ImageDecoderCallback decode) async {
     try {
-      return await decode(
-        await ui.ImmutableBuffer.fromUint8List(await cache.image(url)),
-      );
+      final bytes = await cache.image(url);
+      if (await _blank(bytes)) throw StateError('Blank image: $url');
+      return await decode(await ui.ImmutableBuffer.fromUint8List(bytes));
     } catch (_) {
       scheduleMicrotask(() => PaintingBinding.instance.imageCache.evict(this));
       rethrow;
     }
+  }
+
+  /// Bangumi serves some "no artwork" slots as a plain white upload; treat
+  /// an image whose thumbnail is a single flat colour as missing.
+  static Future<bool> _blank(Uint8List bytes) async {
+    final codec = await ui.instantiateImageCodec(bytes, targetWidth: 24);
+    final frame = await codec.getNextFrame();
+    codec.dispose();
+    final data = await frame.image.toByteData();
+    frame.image.dispose();
+    final pixels = data!.buffer.asUint8List();
+    for (var channel = 0; channel < 4; channel++) {
+      var low = 255, high = 0;
+      for (var i = channel; i < pixels.length; i += 4) {
+        low = math.min(low, pixels[i]);
+        high = math.max(high, pixels[i]);
+      }
+      if (high - low > 12) return false;
+    }
+    return true;
   }
 
   @override

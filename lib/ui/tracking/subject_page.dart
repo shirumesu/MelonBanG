@@ -1725,7 +1725,8 @@ class _TagAdderState extends State<_TagAdder> {
 
 /// All episodes as numbered cells. Click opens the episode's resources,
 /// right-click offers more, and a long press marks; while still pressed,
-/// dragging extends the same mark. Releasing outside the cells, the right
+/// dragging selects the range from the pressed cell to the pointer, so
+/// dragging back shrinks it. Releasing well outside the cells, the right
 /// button or Escape cancels the pending mark.
 class _EpisodeGrid extends StatefulWidget {
   const _EpisodeGrid({
@@ -1755,13 +1756,23 @@ class _EpisodeGrid extends StatefulWidget {
 
 class _EpisodeGridState extends State<_EpisodeGrid> {
   static const _gap = 6.0, _minWidth = 40.0, _height = 30.0, _rows = 4;
+  static const _cancelMargin = 48.0;
   bool expanded = false;
   int? hovered;
 
-  /// Pending mark while a long press is held; ids survive data refreshes.
+  /// Pending mark while a long press is held: the range between the pressed
+  /// and the current episode, by id so it survives data refreshes.
   String? dragStatus;
-  final dragIds = <int>{};
+  int? anchorId, currentId;
   bool outside = false;
+
+  Set<int> get dragIds {
+    if (dragStatus == null) return const {};
+    final ids = [for (final episode in widget.episodes) _id(episode)];
+    final a = ids.indexOf(anchorId!), b = ids.indexOf(currentId!);
+    if (a < 0 || b < 0) return const {};
+    return ids.sublist(math.min(a, b), math.max(a, b) + 1).toSet();
+  }
 
   static int _id(Json episode) => number(episode['episodeId']).toInt();
 
@@ -1787,9 +1798,7 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
           ? 'unwatched'
           : 'watched';
       outside = false;
-      dragIds
-        ..clear()
-        ..add(_id(episode));
+      anchorId = currentId = _id(episode);
     });
   }
 
@@ -1798,13 +1807,13 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
     if (dragStatus == null) return;
     setState(() {
       dragStatus = null;
-      dragIds.clear();
     });
   }
 
   void _end() {
     final status = dragStatus;
     final commit = status != null && !outside;
+    final dragIds = this.dragIds;
     final episodes = [
       for (final episode in widget.episodes)
         if (dragIds.contains(_id(episode)) &&
@@ -1884,25 +1893,26 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
           return index < visible.length ? index : null;
         }
 
+        final selected = dragIds;
         void drag(Offset position) {
           if (dragStatus == null) return;
           final away =
-              position.dx < -_gap ||
-              position.dy < -_gap ||
-              position.dx > constraints.maxWidth + _gap ||
-              position.dy > gridHeight + _gap;
+              position.dx < -_cancelMargin ||
+              position.dy < -_cancelMargin ||
+              position.dx > constraints.maxWidth + _cancelMargin ||
+              position.dy > gridHeight + _cancelMargin;
           final index = indexAt(position);
-          final id = index == null ? null : _id(visible[index]);
-          if (away == outside && (id == null || dragIds.contains(id))) return;
+          final id = index == null || away ? currentId : _id(visible[index]);
+          if (away == outside && id == currentId) return;
           setState(() {
             outside = away;
-            if (id != null && !away) dragIds.add(id);
+            currentId = id;
           });
         }
 
         Widget cell(int index) {
           final episode = visible[index];
-          final status = dragIds.contains(_id(episode)) && dragStatus != null
+          final status = selected.contains(_id(episode))
               ? dragStatus!
               : widget.statusOf(episode);
           final watched = status == 'watched';
@@ -1994,9 +2004,9 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
         if (dragStatus == null) {
           hint = '点击查看资源 · 长按标为已看 · 右键更多';
         } else if (outside) {
-          hint = '在格子外松开将取消';
+          hint = '已移出选集区域，松开将取消';
         } else {
-          hint = '已选 ${dragIds.length} 话，松开标为$target · 按住拖动选择更多 · 右键或 Esc 取消';
+          hint = '已选 ${selected.length} 话，松开标为$target · 按住拖动调整范围 · 右键或 Esc 取消';
         }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,

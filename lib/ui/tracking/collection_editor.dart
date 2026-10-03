@@ -147,7 +147,8 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
     if (tagInput.text.trim().isNotEmpty && !_addTags(tagInput.text)) return;
     Navigator.pop(context, <String, dynamic>{
       for (final field in ['status', 'score', 'tags', 'comment'])
-        if (!_same(field)) field: draft[field],
+        if (!_same(field) && !(field == 'score' && status == 'wish'))
+          field: draft[field],
       if (status == 'completed' && draft['completeEpisodes'] == true)
         'completeEpisodes': true,
     });
@@ -273,7 +274,6 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                       semanticLabel: '收藏状态',
                       onChanged: (value) => _update({
                         'status': value,
-                        if (value == 'wish') 'score': 0,
                         if (value != 'completed') 'completeEpisodes': false,
                       }),
                     ),
@@ -290,7 +290,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                       child: Row(
                         children: [
                           StarRating(
-                            value: score,
+                            value: status == 'wish' ? 0 : score,
                             size: 22,
                             labelWidth: 80,
                             enabled: status != null && status != 'wish',
@@ -301,7 +301,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                             },
                           ),
                           const Spacer(),
-                          if (score > 0)
+                          if (score > 0 && status != 'wish')
                             TextButton(
                               onPressed: () => _update({'score': 0}),
                               child: const Text('清除'),
@@ -309,7 +309,9 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                         ],
                       ),
                     ),
-                    detail: status == 'wish' ? '想看状态不能评分' : null,
+                    detail: status == 'wish'
+                        ? '想看状态不能评分，改回其他状态时恢复原评分'
+                        : null,
                   ),
                   section(
                     '标签',

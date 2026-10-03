@@ -27,6 +27,8 @@ class TrackingRepository {
   final _collectionRefreshes = <String, Future<void>>{};
   final _episodeRefreshes = <String, Future<void>>{};
   final _episodeRefreshedAt = <String, DateTime>{};
+  /// Scores cleared on entering wish, keyed `user:subject`, restored on leaving it.
+  final _heldScores = <String, int>{};
   _SyncStatus get _currentSync =>
       _syncStatus.putIfAbsent(account.userId, _SyncStatus.new);
   String? get lastSyncError => _currentSync.error;
@@ -145,8 +147,14 @@ class TrackingRepository {
         throw const FormatException('想看状态不能评分，请先选择其他收藏状态');
       }
       if (status == CollectionStatus.wish && number(current['userScore']) > 0) {
+        _heldScores['$user:$subjectId'] = number(current['userScore']).toInt();
         score = 0;
       }
+    } else if (score != null) {
+      _heldScores.remove('$user:$subjectId');
+    } else if (current['status'] == 'wish') {
+      // Leaving wish restores the score Bangumi made us clear on entering it.
+      score = _heldScores.remove('$user:$subjectId');
     }
     final fields = {
       'type': ?status?.remoteValue,
