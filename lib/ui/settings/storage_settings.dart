@@ -13,6 +13,7 @@ class StorageSettings extends StatefulWidget {
     required this.dataDirectory,
     required this.mediaDirectory,
     required this.onClearCache,
+    required this.readCacheSize,
     this.onExit,
     this.readUsage = StorageUsage.measure,
   });
@@ -20,6 +21,7 @@ class StorageSettings extends StatefulWidget {
   final VoidCallback? onExit;
   final String dataDirectory, mediaDirectory;
   final Future<void> Function() onClearCache;
+  final Future<int> Function() readCacheSize;
   final Future<StorageUsage> Function(String, String) readUsage;
   @override
   State<StorageSettings> createState() => _StorageSettingsState();
@@ -29,6 +31,7 @@ class _StorageSettingsState extends State<StorageSettings> {
   bool busy = false;
   String? error;
   StorageUsage? usage;
+  int? cacheBytes;
   bool measuring = false;
   int measurement = 0;
   final cleanup = ActionFeedback();
@@ -63,25 +66,25 @@ class _StorageSettingsState extends State<StorageSettings> {
   Future<void> refreshUsage() async {
     final request = ++measurement;
     setState(() => measuring = true);
-    StorageUsage result;
+    (StorageUsage, int?) result;
     try {
-      result = await widget.readUsage(
-        widget.dataDirectory,
-        widget.mediaDirectory,
-      );
+      result = await (
+        widget.readUsage(widget.dataDirectory, widget.mediaDirectory),
+        widget.readCacheSize(),
+      ).wait;
     } catch (_) {
-      result = const StorageUsage();
+      result = (const StorageUsage(), null);
     }
     if (!mounted || request != measurement) return;
     setState(() {
-      usage = result;
+      usage = result.$1;
+      cacheBytes = result.$2;
       measuring = false;
     });
   }
 
-  String usageLabel(bool media) {
+  String usageLabel(int? bytes) {
     if (measuring) return '正在统计…';
-    final bytes = media ? usage?.mediaBytes : usage?.dataBytes;
     if (bytes == null) return '暂时无法统计';
     if (bytes < 1024) return '已用 $bytes B';
     var value = bytes.toDouble();
@@ -150,12 +153,20 @@ class _StorageSettingsState extends State<StorageSettings> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      const SectionTitle(title: '图片与番剧资料缓存'),
+      SectionTitle(
+        title: '图片与番剧资料缓存',
+        trailing: Text(
+          usageLabel(cacheBytes),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ),
       MelonPanel(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('封面、头像、立绘和番剧资料保存在本机，超过 120 天自动清理。'),
+            const SizedBox(height: 8),
+            const Text('图片缓存最多占用 100 MiB，空间不足时优先清理最近未使用的图片。'),
             const SizedBox(height: 8),
             const Text('清理后会按需重新加载。下载的视频、追番记录和播放进度会保留。'),
             const SizedBox(height: 12),
@@ -178,7 +189,7 @@ class _StorageSettingsState extends State<StorageSettings> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                usageLabel(media),
+                usageLabel(media ? usage?.mediaBytes : usage?.dataBytes),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(width: 4),

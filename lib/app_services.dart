@@ -107,7 +107,7 @@ class AppServices {
       configuration: configuration,
     );
     _dispose.add(account.close);
-    catalog = CatalogRepository(api, store);
+    catalog = CatalogRepository(api, store, cache);
     _dispose.add(catalog.close);
     tracking = TrackingRepository(store, account, catalog);
     _dispose.add(tracking.close);

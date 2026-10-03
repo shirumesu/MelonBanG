@@ -1873,6 +1873,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
             ),
           ),
           storageSettings: StorageSettings(
+            readCacheSize: widget.service.cache.size,
             onClearCache: () async {
               await widget.service.cache.clear();
               PaintingBinding.instance.imageCache.clear();
