@@ -95,6 +95,11 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   final syncFeedback = ActionFeedback();
   List<String> recentSearches = [];
   Json? account, subject, playerSubject, subjectResume;
+
+  /// Player route opened before a source is chosen: `subject`, `episode`,
+  /// and `failed` once no playable source could be started.
+  Json? preparing;
+  int _preparingTicket = 0;
   Set<int>? cachedEpisodeIds;
   List<Json> resumable = [];
   int? mediaSubjectId;
@@ -369,6 +374,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
 
   void leavePlayer() {
     cancelPlaybackSelection();
+    _preparingTicket++;
+    preparing = null;
     if (route != 'player') return;
     if (fullScreen) unawaited(setFullScreen(false));
     windowFullScreen = false;
@@ -695,6 +702,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     );
     if (!mounted || closing || request != _selectionRequest) return;
     if (choices.isEmpty) {
+      if (preparing != null) {
+        failPreparing(_preparingTicket, '没有找到可以直接播放的资源');
+        return;
+      }
       subject = item;
       await findResources(episode: episode);
       return;
@@ -710,7 +721,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     cancelPlaybackSelection();
     final target = navigation.currentState?.overlay?.context;
     if (target == null) return;
-    await showDialog<void>(
+    final chosen = await showDialog<PlayCandidate>(
       context: target,
       builder: (context) => Dialog(
         child: SizedBox(
@@ -746,10 +757,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                   playback: playback,
                   subject: item,
                   episode: episode,
-                  onPlay: (candidate) async {
-                    Navigator.pop(context);
-                    await playCandidate(candidate, item, episode);
-                  },
+                  onPlay: (candidate) async =>
+                      Navigator.pop(context, candidate),
                   onFindResources: () {
                     Navigator.pop(context);
                     subject = item;
@@ -762,6 +771,58 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         ),
       ),
     );
+    if (!mounted || closing) return;
+    if (chosen != null) {
+      if (route == 'player') {
+        await playCandidate(chosen, item, episode);
+      } else {
+        await preparePlayback(
+          item,
+          episode,
+          () => playCandidate(chosen, item, episode),
+        );
+      }
+    } else if (preparing != null) {
+      failPreparing(_preparingTicket, '没有选择资源');
+    }
+  }
+
+  /// Enters the player at once and keeps it in a preparing state until
+  /// [start] opens a session (cleared by [showPlayback]) or fails.
+  Future<void> preparePlayback(
+    Json item,
+    Json episode,
+    Future<void> Function() start,
+  ) async {
+    if (route != 'player') rememberLocation();
+    nextNavigation();
+    final ticket = ++_preparingTicket;
+    setState(() {
+      route = 'player';
+      busy = false;
+      playerSubject = item;
+      preparing = {'subject': item, 'episode': episode};
+    });
+    try {
+      await start();
+    } on RequestCancelled {
+      return;
+    } catch (e) {
+      failPreparing(ticket, e.toString().replaceFirst('Bad state: ', ''));
+      return;
+    }
+    failPreparing(ticket, '没能开始播放，可以换一个资源再试');
+  }
+
+  void failPreparing(int ticket, String reason) {
+    final current = preparing;
+    if (!mounted ||
+        ticket != _preparingTicket ||
+        current == null ||
+        current['failed'] != null) {
+      return;
+    }
+    setState(() => preparing = {...current, 'failed': reason});
   }
 
   Future<void> playCandidate(
@@ -1034,10 +1095,12 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     final subjectId = playback.session?['subjectId'] as int?;
     if (route != 'player') rememberLocation();
     nextNavigation();
+    _preparingTicket++;
     setState(() {
       route = 'player';
       busy = false;
       playerSubject = null;
+      preparing = null;
     });
     if (subjectId == null || !ready) return;
     unawaited(
@@ -1052,9 +1115,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       }),
     );
   }
-
-  Future<void> updateTracking(Json mutation) =>
-      perform(() => saveTracking(mutation));
 
   Future<void> saveTracking(Json mutation) async {
     final subjectId = mutation['subjectId'] as int;
@@ -1072,9 +1132,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         completeEpisodes: mutation['completeEpisodes'] == true,
       );
     } else {
-      await widget.service.tracking.setEpisode(
+      await widget.service.tracking.setEpisodes(
         subjectId,
-        mutation['episodeId'] as int,
+        (mutation['episodeIds'] as List).cast<int>(),
         EpisodeStatus.parse('${mutation['status']}'),
       );
     }
@@ -1110,7 +1170,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           else if (mutation['kind'] != 'subjectCollection')
             'episodes': [
               for (final episode in objects(subject!['episodes']))
-                if (episode['episodeId'] == mutation['episodeId'])
+                if ((mutation['episodeIds'] as List).contains(
+                  episode['episodeId'],
+                ))
                   {...episode, 'status': mutation['status']}
                 else
                   episode,
@@ -1595,6 +1657,35 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                                             : playerLightsOff,
                                         onLightsChanged: setPlayerLights,
                                         subject: playerSubject,
+                                        preparing: preparing,
+                                        onRetryPreparing: () {
+                                          final current = preparing!;
+                                          final item = object(
+                                            current['subject'],
+                                          );
+                                          final episode = object(
+                                            current['episode'],
+                                          );
+                                          unawaited(
+                                            preparePlayback(
+                                              item,
+                                              episode,
+                                              () =>
+                                                  selectEpisode(item, episode),
+                                            ),
+                                          );
+                                        },
+                                        onChoosePreparing: () {
+                                          final current = preparing!;
+                                          unawaited(
+                                            perform(
+                                              () => showEpisodeResources(
+                                                object(current['subject']),
+                                                object(current['episode']),
+                                              ),
+                                            ),
+                                          );
+                                        },
                                         onEpisode: playEpisode,
                                         onPlayCandidate: (candidate, episode) =>
                                             playCandidate(
@@ -1760,7 +1851,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           signedIn: account != null,
           collectionSyncError: widget.service.tracking.lastSyncError,
           onRetryCollectionSync: widget.service.tracking.flush,
-          onUpdateTracking: updateTracking,
           onSaveTracking: saveTracking,
           resume: mediaSubjectId == item?['subjectId'] ? subjectResume : null,
           cachedEpisodeIds: mediaSubjectId == item?['subjectId']
@@ -1770,8 +1860,11 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
               ? findResources()
               : showEpisodeResources(item!, episode),
           onOpenEpisode: (episode) => openVideo(null, episode),
-          onPlayEpisode: (episode) =>
-              perform(() => selectEpisode(item!, episode)),
+          onPlayEpisode: (episode) => preparePlayback(
+            item!,
+            episode,
+            () => selectEpisode(item, episode),
+          ),
           onOpenSubject: openSubject,
         );
       case 'resources':
