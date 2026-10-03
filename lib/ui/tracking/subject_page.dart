@@ -1373,7 +1373,15 @@ class _SubjectPageState extends State<SubjectPage> {
     Widget placeholder(String label) => Tooltip(
       message: label,
       child: character
-          ? ArtPlaceholder(label: label)
+          ? MouseRegion(
+              cursor: SystemMouseCursors.basic,
+              child: GestureDetector(
+                // Consume the tap instead of opening the surrounding card.
+                onTap: () {},
+                excludeFromSemantics: true,
+                child: ArtPlaceholder(label: label),
+              ),
+            )
           : ColoredBox(
               color: Theme.of(context).colorScheme.surfaceContainerHigh,
               child: Center(
@@ -1387,7 +1395,60 @@ class _SubjectPageState extends State<SubjectPage> {
               ),
             ),
     );
-    final image = Semantics(
+    Widget preview(Widget image) {
+      if (!character || url == null) return image;
+      return Tooltip(
+        message: '查看${titleOf(person)}完整立绘',
+        child: InkWell(
+          borderRadius: badgeBorderRadius,
+          onTap: () => showDialog<void>(
+            context: context,
+            builder: (context) => Dialog(
+              child: SizedBox(
+                width: 520,
+                height: 620,
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              titleOf(person),
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: '关闭图片',
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: InteractiveViewer(
+                          child: Image(
+                            image: cachedImageProvider(context, url),
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, _, _) =>
+                                const Center(child: Text('图片加载失败')),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          child: image,
+        ),
+      );
+    }
+
+    return Semantics(
       label: '${titleOf(person)}${character ? '角色头像' : '人物头像'}',
       image: true,
       child: ClipRRect(
@@ -1408,60 +1469,10 @@ class _SubjectPageState extends State<SubjectPage> {
                   frameBuilder: (_, child, frame, synchronous) =>
                       frame == null && !synchronous
                       ? placeholder('正在加载头像')
-                      : child,
+                      : preview(child),
                   errorBuilder: (_, _, _) => placeholder('头像加载失败'),
                 ),
         ),
-      ),
-    );
-    if (!character || url == null) return image;
-    return Tooltip(
-      message: '查看${titleOf(person)}完整立绘',
-      child: InkWell(
-        borderRadius: badgeBorderRadius,
-        onTap: () => showDialog<void>(
-          context: context,
-          builder: (context) => Dialog(
-            child: SizedBox(
-              width: 520,
-              height: 620,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            titleOf(person),
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: '关闭图片',
-                          onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: InteractiveViewer(
-                        child: Image(
-                          image: cachedImageProvider(context, url),
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, _, _) =>
-                              const Center(child: Text('图片加载失败')),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-        child: image,
       ),
     );
   }
