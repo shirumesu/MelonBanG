@@ -35,15 +35,9 @@ import 'ui/tracking/subject_page.dart';
 import 'ui/tracking/tracking_page.dart';
 
 class MelonApp extends StatefulWidget {
-  const MelonApp({
-    super.key,
-    required this.service,
-    required this.preferences,
-    this.initialMedia,
-  });
+  const MelonApp({super.key, required this.service, required this.preferences});
   final AppServices service;
   final SharedPreferences preferences;
-  final String? initialMedia;
   @override
   State<MelonApp> createState() => _MelonAppState();
 }
@@ -242,9 +236,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         }),
       );
       setState(() => ready = true);
-      if (widget.initialMedia != null) {
-        await openVideo(widget.initialMedia);
-      }
       if (!mounted || closing) return;
       await Future.wait([
         loadHome().then((issue) {
@@ -255,12 +246,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       ]);
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
-    }
-    if (widget.initialMedia != null &&
-        mounted &&
-        !closing &&
-        playback.uri == null) {
-      await openVideo(widget.initialMedia);
     }
   }
 
@@ -549,23 +534,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       if (_subjectRequest == ticket) _subjectRequest = null;
       if (mounted && ticket == _navigation) setState(() => busy = false);
     }
-  }
-
-  Future<void> openVideo([String? path, Json? episode]) async {
-    final subjectId = episode == null ? null : subject?['subjectId'] as int?;
-    final selected = path ?? (await selectVideo())?.path;
-    if (selected == null || !mounted) return;
-    nextSelection();
-    _activeCandidate = null;
-    _firstFrameDeadline?.cancel();
-    _bufferDeadline?.cancel();
-    await queuePlayback(() async {
-      await playback.openLocal(
-        selected,
-        subjectId: subjectId,
-        episodeId: episode?['episodeId'] as int?,
-      );
-    });
   }
 
   Future<void> startPlayback(Future<Json> Function() load) async {
@@ -1618,16 +1586,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                         Expanded(
                           child: Column(
                             children: [
-                              if (!ready && error != null && !fullScreen)
-                                MaterialBanner(
-                                  content: Text(error!),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => openVideo(),
-                                      child: const Text('打开本地视频'),
-                                    ),
-                                  ],
-                                ),
                               if (busy && !fullScreen)
                                 const LinearProgressIndicator(minHeight: 2),
                               Expanded(
@@ -1772,12 +1730,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                 ),
               ),
             )
-          : EmptyState(
-              text: '应用服务未能启动',
-              detail: error,
-              action: () => openVideo(),
-              actionLabel: '打开本地视频',
-            );
+          : EmptyState(text: '应用服务未能启动', detail: error);
     }
     switch (route) {
       case 'home':
@@ -1859,7 +1812,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           onFindResources: (episode) => episode == null
               ? findResources()
               : showEpisodeResources(item!, episode),
-          onOpenEpisode: (episode) => openVideo(null, episode),
           onPlayEpisode: (episode) => preparePlayback(
             item!,
             episode,
@@ -1899,7 +1851,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
               downloads: value,
               onAddMagnet: addMagnet,
               onAddTorrent: addTorrent,
-              onOpenVideo: () => openVideo(),
               onExplore: () => navigate('home'),
               onRemove: confirmRemoval,
               onStopSeeding: (task) => perform(
@@ -2101,26 +2052,6 @@ class _PageLocation {
   final List<Json> results, candidates, providers;
   final String? searchError;
 }
-
-Future<XFile?> selectVideo() => openFile(
-  acceptedTypeGroups: [
-    const XTypeGroup(
-      label: 'Video',
-      extensions: [
-        'mkv',
-        'mp4',
-        'webm',
-        'avi',
-        'mov',
-        'm4v',
-        'ts',
-        'm2ts',
-        'flv',
-        'wmv',
-      ],
-    ),
-  ],
-);
 
 bool _dataEqual(Object? a, Object? b) {
   if (identical(a, b)) return true;

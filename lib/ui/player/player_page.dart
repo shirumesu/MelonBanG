@@ -87,7 +87,6 @@ class _PlayerPageState extends State<PlayerPage> {
   PlayerMenu lastMenu = PlayerMenu.settings;
   double? dragging;
   String? feedback;
-  Set<int> localEpisodes = {};
   Timer? hideTimer, feedbackTimer;
   StreamSubscription<bool>? playingSubscription;
   String? sessionId, lastNotice;
@@ -101,17 +100,6 @@ class _PlayerPageState extends State<PlayerPage> {
     sessionId = playback.session?['id'] as String?;
     playback.addListener(refresh);
     playingSubscription = player.stream.playing.listen((_) => reveal());
-    unawaited(loadEpisodes());
-  }
-
-  Future<void> loadEpisodes() async {
-    final id = widget.subject?['subjectId'] as int?;
-    final episodes = objects(widget.subject?['episodes']);
-    if (id == null) return;
-    final available = await loadLocalEpisodes(widget.service, id, episodes);
-    if (mounted && widget.subject?['subjectId'] == id) {
-      setState(() => localEpisodes = available);
-    }
   }
 
   @override
@@ -120,9 +108,7 @@ class _PlayerPageState extends State<PlayerPage> {
     if (oldWidget.subject?['subjectId'] != widget.subject?['subjectId']) {
       resourcesOpen = false;
       resourceEpisode = null;
-      localEpisodes = {};
     }
-    if (oldWidget.subject != widget.subject) unawaited(loadEpisodes());
     final wasImmersive = oldWidget.fullScreen || oldWidget.windowFullScreen;
     if (!wasImmersive && immersive) {
       panelBeforeImmersive = panel ?? true;
@@ -226,11 +212,7 @@ class _PlayerPageState extends State<PlayerPage> {
       widget.downloads.value,
       widget.subject?['subjectId'] as int?,
     );
-    return (
-      next,
-      localEpisodes.contains(id) ||
-          playableTask(widget.downloads.value, tasks, id) != null,
-    );
+    return (next, playableTask(widget.downloads.value, tasks, id) != null);
   }
 
   void toggleMenu(PlayerMenu value) {
@@ -475,7 +457,6 @@ class _PlayerPageState extends State<PlayerPage> {
                                     playback.session?['episodeId'] as int?,
                                 title: '${playback.session?['title'] ?? '播放器'}',
                                 downloads: downloads,
-                                localEpisodes: localEpisodes,
                                 onEpisode: widget.onEpisode,
                                 onFindResources: findResources,
                                 onPlayFile: widget.onPlayFile ?? (_, _) {},

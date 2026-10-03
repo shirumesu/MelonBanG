@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -8,31 +7,6 @@ import '../../data/bittorrent_settings.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
-
-/// Episodes that have a playable file outside the download manager.
-Future<Set<int>> loadLocalEpisodes(
-  AppServices service,
-  int subjectId,
-  List<Json> episodes,
-) async {
-  final available = <int>{};
-  final episodeIds = {for (final episode in episodes) episode['episodeId']};
-  final mappings = await service.store.entries(
-    'episode_files',
-    idPrefix: '$subjectId:',
-  );
-  for (final entry in mappings.entries) {
-    final episodeId = int.tryParse(entry.key.substring('$subjectId:'.length));
-    final saved = entry.value;
-    if (episodeId != null &&
-        episodeIds.contains(episodeId) &&
-        saved['downloadId'] == null &&
-        await File('${saved['path']}').exists()) {
-      available.add(episodeId);
-    }
-  }
-  return available;
-}
 
 List<Json> subjectTasks(Json downloads, int? subjectId) => subjectId == null
     ? []
@@ -68,7 +42,6 @@ class PlayerLibraryPanel extends StatefulWidget {
     required this.episodeId,
     required this.title,
     required this.downloads,
-    required this.localEpisodes,
     required this.onEpisode,
     required this.onFindResources,
     required this.onPlayFile,
@@ -78,7 +51,6 @@ class PlayerLibraryPanel extends StatefulWidget {
   final Json? subject;
   final String title;
   final Json downloads;
-  final Set<int> localEpisodes;
   final ValueChanged<Json> onEpisode;
   final ValueChanged<Json?> onFindResources;
   final void Function(String id, String? fileId) onPlayFile;
@@ -311,8 +283,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
         )
         .firstOrNull;
     final task = complete ?? related.firstOrNull;
-    final available =
-        current || widget.localEpisodes.contains(id) || complete != null;
+    final available = current || complete != null;
     final status = current
         ? '正在播放'
         : available

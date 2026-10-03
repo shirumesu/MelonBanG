@@ -21,13 +21,17 @@ class PlaybackLibrary {
   Json? current;
   final _comments = <String, List<Json>>{};
   final _loads = <String, Object>{};
-  Future<Json> local(
-    String path, {
+  Future<Json> fromDownload(
+    String id, {
+    String? fileId,
     int? subjectId,
     int? episodeId,
-    String? streamUrl,
-    int? streamId,
   }) async {
+    final media = await downloads.openMedia(id, fileId: fileId);
+    subjectId ??= media['subjectId'] as int?;
+    episodeId ??= media['episodeId'] as int?;
+    final path = '${media['path']}';
+    final streamUrl = media['streamUrl'] as String?;
     if (streamUrl == null && !await File(path).exists()) {
       throw StateError('视频文件不存在');
     }
@@ -35,12 +39,19 @@ class PlaybackLibrary {
       'id': newId(),
       'title': p.basename(path),
       'path': path,
-      'source': {'url': streamUrl ?? Uri.file(path).toString()},
-      'resumeKey': Uri.file(path).toString(),
-      'streamId': streamId,
+      'source': {
+        'url': streamUrl ?? Uri.file(path).toString(),
+        if (media['sourceHeaders'] != null) 'headers': media['sourceHeaders'],
+      },
+      'resumeKey': 'download:$id:${media['id']}',
+      'streamId': media['streamId'],
       'status': 'ready',
       'subjectId': subjectId,
       'episodeId': episodeId,
+      'downloadId': id,
+      'fileId': media['id'],
+      'fileSize': media['size'],
+      'remoteSource': streamUrl != null,
       'danmaku': <Json>[],
       'danmakuSources': [
         for (final source in [
@@ -107,13 +118,10 @@ class PlaybackLibrary {
     final subjectId = session['subjectId'], episodeId = session['episodeId'];
     try {
       if (subjectId != null && episodeId != null) {
-        if (session['path'] case final String path) {
+        if (session['downloadId'] case final String downloadId) {
           await store.put('episode_files', '$subjectId:$episodeId', {
-            'path': path,
-            if (session['downloadId'] != null) ...{
-              'downloadId': session['downloadId'],
-              'fileId': session['fileId'],
-            },
+            'downloadId': downloadId,
+            'fileId': session['fileId'],
           });
         } else {
           await store.put('online_episodes', '$subjectId:$episodeId', {
@@ -127,36 +135,6 @@ class PlaybackLibrary {
     current = session;
     _comments.clear();
     _loads.clear();
-  }
-
-  Future<Json> fromDownload(
-    String id, {
-    String? fileId,
-    int? subjectId,
-    int? episodeId,
-  }) async {
-    final media = await downloads.openMedia(id, fileId: fileId);
-    subjectId ??= media['subjectId'] as int?;
-    episodeId ??= media['episodeId'] as int?;
-    final session = await local(
-      '${media['path']}',
-      streamUrl: media['streamUrl'] as String?,
-      streamId: media['streamId'] as int?,
-      subjectId: subjectId,
-      episodeId: episodeId,
-    );
-    session['resumeKey'] = 'download:$id:${media['id']}';
-    session['downloadId'] = id;
-    session['fileId'] = media['id'];
-    session['fileSize'] = media['size'];
-    session['remoteSource'] = media['streamUrl'] != null;
-    if (media['sourceHeaders'] != null) {
-      session['source'] = {
-        ...object(session['source']),
-        'headers': media['sourceHeaders'],
-      };
-    }
-    return session;
   }
 
   Future<Json> episode(int subjectId, int episodeId) async {
@@ -176,13 +154,6 @@ class PlaybackLibrary {
       return fromDownload(
         '${replacement['downloadId']}',
         fileId: '${replacement['id']}',
-      );
-    }
-    if (localFile != null && await File('${localFile['path']}').exists()) {
-      return local(
-        '${localFile['path']}',
-        subjectId: subjectId,
-        episodeId: episodeId,
       );
     }
     final media = downloads.episodeMedia(subjectId, episodeId);
@@ -207,8 +178,6 @@ class PlaybackLibrary {
         media = downloads.contains(id)
             ? downloads.media(id, fileId: binding!['fileId'] as String?)
             : downloads.episodeMedia(subjectId, episodeId);
-      } else if (binding != null && await File('${binding['path']}').exists()) {
-        return true;
       } else {
         media = downloads.episodeMedia(subjectId, episodeId);
       }

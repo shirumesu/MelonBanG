@@ -60,21 +60,6 @@ class PlaySelectionRepository {
     }
 
     final binding = await store.get('episode_files', '$subjectId:$episodeId');
-    if (binding != null &&
-        binding['downloadId'] == null &&
-        await File('${binding['path']}').exists()) {
-      add([
-        PlayCandidate(
-          kind: PlayKind.local,
-          provider: 'local',
-          providerLabel: '本地文件',
-          title: Uri.file('${binding['path']}').pathSegments.last,
-          ref: binding,
-          instant: true,
-          existing: true,
-        ),
-      ]);
-    }
     for (final task in downloads.tasksForSubject(subjectId)) {
       final bound = binding?['downloadId'] == task['id'];
       if (task['subjectId'] != subjectId ||
@@ -200,13 +185,6 @@ class PlaySelectionRepository {
       return library.fromDownload(
         id,
         fileId: candidate.ref['fileId'] as String?,
-        subjectId: subjectId,
-        episodeId: episodeId,
-      );
-    }
-    if (candidate.kind == PlayKind.local) {
-      return library.local(
-        '${candidate.ref['path']}',
         subjectId: subjectId,
         episodeId: episodeId,
       );

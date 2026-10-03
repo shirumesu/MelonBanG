@@ -32,7 +32,6 @@ class SubjectPage extends StatefulWidget {
     required this.community,
     required this.onSaveTracking,
     required this.onFindResources,
-    required this.onOpenEpisode,
     required this.onPlayEpisode,
     required this.onOpenSubject,
     this.resume,
@@ -52,7 +51,7 @@ class SubjectPage extends StatefulWidget {
   final Set<int>? cachedEpisodeIds;
   final Future<void> Function(Json) onSaveTracking;
   final ValueChanged<Json?> onFindResources;
-  final ValueChanged<Json> onOpenEpisode, onPlayEpisode, onOpenSubject;
+  final ValueChanged<Json> onPlayEpisode, onOpenSubject;
   @override
   State<SubjectPage> createState() => _SubjectPageState();
 }
@@ -765,7 +764,6 @@ class _SubjectPageState extends State<SubjectPage> {
             aired: _aired,
             onOpen: (episode) => widget.onFindResources(episode),
             onPlay: widget.onPlayEpisode,
-            onLocal: widget.onOpenEpisode,
             onMark: (values, status) =>
                 unawaited(_markEpisodes(values, status)),
             onHover: (episode) {
@@ -1746,7 +1744,6 @@ class _EpisodeGrid extends StatefulWidget {
     required this.aired,
     required this.onOpen,
     required this.onPlay,
-    required this.onLocal,
     required this.onMark,
     required this.onHover,
   });
@@ -1754,7 +1751,7 @@ class _EpisodeGrid extends StatefulWidget {
   final Object? nextId;
   final String Function(Json) statusOf;
   final bool Function(Json) aired;
-  final ValueChanged<Json> onOpen, onPlay, onLocal;
+  final ValueChanged<Json> onOpen, onPlay;
   final void Function(List<Json> episodes, String status) onMark;
   final ValueChanged<Json?> onHover;
 
@@ -1847,7 +1844,6 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
         PopupMenuItem(value: 'play', child: Text('播放 EP${episode['sort']}')),
         const PopupMenuItem(value: 'resources', child: Text('查看资源')),
         PopupMenuItem(value: 'mark', child: Text(watched ? '标为未看' : '标为已看')),
-        const PopupMenuItem(value: 'local', child: Text('打开本地文件并关联')),
       ],
     );
     switch (action) {
@@ -1857,8 +1853,6 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
         widget.onOpen(episode);
       case 'mark':
         widget.onMark([episode], watched ? 'unwatched' : 'watched');
-      case 'local':
-        widget.onLocal(episode);
     }
   }
 
