@@ -291,7 +291,8 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                         children: [
                           StarRating(
                             value: score,
-                            size: 26,
+                            size: 22,
+                            labelWidth: 80,
                             enabled: status != null && status != 'wish',
                             onTap: (value) {
                               if (status != null && status != 'wish') {
@@ -299,8 +300,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                               }
                             },
                           ),
-                          const SizedBox(width: Gap.sm),
-                          Expanded(child: ScoreText(score)),
+                          const Spacer(),
                           if (score > 0)
                             TextButton(
                               onPressed: () => _update({'score': 0}),
@@ -317,6 +317,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Container(
+                          width: double.infinity,
                           padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
                           decoration: BoxDecoration(
                             color: scheme.surfaceContainerHigh,
@@ -435,13 +436,15 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
   }
 }
 
-/// Ten clickable stars with hover preview. [onTap] fires even when
-/// [enabled] is false so callers can explain why scoring is unavailable.
+/// Ten clickable stars with hover preview and a score label that follows
+/// the hovered star. [onTap] fires even when [enabled] is false so callers
+/// can explain why scoring is unavailable.
 class StarRating extends StatefulWidget {
   const StarRating({
     super.key,
     required this.value,
     required this.onTap,
+    required this.labelWidth,
     this.enabled = true,
     this.size = 18,
   });
@@ -449,6 +452,9 @@ class StarRating extends StatefulWidget {
   final ValueChanged<int> onTap;
   final bool enabled;
   final double size;
+
+  /// Room for the longest label, "5 不过不失" or "10 超神作".
+  final double labelWidth;
 
   @override
   State<StarRating> createState() => _StarRatingState();
@@ -461,7 +467,7 @@ class _StarRatingState extends State<StarRating> {
   Widget build(BuildContext context) {
     final empty = Theme.of(context).colorScheme.surfaceContainerHighest;
     final shown = widget.enabled && hover > 0 ? hover : widget.value;
-    return MouseRegion(
+    final stars = MouseRegion(
       onExit: (_) => setState(() => hover = 0),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -496,6 +502,14 @@ class _StarRatingState extends State<StarRating> {
         ],
       ),
     );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        stars,
+        const SizedBox(width: Gap.sm),
+        SizedBox(width: widget.labelWidth, child: ScoreText(shown)),
+      ],
+    );
   }
 }
 
@@ -520,8 +534,7 @@ class ScoreText extends StatelessWidget {
               TextSpan(
                 text: ' ${scoreLabels[score]}',
                 style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
                   color: Color.lerp(gold, Colors.black, .35),
                 ),
               ),

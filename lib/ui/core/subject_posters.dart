@@ -10,16 +10,44 @@ import 'page_widgets.dart';
 import 'motion.dart';
 import 'theme.dart';
 
-const _artColors = [
-  [Color(0xff7bd0c1), Color(0xff3b82c4)],
-  [Color(0xfff7a8b8), Color(0xff9b6ad8)],
-  [Color(0xffffd56b), Color(0xffff7a5b)],
-  [Color(0xff9be7c4), Color(0xff3aa17e)],
-  [Color(0xffa9c7ff), Color(0xff6a6ae0)],
-  [Color(0xffffb3c7), Color(0xffff6b9d)],
-  [Color(0xffc0a8ff), Color(0xff7d5fe0)],
-  [Color(0xff8fe3d6), Color(0xff3aa1a8)],
-];
+/// Missing or loading artwork: the "invisible" Akkarin line drawing tinted
+/// to the theme, so empty slots stay neutral instead of adding colour.
+class ArtPlaceholder extends StatelessWidget {
+  const ArtPlaceholder({super.key, this.label = ''});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final line = scheme.onSurfaceVariant.withValues(alpha: .55);
+    return Semantics(
+      label: label.isEmpty ? '暂无图片' : label,
+      image: true,
+      child: ColoredBox(
+        color: scheme.surfaceContainerHigh,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Center(
+            child: ColorFiltered(
+              // The asset is black lines on white: map darkness to opacity.
+              colorFilter: ColorFilter.matrix([
+                0, 0, 0, 0, line.r * 255, //
+                0, 0, 0, 0, line.g * 255,
+                0, 0, 0, 0, line.b * 255,
+                -line.a, 0, 0, 0, line.a * 255,
+              ]),
+              child: Image.asset(
+                'assets/images/akkarin.jpg',
+                fit: BoxFit.contain,
+                excludeFromSemantics: true,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class SubjectPosters extends StatelessWidget {
   const SubjectPosters({
@@ -615,27 +643,7 @@ class _SubjectCoverState extends State<SubjectCover> {
     final id = widget.id;
     final title = widget.title;
     final address = coverAddress(widget.url) ?? _catalog?.coverFor(id);
-    final fallback = DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: _artColors[id.abs() % _artColors.length],
-        ),
-      ),
-      child: Center(
-        child: title.isEmpty
-            ? const Icon(Icons.movie_outlined, color: Colors.white54, size: 36)
-            : Text(
-                title.characters.first,
-                style: const TextStyle(
-                  fontSize: 56,
-                  color: Colors.white30,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-      ),
-    );
+    final fallback = ArtPlaceholder(label: title);
     return AnimatedSwitcher(
       duration: motionDuration(context),
       child: address == null
