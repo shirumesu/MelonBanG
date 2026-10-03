@@ -309,9 +309,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                         ],
                       ),
                     ),
-                    detail: status == 'wish'
-                        ? '想看状态不能评分，改回其他状态时恢复原评分'
-                        : null,
+                    detail: status == 'wish' ? '想看状态不能评分，改回其他状态时恢复原评分' : null,
                   ),
                   section(
                     '标签',
@@ -509,7 +507,16 @@ class _StarRatingState extends State<StarRating> {
       children: [
         stars,
         const SizedBox(width: Gap.sm),
-        SizedBox(width: widget.labelWidth, child: ScoreText(shown)),
+        // Fixed height: the label's size changes with hover, and a shifting
+        // row would move the stars out from under the pointer.
+        SizedBox(
+          width: widget.labelWidth,
+          height: 28,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: ScoreText(shown),
+          ),
+        ),
       ],
     );
   }

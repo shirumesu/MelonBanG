@@ -762,7 +762,6 @@ class _SubjectPageState extends State<SubjectPage> {
             episodes: episodes,
             nextId: next?['episodeId'],
             statusOf: _episodeStatus,
-            cached: _available,
             aired: _aired,
             onOpen: (episode) => widget.onFindResources(episode),
             onPlay: widget.onPlayEpisode,
@@ -1733,7 +1732,6 @@ class _EpisodeGrid extends StatefulWidget {
     required this.episodes,
     required this.nextId,
     required this.statusOf,
-    required this.cached,
     required this.aired,
     required this.onOpen,
     required this.onPlay,
@@ -1744,7 +1742,6 @@ class _EpisodeGrid extends StatefulWidget {
   final List<Json> episodes;
   final Object? nextId;
   final String Function(Json) statusOf;
-  final bool? Function(Json) cached;
   final bool Function(Json) aired;
   final ValueChanged<Json> onOpen, onPlay, onLocal;
   final void Function(List<Json> episodes, String status) onMark;
@@ -1953,35 +1950,17 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
                       : scheme.outlineVariant,
                 ),
               ),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Center(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: foreground,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
+              child: Center(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: foreground,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
-                  if (widget.cached(episode) == true)
-                    Positioned(
-                      right: 4,
-                      top: 4,
-                      child: Container(
-                        width: 5,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: next ? scheme.onPrimary : mint,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                    ),
-                ],
+                ),
               ),
             ),
           );
@@ -2099,18 +2078,6 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
                   legend(
                     swatch(Colors.transparent, scheme.outlineVariant),
                     '未看',
-                  ),
-                  legend(
-                    Container(
-                      width: 6,
-                      height: 6,
-                      margin: const EdgeInsets.only(right: 5),
-                      decoration: const BoxDecoration(
-                        color: mint,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    '已缓存',
                   ),
                   Text(
                     hint,
