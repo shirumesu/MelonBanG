@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'content_cache.dart';
 import 'json.dart';
 import 'network.dart';
 import 'store.dart';
@@ -7,11 +8,13 @@ import 'store.dart';
 class CatalogRepository {
   CatalogRepository(
     this.api,
-    this.store, {
+    this.store,
+    this.cache, {
     this.origin = 'https://melonapi.konataizumi.com',
   });
   final ApiClient api;
   final AppStore store;
+  final ContentCache cache;
   final String origin;
   final _requests = <String, Future<dynamic>>{};
   bool _closed = false;
@@ -54,6 +57,7 @@ class CatalogRepository {
     Future<({dynamic value, String? etag})> Function(Json? cached)? load,
   }) async {
     if (_closed) throw StateError('番剧服务已关闭');
+    final generation = cache.generation;
     final cached = await store.get('catalog', key);
     if (_closed) throw StateError('番剧服务已关闭');
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -71,11 +75,13 @@ class CatalogRepository {
               ? _read(Uri.parse('$origin$path'), cached)
               : load(cached));
           if (_closed) throw StateError('番剧服务已关闭');
-          await store.put('catalog', key, {
-            'value': result.value,
-            'etag': result.etag,
-            'savedAt': DateTime.now().millisecondsSinceEpoch,
-          });
+          if (generation == cache.generation) {
+            await store.put('catalog', key, {
+              'value': result.value,
+              'etag': result.etag,
+              'savedAt': DateTime.now().millisecondsSinceEpoch,
+            });
+          }
           return result.value;
         } finally {
           _requests.remove(key);

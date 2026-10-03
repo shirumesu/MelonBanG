@@ -14,10 +14,18 @@ class AppStore {
       await databaseFactoryFfi.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 3,
+          version: 4,
           onUpgrade: (db, oldVersion, _) async {
             if (oldVersion < 2) await _createIndexes(db);
-            if (oldVersion < 3) await _createImageCache(db);
+            if (oldVersion < 3) {
+              await _createImageCache(db);
+            } else if (oldVersion < 4) {
+              await db.execute(
+                'ALTER TABLE cached_images ADD COLUMN accessed INTEGER NOT NULL DEFAULT 0',
+              );
+              await db.execute('UPDATE cached_images SET accessed=saved');
+              await _createImageAccessIndex(db);
+            }
           },
           onCreate: (db, _) async {
             await db.execute(
@@ -36,12 +44,17 @@ class AppStore {
 
   static Future<void> _createImageCache(Database db) async {
     await db.execute(
-      'CREATE TABLE cached_images (url TEXT PRIMARY KEY, bytes BLOB NOT NULL, saved INTEGER NOT NULL)',
+      'CREATE TABLE cached_images (url TEXT PRIMARY KEY, bytes BLOB NOT NULL, saved INTEGER NOT NULL, accessed INTEGER NOT NULL)',
     );
     await db.execute(
       'CREATE INDEX cached_images_saved ON cached_images(saved)',
     );
+    await _createImageAccessIndex(db);
   }
+
+  static Future<void> _createImageAccessIndex(Database db) => db.execute(
+    'CREATE INDEX cached_images_accessed ON cached_images(accessed DESC, url)',
+  );
 
   static Future<void> _createIndexes(Database db) async {
     await db.execute(
