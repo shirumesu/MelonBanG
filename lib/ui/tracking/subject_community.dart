@@ -10,6 +10,8 @@ import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
+import '../../data/collection_edit.dart';
+import '../core/theme.dart';
 import 'collection_labels.dart';
 
 class SubjectCommunity extends StatefulWidget {
@@ -17,11 +19,17 @@ class SubjectCommunity extends StatefulWidget {
     super.key,
     required this.client,
     required this.subjectId,
-    required this.onOpenSubject,
+    required this.collection,
+    required this.canWrite,
+    required this.onSaveComment,
   });
   final BangumiPrivateClient client;
   final int subjectId;
-  final ValueChanged<Json> onOpenSubject;
+
+  /// The signed-in user's collection, the source of the pinned own comment.
+  final Json collection;
+  final bool canWrite;
+  final Future<void> Function(String comment) onSaveComment;
 
   @override
   State<SubjectCommunity> createState() => _SubjectCommunityState();
@@ -32,8 +40,9 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   final _pages = <String, List<Json>>{};
   final _totals = <String, int>{};
   final _feedback = ActionFeedback();
-  final _relationsFeedback = ActionFeedback();
-  List<Json> _relations = [];
+  final _commentFeedback = ActionFeedback();
+  final _composer = TextEditingController();
+  bool _editing = false, _confirmDelete = false;
   late String _account = widget.client.account.userId;
   int _generation = 0;
   bool _requested = false;
@@ -47,8 +56,8 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
       _account = widget.client.account.userId;
       _pages.clear();
       _totals.clear();
-      _relations = [];
       _requested = false;
+      _editing = _confirmDelete = false;
     }
   }
 
@@ -56,7 +65,8 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   void dispose() {
     _generation++;
     _feedback.dispose();
-    _relationsFeedback.dispose();
+    _commentFeedback.dispose();
+    _composer.dispose();
     super.dispose();
   }
 
@@ -89,22 +99,6 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
         segment != requestedSegment &&
         !_pages.containsKey(segment)) {
       unawaited(_load());
-    }
-  }
-
-  Future<void> _loadRelations({bool refresh = false}) async {
-    if (!_requested) return;
-    final generation = _generation;
-    final subjectId = widget.subjectId;
-    await _relationsFeedback.run(() async {
-      final values = await widget.client.relations(subjectId, refresh: refresh);
-      if (mounted && generation == _generation) {
-        setState(() => _relations = values);
-      }
-      return null;
-    });
-    if (mounted && generation != _generation) {
-      unawaited(_loadRelations(refresh: true));
     }
   }
 
@@ -199,13 +193,198 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
     );
   }
 
-  String _group(Json row) {
-    final relation = '${row['relation']}';
-    if (relation.contains('前传')) return '前传';
-    if (relation.contains('续集')) return '续集';
-    if (relation.contains('番外') || relation.contains('外传')) return '番外';
-    if (relation.contains('总集')) return '总集篇';
-    return '其他';
+  bool _own(Json row) =>
+      segment == 'comments' &&
+      '${object(row['user'])['id']}' == widget.client.account.userId;
+
+  Future<void> _saveComment(String text) => _commentFeedback.run(() async {
+    await widget.onSaveComment(text);
+    if (mounted) setState(() => _editing = _confirmDelete = false);
+    return null;
+  });
+
+  /// The user's own 吐槽: an input when empty, otherwise pinned above others.
+  Widget _mine(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final small = Theme.of(context).textTheme.bodySmall;
+    final session = object(widget.client.account.session);
+    final name = '${session['nickname'] ?? session['username'] ?? '我'}';
+    final status = widget.collection['status'] as String?;
+    final score = number(widget.collection['score']).toInt();
+    final comment = '${widget.collection['comment'] ?? ''}';
+    final scoreStyle = small?.copyWith(
+      color: Color.lerp(gold, Colors.black, .35),
+      fontWeight: FontWeight.w700,
+    );
+    final Widget body;
+    if (status == null) {
+      body = Padding(
+        padding: const EdgeInsets.only(top: 7),
+        child: Text('先在页面顶部选择收藏状态，才能写吐槽。', style: small),
+      );
+    } else if (_editing) {
+      final length = _composer.text.runes.length;
+      body = ListenableBuilder(
+        listenable: _commentFeedback,
+        builder: (context, _) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _composer,
+              autofocus: true,
+              minLines: 3,
+              maxLines: 8,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                hintText: '写一句吐槽…',
+                counterText: '$length/$collectionCommentLimit',
+                errorText: length > collectionCommentLimit ? '吐槽超过字数上限' : null,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Text('我的评分 ', style: small),
+                Text(
+                  score > 0 ? '★ $score ${scoreLabels[score]}' : '未评分',
+                  style: score > 0 ? scoreStyle : small,
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: _commentFeedback.busy
+                      ? null
+                      : () => setState(() => _editing = false),
+                  child: const Text('取消'),
+                ),
+                const SizedBox(width: 6),
+                FilledButton(
+                  onPressed:
+                      _commentFeedback.busy ||
+                          _composer.text.trim().isEmpty ||
+                          length > collectionCommentLimit ||
+                          _composer.text == comment
+                      ? null
+                      : () => unawaited(_saveComment(_composer.text)),
+                  child: Text(comment.isEmpty ? '发布' : '保存'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    } else if (comment.isEmpty) {
+      body = Material(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: controlBorderRadius,
+        child: InkWell(
+          borderRadius: controlBorderRadius,
+          onTap: () => setState(() {
+            _composer.text = '';
+            _editing = true;
+          }),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            child: Row(children: [Text('写一句吐槽…', style: small)]),
+          ),
+        ),
+      );
+    } else {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('我', style: small?.copyWith(fontWeight: FontWeight.w700)),
+              if (score > 0) Text('  ★ $score', style: scoreStyle),
+              Text('  ${collectionLabels[status] ?? ''}', style: small),
+              const Spacer(),
+              TextButton(
+                onPressed: () => setState(() {
+                  _composer.text = comment;
+                  _editing = true;
+                  _confirmDelete = false;
+                }),
+                child: const Text('编辑'),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: scheme.error),
+                onPressed: () => setState(() => _confirmDelete = true),
+                child: const Text('删除'),
+              ),
+            ],
+          ),
+          SelectableText(
+            comment,
+            style: const TextStyle(fontSize: 13, height: 1.6),
+          ),
+          if (_confirmDelete)
+            ListenableBuilder(
+              listenable: _commentFeedback,
+              builder: (context, _) => Container(
+                margin: const EdgeInsets.only(top: 10),
+                padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+                decoration: BoxDecoration(
+                  color: scheme.errorContainer.withValues(alpha: .5),
+                  borderRadius: controlBorderRadius,
+                ),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        '删除这条吐槽？评分、标签和收藏状态都会保留。',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => setState(() => _confirmDelete = false),
+                      child: const Text('取消'),
+                    ),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: scheme.error,
+                      ),
+                      onPressed: _commentFeedback.busy
+                          ? null
+                          : () => unawaited(_saveComment('')),
+                      child: const Text('删除'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      );
+    }
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: controlBorderRadius,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AccountAvatar(
+                url: coverAddress(session['avatarUrl']),
+                name: name,
+                size: 32,
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: body),
+            ],
+          ),
+          FeedbackIssue(
+            feedback: _commentFeedback,
+            onRetry: () =>
+                unawaited(_saveComment(_editing ? _composer.text : '')),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -217,7 +396,6 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted || generation != _generation) return;
           unawaited(_load());
-          unawaited(_loadRelations());
         });
       }
       return _content(context);
@@ -258,18 +436,12 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                           ),
                         ),
                         ListenableBuilder(
-                          listenable: Listenable.merge([
-                            _feedback,
-                            _relationsFeedback,
-                          ]),
+                          listenable: _feedback,
                           builder: (context, _) => IconButton(
                             tooltip: '刷新社区',
-                            onPressed: _feedback.busy || _relationsFeedback.busy
+                            onPressed: _feedback.busy
                                 ? null
-                                : () {
-                                    unawaited(_load(refresh: true));
-                                    unawaited(_loadRelations(refresh: true));
-                                  },
+                                : () => unawaited(_load(refresh: true)),
                             icon: const Icon(Icons.refresh, size: 18),
                           ),
                         ),
@@ -286,13 +458,17 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                       feedback: _feedback,
                       onRetry: () => unawaited(_load(refresh: true)),
                     ),
+                    if (segment == 'comments' && widget.canWrite)
+                      _mine(context),
                   ],
                 ),
               ),
               ListenableBuilder(
                 listenable: _feedback,
                 builder: (context, _) {
-                  final rows = _pages[segment] ?? [];
+                  final rows = (_pages[segment] ?? [])
+                      .where((row) => !_own(row))
+                      .toList();
                   return SliverMainAxisGroup(
                     slivers: [
                       if (rows.isEmpty)
@@ -312,7 +488,8 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                         itemCount: rows.length,
                         itemBuilder: (_, index) => _row(rows[index]),
                       ),
-                      if (rows.length < (_totals[segment] ?? 0))
+                      if ((_pages[segment]?.length ?? 0) <
+                          (_totals[segment] ?? 0))
                         SliverToBoxAdapter(
                           child: Center(
                             child: TextButton(
@@ -331,67 +508,158 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
           ),
         ),
       ),
-      SliverToBoxAdapter(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 18),
-            const SectionTitle(
-              title: '关联作品',
-              icon: Icons.movie_filter_outlined,
-            ),
-            FeedbackIssue(
-              feedback: _relationsFeedback,
-              onRetry: () => unawaited(_loadRelations(refresh: true)),
-            ),
-            ListenableBuilder(
-              listenable: _relationsFeedback,
-              builder: (context, _) => _relations.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      child: Text(
-                        _relationsFeedback.busy ? '正在加载关联作品…' : '暂无关联作品',
-                      ),
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (final group in ['前传', '续集', '番外', '总集篇', '其他'])
-                          if (_relations.any(
-                            (row) => _group(row) == group,
-                          )) ...[
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: Text(
-                                group,
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
-                            ),
-                            HorizontalPosters(
-                              storageId: 'relations:${widget.subjectId}:$group',
-                              ranked: false,
-                              itemCount: _relations
-                                  .where((row) => _group(row) == group)
-                                  .length,
-                              itemBuilder: (index) {
-                                final row = _relations
-                                    .where((row) => _group(row) == group)
-                                    .elementAt(index);
-                                return SubjectPoster(
-                                  item: row,
-                                  onOpen: widget.onOpenSubject,
-                                  tracking: false,
-                                  badge: '${row['relation']}',
-                                );
-                              },
-                            ),
-                          ],
-                      ],
-                    ),
-            ),
-          ],
-        ),
-      ),
     ],
   );
+}
+
+/// Related subjects grouped by relation, as a compact list.
+class SubjectRelations extends StatefulWidget {
+  const SubjectRelations({
+    super.key,
+    required this.client,
+    required this.subjectId,
+    required this.onOpenSubject,
+  });
+  final BangumiPrivateClient client;
+  final int subjectId;
+  final ValueChanged<Json> onOpenSubject;
+
+  @override
+  State<SubjectRelations> createState() => _SubjectRelationsState();
+}
+
+class _SubjectRelationsState extends State<SubjectRelations> {
+  static const _groups = ['前传', '续集', '番外', '总集篇', '其他'];
+  final _feedback = ActionFeedback();
+  List<Json> _relations = [];
+  bool _expanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    _feedback.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load({bool refresh = false}) => _feedback.run(() async {
+    final values = await widget.client.relations(
+      widget.subjectId,
+      refresh: refresh,
+    );
+    if (mounted) setState(() => _relations = values);
+    return null;
+  });
+
+  String _group(Json row) {
+    final relation = '${row['relation']}';
+    if (relation.contains('前传')) return '前传';
+    if (relation.contains('续集')) return '续集';
+    if (relation.contains('番外') || relation.contains('外传')) return '番外';
+    if (relation.contains('总集')) return '总集篇';
+    return '其他';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final ordered = [
+      for (final group in _groups)
+        ..._relations.where((row) => _group(row) == group),
+    ];
+    final shown = _expanded ? ordered : ordered.take(6).toList();
+    return MelonPanel(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('关联作品', style: text.titleMedium),
+          const SizedBox(height: 4),
+          FeedbackIssue(
+            feedback: _feedback,
+            onRetry: () => unawaited(_load(refresh: true)),
+          ),
+          ListenableBuilder(
+            listenable: _feedback,
+            builder: (context, _) => _relations.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      _feedback.busy ? '正在加载关联作品…' : '暂无关联作品',
+                      style: text.bodySmall,
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+          for (final (index, row) in shown.indexed) ...[
+            if (index == 0 || _group(shown[index - 1]) != _group(row))
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 2),
+                child: Text(
+                  _group(row),
+                  style: text.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+            InkWell(
+              borderRadius: controlBorderRadius,
+              onTap: () => widget.onOpenSubject(row),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 40,
+                      height: 54,
+                      child: ClipRRect(
+                        borderRadius: badgeBorderRadius,
+                        child: SubjectCover(
+                          url: row['coverUrl'],
+                          title: titleOf(row),
+                          id: number(row['subjectId']).toInt(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            titleOf(row),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            [
+                              '${row['relation']}',
+                              '${row['platform']}',
+                              ?object(row['season'])['year'],
+                            ].join(' · '),
+                            style: text.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          if (ordered.length > 6)
+            TextButton(
+              onPressed: () => setState(() => _expanded = !_expanded),
+              child: Text(_expanded ? '收起' : '全部 ${ordered.length} 部'),
+            ),
+        ],
+      ),
+    );
+  }
 }

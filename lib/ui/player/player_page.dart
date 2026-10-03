@@ -10,6 +10,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../../app_services.dart';
 import '../../data/play_candidates.dart';
 import '../core/motion.dart';
+import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'danmaku.dart';
 import 'playback.dart';
@@ -30,6 +31,9 @@ class PlayerPage extends StatefulWidget {
     required this.onFullScreenChanged,
     required this.onEpisode,
     this.subject,
+    this.preparing,
+    this.onRetryPreparing,
+    this.onChoosePreparing,
     required this.downloads,
     this.windowFullScreen = false,
     this.onWindowFullScreenChanged,
@@ -47,6 +51,11 @@ class PlayerPage extends StatefulWidget {
   final Future<void> Function(bool) onFullScreenChanged;
   final Future<void> Function(bool)? onWindowFullScreenChanged;
   final Json? subject;
+
+  /// Set while the player was opened before a source started; see
+  /// `preparePlayback` in app.dart.
+  final Json? preparing;
+  final VoidCallback? onRetryPreparing, onChoosePreparing;
   final ValueListenable<Json> downloads;
   final ValueChanged<Json> onEpisode;
   final void Function(String id, String? fileId)? onPlayFile;
@@ -397,6 +406,15 @@ class _PlayerPageState extends State<PlayerPage> {
   );
 
   Widget body(BuildContext context) {
+    if (widget.preparing case final preparing?) {
+      return _PreparingView(
+        preparing: preparing,
+        onRetry: widget.onRetryPreparing,
+        onChoose: widget.onChoosePreparing,
+        onFindResources: () =>
+            widget.onFindAllResources?.call(object(preparing['episode'])),
+      );
+    }
     if (playback.uri == null) {
       return Center(
         child: Column(
@@ -905,4 +923,121 @@ class _PlayerPageState extends State<PlayerPage> {
       );
     },
   );
+}
+
+class _PreparingView extends StatelessWidget {
+  const _PreparingView({
+    required this.preparing,
+    required this.onRetry,
+    required this.onChoose,
+    required this.onFindResources,
+  });
+  final Json preparing;
+  final VoidCallback? onRetry, onChoose;
+  final VoidCallback onFindResources;
+
+  @override
+  Widget build(BuildContext context) {
+    final item = object(preparing['subject']);
+    final episode = object(preparing['episode']);
+    final failed = preparing['failed'] as String?;
+    const white = Colors.white;
+    final muted = white.withValues(alpha: .7);
+    final buttonStyle = OutlinedButton.styleFrom(
+      foregroundColor: white,
+      backgroundColor: white.withValues(alpha: .08),
+      side: BorderSide(color: white.withValues(alpha: .3)),
+    );
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 96,
+                height: 128,
+                child: ClipRRect(
+                  borderRadius: posterBorderRadius,
+                  child: SubjectCover(
+                    url: item['coverUrl'],
+                    title: titleOf(item),
+                    id: number(item['subjectId']).toInt(),
+                  ),
+                ),
+              ),
+              const SizedBox(height: Gap.lg),
+              Text(
+                titleOf(item),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: Gap.xs),
+              Text(
+                '第 ${episode['sort']} 话 · ${titleOf(episode)}',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: muted, fontSize: 12),
+              ),
+              const SizedBox(height: Gap.xl),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (failed == null)
+                    const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: white,
+                      ),
+                    )
+                  else
+                    Icon(Icons.error_outline_rounded, size: 18, color: muted),
+                  const SizedBox(width: Gap.sm),
+                  Flexible(
+                    child: Text(
+                      failed ?? '正在查找第 ${episode['sort']} 话的可播放资源…',
+                      style: TextStyle(color: muted, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: Gap.lg),
+              Wrap(
+                spacing: Gap.sm,
+                runSpacing: Gap.sm,
+                alignment: WrapAlignment.center,
+                children: [
+                  if (failed != null)
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: white,
+                        foregroundColor: const Color(0xff164d39),
+                      ),
+                      onPressed: onRetry,
+                      child: const Text('重试'),
+                    ),
+                  OutlinedButton(
+                    style: buttonStyle,
+                    onPressed: onChoose,
+                    child: const Text('手动选择资源'),
+                  ),
+                  OutlinedButton(
+                    style: buttonStyle,
+                    onPressed: onFindResources,
+                    child: const Text('完整资源查找'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

@@ -239,6 +239,34 @@ class TrackingRepository {
     unawaited(flush());
   }
 
+  /// Marks several episodes at once; watched uses Bangumi's batch endpoint.
+  Future<void> setEpisodes(
+    int subjectId,
+    List<int> episodeIds,
+    EpisodeStatus status,
+  ) async {
+    if (status != EpisodeStatus.watched || episodeIds.length == 1) {
+      for (final id in episodeIds) {
+        await setEpisode(subjectId, id, status);
+      }
+      return;
+    }
+    if (episodeIds.any((id) => id <= 0) || subjectId <= 0) {
+      throw const FormatException('章节编号无效');
+    }
+    if (_closed) throw StateError('收藏服务已关闭');
+    final user = account.userId;
+    await store.markEpisodes(
+      _episodes(user),
+      _collection(user),
+      user,
+      subjectId,
+      episodeIds,
+    );
+    _changed();
+    unawaited(flush());
+  }
+
   Future<void> refresh() {
     final user = account.userId;
     return _collectionRefreshes.putIfAbsent(user, () async {
