@@ -20,8 +20,6 @@ class StorageLocations {
   String get credentialIdentity =>
       _state['credentialIdentity'] as String? ??
       p.join(defaultData, 'credentials');
-  List<String> get previousMedia =>
-      List<String>.from(_state['previousMedia'] ?? []);
   Json? get pending =>
       _state['pending'] == null ? null : object(_state['pending']);
 
@@ -103,13 +101,8 @@ class StorageLocations {
           await store.database.transaction((tx) async {
             final rows = await tx.query(
               'documents',
-              where: 'scope IN (?, ?, ?, ?)',
-              whereArgs: [
-                'downloads',
-                'pikpak_downloads',
-                'episode_files',
-                'danmaku_matches',
-              ],
+              where: 'scope IN (?, ?, ?)',
+              whereArgs: ['downloads', 'pikpak_downloads', 'danmaku_matches'],
             );
             for (final row in rows) {
               final body = object(jsonDecode(row['body'] as String));
@@ -155,15 +148,7 @@ class StorageLocations {
       }
     }
     await _save(
-      {
-        ..._state,
-        'data': nextData,
-        'media': nextMedia,
-        'previousMedia': {
-          ...previousMedia,
-          if (nextMedia != oldMedia) oldMedia,
-        }.toList(),
-      }..remove('pending'),
+      {..._state, 'data': nextData, 'media': nextMedia}..remove('pending'),
     );
     // Originals remain a recovery copy; never recursively delete a user-selected folder.
   }

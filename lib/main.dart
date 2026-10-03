@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,7 +7,7 @@ import 'app.dart';
 import 'app_services.dart';
 import 'data/service_configuration.dart';
 
-Future<void> main(List<String> args) async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final configuration = await ServiceConfiguration.load();
   MediaKit.ensureInitialized();
@@ -32,9 +30,6 @@ Future<void> main(List<String> args) async {
     MelonApp(
       service: AppServices(configuration: configuration),
       preferences: await SharedPreferences.getInstance(),
-      initialMedia: args
-          .where((arg) => !arg.startsWith('-') && File(arg).existsSync())
-          .firstOrNull,
     ),
   );
 }
