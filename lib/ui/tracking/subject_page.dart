@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/bangumi_private.dart';
@@ -865,16 +866,20 @@ class _SubjectPageState extends State<SubjectPage> {
                 children: [
                   StarRating(
                     value: score,
-                    size: 19,
+                    size: 16,
+                    labelWidth: 64,
                     enabled: status != null && status != 'wish',
                     onTap: _saveScore,
                   ),
-                  const SizedBox(width: Gap.sm),
-                  Expanded(child: ScoreText(score)),
+                  const Spacer(),
                   if (score > 0)
                     IconButton(
                       tooltip: '清除评分',
-                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 28,
+                        height: 28,
+                      ),
                       onPressed: _savingCollection ? null : () => _saveScore(0),
                       icon: const Icon(Icons.close_rounded, size: 16),
                     ),
@@ -959,7 +964,7 @@ class _SubjectPageState extends State<SubjectPage> {
   Widget _collectionFeedback() {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
-    final Widget content;
+    final Widget? content;
     if (_collectionError != null) {
       content = Text(
         _collectionError!,
@@ -975,7 +980,10 @@ class _SubjectPageState extends State<SubjectPage> {
           ),
         ],
       );
-    } else {
+    } else if (_savingCollection ||
+        _feedback != null ||
+        _undo != null ||
+        _completeOffer > 0) {
       content = Wrap(
         spacing: 4,
         crossAxisAlignment: WrapCrossAlignment.center,
@@ -1009,12 +1017,24 @@ class _SubjectPageState extends State<SubjectPage> {
             ),
         ],
       );
+    } else {
+      content = null;
     }
+    // Collapsed when idle so the card has no empty strip under 吐槽.
     return Semantics(
       liveRegion: true,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 30),
-        child: Align(alignment: Alignment.centerLeft, child: content),
+      child: AnimatedSize(
+        duration: motionDuration(context, 180),
+        alignment: Alignment.topLeft,
+        child: content == null
+            ? const SizedBox(width: double.infinity)
+            : Padding(
+                padding: const EdgeInsets.only(top: Gap.sm),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 30),
+                  child: Align(alignment: Alignment.centerLeft, child: content),
+                ),
+              ),
       ),
     );
   }
@@ -1353,16 +1373,20 @@ class _SubjectPageState extends State<SubjectPage> {
     final width = character ? 44.0 : size, height = character ? 60.0 : size;
     Widget placeholder(String label) => Tooltip(
       message: label,
-      child: ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerHigh,
-        child: Center(
-          child: Icon(
-            character ? Icons.face_outlined : Icons.person_outline_rounded,
-            size: math.min(width, height) * .5,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ),
+      child: character
+          ? ArtPlaceholder(label: label)
+          : ColoredBox(
+              color: Theme.of(context).colorScheme.surfaceContainerHigh,
+              child: Center(
+                child: Icon(
+                  character
+                      ? Icons.face_outlined
+                      : Icons.person_outline_rounded,
+                  size: math.min(width, height) * .5,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
     );
     final image = Semantics(
       label: '${titleOf(person)}${character ? '角色头像' : '人物头像'}',
@@ -1382,6 +1406,10 @@ class _SubjectPageState extends State<SubjectPage> {
                   ),
                   fit: character ? BoxFit.contain : BoxFit.cover,
                   alignment: character ? Alignment.topCenter : Alignment.center,
+                  frameBuilder: (_, child, frame, synchronous) =>
+                      frame == null && !synchronous
+                      ? placeholder('正在加载头像')
+                      : child,
                   errorBuilder: (_, _, _) => placeholder('头像加载失败'),
                 ),
         ),
@@ -1696,8 +1724,9 @@ class _TagAdderState extends State<_TagAdder> {
 }
 
 /// All episodes as numbered cells. Click opens the episode's resources,
-/// right-click offers more, and long-press marks; dragging while still
-/// pressed applies the same mark to every cell passed.
+/// right-click offers more, and a long press marks; while still pressed,
+/// dragging extends the same mark. Releasing outside the cells, the right
+/// button or Escape cancels the pending mark.
 class _EpisodeGrid extends StatefulWidget {
   const _EpisodeGrid({
     required this.episodes,
@@ -1728,21 +1757,62 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
   static const _gap = 6.0, _minWidth = 40.0, _height = 30.0, _rows = 4;
   bool expanded = false;
   int? hovered;
-  String? dragStatus;
-  final dragged = <Json>[];
 
-  void _endDrag() {
-    final status = dragStatus;
-    if (status != null && dragged.isNotEmpty) {
-      widget.onMark(
-        dragged.where((e) => widget.statusOf(e) != status).toList(),
-        status,
-      );
+  /// Pending mark while a long press is held; ids survive data refreshes.
+  String? dragStatus;
+  final dragIds = <int>{};
+  bool outside = false;
+
+  static int _id(Json episode) => number(episode['episodeId']).toInt();
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    super.dispose();
+  }
+
+  bool _onKey(KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape) {
+      _cancel();
+      return true;
     }
+    return false;
+  }
+
+  void _start(Json episode) {
+    HardwareKeyboard.instance.addHandler(_onKey);
+    setState(() {
+      dragStatus = widget.statusOf(episode) == 'watched'
+          ? 'unwatched'
+          : 'watched';
+      outside = false;
+      dragIds
+        ..clear()
+        ..add(_id(episode));
+    });
+  }
+
+  void _cancel() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    if (dragStatus == null) return;
     setState(() {
       dragStatus = null;
-      dragged.clear();
+      dragIds.clear();
     });
+  }
+
+  void _end() {
+    final status = dragStatus;
+    final commit = status != null && !outside;
+    final episodes = [
+      for (final episode in widget.episodes)
+        if (dragIds.contains(_id(episode)) &&
+            widget.statusOf(episode) != status)
+          episode,
+    ];
+    _cancel();
+    if (commit && episodes.isNotEmpty) widget.onMark(episodes, status);
   }
 
   Future<void> _menu(Offset position, Json episode) async {
@@ -1803,6 +1873,8 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
           count = math.min(episodes.length - first, _rows * columns);
         }
         final visible = episodes.sublist(first, first + count);
+        final visibleRows = (visible.length / columns).ceil();
+        final gridHeight = visibleRows * (_height + _gap) - _gap;
         int? indexAt(Offset position) {
           if (position.dx < 0 || position.dy < 0) return null;
           final column = (position.dx / (width + _gap)).floor();
@@ -1813,14 +1885,24 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
         }
 
         void drag(Offset position) {
+          if (dragStatus == null) return;
+          final away =
+              position.dx < -_gap ||
+              position.dy < -_gap ||
+              position.dx > constraints.maxWidth + _gap ||
+              position.dy > gridHeight + _gap;
           final index = indexAt(position);
-          if (index == null || dragged.contains(visible[index])) return;
-          setState(() => dragged.add(visible[index]));
+          final id = index == null ? null : _id(visible[index]);
+          if (away == outside && (id == null || dragIds.contains(id))) return;
+          setState(() {
+            outside = away;
+            if (id != null && !away) dragIds.add(id);
+          });
         }
 
         Widget cell(int index) {
           final episode = visible[index];
-          final status = dragged.contains(episode)
+          final status = dragIds.contains(_id(episode)) && dragStatus != null
               ? dragStatus!
               : widget.statusOf(episode);
           final watched = status == 'watched';
@@ -1850,12 +1932,11 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
               duration: motionDuration(context, 120),
               width: width,
               height: _height,
-              alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: background,
                 borderRadius: badgeBorderRadius,
                 border: Border.all(
-                  color: hovered == index
+                  color: hovered == index && dragStatus == null
                       ? scheme.primary
                       : watched || next
                       ? background
@@ -1863,23 +1944,24 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
                 ),
               ),
               child: Stack(
-                clipBehavior: Clip.none,
-                alignment: Alignment.center,
+                fit: StackFit.expand,
                 children: [
-                  Text(
-                    label,
-                    maxLines: 1,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: foreground,
-                      fontFeatures: const [FontFeature.tabularFigures()],
+                  Center(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: foreground,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
                     ),
                   ),
                   if (widget.cached(episode) == true)
                     Positioned(
-                      right: -Gap.sm + 3,
-                      top: -Gap.sm + 3,
+                      right: 4,
+                      top: 4,
                       child: Container(
                         width: 5,
                         height: 5,
@@ -1905,75 +1987,89 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
             border: Border.all(color: border),
           ),
         );
+        Widget legend(Widget mark, String text) =>
+            Row(mainAxisSize: MainAxisSize.min, children: [mark, Text(text)]);
+        final target = dragStatus == 'watched' ? '已看' : '未看';
+        final String hint;
+        if (dragStatus == null) {
+          hint = '点击查看资源 · 长按标为已看 · 右键更多';
+        } else if (outside) {
+          hint = '在格子外松开将取消';
+        } else {
+          hint = '已选 ${dragIds.length} 话，松开标为$target · 按住拖动选择更多 · 右键或 Esc 取消';
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            RawGestureDetector(
-              gestures: {
-                TapGestureRecognizer:
-                    GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
-                      TapGestureRecognizer.new,
-                      (recognizer) => recognizer
-                        ..onTapUp = (details) {
-                          final index = indexAt(details.localPosition);
-                          if (index != null) widget.onOpen(visible[index]);
-                        }
-                        ..onSecondaryTapUp = (details) {
-                          final index = indexAt(details.localPosition);
-                          if (index != null) {
-                            unawaited(
-                              _menu(details.globalPosition, visible[index]),
-                            );
-                          }
-                        },
-                    ),
-                LongPressGestureRecognizer:
-                    GestureRecognizerFactoryWithHandlers<
-                      LongPressGestureRecognizer
-                    >(
-                      () => LongPressGestureRecognizer(
-                        duration: const Duration(milliseconds: 350),
-                      ),
-                      (recognizer) => recognizer
-                        ..onLongPressStart = (details) {
-                          final index = indexAt(details.localPosition);
-                          if (index == null) return;
-                          final episode = visible[index];
-                          setState(() {
-                            dragStatus = widget.statusOf(episode) == 'watched'
-                                ? 'unwatched'
-                                : 'watched';
-                            dragged
-                              ..clear()
-                              ..add(episode);
-                          });
-                        }
-                        ..onLongPressMoveUpdate = (details) {
-                          drag(details.localPosition);
-                        }
-                        ..onLongPressEnd = (_) {
-                          _endDrag();
-                        }
-                        ..onLongPressCancel = _endDrag,
-                    ),
+            Listener(
+              onPointerDown: (event) {
+                if (event.buttons & kSecondaryMouseButton != 0) _cancel();
               },
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                onHover: (event) {
-                  final index = indexAt(event.localPosition);
-                  if (index != hovered) {
-                    setState(() => hovered = index);
-                    widget.onHover(index == null ? null : visible[index]);
-                  }
+              onPointerMove: (event) {
+                if (event.buttons & kSecondaryMouseButton != 0) _cancel();
+              },
+              child: RawGestureDetector(
+                gestures: {
+                  TapGestureRecognizer:
+                      GestureRecognizerFactoryWithHandlers<
+                        TapGestureRecognizer
+                      >(
+                        TapGestureRecognizer.new,
+                        (recognizer) => recognizer
+                          ..onTapUp = (details) {
+                            final index = indexAt(details.localPosition);
+                            if (index != null) widget.onOpen(visible[index]);
+                          }
+                          ..onSecondaryTapUp = (details) {
+                            final index = indexAt(details.localPosition);
+                            if (index != null && dragStatus == null) {
+                              unawaited(
+                                _menu(details.globalPosition, visible[index]),
+                              );
+                            }
+                          },
+                      ),
+                  LongPressGestureRecognizer:
+                      GestureRecognizerFactoryWithHandlers<
+                        LongPressGestureRecognizer
+                      >(
+                        () => LongPressGestureRecognizer(
+                          duration: const Duration(milliseconds: 600),
+                        ),
+                        (recognizer) => recognizer
+                          ..onLongPressStart = (details) {
+                            final index = indexAt(details.localPosition);
+                            if (index != null) _start(visible[index]);
+                          }
+                          ..onLongPressMoveUpdate = (details) {
+                            drag(details.localPosition);
+                          }
+                          ..onLongPressEnd = (_) {
+                            _end();
+                          }
+                          ..onLongPressCancel = _cancel,
+                      ),
                 },
-                onExit: (_) {
-                  setState(() => hovered = null);
-                  widget.onHover(null);
-                },
-                child: Wrap(
-                  spacing: _gap,
-                  runSpacing: _gap,
-                  children: [for (var i = 0; i < visible.length; i++) cell(i)],
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  onHover: (event) {
+                    final index = indexAt(event.localPosition);
+                    if (index != hovered) {
+                      setState(() => hovered = index);
+                      widget.onHover(index == null ? null : visible[index]);
+                    }
+                  },
+                  onExit: (_) {
+                    setState(() => hovered = null);
+                    widget.onHover(null);
+                  },
+                  child: Wrap(
+                    spacing: _gap,
+                    runSpacing: _gap,
+                    children: [
+                      for (var i = 0; i < visible.length; i++) cell(i),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1985,35 +2081,33 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
                 runSpacing: 4,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      swatch(scheme.primaryContainer, scheme.primaryContainer),
-                      const Text('已看'),
-                    ],
+                  legend(
+                    swatch(scheme.primaryContainer, scheme.primaryContainer),
+                    '已看',
                   ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      swatch(scheme.primary, scheme.primary),
-                      const Text('下一话'),
-                    ],
+                  legend(swatch(scheme.primary, scheme.primary), '下一话'),
+                  legend(
+                    swatch(Colors.transparent, scheme.outlineVariant),
+                    '未看',
                   ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      swatch(Colors.transparent, scheme.outlineVariant),
-                      const Text('未看'),
-                    ],
+                  legend(
+                    Container(
+                      width: 6,
+                      height: 6,
+                      margin: const EdgeInsets.only(right: 5),
+                      decoration: const BoxDecoration(
+                        color: mint,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    '已缓存',
                   ),
                   Text(
-                    dragStatus == null
-                        ? '点击查看资源 · 长按拖动批量标记 · 右键更多'
-                        : '松开后将 ${dragged.length} 话标为${dragStatus == 'watched' ? '已看' : '未看'}',
+                    hint,
                     style: dragStatus == null
                         ? null
                         : TextStyle(
-                            color: scheme.primary,
+                            color: outside ? scheme.error : scheme.primary,
                             fontWeight: FontWeight.w700,
                           ),
                   ),

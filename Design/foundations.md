@@ -32,6 +32,7 @@
 
 - 字族：**思源柔黑 Resource Han Rounded**（打包在 `assets/fonts/`，OFL 授权），缺字回退到微软雅黑 / 苹方。
 - 只打包 Regular（400）和 Bold（700）。代码里写 w500 会显示为 Regular，w600–w900 显示为 Bold；新代码请直接用 w400 或 w700。
+- 12px 及以下的中文不要用 Bold：笔画多的字（编、辑、资）在桌面缩放下会糊成一团，和笔画少的字放在一起像换了字体。文字按钮（13px）和标签芯片（12px）用 Regular，靠颜色和底色区分。
 - 数字对齐的位置（时间、大小、日期、“2 / 8”）加 `FontFeature.tabularFigures()`。
 
 | 用途 | 字号 | 字重 |
@@ -41,7 +42,9 @@
 | 面板内小标题 `titleSmall` | 13 | Bold |
 | 正文 | 13–14 | Regular |
 | 说明、元数据 `bodySmall` | 12 | Regular，次要文字色 |
-| 标签、徽章 | 11 | Bold |
+| 徽章 | 11 | Bold（只放短词、数字） |
+| 标签芯片 | 12 | Regular |
+| 文字按钮（链接式操作） | 13 | Regular，主色 |
 | 聚光灯番名 | 24 | Bold |
 
 ## 间距

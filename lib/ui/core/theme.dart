@@ -178,7 +178,8 @@ ThemeData appTheme(bool dark) {
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
-        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+        // Bold CJK at 12 px fills in dense strokes; links stay Regular.
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w400),
       ),
     ),
     chipTheme: ChipThemeData(
@@ -189,7 +190,7 @@ ThemeData appTheme(bool dark) {
       labelStyle: TextStyle(
         fontSize: 12,
         color: scheme.onSurface,
-        fontWeight: FontWeight.w600,
+        fontWeight: FontWeight.w400,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
       showCheckmark: false,
