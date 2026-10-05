@@ -1427,8 +1427,8 @@ class _SubjectPageState extends State<SubjectPage> {
                       const SizedBox(height: 12),
                       Expanded(
                         child: InteractiveViewer(
-                          child: Image(
-                            image: cachedImageProvider(context, url),
+                          child: CachedImage(
+                            url: url,
                             fit: BoxFit.contain,
                             errorBuilder: (_, _, _) =>
                                 const Center(child: Text('图片加载失败')),
@@ -1456,12 +1456,9 @@ class _SubjectPageState extends State<SubjectPage> {
           height: height,
           child: url == null
               ? placeholder('暂无头像')
-              : Image(
-                  image: cachedImageProvider(
-                    context,
-                    url,
-                    cacheWidth: imageDecodeWidth(context, width),
-                  ),
+              : CachedImage(
+                  url: url,
+                  cacheWidth: imageDecodeWidth(context, width),
                   fit: character ? BoxFit.contain : BoxFit.cover,
                   alignment: character ? Alignment.topCenter : Alignment.center,
                   frameBuilder: (_, child, frame, synchronous) =>
