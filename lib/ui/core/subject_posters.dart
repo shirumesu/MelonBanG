@@ -596,6 +596,7 @@ class SubjectCover extends StatefulWidget {
 class _SubjectCoverState extends State<SubjectCover> {
   CatalogRepository? _catalog;
   StreamSubscription<int>? _subscription;
+  final _unusable = <String>{};
 
   @override
   void didChangeDependencies() {
@@ -605,9 +606,7 @@ class _SubjectCoverState extends State<SubjectCover> {
     _subscription?.cancel();
     _catalog = catalog;
     _subscription = catalog?.coverChanges.stream.listen((id) {
-      if (mounted && id == widget.id && coverAddress(widget.url) == null) {
-        setState(() {});
-      }
+      if (mounted && id == widget.id) setState(() {});
     });
     _resolve();
   }
@@ -618,10 +617,15 @@ class _SubjectCoverState extends State<SubjectCover> {
     if (oldWidget.id != widget.id || oldWidget.url != widget.url) _resolve();
   }
 
+  // The item's own address comes first; the catalogue's latest cover for the
+  // subject fills in when it is absent or turned out to be unusable.
+  String? get _address => [
+    coverAddress(widget.url),
+    _catalog?.coverFor(widget.id),
+  ].nonNulls.where((address) => !_unusable.contains(address)).firstOrNull;
+
   void _resolve() {
-    if (coverAddress(widget.url) == null) {
-      unawaited(_catalog?.resolveCover(widget.id));
-    }
+    if (_address == null) unawaited(_catalog?.resolveCover(widget.id));
   }
 
   @override
@@ -634,7 +638,7 @@ class _SubjectCoverState extends State<SubjectCover> {
   Widget build(BuildContext context) {
     final id = widget.id;
     final title = widget.title;
-    final address = coverAddress(widget.url) ?? _catalog?.coverFor(id);
+    final address = _address;
     final fallback = ArtPlaceholder(label: title);
     return AnimatedSwitcher(
       duration: motionDuration(context),
@@ -642,17 +646,17 @@ class _SubjectCoverState extends State<SubjectCover> {
           ? SizedBox.expand(key: ValueKey('placeholder:$id'), child: fallback)
           : LayoutBuilder(
               key: ValueKey('$id:$address'),
-              builder: (context, constraints) => Image(
-                image: cachedImageProvider(
+              builder: (context, constraints) => CachedImage(
+                url: address,
+                cacheWidth: imageDecodeWidth(
                   context,
-                  address,
-                  cacheWidth: imageDecodeWidth(
-                    context,
-                    constraints.maxWidth.isFinite ? constraints.maxWidth : 512,
-                  ),
+                  constraints.maxWidth.isFinite ? constraints.maxWidth : 512,
                 ),
-                key: ValueKey('$id:$address'),
                 fit: widget.fit,
+                onMissing: (address) {
+                  setState(() => _unusable.add(address));
+                  _resolve();
+                },
                 frameBuilder: (context, child, frame, synchronous) => Stack(
                   fit: StackFit.expand,
                   children: [
