@@ -1,9 +1,6 @@
 import 'dart:async';
 
 import '../../domain/catalog.dart';
-import '../../integrations/bangumi/account.dart';
-import '../../integrations/bangumi/community.dart';
-import '../../integrations/melon_api/catalog.dart';
 import '../../domain/collection_edit.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
@@ -17,9 +14,8 @@ class _SyncStatus {
 class TrackingRepository {
   TrackingRepository(this.store, this.account, this.catalog);
   final AppStore store;
-  final AccountRepository account;
-  final CatalogRepository catalog;
-  late final community = BangumiPrivateClient(account);
+  final Account account;
+  final Catalog catalog;
   int? _sendingSequence;
   Future<void>? _flushing;
   Timer? _retry;
@@ -287,10 +283,10 @@ class TrackingRepository {
   }
 
   Future<void> _refreshCollection() async {
-    if (account.session == null) return;
+    if (account.profile == null) return;
     final requestedAt = DateTime.now().millisecondsSinceEpoch;
     final user = account.userId;
-    final username = Uri.encodeComponent('${account.session!['username']}');
+    final username = Uri.encodeComponent('${account.profile!.username}');
     final remote = <String, Json>{};
     try {
       // Keep pending episode counts even if the outbox finishes during the pull.
@@ -369,7 +365,7 @@ class TrackingRepository {
   }
 
   Future<void> refreshEpisodes(int subjectId, {bool useCache = false}) async {
-    if (account.session == null || account.needsAuthorization) return;
+    if (account.profile == null || account.needsAuthorization) return;
     final user = account.userId;
     final key = '$user:$subjectId';
     final active = _episodeRefreshes[key];

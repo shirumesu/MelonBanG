@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../domain/collection_edit.dart';
 import 'json.dart';
 
 /// The Dart application owns a fresh database, separate from earlier runtimes.

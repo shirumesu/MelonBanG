@@ -1,6 +1,5 @@
 import 'package:path/path.dart' as p;
 
-import '../../integrations/melon_api/catalog.dart';
 import '../../core/json.dart';
 import '../acquisition/resource_metadata.dart';
 import '../../core/store.dart';
@@ -40,7 +39,7 @@ class DanmakuTarget {
 class DanmakuRepository {
   DanmakuRepository(this.store, this.catalog, this.matchers, this.local);
   final AppStore store;
-  final CatalogRepository catalog;
+  final Catalog catalog;
 
   /// Automatic sources in display order.
   final List<DanmakuMatcher> matchers;

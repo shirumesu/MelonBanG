@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../../integrations/melon_api/catalog.dart';
 import '../../core/json.dart';
 import '../../core/store.dart';
 import '../../domain/catalog.dart';
@@ -33,7 +32,7 @@ class PlaybackLibrary {
   PlaybackLibrary(this.store, this.downloads, this.catalog);
   final AppStore store;
   final DownloadRepository downloads;
-  final CatalogRepository catalog;
+  final Catalog catalog;
   Future<PlaybackSession> fromDownload(
     String id, {
     String? fileId,

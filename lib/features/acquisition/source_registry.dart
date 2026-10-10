@@ -4,13 +4,10 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/hls_playlist.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../domain/sources.dart';
-import '../../integrations/melon_api/bundled_source_rules.dart';
-import '../../integrations/melon_api/source_rules.dart';
-import '../../integrations/sources/engines.dart';
-import '../../integrations/sources/hls_playlist.dart';
 import 'title_matching.dart';
 
 class _SourceRead {
@@ -22,19 +19,18 @@ class _SourceRead {
 /// Maintained sources of this run: the rule snapshot, per-source enablement
 /// and health, engine instances and shared, briefly cached reads.
 class SourceRegistry extends ChangeNotifier {
-  SourceRegistry(this.api, this.preferences, this.rules);
+  SourceRegistry(this.api, this.preferences, this.rules, this.engines);
   final ApiClient api;
   final SharedPreferences preferences;
-  final SourceRulesClient rules;
+  final SourceRules rules;
+  final Map<String, SourceEngineFactory> engines;
   final health = <String, SourceHealth>{};
   final errors = <String, String>{};
   final probes = <String, List<ProbeStep>>{};
   final _engines = <String, SourceEngine>{};
   final _reads = <String, _SourceRead>{};
   final _cache = <String, ({DateTime expires, List<Object> rows})>{};
-  SourceSnapshot snapshot = SourceSnapshot.fromJson(
-    object(jsonDecode(bundledSourceRules)),
-  );
+  late SourceSnapshot snapshot = rules.bundled;
   String ruleOrigin = '安装包内置';
   String? updateIssue;
   DateTime? checkedAt;
@@ -89,7 +85,7 @@ class SourceRegistry extends ChangeNotifier {
 
   SourceEngine engine(String id) => _engines.putIfAbsent(id, () {
     final rule = instance(id);
-    return sourceEngines[rule.engine]!(api, rule);
+    return engines[rule.engine]!(rule);
   });
   OnlineSourceEngine online(String id) => engine(id) as OnlineSourceEngine;
   TorrentSourceEngine torrent(String id) => engine(id) as TorrentSourceEngine;
