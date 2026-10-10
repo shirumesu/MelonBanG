@@ -886,11 +886,9 @@ class _PlayerPageState extends State<PlayerPage> {
                           child: PlayerSettings(
                             closeFocusNode: menuCloseFocus,
                             playback: playback,
-                            service: widget.service,
                             menu: lastMenu,
                             onClose: closeMenu,
                             onError: widget.onError,
-                            onPresentationChanged: refresh,
                           ),
                         ),
                       ),
