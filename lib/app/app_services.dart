@@ -17,7 +17,6 @@ import '../core/store.dart';
 import '../core/storage_locations.dart';
 import '../features/tracking/tracking_repository.dart';
 import '../features/acquisition/release_search.dart';
-import '../features/acquisition/resources_controller.dart';
 import '../features/acquisition/source_registry.dart';
 import '../features/danmaku/danmaku_controller.dart';
 import '../features/danmaku/danmaku_preferences.dart';
@@ -29,6 +28,7 @@ import '../features/playback/play_selection.dart';
 import '../features/playback/playback.dart';
 import '../features/playback/playback_coordinator.dart';
 import '../features/playback/playback_library.dart';
+import '../features/playback/resource_search.dart';
 import '../features/playback/resume_controller.dart';
 import '../features/tracking/subject_controller.dart';
 import '../features/tracking/tracking_controller.dart';
@@ -85,10 +85,11 @@ class AppServices {
   late final DiscoveryController discovery;
   late final TrackingController personal;
   late final SubjectController subjects;
-  late final ResourcesController resources;
+
+  /// The search shown on the resources page.
+  late final ResourceSearchController resources;
   late final DownloadsController downloadList;
   late final ResumeController resume;
-  late final SourceChoices choices;
   Future<void>? _starting;
   Future<void>? _closing;
   final _dispose = <Future<void> Function()>[];
@@ -184,7 +185,7 @@ class AppServices {
     discovery = DiscoveryController(catalog);
     personal = TrackingController(account, tracking);
     subjects = SubjectController(tracking);
-    resources = ResourcesController(releases, () => downloadsReady);
+    resources = newResourceSearch();
     downloadList = DownloadsController(
       downloads,
       ready: () => downloadsReady,
@@ -192,12 +193,6 @@ class AppServices {
     );
     _dispose.add(downloadList.close);
     resume = ResumeController(library);
-    choices = SourceChoices(
-      selection: selection,
-      sources: sources,
-      enqueue: resources.enqueue,
-      defaultMethod: () => downloads.defaultMethod,
-    );
     await account.initialize();
     tracking.start();
     _restoringDownloads = downloads.initialize();
@@ -212,6 +207,14 @@ class AppServices {
       ),
     );
   }
+
+  /// A separate search, e.g. for the player's resource sheet.
+  ResourceSearchController newResourceSearch() => ResourceSearchController(
+    selection,
+    playback,
+    () => downloadsReady,
+    () => downloads.defaultMethod,
+  );
 
   Future<void> close() => _closing ??= _close();
   Future<void> _close() async {
