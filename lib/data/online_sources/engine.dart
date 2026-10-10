@@ -17,6 +17,9 @@ class SourceVerificationRequired implements Exception {
 }
 
 abstract class OnlineSource {
+  String? get currentBase;
+  Uri? get lastRequest;
+  int? get lastStatus;
   Future<List<Json>> searchSubjects(
     Iterable<String> names, {
     RequestCancellation? cancel,
@@ -29,8 +32,11 @@ class RuleOnlineSource implements OnlineSource {
   RuleOnlineSource(this.api, this.rule);
   final ApiClient api;
   final Json rule;
+  @override
   String? currentBase;
+  @override
   Uri? lastRequest;
+  @override
   int? lastStatus;
   String get id => '${rule['id']}';
   String get engine => '${rule['engine']}';

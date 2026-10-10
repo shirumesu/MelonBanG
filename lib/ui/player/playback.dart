@@ -218,11 +218,15 @@ class Playback extends ChangeNotifier {
       if (uri == null) throw StateError('没有可播放的文件。');
       final platform = player.platform;
       if (platform is NativePlayer) {
-        final filteredHls = object(next['source'])['playlist'] is String;
-        await platform.setProperty('demuxer', filteredHls ? 'lavf' : '');
+        final manifest = object(next['source'])['playlist'] is String;
+        await platform.setProperty('demuxer', manifest ? 'lavf' : '');
         await platform.setProperty(
           'demuxer-lavf-format',
-          filteredHls ? 'hls' : '',
+          manifest
+              ? object(next['source'])['kind'] == 'dash'
+                    ? 'dash'
+                    : 'hls'
+              : '',
         );
         await platform.setProperty('sub-auto', 'fuzzy');
         await platform.setProperty('sub-ass-override', 'no');
