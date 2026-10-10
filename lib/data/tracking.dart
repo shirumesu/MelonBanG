@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../domain/catalog.dart';
 import 'account.dart';
 import 'bangumi_private.dart';
 import 'catalog.dart';
@@ -47,7 +48,7 @@ class TrackingRepository {
 
   String _collection(String user) => 'collection:$user';
   String _episodes(String user) => 'episodes:$user';
-  Future<List<Json>> collection() async {
+  Future<List<Subject>> collection() async {
     final user = account.userId;
     final items = await store.list(_collection(user));
     final watched = items.any((item) => item['watchedEpisodes'] == null)
@@ -55,22 +56,22 @@ class TrackingRepository {
         : const <int, int>{};
     return items.map((item) {
       item['watchedEpisodes'] ??= watched[item['subjectId']] ?? 0;
-      return catalog.summary(item);
+      return catalog.card(item);
     }).toList();
   }
 
-  Future<Json> syncState() async => {
-    'pendingMutationCount': await store.pendingCount(account.userId),
-    'lastSyncError': lastSyncError,
-    'lastSyncedAt': lastSyncedAt,
-  };
-  Future<Json> subject(
+  Future<SyncState> syncState() async => SyncState(
+    pending: await store.pendingCount(account.userId),
+    error: lastSyncError,
+    syncedAt: lastSyncedAt,
+  );
+  Future<Subject> subject(
     int id, {
-    void Function(Json)? onAvailable,
+    void Function(Subject)? onAvailable,
     bool forPlayback = false,
   }) async {
     final user = account.userId;
-    Future<void> publish(Json detail) async {
+    Future<void> publish(Subject detail) async {
       if (onAvailable != null) {
         onAvailable(await _withProgress(detail, user, id));
       }
@@ -95,41 +96,45 @@ class TrackingRepository {
       }),
       personal,
     ]);
-    return _withProgress(object(values[0]), user, id);
+    return _withProgress(values[0] as Subject, user, id);
   }
 
-  Future<Json> _withProgress(Json detail, String user, int id) async {
+  Future<Subject> _withProgress(Subject detail, String user, int id) async {
     if (user != account.userId) throw StateError('账号已经切换');
     final item = await store.get(_collection(user), '$id');
     final progress = await store.list(_episodes(user), subjectId: id);
     if (user != account.userId) throw StateError('账号已经切换');
-    final status = {for (final e in progress) '${e['episodeId']}': e['status']};
-    return {
-      ...detail,
-      'collection': item == null
-          ? null
-          : {
-              'status': item['status'],
-              'score': item['userScore'],
-              'tags': item['collectionTags'] ?? [],
-              'comment': item['comment'] ?? '',
-            },
-      'episodes': objects(detail['episodes'])
-          .map(
-            (e) => {...e, 'status': status['${e['episodeId']}'] ?? 'unwatched'},
-          )
-          .toList(),
-    };
+    final status = {for (final e in progress) e['episodeId']: e['status']};
+    return detail.copyWith(
+      collection: item == null ? null : Subject.fromJson(item).collection,
+      clearCollection: item == null,
+      episodes: [
+        for (final episode in detail.episodes)
+          episode.withStatus(
+            status[episode.id] is String
+                ? EpisodeStatus.parse(status[episode.id] as String)
+                : EpisodeStatus.unwatched,
+          ),
+      ],
+    );
   }
 
-  Future<void> setCollection(
-    int subjectId, {
-    CollectionStatus? status,
-    int? score,
-    List<String>? tags,
-    String? comment,
-    bool completeEpisodes = false,
-  }) async {
+  /// A collection row in the shape Bangumi pulls are stored.
+  static Json _row(Subject subject) => {
+    'subjectId': subject.id,
+    'name': subject.name,
+    'nameCn': subject.nameCn,
+    'summary': subject.summary,
+    'coverUrl': subject.coverUrl,
+    'episodeTotal': subject.episodeTotal,
+    'score': subject.score,
+  };
+
+  Future<void> setCollection(int subjectId, CollectionChange change) async {
+    final status = change.status, comment = change.comment;
+    var score = change.score;
+    var tags = change.tags;
+    final completeEpisodes = change.completeEpisodes;
     if (subjectId <= 0 || (score != null && (score < 0 || score > 10))) {
       throw const FormatException('收藏信息无效');
     }
@@ -140,7 +145,7 @@ class TrackingRepository {
     final user = account.userId;
     final current =
         await store.get(_collection(user), '$subjectId') ??
-        await catalog.subject(subjectId);
+        _row(await catalog.subject(subjectId));
     if (_closed || user != account.userId) throw StateError('账号已经切换');
     if ((status?.key ?? current['status'] ?? 'wish') == 'wish') {
       if (score != null && score > 0) {
@@ -168,15 +173,9 @@ class TrackingRepository {
         throw const FormatException('仅在标为看过时完成全部正片');
       }
       final detail = await catalog.subject(subjectId);
-      episodeIds = objects(detail['episodes'])
-          .where(
-            (episode) =>
-                episode['type'] == null ||
-                episode['type'] == 0 ||
-                episode['type'] == 'main',
-          )
-          .map((episode) => number(episode['episodeId']).toInt())
-          .where((id) => id > 0)
+      episodeIds = detail.episodes
+          .where((episode) => episode.main && episode.id > 0)
+          .map((episode) => episode.id)
           .toSet()
           .toList();
       if (_closed || user != account.userId) throw StateError('账号已经切换');

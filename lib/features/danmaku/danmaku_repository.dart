@@ -4,6 +4,7 @@ import '../../data/catalog.dart';
 import '../../data/json.dart';
 import '../../data/resource_metadata.dart';
 import '../../data/store.dart';
+import '../../domain/catalog.dart';
 import '../../domain/danmaku.dart';
 
 /// What a playback session offers danmaku matching.
@@ -92,19 +93,18 @@ class DanmakuRepository {
     final detail = await catalog.subject(subjectId);
     return DanmakuEpisode(
       subjectId: subjectId,
-      title: titleOf(detail),
+      title: detail.title,
       names: resourceNames(detail),
-      number: number(_matchingEpisode(target, detail)['sort']),
+      number: _matchingEpisode(target, detail).sort,
     );
   }
 }
 
-Json _matchingEpisode(DanmakuTarget target, Json detail) {
-  final episodes = objects(detail['episodes']);
+Episode _matchingEpisode(DanmakuTarget target, Subject detail) {
   final episodeId = target.episodeId;
-  Iterable<Json> matches;
+  Iterable<Episode> matches;
   if (episodeId != null) {
-    matches = episodes.where((episode) => episode['episodeId'] == episodeId);
+    matches = detail.episodes.where((episode) => episode.id == episodeId);
   } else {
     // Infer only the danmaku lookup; progress/file associations require explicit identity.
     final filename = p.basenameWithoutExtension('${target.path}');
@@ -117,7 +117,7 @@ Json _matchingEpisode(DanmakuTarget target, Json detail) {
       throw const DanmakuUnmatched('缺少章节信息，无法从文件名识别集数');
     }
     final sort = double.parse(numbers.single[1]!);
-    matches = episodes.where((episode) => number(episode['sort']) == sort);
+    matches = detail.episodes.where((episode) => episode.sort == sort);
   }
   if (matches.length != 1) throw const DanmakuUnmatched('未找到唯一对应的番剧章节');
   return matches.single;

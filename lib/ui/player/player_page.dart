@@ -2,14 +2,16 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
-import '../../app_services.dart';
+import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/transfer.dart';
+import '../../features/downloads/downloads_controller.dart';
+import '../../features/playback/play_selection.dart';
+import '../../features/playback/playback_coordinator.dart';
 import '../core/motion.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -25,7 +27,7 @@ class PlayerPage extends StatefulWidget {
   const PlayerPage({
     super.key,
     required this.playback,
-    required this.service,
+    required this.choices,
     required this.onBack,
     required this.onError,
     required this.fullScreen,
@@ -45,24 +47,23 @@ class PlayerPage extends StatefulWidget {
     this.onLightsChanged,
   });
   final Playback playback;
-  final AppServices service;
+  final SourceChoices choices;
   final VoidCallback onBack;
   final ValueChanged<Object> onError;
   final bool fullScreen, windowFullScreen;
   final Future<void> Function(bool) onFullScreenChanged;
   final Future<void> Function(bool)? onWindowFullScreenChanged;
-  final Json? subject;
+  final Subject? subject;
 
-  /// Set while the player was opened before a source started; see
-  /// `preparePlayback` in app.dart.
-  final Json? preparing;
+  /// Set while the player was opened before a source started.
+  final PreparingPlayback? preparing;
   final VoidCallback? onRetryPreparing, onChoosePreparing;
-  final ValueListenable<TransferSnapshot> downloads;
-  final ValueChanged<Json> onEpisode;
+  final DownloadsController downloads;
+  final ValueChanged<Episode> onEpisode;
   final void Function(String id, String? fileId)? onPlayFile;
-  final Future<void> Function(PlayCandidate candidate, Json episode)?
+  final Future<void> Function(PlayCandidate candidate, Episode episode)?
   onPlayCandidate;
-  final ValueChanged<Json?>? onFindAllResources;
+  final ValueChanged<Episode?>? onFindAllResources;
 
   /// Null when the app theme is already dark and there are no lights to switch.
   final bool? lightsOff;
@@ -98,7 +99,7 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   void initState() {
     super.initState();
-    sessionId = playback.session?['id'] as String?;
+    sessionId = playback.session?.id;
     playback.addListener(refresh);
     playingSubscription = player.stream.playing.listen((_) => reveal());
   }
@@ -106,7 +107,7 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   void didUpdateWidget(PlayerPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.subject?['subjectId'] != widget.subject?['subjectId']) {
+    if (oldWidget.subject?.id != widget.subject?.id) {
       resourcesOpen = false;
       resourceEpisode = null;
     }
@@ -134,7 +135,7 @@ class _PlayerPageState extends State<PlayerPage> {
       lastNotice = playback.notice;
       showFeedback(lastNotice!);
     }
-    final next = playback.session?['id'] as String?;
+    final next = playback.session?.id;
     if (next != sessionId) {
       sessionId = next;
       dragging = null;
@@ -201,18 +202,17 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   /// The next episode by order, with whether it can be played right away.
-  (Json, bool)? get nextEpisode {
-    final episodes = objects(widget.subject?['episodes']);
+  (Episode, bool)? get nextEpisode {
+    final episodes = widget.subject?.episodes ?? const <Episode>[];
     final index = episodes.indexWhere(
-      (e) => e['episodeId'] == playback.session?['episodeId'],
+      (e) => e.id == playback.session?.episodeId,
     );
     if (index < 0 || index + 1 >= episodes.length) return null;
     final next = episodes[index + 1];
-    final id = next['episodeId'] as int;
-    final tasks = widget.downloads.value.forSubject(
-      widget.subject?['subjectId'] as int?,
+    final tasks = widget.downloads.snapshot.value.forSubject(
+      widget.subject?.id,
     );
-    return (next, playableTask(tasks, id) != null);
+    return (next, playableTask(tasks, next.id) != null);
   }
 
   void toggleMenu(PlayerMenu value) {
@@ -239,10 +239,10 @@ class _PlayerPageState extends State<PlayerPage> {
     reveal();
   }
 
-  void findResources(Json? episode) {
+  void findResources(Episode? episode) {
     playback.cancelAutoplay();
     setState(() {
-      resourceEpisode = episode?['episodeId'] as int?;
+      resourceEpisode = episode?.id;
       resourcesOpen = true;
       menu = null;
     });
@@ -371,11 +371,12 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   String get title {
-    if (widget.subject == null) return '${playback.session?['title'] ?? '播放器'}';
-    final episode = objects(widget.subject?['episodes'])
-        .where((e) => e['episodeId'] == playback.session?['episodeId'])
+    final subject = widget.subject;
+    if (subject == null) return playback.session?.title ?? '播放器';
+    final episode = subject.episodes
+        .where((e) => e.id == playback.session?.episodeId)
         .firstOrNull;
-    return '${titleOf(widget.subject!)}${episode == null ? '' : ' · 第 ${episode['sort']} 话'}';
+    return '${subject.title}${episode == null ? '' : ' · 第 ${episode.number} 话'}';
   }
 
   @override
@@ -394,7 +395,7 @@ class _PlayerPageState extends State<PlayerPage> {
         onRetry: widget.onRetryPreparing,
         onChoose: widget.onChoosePreparing,
         onFindResources: () =>
-            widget.onFindAllResources?.call(object(preparing['episode'])),
+            widget.onFindAllResources?.call(preparing.episode),
       );
     }
     if (playback.uri == null) {
@@ -445,17 +446,15 @@ class _PlayerPageState extends State<PlayerPage> {
                       child: SizedBox(
                         width: libraryWidth,
                         child: ValueListenableBuilder<TransferSnapshot>(
-                          valueListenable: widget.downloads,
+                          valueListenable: widget.downloads.snapshot,
                           builder: (context, downloads, _) =>
                               PlayerLibraryPanel(
-                                key: ValueKey(playback.session?['subjectId']),
-                                service: widget.service,
-                                subjectId:
-                                    playback.session?['subjectId'] as int?,
+                                key: ValueKey(playback.session?.subjectId),
+                                onToggleTask: widget.downloads.toggle,
+                                subjectId: playback.session?.subjectId,
                                 subject: widget.subject,
-                                episodeId:
-                                    playback.session?['episodeId'] as int?,
-                                title: '${playback.session?['title'] ?? '播放器'}',
+                                episodeId: playback.session?.episodeId,
+                                title: playback.session?.title ?? '播放器',
                                 downloads: downloads,
                                 onEpisode: widget.onEpisode,
                                 onFindResources: findResources,
@@ -505,9 +504,9 @@ class _PlayerPageState extends State<PlayerPage> {
                           ),
                           child: PlayerResourceSheet(
                             key: ValueKey(
-                              'resource-sheet:${widget.subject!['subjectId']}',
+                              'resource-sheet:${widget.subject!.id}',
                             ),
-                            service: widget.service,
+                            choices: widget.choices,
                             playback: playback,
                             onPlayCandidate: widget.onPlayCandidate,
                             onFindAllResources: widget.onFindAllResources,
@@ -722,7 +721,7 @@ class _PlayerPageState extends State<PlayerPage> {
                           Text(
                             playback.autoplayTarget == null
                                 ? playback.autoplayMessage!
-                                : '即将播放第 ${playback.autoplayTarget!.episode['sort']} 话 · ${playback.autoplayTarget!.sourceLabel}',
+                                : '即将播放第 ${playback.autoplayTarget!.episode.number} 话 · ${playback.autoplayTarget!.sourceLabel}',
                           ),
                           if (playback.autoplayTarget != null) ...[
                             const SizedBox(height: 8),
@@ -820,9 +819,8 @@ class _PlayerPageState extends State<PlayerPage> {
                             onFeedback: showFeedback,
                             nextLabel: switch (nextEpisode) {
                               null => null,
-                              (final next, true) => '下一话 · 第 ${next['sort']} 话',
-                              (final next, false) =>
-                                '下一话 · 第 ${next['sort']} 话',
+                              (final next, true) => '下一话 · 第 ${next.number} 话',
+                              (final next, false) => '下一话 · 第 ${next.number} 话',
                             },
                             onNext: switch (nextEpisode) {
                               null => null,
@@ -911,15 +909,15 @@ class _PreparingView extends StatelessWidget {
     required this.onChoose,
     required this.onFindResources,
   });
-  final Json preparing;
+  final PreparingPlayback preparing;
   final VoidCallback? onRetry, onChoose;
   final VoidCallback onFindResources;
 
   @override
   Widget build(BuildContext context) {
-    final item = object(preparing['subject']);
-    final episode = object(preparing['episode']);
-    final failed = preparing['failed'] as String?;
+    final item = preparing.subject;
+    final episode = preparing.episode;
+    final failed = preparing.failed;
     const white = Colors.white;
     final muted = white.withValues(alpha: .7);
     final buttonStyle = OutlinedButton.styleFrom(
@@ -941,15 +939,15 @@ class _PreparingView extends StatelessWidget {
                 child: ClipRRect(
                   borderRadius: posterBorderRadius,
                   child: SubjectCover(
-                    url: item['coverUrl'],
-                    title: titleOf(item),
-                    id: number(item['subjectId']).toInt(),
+                    url: item.coverUrl,
+                    title: item.title,
+                    id: item.id,
                   ),
                 ),
               ),
               const SizedBox(height: Gap.lg),
               Text(
-                titleOf(item),
+                item.title,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: white,
@@ -959,7 +957,7 @@ class _PreparingView extends StatelessWidget {
               ),
               const SizedBox(height: Gap.xs),
               Text(
-                '第 ${episode['sort']} 话 · ${titleOf(episode)}',
+                '第 ${episode.number} 话 · ${episode.title}',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: muted, fontSize: 12),
               ),
@@ -980,7 +978,7 @@ class _PreparingView extends StatelessWidget {
                   const SizedBox(width: Gap.sm),
                   Flexible(
                     child: Text(
-                      failed ?? '正在查找第 ${episode['sort']} 话的可播放资源…',
+                      failed ?? '正在查找第 ${episode.number} 话的可播放资源…',
                       style: TextStyle(color: muted, fontSize: 13),
                     ),
                   ),

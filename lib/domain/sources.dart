@@ -179,19 +179,6 @@ final class ResolvedStream {
     danmakuProvider: danmakuProvider,
     danmakuLocator: danmakuLocator,
   );
-
-  /// The `source` record of a playback session.
-  Json toSession() => {
-    'url': url,
-    'kind': format.key,
-    'headers': headers,
-    'provider': sourceId,
-    'line': line,
-    'playlist': ?playlist,
-    'quality': ?quality,
-    if (danmakuProvider != null)
-      'danmaku': {'provider': danmakuProvider, 'locator': danmakuLocator},
-  };
 }
 
 /// A torrent offered by an index site.

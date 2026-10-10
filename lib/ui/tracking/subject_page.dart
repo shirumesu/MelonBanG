@@ -8,8 +8,11 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/bangumi_private.dart';
 import '../../data/collection_edit.dart';
-import '../../data/json.dart';
-import '../../features/playback/play_selection.dart' show isMainEpisode;
+import '../../domain/catalog.dart';
+import '../../features/playback/playback_library.dart';
+import '../../features/playback/resume_controller.dart';
+import '../../features/tracking/subject_controller.dart';
+import '../../features/tracking/tracking_controller.dart';
 import '../core/action_feedback.dart';
 import '../core/cached_image.dart';
 import '../core/motion.dart';
@@ -25,12 +28,63 @@ import 'subject_community.dart';
 /// right column beside the main panel.
 const _wideLayout = 860.0;
 
-class SubjectPage extends StatefulWidget {
+class SubjectPage extends StatelessWidget {
   const SubjectPage({
     super.key,
+    required this.subjects,
+    required this.personal,
+    required this.resume,
+    required this.community,
+    required this.onFindResources,
+    required this.onPlayEpisode,
+    required this.onOpenSubject,
+    required this.onError,
+  });
+  final SubjectController subjects;
+  final TrackingController personal;
+  final ResumeController resume;
+  final BangumiPrivateClient community;
+  final ValueChanged<Episode?> onFindResources;
+  final ValueChanged<Episode> onPlayEpisode;
+  final ValueChanged<Subject> onOpenSubject;
+  final ValueChanged<Object> onError;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([subjects, personal, resume]),
+    builder: (context, _) {
+      final subject = subjects.subject;
+      return _SubjectDetail(
+        subject: subject,
+        loading: subjects.loading,
+        signedIn: personal.signedIn,
+        community: community,
+        collectionSyncError: personal.lastSyncError,
+        onRetryCollectionSync: personal.flush,
+        resume: resume.resumeOf(subject?.id),
+        cachedEpisodeIds: resume.playableOf(subject?.id),
+        onSaveCollection: (change) async {
+          await subjects.saveCollection(change);
+          unawaited(subjects.reload().catchError(onError));
+        },
+        onSaveEpisodes: (ids, status) async {
+          await subjects.saveEpisodes(ids, status);
+          unawaited(subjects.reload().catchError(onError));
+        },
+        onFindResources: onFindResources,
+        onPlayEpisode: onPlayEpisode,
+        onOpenSubject: onOpenSubject,
+      );
+    },
+  );
+}
+
+class _SubjectDetail extends StatefulWidget {
+  const _SubjectDetail({
     required this.subject,
     required this.community,
-    required this.onSaveTracking,
+    required this.onSaveCollection,
+    required this.onSaveEpisodes,
     required this.onFindResources,
     required this.onPlayEpisode,
     required this.onOpenSubject,
@@ -41,26 +95,29 @@ class SubjectPage extends StatefulWidget {
     this.collectionSyncError,
     this.onRetryCollectionSync,
   });
-  final Json? subject;
+  final Subject? subject;
   final bool loading;
   final bool signedIn;
   final BangumiPrivateClient community;
   final String? collectionSyncError;
   final Future<void> Function()? onRetryCollectionSync;
-  final Json? resume;
+  final PlaybackResume? resume;
   final Set<int>? cachedEpisodeIds;
-  final Future<void> Function(Json) onSaveTracking;
-  final ValueChanged<Json?> onFindResources;
-  final ValueChanged<Json> onPlayEpisode, onOpenSubject;
+  final Future<void> Function(CollectionChange) onSaveCollection;
+  final Future<void> Function(List<int>, EpisodeStatus) onSaveEpisodes;
+  final ValueChanged<Episode?> onFindResources;
+  final ValueChanged<Episode> onPlayEpisode;
+  final ValueChanged<Subject> onOpenSubject;
   @override
-  State<SubjectPage> createState() => _SubjectPageState();
+  State<_SubjectDetail> createState() => _SubjectDetailState();
 }
 
-class _SubjectPageState extends State<SubjectPage> {
-  String? _selectedStatus, _feedback, _collectionError, _nudge;
+class _SubjectDetailState extends State<_SubjectDetail> {
+  CollectionStatus? _selectedStatus;
+  String? _feedback, _collectionError, _nudge;
 
   /// Fields that restore the collection before the last quick edit.
-  Json? _undo;
+  CollectionChange? _undo;
 
   /// Unwatched main episodes offered for completion after choosing 看过.
   int _completeOffer = 0;
@@ -68,9 +125,9 @@ class _SubjectPageState extends State<SubjectPage> {
   bool _savingCollection = false;
   bool _summaryExpanded = false, _infoExpanded = false;
   Timer? _feedbackTimer;
-  final _episodeOverrides = <int, String>{};
+  final _episodeOverrides = <int, EpisodeStatus>{};
   String? _episodeError;
-  Json? _hoverEpisode;
+  Episode? _hoverEpisode;
   final _collectionIssue = ActionFeedback();
 
   @override
@@ -81,38 +138,40 @@ class _SubjectPageState extends State<SubjectPage> {
 
   bool _loadingPart(String part) {
     if (!widget.loading) return false;
-    final pending = widget.subject?['_pending'] as List<dynamic>?;
+    final pending = widget.subject?.pending;
     return pending == null
-        ? widget.subject?.containsKey('episodes') != true
+        ? widget.subject?.detailed != true
         : pending.contains(part);
   }
 
   bool _failedPart(String part) =>
-      !widget.loading &&
-      (widget.subject?['_pending'] as List<dynamic>?)?.contains(part) == true;
+      !widget.loading && widget.subject?.pending?.contains(part) == true;
 
   bool get _episodesLoading =>
-      _loadingPart('episodes') && objects(widget.subject?['episodes']).isEmpty;
+      _loadingPart('episodes') && (widget.subject?.episodes.isEmpty ?? true);
 
-  Json get _collection => {
-    ...object(widget.subject?['collection']),
-    'status': ?_selectedStatus,
-  };
+  SubjectCollection get _collection {
+    final saved = widget.subject?.collection ?? const SubjectCollection();
+    return SubjectCollection(
+      status: _selectedStatus ?? saved.status,
+      score: saved.score,
+      tags: saved.tags,
+      comment: saved.comment,
+    );
+  }
 
-  String? get _status => _collection['status'] as String?;
+  CollectionStatus? get _status => _collection.status;
 
-  String get _draftKey => CollectionDrafts.key(
-    widget.community.account.userId,
-    widget.subject?['subjectId'],
-  );
+  String get _draftKey =>
+      CollectionDrafts.key(widget.community.account.userId, widget.subject?.id);
 
   @override
-  void didUpdateWidget(covariant SubjectPage oldWidget) {
+  void didUpdateWidget(covariant _SubjectDetail oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.collectionSyncError != oldWidget.collectionSyncError) {
       _collectionIssue.issue = widget.collectionSyncError;
     }
-    if (oldWidget.subject?['subjectId'] != widget.subject?['subjectId']) {
+    if (oldWidget.subject?.id != widget.subject?.id) {
       _feedbackTimer?.cancel();
       _selectedStatus = _feedback = _collectionError = _nudge = null;
       _undo = _hoverEpisode = null;
@@ -121,8 +180,7 @@ class _SubjectPageState extends State<SubjectPage> {
       _savingCollection = _summaryExpanded = _infoExpanded = false;
       _episodeOverrides.clear();
     } else if (!_savingCollection &&
-        object(oldWidget.subject?['collection'])['status'] !=
-            object(widget.subject?['collection'])['status']) {
+        oldWidget.subject?.status != widget.subject?.status) {
       _selectedStatus = null;
     }
   }
@@ -135,17 +193,17 @@ class _SubjectPageState extends State<SubjectPage> {
   }
 
   Future<bool> _saveFields(
-    Json fields, {
+    CollectionChange fields, {
     required String label,
-    Json? undo,
+    CollectionChange? undo,
     int completeOffer = 0,
   }) async {
     if (_savingCollection) return false;
-    final subjectId = widget.subject?['subjectId'];
+    final subjectId = widget.subject?.id;
     final previousStatus = _selectedStatus;
     _feedbackTimer?.cancel();
     setState(() {
-      if (fields['status'] case final String status) _selectedStatus = status;
+      if (fields.status case final status?) _selectedStatus = status;
       _savingCollection = true;
       _collectionError = _nudge = null;
       _feedback = '正在保存…';
@@ -153,12 +211,8 @@ class _SubjectPageState extends State<SubjectPage> {
       _completeOffer = 0;
     });
     try {
-      await widget.onSaveTracking({
-        'kind': 'subjectCollection',
-        'subjectId': subjectId,
-        ...fields,
-      });
-      if (!mounted || widget.subject?['subjectId'] != subjectId) return true;
+      await widget.onSaveCollection(fields);
+      if (!mounted || widget.subject?.id != subjectId) return true;
       setState(() {
         _savingCollection = false;
         _feedback = label;
@@ -176,7 +230,7 @@ class _SubjectPageState extends State<SubjectPage> {
       });
       return true;
     } catch (error) {
-      if (!mounted || widget.subject?['subjectId'] != subjectId) return false;
+      if (!mounted || widget.subject?.id != subjectId) return false;
       setState(() {
         _selectedStatus = previousStatus;
         _savingCollection = false;
@@ -197,26 +251,28 @@ class _SubjectPageState extends State<SubjectPage> {
     });
   }
 
-  Future<void> _saveStatus(String status) async {
+  Future<void> _saveStatus(CollectionStatus status) async {
     final previous = _status;
     if (status == previous) return;
-    final previousScore = number(_collection['score']).toInt();
-    final unwatched = status == 'completed'
-        ? objects(widget.subject?['episodes'])
-              .where((e) => isMainEpisode(e) && e['status'] != 'watched')
+    final previousScore = _collection.score;
+    final unwatched = status == CollectionStatus.completed
+        ? (widget.subject?.episodes ?? const <Episode>[])
+              .where((e) => e.main && !e.watched)
               .length
         : 0;
     await _saveFields(
-      {'status': status},
+      CollectionChange(status: status),
       label: previous == null
           ? '已加入收藏 · ${collectionLabels[status]}'
           : '已保存 · ${collectionLabels[status]}',
       undo: previous == null
           ? null
-          : {
-              'status': previous,
-              if (status == 'wish' && previousScore > 0) 'score': previousScore,
-            },
+          : CollectionChange(
+              status: previous,
+              score: status == CollectionStatus.wish && previousScore > 0
+                  ? previousScore
+                  : null,
+            ),
       completeOffer: unwatched,
     );
   }
@@ -226,23 +282,22 @@ class _SubjectPageState extends State<SubjectPage> {
       _nudgeStatus('先选择收藏状态，再评分');
       return;
     }
-    if (_status == 'wish') {
+    if (_status == CollectionStatus.wish) {
       _nudgeStatus('想看状态不能评分，先改成在看或看过');
       return;
     }
-    final previous = number(_collection['score']).toInt();
+    final previous = _collection.score;
     if (score == previous) return;
     unawaited(
       _saveFields(
-        {'score': score},
+        CollectionChange(score: score),
         label: score == 0 ? '已清除评分' : '已保存评分 $score · ${scoreLabels[score]}',
-        undo: {'score': previous},
+        undo: CollectionChange(score: previous),
       ),
     );
   }
 
-  List<String> get _tags =>
-      (_collection['tags'] as List? ?? []).whereType<String>().toList();
+  List<String> get _tags => _collection.tags;
 
   Future<String?> _saveTags(List<String> tags) async {
     if (_status == null) {
@@ -255,28 +310,29 @@ class _SubjectPageState extends State<SubjectPage> {
       return error.message;
     }
     final previous = _tags;
-    await _saveFields({'tags': tags}, label: '已保存标签', undo: {'tags': previous});
+    await _saveFields(
+      CollectionChange(tags: tags),
+      label: '已保存标签',
+      undo: CollectionChange(tags: previous),
+    );
     return null;
   }
 
-  Future<void> _saveComment(String comment) => widget.onSaveTracking({
-    'kind': 'subjectCollection',
-    'subjectId': widget.subject?['subjectId'],
-    'comment': comment,
-  });
+  Future<void> _saveComment(String comment) =>
+      widget.onSaveCollection(CollectionChange(comment: comment));
 
   Future<void> _openDrawer({bool focusComment = false}) async {
-    final subjectId = widget.subject?['subjectId'];
+    final subjectId = widget.subject?.id;
     final user = widget.community.account.userId;
     final key = _draftKey;
     final mutation = await showCollectionDrawer(
       context,
-      subject: {...widget.subject!, 'collection': _collection},
+      subject: widget.subject!.copyWith(collection: _collection),
       draftKey: key,
       focusComment: focusComment,
     );
     if (!mounted ||
-        widget.subject?['subjectId'] != subjectId ||
+        widget.subject?.id != subjectId ||
         widget.community.account.userId != user) {
       return;
     }
@@ -295,11 +351,12 @@ class _SubjectPageState extends State<SubjectPage> {
     }
   }
 
-  Future<void> _markEpisodes(List<Json> episodes, String status) async {
-    final subjectId = widget.subject?['subjectId'];
-    final ids = [
-      for (final episode in episodes) number(episode['episodeId']).toInt(),
-    ];
+  Future<void> _markEpisodes(
+    List<Episode> episodes,
+    EpisodeStatus status,
+  ) async {
+    final subjectId = widget.subject?.id;
+    final ids = [for (final episode in episodes) episode.id];
     if (ids.isEmpty) return;
     setState(() {
       for (final id in ids) {
@@ -310,21 +367,19 @@ class _SubjectPageState extends State<SubjectPage> {
     try {
       // Bangumi rejects episode progress for subjects outside the collection.
       if (_status == null &&
-          !await _saveFields({'status': 'watching'}, label: '已加入收藏 · 在看')) {
+          !await _saveFields(
+            const CollectionChange(status: CollectionStatus.watching),
+            label: '已加入收藏 · 在看',
+          )) {
         throw StateError('需要先加入收藏');
       }
-      await widget.onSaveTracking({
-        'kind': 'episodeCollection',
-        'subjectId': subjectId,
-        'episodeIds': ids,
-        'status': status,
-      });
+      await widget.onSaveEpisodes(ids, status);
     } catch (error) {
-      if (mounted && widget.subject?['subjectId'] == subjectId) {
+      if (mounted && widget.subject?.id == subjectId) {
         _episodeError = '标记失败：$error';
       }
     } finally {
-      if (mounted && widget.subject?['subjectId'] == subjectId) {
+      if (mounted && widget.subject?.id == subjectId) {
         setState(() => ids.forEach(_episodeOverrides.remove));
       }
     }
@@ -348,41 +403,40 @@ class _SubjectPageState extends State<SubjectPage> {
     }
   }
 
-  String _episodeStatus(Json episode) =>
-      _episodeOverrides[number(episode['episodeId']).toInt()] ??
-      '${episode['status'] ?? 'unwatched'}';
+  EpisodeStatus _episodeStatus(Episode episode) =>
+      _episodeOverrides[episode.id] ?? episode.status;
 
-  Json? _nextEpisode(List<Json> episodes) =>
+  Episode? _nextEpisode(List<Episode> episodes) =>
       episodes.where(_isResume).firstOrNull ??
-      episodes.where((e) => _episodeStatus(e) != 'watched').firstOrNull ??
+      episodes
+          .where((e) => _episodeStatus(e) != EpisodeStatus.watched)
+          .firstOrNull ??
       episodes.firstOrNull;
 
-  bool _isResume(Json episode) =>
-      widget.resume?['subjectId'] == widget.subject?['subjectId'] &&
-      widget.resume?['episodeId'] == episode['episodeId'] &&
-      widget.resume?['completed'] != true &&
-      number(widget.resume?['positionSeconds']) > 0;
+  bool _isResume(Episode episode) =>
+      widget.resume?.episodeId == episode.id &&
+      (widget.resume?.position ?? 0) > 0;
 
-  bool? _available(Json episode) =>
-      widget.cachedEpisodeIds?.contains(number(episode['episodeId']).toInt());
+  bool? _available(Episode episode) =>
+      widget.cachedEpisodeIds?.contains(episode.id);
 
   String _timestamp(double seconds) {
     final value = seconds.toInt();
     return '${value ~/ 60}:${(value % 60).toString().padLeft(2, '0')}';
   }
 
-  String _episodeSummary(Json episode, {required bool next}) {
-    final date = '${episode['airdate'] ?? episode['airDate'] ?? ''}';
+  String _episodeSummary(Episode episode, {required bool next}) {
+    final date = episode.airDate ?? '';
     final available = _available(episode);
     return [
-      '${next ? '下一话 ' : ''}EP${episode['sort']}',
-      if (titleOf(episode).isNotEmpty) titleOf(episode),
+      '${next ? '下一话 ' : ''}EP${episode.number}',
+      if (episode.title.isNotEmpty) episode.title,
       if (_isResume(episode))
-        '续播 ${_timestamp(number(widget.resume?['positionSeconds']))}'
+        '续播 ${_timestamp(widget.resume!.position)}'
       else if (!_aired(episode))
         '未播出'
       else
-        _episodeStatus(episode) == 'watched' ? '已看' : '未看',
+        _episodeStatus(episode) == EpisodeStatus.watched ? '已看' : '未看',
       if (available != null) available ? '已缓存' : '未缓存',
       if (date.isNotEmpty) date,
     ].join(' · ');
@@ -450,8 +504,8 @@ class _SubjectPageState extends State<SubjectPage> {
     );
   }
 
-  Widget _lower(Json item) {
-    final subjectId = number(item['subjectId']).toInt();
+  Widget _lower(Subject item) {
+    final subjectId = item.id;
     final user = widget.community.account.userId;
     final main = [?_charactersPanel(item), ?_staffPanel(item)];
     final side = [
@@ -505,14 +559,14 @@ class _SubjectPageState extends State<SubjectPage> {
     );
   }
 
-  Widget _hero(Json item) {
+  Widget _hero(Subject item) {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
-    final episodes = objects(item['episodes']);
+    final episodes = item.episodes;
     final watched = episodes
-        .where((e) => _episodeStatus(e) == 'watched')
+        .where((e) => _episodeStatus(e) == EpisodeStatus.watched)
         .length;
-    final total = number(item['episodeTotal'] ?? episodes.length).toInt();
+    final total = item.episodeTotal ?? episodes.length;
     final next = _nextEpisode(episodes);
     final playLabel = _episodesLoading
         ? '加载剧集…'
@@ -522,30 +576,29 @@ class _SubjectPageState extends State<SubjectPage> {
               ? '继续播放'
               : episodes.isNotEmpty && watched == episodes.length
               ? '重看'
-              : '播放'} EP${next['sort']}';
-    final date = DateTime.tryParse('${item['airDate']}');
+              : '播放'} EP${next.number}';
+    final date = DateTime.tryParse('${item.airDate}');
     const seasons = ['WINTER', 'SPRING', 'SUMMER', 'AUTUMN'];
-    final score = number(item['score']);
+    final score = item.score ?? 0;
     final summary =
-        '${item['summary'] ?? (_loadingPart('subject') ? '正在加载简介…' : '暂无简介')}';
+        item.summary ?? (_loadingPart('subject') ? '正在加载简介…' : '暂无简介');
     final info = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: Text(titleOf(item), style: text.titleLarge)),
+            Expanded(child: Text(item.title, style: text.titleLarge)),
             IconButton(
               tooltip: '在 Bangumi 打开',
-              onPressed: () => _openLink(
-                Uri.parse('https://bgm.tv/subject/${item['subjectId']}'),
-              ),
+              onPressed: () =>
+                  _openLink(Uri.parse('https://bgm.tv/subject/${item.id}')),
               icon: const Icon(Icons.open_in_new_rounded, size: 18),
             ),
           ],
         ),
-        if ('${item['name'] ?? ''}'.isNotEmpty && item['name'] != titleOf(item))
-          Text('${item['name']}', style: text.bodySmall),
+        if ((item.name ?? '').isNotEmpty && item.name != item.title)
+          Text(item.name!, style: text.bodySmall),
         const SizedBox(height: Gap.md),
         Wrap(
           spacing: 6,
@@ -554,13 +607,14 @@ class _SubjectPageState extends State<SubjectPage> {
             if (date != null) ...[
               MelonBadge('${date.year}', color: coral),
               MelonBadge(seasons[(date.month - 1) ~/ 3], color: coral),
-            ] else if (item['airDate'] != null)
-              MelonBadge('${item['airDate']}', color: coral),
-            MelonBadge('${item['platform'] ?? '动画'}', color: sky),
-            for (final tag in objects(
-              item['tags'],
-            ).where((tag) => tag['name'] != (item['platform'] ?? '动画')).take(3))
-              MelonBadge('${tag['name']}', color: grape),
+            ] else if (item.airDate case final airDate?)
+              MelonBadge(airDate, color: coral),
+            MelonBadge(item.platform ?? '动画', color: sky),
+            for (final tag
+                in item.tags
+                    .where((tag) => tag.name != (item.platform ?? '动画'))
+                    .take(3))
+              MelonBadge(tag.name, color: grape),
           ],
         ),
         const SizedBox(height: Gap.lg),
@@ -586,15 +640,15 @@ class _SubjectPageState extends State<SubjectPage> {
                   ),
                 ],
               ),
-            if (item['rank'] != null || item['ratingCount'] != null)
+            if (item.rank != null || item.ratingCount != null)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (item['rank'] != null)
-                    Text('#${item['rank']} Bangumi', style: text.bodySmall),
-                  if (item['ratingCount'] != null)
-                    Text('${item['ratingCount']} 人评分', style: text.bodySmall),
+                  if (item.rank != null)
+                    Text('#${item.rank} Bangumi', style: text.bodySmall),
+                  if (item.ratingCount != null)
+                    Text('${item.ratingCount} 人评分', style: text.bodySmall),
                 ],
               ),
             SizedBox(
@@ -689,9 +743,9 @@ class _SubjectPageState extends State<SubjectPage> {
                     child: ClipRRect(
                       borderRadius: posterBorderRadius,
                       child: SubjectCover(
-                        url: item['coverUrl'],
-                        title: titleOf(item),
-                        id: number(item['subjectId']).toInt(),
+                        url: item.coverUrl,
+                        title: item.title,
+                        id: item.id,
                       ),
                     ),
                   ),
@@ -719,7 +773,7 @@ class _SubjectPageState extends State<SubjectPage> {
     );
   }
 
-  Widget _episodeSection(List<Json> episodes, Json? next) {
+  Widget _episodeSection(List<Episode> episodes, Episode? next) {
     final text = Theme.of(context).textTheme;
     final hover = _hoverEpisode;
     return Column(
@@ -759,7 +813,7 @@ class _SubjectPageState extends State<SubjectPage> {
         else
           _EpisodeGrid(
             episodes: episodes,
-            nextId: next?['episodeId'],
+            nextId: next?.id,
             statusOf: _episodeStatus,
             aired: _aired,
             onOpen: (episode) => widget.onFindResources(episode),
@@ -767,7 +821,7 @@ class _SubjectPageState extends State<SubjectPage> {
             onMark: (values, status) =>
                 unawaited(_markEpisodes(values, status)),
             onHover: (episode) {
-              if (episode?['episodeId'] != _hoverEpisode?['episodeId']) {
+              if (episode?.id != _hoverEpisode?.id) {
                 setState(() => _hoverEpisode = episode);
               }
             },
@@ -787,19 +841,17 @@ class _SubjectPageState extends State<SubjectPage> {
     );
   }
 
-  static bool _aired(Json episode) {
-    final date = DateTime.tryParse(
-      '${episode['airdate'] ?? episode['airDate'] ?? ''}',
-    );
+  static bool _aired(Episode episode) {
+    final date = episode.aired;
     return date == null || !date.isAfter(DateTime.now());
   }
 
-  Widget _collectionCard(Json item) {
+  Widget _collectionCard(Subject item) {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     final status = _status;
-    final score = number(_collection['score']).toInt();
-    final comment = '${_collection['comment'] ?? ''}';
+    final score = _collection.score;
+    final comment = _collection.comment;
     final draft = widget.signedIn && CollectionDrafts.has(_draftKey);
     Widget field(String label, Widget child, {bool top = false}) => Padding(
       padding: const EdgeInsets.only(top: Gap.md),
@@ -845,7 +897,7 @@ class _SubjectPageState extends State<SubjectPage> {
             padding: const EdgeInsets.only(right: 6),
             child: _Nudge(
               trigger: _nudges,
-              child: MelonSegmentedControl<String>(
+              child: MelonSegmentedControl<CollectionStatus>(
                 options: collectionLabels,
                 value: status,
                 onChanged: _savingCollection
@@ -865,7 +917,7 @@ class _SubjectPageState extends State<SubjectPage> {
                     value: score,
                     size: 16,
                     labelWidth: 64,
-                    enabled: status != null && status != 'wish',
+                    enabled: status != null && status != CollectionStatus.wish,
                     onTap: _saveScore,
                   ),
                   const Spacer(),
@@ -902,10 +954,7 @@ class _SubjectPageState extends State<SubjectPage> {
                     ),
                   _TagAdder(
                     tags: _tags,
-                    popular: objects(item['tags'])
-                        .map((tag) => '${tag['name']}')
-                        .take(16)
-                        .toList(),
+                    popular: item.tags.map((tag) => tag.name).take(16).toList(),
                     blocked: status == null,
                     onBlocked: () => _nudgeStatus('先选择收藏状态，再加标签'),
                     onSave: _saveTags,
@@ -1005,10 +1054,13 @@ class _SubjectPageState extends State<SubjectPage> {
           if (_completeOffer > 0 && !_savingCollection)
             TextButton(
               onPressed: () => unawaited(
-                _saveFields({
-                  'status': 'completed',
-                  'completeEpisodes': true,
-                }, label: '已将全部正片标为已看'),
+                _saveFields(
+                  const CollectionChange(
+                    status: CollectionStatus.completed,
+                    completeEpisodes: true,
+                  ),
+                  label: '已将全部正片标为已看',
+                ),
               ),
               child: Text('剩余 $_completeOffer 话标为已看'),
             ),
@@ -1036,11 +1088,11 @@ class _SubjectPageState extends State<SubjectPage> {
     );
   }
 
-  Widget? _statsCard(Json item) {
-    final stats = object(item['collectionStats']);
+  Widget? _statsCard(Subject item) {
+    final stats = item.collectionStats;
     final total = collectionLabels.keys.fold<int>(
       0,
-      (sum, key) => sum + number(stats[key]).toInt(),
+      (sum, key) => sum + (stats[key] ?? 0),
     );
     if (total == 0) return null;
     final small = Theme.of(context).textTheme.bodySmall;
@@ -1065,9 +1117,9 @@ class _SubjectPageState extends State<SubjectPage> {
               child: Row(
                 children: [
                   for (final key in collectionLabels.keys)
-                    if (number(stats[key]) > 0)
+                    if ((stats[key] ?? 0) > 0)
                       Expanded(
-                        flex: math.max(1, number(stats[key]).toInt()),
+                        flex: math.max(1, stats[key]!),
                         child: Padding(
                           padding: const EdgeInsets.only(right: 2),
                           child: ColoredBox(
@@ -1099,7 +1151,7 @@ class _SubjectPageState extends State<SubjectPage> {
                     child: Text(value, style: const TextStyle(fontSize: 12)),
                   ),
                   Text(
-                    _thousands(number(stats[key]).toInt()),
+                    _thousands(stats[key] ?? 0),
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -1109,7 +1161,7 @@ class _SubjectPageState extends State<SubjectPage> {
                   SizedBox(
                     width: 52,
                     child: Text(
-                      '${(number(stats[key]) * 100 / total).toStringAsFixed(1)}%',
+                      '${((stats[key] ?? 0) * 100 / total).toStringAsFixed(1)}%',
                       textAlign: TextAlign.right,
                       style: small?.copyWith(fontFeatures: tabular),
                     ),
@@ -1127,8 +1179,8 @@ class _SubjectPageState extends State<SubjectPage> {
     (_) => ',',
   );
 
-  Widget? _infoPanel(Json item) {
-    final rows = objects(item['infoBox']);
+  Widget? _infoPanel(Subject item) {
+    final rows = item.infoBox;
     if (rows.isEmpty) return null;
     final small = Theme.of(context).textTheme.bodySmall;
     final shown = _infoExpanded ? rows : rows.take(10);
@@ -1145,16 +1197,11 @@ class _SubjectPageState extends State<SubjectPage> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    width: 76,
-                    child: Text('${row['key']}', style: small),
-                  ),
+                  SizedBox(width: 76, child: Text(row.key, style: small)),
                   Expanded(
                     child: SelectableText(
-                      key: PageStorageKey(
-                        'subject-info:${item['subjectId']}:${row['key']}',
-                      ),
-                      '${row['value']}',
+                      key: PageStorageKey('subject-info:${item.id}:${row.key}'),
+                      row.value,
                       style: const TextStyle(fontSize: 12),
                     ),
                   ),
@@ -1171,14 +1218,14 @@ class _SubjectPageState extends State<SubjectPage> {
     );
   }
 
-  Widget? _charactersPanel(Json item) => _peoplePanel(
+  Widget? _charactersPanel(Subject item) => _peoplePanel(
     item,
     characters: true,
     loading: _loadingPart('characters'),
     failed: _failedPart('characters'),
   );
 
-  Widget? _staffPanel(Json item) => _peoplePanel(
+  Widget? _staffPanel(Subject item) => _peoplePanel(
     item,
     characters: false,
     loading: _loadingPart('staff'),
@@ -1186,7 +1233,7 @@ class _SubjectPageState extends State<SubjectPage> {
   );
 
   Widget? _peoplePanel(
-    Json item, {
+    Subject item, {
     required bool characters,
     required bool loading,
     required bool failed,
@@ -1251,7 +1298,7 @@ class _SubjectPageState extends State<SubjectPage> {
     );
   }
 
-  void _allPeople(String heading, List<Json> people, bool characters) =>
+  void _allPeople(String heading, List<Credit> people, bool characters) =>
       showDialog<void>(
         context: context,
         builder: (context) => Dialog(
@@ -1294,79 +1341,58 @@ class _SubjectPageState extends State<SubjectPage> {
         ),
       );
 
-  List<Json> _peopleList(Json item, bool characters) {
-    final values = objects(item[characters ? 'characters' : 'staff']);
+  List<Credit> _peopleList(Subject item, bool characters) {
     if (characters) {
       return [
-        ...values.where((p) => p['role'] == '主角'),
-        ...values.where((p) => p['role'] != '主角'),
+        ...item.characters.where((p) => p.role == '主角'),
+        ...item.characters.where((p) => p.role != '主角'),
       ];
     }
     const roles = ['原作', '导演', '系列构成', '人物设定', '音乐', '动画制作', '总作画监督', '脚本'];
-    final combined = <String, Json>{};
-    for (final person in values) {
-      final key = '${person['personId'] ?? person['id'] ?? titleOf(person)}';
-      final old = combined[key];
-      final role = '${person['role'] ?? person['relation'] ?? ''}';
-      if (old == null) {
-        combined[key] = {
-          ...person,
-          'roles': <String>[if (role.isNotEmpty) role],
-        };
-      } else {
-        final positions = old['roles'] as List<String>;
-        if (role.isNotEmpty && !positions.contains(role)) positions.add(role);
-        if (_image(old) == null && _image(person) != null) {
-          old['imageUrl'] = _image(person);
-        }
-      }
-    }
     int priority(String role) =>
         roles.contains(role) ? roles.indexOf(role) : roles.length;
-    final people = combined.values.toList();
-    for (final person in people) {
-      final positions = person['roles'] as List<String>;
-      positions.sort((a, b) => priority(a).compareTo(priority(b)));
-      person['role'] = positions.join(' · ');
+    // One row per person, listing every position they hold.
+    final positions = <String, List<String>>{};
+    final people = <String, Credit>{};
+    for (final person in item.staff) {
+      final key = person.id > 0 ? '${person.id}' : person.title;
+      final role = person.role ?? '';
+      final held = positions.putIfAbsent(key, () => []);
+      if (role.isNotEmpty && !held.contains(role)) held.add(role);
+      final old = people[key];
+      people[key] = old == null
+          ? person
+          : old.withRole(old.role, imageUrl: old.imageUrl ?? person.imageUrl);
     }
-    people.sort((a, b) {
-      final aRoles = a['roles'] as List<String>,
-          bRoles = b['roles'] as List<String>;
-      return priority(aRoles.firstOrNull ?? '')
-          .compareTo(priority(bRoles.firstOrNull ?? ''));
-    });
-    return people;
+    final result = [
+      for (final MapEntry(:key, value: person) in people.entries)
+        person.withRole(
+          (positions[key]!..sort((a, b) => priority(a).compareTo(priority(b))))
+              .join(' · '),
+        ),
+    ];
+    result.sort(
+      (a, b) =>
+          priority(positions[a.id > 0 ? '${a.id}' : a.title]!.firstOrNull ?? '')
+              .compareTo(
+                priority(
+                  positions[b.id > 0 ? '${b.id}' : b.title]!.firstOrNull ?? '',
+                ),
+              ),
+    );
+    return result;
   }
 
-  String? _image(Json person) {
-    final images = object(person['images']);
-    for (final value in [
-      person['imageUrl'],
-      person['coverUrl'],
-      images['medium'],
-      images['common'],
-      images['large'],
-      images['small'],
-      images['grid'],
-    ]) {
-      if (value is String && value.isNotEmpty) return value;
-    }
-    return null;
-  }
+  Uri _personLink(Credit person, {required bool character}) => person.id > 0
+      ? Uri.parse(
+          'https://bgm.tv/${character ? 'character' : 'person'}/${person.id}',
+        )
+      : Uri.parse(
+          'https://bgm.tv/subject/${widget.subject?.id}/${character ? 'characters' : 'persons'}',
+        );
 
-  Uri _personLink(Json person, {required bool character}) {
-    final id = number(
-      person[character ? 'characterId' : 'personId'] ?? person['id'],
-    ).toInt();
-    return id > 0
-        ? Uri.parse('https://bgm.tv/${character ? 'character' : 'person'}/$id')
-        : Uri.parse(
-            'https://bgm.tv/subject/${widget.subject?['subjectId']}/${character ? 'characters' : 'persons'}',
-          );
-  }
-
-  Widget _avatar(Json person, {bool character = false, double size = 42}) {
-    final url = _image(person);
+  Widget _avatar(Credit person, {bool character = false, double size = 42}) {
+    final url = person.imageUrl;
     final width = character ? 44.0 : size, height = character ? 60.0 : size;
     Widget placeholder(String label) => Tooltip(
       message: label,
@@ -1396,7 +1422,7 @@ class _SubjectPageState extends State<SubjectPage> {
     Widget preview(Widget image) {
       if (!character || url == null) return image;
       return Tooltip(
-        message: '查看${titleOf(person)}完整立绘',
+        message: '查看${person.title}完整立绘',
         child: InkWell(
           borderRadius: badgeBorderRadius,
           onTap: () => showDialog<void>(
@@ -1413,7 +1439,7 @@ class _SubjectPageState extends State<SubjectPage> {
                         children: [
                           Expanded(
                             child: Text(
-                              titleOf(person),
+                              person.title,
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
                           ),
@@ -1447,7 +1473,7 @@ class _SubjectPageState extends State<SubjectPage> {
     }
 
     return Semantics(
-      label: '${titleOf(person)}${character ? '角色头像' : '人物头像'}',
+      label: '${person.title}${character ? '角色头像' : '人物头像'}',
       image: true,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(character ? 8 : size / 2),
@@ -1472,13 +1498,11 @@ class _SubjectPageState extends State<SubjectPage> {
     );
   }
 
-  Widget _credit(Json person, {required bool character}) {
-    final actors = objects(person['actors']);
-    final role = '${person['role'] ?? person['relation'] ?? ''}';
+  Widget _credit(Credit person, {required bool character}) {
+    final actors = person.actors;
+    final role = person.role ?? '';
     final small = Theme.of(context).textTheme.bodySmall;
-    final actorName = actors.isNotEmpty
-        ? actors.map(titleOf).join('、')
-        : '${person['actorName'] ?? ''}';
+    final actorName = actors.map((actor) => actor.title).join('、');
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
       borderRadius: controlBorderRadius,
@@ -1497,7 +1521,7 @@ class _SubjectPageState extends State<SubjectPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      titleOf(person),
+                      person.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall,
@@ -1512,13 +1536,11 @@ class _SubjectPageState extends State<SubjectPage> {
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          if (actors.isNotEmpty) ...[
-                            _avatar(actors.first, size: 18),
-                            const SizedBox(width: 5),
-                          ],
+                          _avatar(actors.first, size: 18),
+                          const SizedBox(width: 5),
                           Expanded(
                             child: Text(
-                              actors.isEmpty ? 'CV $actorName' : actorName,
+                              actorName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: small,
@@ -1537,8 +1559,8 @@ class _SubjectPageState extends State<SubjectPage> {
     );
   }
 
-  Widget _staffRow(Json person) {
-    final role = '${person['role'] ?? person['relation'] ?? ''}';
+  Widget _staffRow(Credit person) {
+    final role = person.role ?? '';
     return InkWell(
       borderRadius: badgeBorderRadius,
       onTap: () => _openLink(_personLink(person, character: false)),
@@ -1565,7 +1587,7 @@ class _SubjectPageState extends State<SubjectPage> {
             const SizedBox(width: Gap.sm),
             Expanded(
               child: Text(
-                titleOf(person),
+                person.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 13),
@@ -1744,13 +1766,13 @@ class _EpisodeGrid extends StatefulWidget {
     required this.onMark,
     required this.onHover,
   });
-  final List<Json> episodes;
-  final Object? nextId;
-  final String Function(Json) statusOf;
-  final bool Function(Json) aired;
-  final ValueChanged<Json> onOpen, onPlay;
-  final void Function(List<Json> episodes, String status) onMark;
-  final ValueChanged<Json?> onHover;
+  final List<Episode> episodes;
+  final int? nextId;
+  final EpisodeStatus Function(Episode) statusOf;
+  final bool Function(Episode) aired;
+  final ValueChanged<Episode> onOpen, onPlay;
+  final void Function(List<Episode> episodes, EpisodeStatus status) onMark;
+  final ValueChanged<Episode?> onHover;
 
   @override
   State<_EpisodeGrid> createState() => _EpisodeGridState();
@@ -1764,7 +1786,7 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
 
   /// Pending mark while a long press is held: the range between the pressed
   /// and the current episode, by id so it survives data refreshes.
-  String? dragStatus;
+  EpisodeStatus? dragStatus;
   int? anchorId, currentId;
   bool outside = false;
 
@@ -1776,7 +1798,7 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
     return ids.sublist(math.min(a, b), math.max(a, b) + 1).toSet();
   }
 
-  static int _id(Json episode) => number(episode['episodeId']).toInt();
+  static int _id(Episode episode) => episode.id;
 
   @override
   void dispose() {
@@ -1793,12 +1815,12 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
     return false;
   }
 
-  void _start(Json episode) {
+  void _start(Episode episode) {
     HardwareKeyboard.instance.addHandler(_onKey);
     setState(() {
-      dragStatus = widget.statusOf(episode) == 'watched'
-          ? 'unwatched'
-          : 'watched';
+      dragStatus = widget.statusOf(episode) == EpisodeStatus.watched
+          ? EpisodeStatus.unwatched
+          : EpisodeStatus.watched;
       outside = false;
       anchorId = currentId = _id(episode);
     });
@@ -1826,8 +1848,8 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
     if (commit && episodes.isNotEmpty) widget.onMark(episodes, status);
   }
 
-  Future<void> _menu(Offset position, Json episode) async {
-    final watched = widget.statusOf(episode) == 'watched';
+  Future<void> _menu(Offset position, Episode episode) async {
+    final watched = widget.statusOf(episode) == EpisodeStatus.watched;
     final action = await showMenu<String>(
       context: context,
       color: menuSurface(context),
@@ -1838,7 +1860,7 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
         position.dy,
       ),
       items: [
-        PopupMenuItem(value: 'play', child: Text('播放 EP${episode['sort']}')),
+        PopupMenuItem(value: 'play', child: Text('播放 EP${episode.number}')),
         const PopupMenuItem(value: 'resources', child: Text('查看资源')),
         PopupMenuItem(value: 'mark', child: Text(watched ? '标为未看' : '标为已看')),
       ],
@@ -1849,7 +1871,9 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
       case 'resources':
         widget.onOpen(episode);
       case 'mark':
-        widget.onMark([episode], watched ? 'unwatched' : 'watched');
+        widget.onMark([
+          episode,
+        ], watched ? EpisodeStatus.unwatched : EpisodeStatus.watched);
     }
   }
 
@@ -1870,9 +1894,7 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
         final collapsible = rows > _rows;
         var first = 0, count = episodes.length;
         if (collapsible && !expanded) {
-          final next = episodes.indexWhere(
-            (e) => e['episodeId'] == widget.nextId,
-          );
+          final next = episodes.indexWhere((e) => e.id == widget.nextId);
           final row = ((next < 0 ? 0 : next) ~/ columns - 1).clamp(
             0,
             rows - _rows,
@@ -1914,8 +1936,8 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
           final status = selected.contains(_id(episode))
               ? dragStatus!
               : widget.statusOf(episode);
-          final watched = status == 'watched';
-          final next = !watched && episode['episodeId'] == widget.nextId;
+          final watched = status == EpisodeStatus.watched;
+          final next = !watched && episode.id == widget.nextId;
           final aired = widget.aired(episode);
           final Color background, foreground;
           if (next) {
@@ -1930,12 +1952,10 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
               alpha: aired ? 1 : .45,
             );
           }
-          final label = isMainEpisode(episode)
-              ? '${episode['sort']}'
-              : '${const {1: 'SP', 2: 'OP', 3: 'ED'}[episode['type']] ?? 'SP'}${episode['sort']}';
+          final label = episode.main ? episode.number : 'SP${episode.number}';
           return Semantics(
             button: true,
-            label: 'EP${episode['sort']} ${watched ? '已看' : '未看'}',
+            label: 'EP${episode.number} ${watched ? '已看' : '未看'}',
             onTap: () => widget.onOpen(episode),
             child: AnimatedContainer(
               duration: motionDuration(context, 120),
@@ -1980,7 +2000,7 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
         );
         Widget legend(Widget mark, String text) =>
             Row(mainAxisSize: MainAxisSize.min, children: [mark, Text(text)]);
-        final target = dragStatus == 'watched' ? '已看' : '未看';
+        final target = dragStatus == EpisodeStatus.watched ? '已看' : '未看';
         final String hint;
         if (dragStatus == null) {
           hint = '点击查看资源 · 长按标为已看 · 右键更多';

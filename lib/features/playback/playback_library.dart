@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -6,15 +5,36 @@ import 'package:path/path.dart' as p;
 import '../../data/catalog.dart';
 import '../../data/json.dart';
 import '../../data/store.dart';
+import '../../domain/catalog.dart';
+import '../../domain/playback_session.dart';
+import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
 import '../downloads/download_repository.dart';
+
+/// Saved position of an episode.
+typedef EpisodeProgress = ({double position, double duration, bool completed});
+
+/// A recently watched, unfinished episode that can still be played.
+class PlaybackResume {
+  const PlaybackResume({
+    required this.subject,
+    required this.episodeId,
+    required this.position,
+    required this.duration,
+    this.episodeSort,
+  });
+  final Subject subject;
+  final int episodeId;
+  final double position, duration;
+  final String? episodeSort;
+}
 
 class PlaybackLibrary {
   PlaybackLibrary(this.store, this.downloads, this.catalog);
   final AppStore store;
   final DownloadRepository downloads;
   final CatalogRepository catalog;
-  Future<Json> fromDownload(
+  Future<PlaybackSession> fromDownload(
     String id, {
     String? fileId,
     int? subjectId,
@@ -28,61 +48,55 @@ class PlaybackLibrary {
     if (streamUrl == null && !await File(path).exists()) {
       throw StateError('视频文件不存在');
     }
-    final session = <String, dynamic>{
-      'id': newId(),
-      'title': p.basename(path),
-      'path': path,
-      'source': {
-        'url': streamUrl ?? Uri.file(path).toString(),
-        if (media.headers != null) 'headers': media.headers,
-      },
-      'resumeKey': 'download:$id:${media.file.id}',
-      'streamId': media.streamId,
-      'status': 'ready',
-      'subjectId': subjectId,
-      'episodeId': episodeId,
-      'downloadId': id,
-      'fileId': media.file.id,
-      'fileSize': media.file.size,
-      'remoteSource': streamUrl != null,
-    };
-    return session;
+    return PlaybackSession(
+      id: newId(),
+      title: p.basename(path),
+      path: path,
+      url: streamUrl ?? Uri.file(path).toString(),
+      headers: media.headers ?? const {},
+      resumeKey: 'download:$id:${media.file.id}',
+      streamId: media.streamId,
+      subjectId: subjectId,
+      episodeId: episodeId,
+      downloadId: id,
+      fileId: media.file.id,
+      fileSize: media.file.size,
+      remote: streamUrl != null,
+    );
   }
 
-  Future<Json> online(
-    Json source, {
+  PlaybackSession online(
+    ResolvedStream stream, {
     int? subjectId,
     int? episodeId,
-    String? provider,
-    String? line,
     String? title,
-  }) async {
-    final session = <String, dynamic>{
-      'id': newId(),
-      'title': title ?? '在线视频',
-      'source': source,
-      'resumeKey': subjectId != null && episodeId != null
-          ? 'online:$subjectId:$episodeId'
-          : null,
-      'status': 'ready',
-      'subjectId': subjectId,
-      'episodeId': episodeId,
-      'provider': provider,
-      'line': line,
-      'remoteSource': true,
-      'standalone': subjectId == null || episodeId == null,
-    };
-    return session;
-  }
+  }) => PlaybackSession(
+    id: newId(),
+    title: title ?? '在线视频',
+    url: stream.url,
+    headers: stream.headers,
+    format: stream.format,
+    playlist: stream.playlist,
+    danmaku: stream.danmakuProvider == null
+        ? null
+        : (stream.danmakuProvider!, '${stream.danmakuLocator}'),
+    resumeKey: subjectId != null && episodeId != null
+        ? 'online:$subjectId:$episodeId'
+        : null,
+    subjectId: subjectId,
+    episodeId: episodeId,
+    remote: true,
+    standalone: subjectId == null || episodeId == null,
+  );
 
-  Future<void> activate(Json session) async {
-    final subjectId = session['subjectId'], episodeId = session['episodeId'];
+  Future<void> activate(PlaybackSession session) async {
+    final subjectId = session.subjectId, episodeId = session.episodeId;
     try {
       if (subjectId != null && episodeId != null) {
-        if (session['downloadId'] case final String downloadId) {
+        if (session.downloadId case final downloadId?) {
           await store.put('episode_files', '$subjectId:$episodeId', {
             'downloadId': downloadId,
-            'fileId': session['fileId'],
+            'fileId': session.fileId,
           });
         } else {
           await store.put('online_episodes', '$subjectId:$episodeId', {
@@ -95,31 +109,16 @@ class PlaybackLibrary {
     }
   }
 
-  Future<Json> episode(int subjectId, int episodeId) async {
-    final localFile = await store.get('episode_files', '$subjectId:$episodeId');
-    if (localFile?['downloadId'] case final String downloadId) {
-      await downloads.ready;
-      if (downloads.contains(downloadId)) {
-        return fromDownload(
-          downloadId,
-          fileId: localFile!['fileId'] as String?,
-          subjectId: subjectId,
-          episodeId: episodeId,
-        );
-      }
-      await store.remove('episode_files', '$subjectId:$episodeId');
-      final replacement = downloads.episodeMedia(subjectId, episodeId);
-      return fromDownload(
-        replacement.file.downloadId,
-        fileId: replacement.file.id,
-      );
-    }
-    final media = downloads.episodeMedia(subjectId, episodeId);
-    return fromDownload(media.file.downloadId, fileId: media.file.id);
+  Future<EpisodeProgress?> progress(int subjectId, int episodeId) async {
+    final saved = await store.get('playback_progress', '$subjectId:$episodeId');
+    return saved == null
+        ? null
+        : (
+            position: number(saved['positionSeconds']),
+            duration: number(saved['durationSeconds']),
+            completed: saved['completed'] == true,
+          );
   }
-
-  Future<Json?> progress(int subjectId, int episodeId) =>
-      store.get('playback_progress', '$subjectId:$episodeId');
 
   Future<bool> _available(
     int subjectId,
@@ -175,8 +174,8 @@ class PlaybackLibrary {
     return available;
   }
 
-  Future<List<Json>> recent({int limit = 8, int? forSubject}) async {
-    final result = <Json>[];
+  Future<List<PlaybackResume>> recent({int limit = 8, int? forSubject}) async {
+    final result = <PlaybackResume>[];
     final subjects = <int>{};
     if (limit <= 0) return result;
     const pageSize = 32;
@@ -209,18 +208,17 @@ class PlaybackLibrary {
                     null)) {
           continue;
         }
-        final detail = await cachedSubjectDetail(store, subjectId) ?? {};
-        final episodes = objects(detail['episodes'])
-            .where((e) => e['episodeId'] == episodeId);
-        result.add({
-          ...catalog.summary(detail),
-          ...value,
-          'subjectId': subjectId,
-          'episodeId': episodeId,
-          'episodeSort': episodes.isEmpty
-              ? null
-              : episodes.first['ep'] ?? episodes.first['sort'],
-        });
+        final detail =
+            await catalog.cached(subjectId) ?? Subject(id: subjectId);
+        result.add(
+          PlaybackResume(
+            subject: detail,
+            episodeId: episodeId,
+            position: position,
+            duration: duration,
+            episodeSort: detail.episode(episodeId)?.number,
+          ),
+        );
         subjects.add(subjectId);
         if (result.length >= limit) return result;
       }
@@ -230,7 +228,7 @@ class PlaybackLibrary {
   }
 
   Future<void> save(
-    Json session,
+    PlaybackSession session,
     double position,
     double duration,
     bool ended,
@@ -241,10 +239,10 @@ class PlaybackLibrary {
         duration <= 0) {
       return;
     }
-    if (session['subjectId'] == null || session['episodeId'] == null) return;
+    if (session.subjectId == null || session.episodeId == null) return;
     await store.put(
       'playback_progress',
-      '${session['subjectId']}:${session['episodeId']}',
+      '${session.subjectId}:${session.episodeId}',
       {
         'positionSeconds': ended ? 0 : position.clamp(0, duration),
         'durationSeconds': duration,

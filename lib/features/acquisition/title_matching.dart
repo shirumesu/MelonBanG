@@ -1,6 +1,6 @@
 import 'package:pinyin/pinyin.dart';
 
-import '../../data/json.dart';
+import '../../domain/catalog.dart';
 import '../../data/resource_title.dart';
 import '../../domain/sources.dart';
 
@@ -48,7 +48,7 @@ import '../../domain/sources.dart';
 /// adjusted by year and episode count. Calibrated thresholds: .84 automatic,
 /// .55 possible match.
 double sourceMatchScore(
-  Json subject,
+  Subject subject,
   SourceSubject site,
   Iterable<String> names,
 ) {
@@ -72,31 +72,28 @@ double sourceMatchScore(
         dice(expected.$1, target.$1) - (expected.$2 != target.$2 ? .4 : 0);
     if (score > best) best = score;
   }
-  final year = int.tryParse('${subject['airDate'] ?? ''}'.split('-').first);
+  final year = int.tryParse((subject.airDate ?? '').split('-').first);
   if (year != null && site.year != null) {
     best += year == site.year ? .03 : -.12;
   }
   final count = site.episodeTotal;
-  if (count != null && (count - number(subject['episodeTotal'])).abs() <= 2) {
+  if (count != null && (count - (subject.episodeTotal ?? 0)).abs() <= 2) {
     best += .02;
   }
   return best.clamp(0, 1);
 }
 
-bool sourceEpisodeMatches(String label, Json episode) {
+bool sourceEpisodeMatches(String label, Episode episode) {
   final normalized = ChineseHelper.convertToSimplifiedChinese(label)
       .toUpperCase();
   final special = RegExp(r'SP|OVA|OAD|特别').hasMatch(normalized);
-  final main =
-      episode['type'] == 'main' ||
-      episode['type'] == 0 ||
-      episode['type'] == null;
+  final main = episode.main;
   if (special == main) return false;
   final parsed = describeResource('[$normalized]').episodeLabel;
   final match = RegExp(r'(?:第|EP\s*|SP\s*|OVA\s*|OAD\s*)?(\d+(?:\.\d+)?)')
       .firstMatch(normalized);
   if (match == null) {
-    return !main && number(episode['sort']) == 1 && parsed != null;
+    return !main && episode.sort == 1 && parsed != null;
   }
-  return double.tryParse(match[1]!) == number(episode['sort']);
+  return double.tryParse(match[1]!) == episode.sort;
 }

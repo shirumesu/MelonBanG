@@ -33,7 +33,7 @@ class _DanmakuLayerState extends State<DanmakuLayer>
       final state = playback.player.state;
       final nextIdentity = (
         playback,
-        playback.session?['id'],
+        playback.session?.id,
         playback.uri,
         playback.opening,
         playback.danmakuRevision,

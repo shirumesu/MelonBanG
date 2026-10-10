@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../../data/json.dart';
+import '../../domain/catalog.dart';
 import '../../data/network.dart';
 import '../../data/resource_metadata.dart';
 import '../../data/resource_title.dart';
@@ -16,8 +16,8 @@ import 'title_matching.dart';
 /// need explicit confirmation) are included only when [includeManual].
 Future<List<PlayCandidate>> onlineCandidates(
   SourceRegistry registry,
-  Json subject,
-  Json episode, {
+  Subject subject,
+  Episode episode, {
   RequestCancellation? cancel,
   bool firstReady = false,
   bool includeManual = true,

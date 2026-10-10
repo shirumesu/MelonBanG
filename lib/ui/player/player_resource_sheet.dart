@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../app_services.dart';
+import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
+import '../../features/playback/play_selection.dart';
 import '../core/theme.dart';
 import 'candidate_resources.dart';
 import '../../features/playback/playback.dart';
@@ -10,7 +11,7 @@ import '../../features/playback/playback.dart';
 class PlayerResourceSheet extends StatefulWidget {
   const PlayerResourceSheet({
     super.key,
-    required this.service,
+    required this.choices,
     required this.playback,
     required this.subject,
     required this.episodeId,
@@ -19,15 +20,15 @@ class PlayerResourceSheet extends StatefulWidget {
     this.onPlayCandidate,
     this.onFindAllResources,
   });
-  final AppServices service;
+  final SourceChoices choices;
   final Playback playback;
-  final Json subject;
+  final Subject subject;
   final int? episodeId;
   final bool visible;
   final VoidCallback onClose;
-  final Future<void> Function(PlayCandidate candidate, Json episode)?
+  final Future<void> Function(PlayCandidate candidate, Episode episode)?
   onPlayCandidate;
-  final ValueChanged<Json?>? onFindAllResources;
+  final ValueChanged<Episode?>? onFindAllResources;
   @override
   State<PlayerResourceSheet> createState() => _PlayerResourceSheetState();
 }
@@ -35,11 +36,9 @@ class PlayerResourceSheet extends StatefulWidget {
 class _PlayerResourceSheetState extends State<PlayerResourceSheet> {
   final focus = FocusScopeNode();
   bool initialized = false;
-  Json? get episode => objects(widget.subject['episodes'])
+  Episode? get episode => widget.subject.episodes
       .where(
-        (e) =>
-            e['episodeId'] ==
-            (widget.episodeId ?? widget.playback.session?['episodeId']),
+        (e) => e.id == (widget.episodeId ?? widget.playback.session?.episodeId),
       )
       .firstOrNull;
   @override
@@ -90,7 +89,7 @@ class _PlayerResourceSheetState extends State<PlayerResourceSheet> {
               children: [
                 Expanded(
                   child: Text(
-                    episode == null ? '选择资源' : '选择资源 · 第 ${episode!['sort']} 话',
+                    episode == null ? '选择资源' : '选择资源 · 第 ${episode!.number} 话',
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
@@ -115,7 +114,7 @@ class _PlayerResourceSheetState extends State<PlayerResourceSheet> {
                   )
                 : CandidateResources(
                     active: widget.visible,
-                    service: widget.service,
+                    choices: widget.choices,
                     playback: widget.playback,
                     subject: widget.subject,
                     episode: episode!,

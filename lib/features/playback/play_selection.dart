@@ -1,11 +1,12 @@
 import 'dart:io';
 
-import '../../data/json.dart';
+import '../../domain/catalog.dart';
 import '../../data/network.dart';
 import '../../data/resource_metadata.dart';
 import '../../data/resource_title.dart';
 import '../../data/store.dart';
 import '../../domain/play_candidate.dart';
+import '../../domain/playback_session.dart';
 import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
 import '../acquisition/online_candidates.dart';
@@ -13,6 +14,21 @@ import '../acquisition/release_search.dart';
 import '../acquisition/source_registry.dart';
 import '../downloads/download_repository.dart';
 import 'playback_library.dart';
+
+/// What a source picker needs: ranked candidates, online parts and
+/// enqueueing of torrent results.
+class SourceChoices {
+  const SourceChoices({
+    required this.selection,
+    required this.sources,
+    required this.enqueue,
+    required this.defaultMethod,
+  });
+  final PlaySelectionRepository selection;
+  final SourceRegistry sources;
+  final Future<void> Function(ReleaseCandidate, {CacheMethod? method}) enqueue;
+  final CacheMethod Function() defaultMethod;
+}
 
 class PlaySelectionRepository {
   PlaySelectionRepository(
@@ -31,8 +47,8 @@ class PlaySelectionRepository {
   final _failures = <String, int>{};
 
   Future<List<PlayCandidate>> candidates(
-    Json subject,
-    Json episode, {
+    Subject subject,
+    Episode episode, {
     bool instantOnly = false,
     bool includeOnline = true,
     bool onlineFirst = false,
@@ -43,8 +59,8 @@ class PlaySelectionRepository {
     RequestCancellation? cancel,
   }) async {
     cancel?.throwIfCancelled();
-    final subjectId = subject['subjectId'] as int;
-    final episodeId = episode['episodeId'] as int;
+    final subjectId = subject.id;
+    final episodeId = episode.id;
     final found = <String, PlayCandidate>{};
     List<PlayCandidate> ranked() => rankPlayCandidates(
       found.values,
@@ -124,11 +140,11 @@ class PlaySelectionRepository {
         : releases
               .search(
                 subjectId,
-                titleOf(subject),
+                subject.title,
                 alternativeNames: resourceNames(subject),
                 episodeId: episodeId,
                 episodeKeyword: resourceEpisodeKeyword(episode),
-                coverUrl: subject['coverUrl'] as String?,
+                coverUrl: subject.coverUrl,
                 cancel: cancel,
                 includeMetadata: !forPlayback,
                 isCurrent: () => cancel?.isCancelled != true,
@@ -149,7 +165,7 @@ class PlaySelectionRepository {
     return ranked();
   }
 
-  Future<Json> load(
+  Future<PlaybackSession> load(
     PlayCandidate candidate,
     int subjectId,
     int episodeId, {
@@ -161,11 +177,9 @@ class PlaySelectionRepository {
       case OnlineTarget(:final ref?):
         final resolved = await registry.resolve(ref, cancel: cancel);
         return library.online(
-          resolved.toSession(),
+          resolved,
           subjectId: subjectId,
           episodeId: episodeId,
-          provider: candidate.provider,
-          line: candidate.line,
           title: candidate.title,
         );
       case OnlineTarget():
@@ -232,26 +246,6 @@ PlayCandidate releaseCandidate(ReleaseCandidate candidate, int order) {
     instant: false,
     order: order,
   );
-}
-
-bool isMainEpisode(Json episode) =>
-    episode['type'] == null ||
-    episode['type'] == 0 ||
-    episode['type'] == 'main';
-
-bool subjectIsAiring(Json subject, {DateTime? now}) {
-  final today = now ?? DateTime.now();
-  for (final episode in objects(subject['episodes'])) {
-    if (!isMainEpisode(episode)) continue;
-    final date = DateTime.tryParse(
-      '${episode['airdate'] ?? episode['airDate'] ?? ''}',
-    );
-    if (date != null &&
-        date.isAfter(today.subtract(const Duration(days: 90)))) {
-      return true;
-    }
-  }
-  return false;
 }
 
 List<PlayCandidate> rankPlayCandidates(

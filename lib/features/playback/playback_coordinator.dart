@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 
-import '../../data/json.dart';
 import '../../data/network.dart';
 import '../../data/tracking.dart';
+import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
+import '../../domain/playback_session.dart';
 import '../downloads/download_repository.dart';
 import 'play_selection.dart';
 import 'playback.dart';
@@ -21,10 +22,20 @@ abstract interface class PlaybackShell {
   void showError(Object error);
 
   /// Lets the user pick a source for [episode]; null when dismissed.
-  Future<PlayCandidate?> chooseCandidate(Json subject, Json episode);
+  Future<PlayCandidate?> chooseCandidate(Subject subject, Episode episode);
 
   /// Opens the full resource search for [episode].
-  Future<void> openResources(Json subject, Json episode);
+  Future<void> openResources(Subject subject, Episode episode);
+}
+
+/// The player route opened before a source is chosen.
+class PreparingPlayback {
+  const PreparingPlayback(this.subject, this.episode, {this.failed});
+  final Subject subject;
+  final Episode episode;
+
+  /// Why no playable source could be started.
+  final String? failed;
 }
 
 /// Selects a source, opens it, checks for a first frame, recovers or switches
@@ -78,11 +89,8 @@ class PlaybackCoordinator extends ChangeNotifier {
   late PlaybackShell shell;
 
   /// Subject of the player route, with its episode list.
-  Json? subject;
-
-  /// Player route opened before a source is chosen: `subject`, `episode`,
-  /// and `failed` once no playable source could be started.
-  Json? preparing;
+  Subject? subject;
+  PreparingPlayback? preparing;
   int _preparingTicket = 0;
   final _subscriptions = <StreamSubscription<dynamic>>[];
   Future<void> _operations = Future.value();
@@ -91,7 +99,8 @@ class PlaybackCoordinator extends ChangeNotifier {
   int _selectionRequest = 0, _playbackRequest = 0, _fallbackCount = 0;
   RequestCancellation _selectionCancel = RequestCancellation();
   PlayCandidate? _activeCandidate;
-  Json? _candidateSubject, _candidateEpisode;
+  Subject? _candidateSubject;
+  Episode? _candidateEpisode;
   List<PlayCandidate> _choices = [];
   bool _recovering = false, _onlineRefreshed = false;
   Timer? _firstFrameDeadline, _bufferDeadline;
@@ -143,7 +152,7 @@ class PlaybackCoordinator extends ChangeNotifier {
   }
 
   /// Opens a session that needs no source selection, such as a chosen file.
-  Future<void> play(Future<Json> Function() load) async {
+  Future<void> play(Future<PlaybackSession> Function() load) async {
     final request = _nextSelection();
     _activeCandidate = null;
     _firstFrameDeadline?.cancel();
@@ -152,7 +161,7 @@ class PlaybackCoordinator extends ChangeNotifier {
       await playback.saveProgress();
       final session = await load();
       if (_closed || request != _selectionRequest) {
-        downloads.releaseStreamsExcept(playback.session?['streamId'] as int?);
+        downloads.releaseStreamsExcept(playback.session?.streamId);
         return;
       }
       await playback.open(session);
@@ -168,12 +177,12 @@ class PlaybackCoordinator extends ChangeNotifier {
     final operation = _operations.then((_) async {
       if (_closed || ticket != _playbackRequest) return;
       Future<void> action() async {
-        final previousSessionId = playback.session?['id'];
+        final previousSessionId = playback.session?.id;
         await open();
         if (_closed ||
             ticket != _playbackRequest ||
             !(isCurrent?.call() ?? true)) {
-          if (playback.session?['id'] != previousSessionId) {
+          if (playback.session?.id != previousSessionId) {
             await playback.player.pause();
             await playback.saveProgress();
           }
@@ -195,7 +204,7 @@ class PlaybackCoordinator extends ChangeNotifier {
   }
 
   /// Plays [episode] of the subject on the player route.
-  void playEpisode(Json episode) {
+  void playEpisode(Episode episode) {
     final current = subject;
     if (current != null) {
       unawaited(
@@ -205,22 +214,17 @@ class PlaybackCoordinator extends ChangeNotifier {
   }
 
   /// Continues a recently watched episode.
-  Future<void> resume(Json item) async {
+  Future<void> resume(int subjectId, int episodeId) async {
     final request = _nextSelection();
-    final detail = await tracking.subject(
-      item['subjectId'] as int,
-      forPlayback: true,
-    );
+    final detail = await tracking.subject(subjectId, forPlayback: true);
     if (_closed || request != _selectionRequest) return;
-    final episode = objects(detail['episodes'])
-        .where((e) => e['episodeId'] == item['episodeId'])
-        .firstOrNull;
+    final episode = detail.episode(episodeId);
     if (episode != null) await selectEpisode(detail, episode);
   }
 
   Future<List<PlayCandidate>> _candidates(
-    Json item,
-    Json episode, {
+    Subject item,
+    Episode episode, {
     bool instantOnly = false,
     bool useContinuity = false,
     bool forPlayback = false,
@@ -235,7 +239,7 @@ class PlaybackCoordinator extends ChangeNotifier {
       forPlayback: forPlayback,
       cancel: cancel ?? _selectionCancel,
       onlineFirst:
-          (subjectIsAiring(item)
+          (item.airing()
               ? settings.airingPriority
               : settings.completedPriority) ==
           'online',
@@ -245,8 +249,8 @@ class PlaybackCoordinator extends ChangeNotifier {
 
   /// Plays a cached file when one exists, otherwise the best instant source.
   Future<void> selectEpisode(
-    Json item,
-    Json episode, {
+    Subject item,
+    Episode episode, {
     bool useContinuity = false,
   }) async {
     playback.cancelAutoplay();
@@ -254,11 +258,9 @@ class PlaybackCoordinator extends ChangeNotifier {
     _activeCandidate = null;
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
-    final id = item['subjectId'] as int;
-    final episodeId = episode['episodeId'] as int;
-    final available = await library.playableEpisodes(id);
+    final available = await library.playableEpisodes(item.id);
     if (_closed || request != _selectionRequest) return;
-    if (available.contains(episodeId)) {
+    if (available.contains(episode.id)) {
       final local = await selection.candidates(
         item,
         episode,
@@ -277,7 +279,7 @@ class PlaybackCoordinator extends ChangeNotifier {
         return;
       }
     }
-    playback.showNotice('正在查找第 ${episode['sort']} 话资源');
+    playback.showNotice('正在查找第 ${episode.number} 话资源');
     final choices = await _candidates(
       item,
       episode,
@@ -301,7 +303,7 @@ class PlaybackCoordinator extends ChangeNotifier {
   }
 
   /// Lets the user pick a source for [episode] and plays it.
-  Future<void> chooseSource(Json item, Json episode) async {
+  Future<void> chooseSource(Subject item, Episode episode) async {
     cancel();
     final chosen = await shell.chooseCandidate(item, episode);
     if (_closed) return;
@@ -323,14 +325,14 @@ class PlaybackCoordinator extends ChangeNotifier {
   /// Enters the player at once and keeps it in a preparing state until
   /// [start] opens a session (cleared by [_show]) or fails.
   Future<void> prepare(
-    Json item,
-    Json episode,
+    Subject item,
+    Episode episode,
     Future<void> Function() start,
   ) async {
     shell.enterPlayer();
     final ticket = ++_preparingTicket;
     subject = item;
-    preparing = {'subject': item, 'episode': episode};
+    preparing = PreparingPlayback(item, episode);
     notifyListeners();
     try {
       await start();
@@ -344,22 +346,13 @@ class PlaybackCoordinator extends ChangeNotifier {
   }
 
   void retryPreparing() {
-    final current = preparing!;
-    final item = object(current['subject']);
-    final episode = object(current['episode']);
+    final PreparingPlayback(subject: item, :episode) = preparing!;
     unawaited(prepare(item, episode, () => selectEpisode(item, episode)));
   }
 
   void choosePreparing() {
     final current = preparing!;
-    unawaited(
-      _perform(
-        () => chooseSource(
-          object(current['subject']),
-          object(current['episode']),
-        ),
-      ),
-    );
+    unawaited(_perform(() => chooseSource(current.subject, current.episode)));
   }
 
   void _failPreparing(int ticket, String reason) {
@@ -367,17 +360,21 @@ class PlaybackCoordinator extends ChangeNotifier {
     if (_closed ||
         ticket != _preparingTicket ||
         current == null ||
-        current['failed'] != null) {
+        current.failed != null) {
       return;
     }
-    preparing = {...current, 'failed': reason};
+    preparing = PreparingPlayback(
+      current.subject,
+      current.episode,
+      failed: reason,
+    );
     notifyListeners();
   }
 
   Future<void> playCandidate(
     PlayCandidate candidate,
-    Json item,
-    Json episode, {
+    Subject item,
+    Episode episode, {
     List<PlayCandidate>? choices,
     bool recovery = false,
     Duration? recoveryPosition,
@@ -401,30 +398,30 @@ class PlaybackCoordinator extends ChangeNotifier {
     await _queue(
       () async {
         try {
-          final session = await selection.load(
+          var session = await selection.load(
             candidate,
-            item['subjectId'] as int,
-            episode['episodeId'] as int,
+            item.id,
+            episode.id,
             cancel: cancellation,
           );
           if (_closed || request != _selectionRequest) {
-            downloads.releaseStreamsExcept(
-              playback.session?['streamId'] as int?,
-            );
+            downloads.releaseStreamsExcept(playback.session?.streamId);
             return;
           }
           if (recoveryPosition != null) {
-            session['startSeconds'] = recoveryPosition.inMilliseconds / 1000;
+            session = session.startingAt(
+              recoveryPosition.inMilliseconds / 1000,
+            );
           }
           _activeCandidate = candidate;
           await playback.open(session);
           if (playback.error != null) throw StateError(playback.error!);
-          selection.played(item['subjectId'] as int, candidate);
+          selection.played(item.id, candidate);
           if (recovery) playback.showNotice('已切换到 ${candidate.sourceLabel}');
-          final sessionId = session['id'];
+          final sessionId = session.id;
           _firstFrameDeadline?.cancel();
           _firstFrameDeadline = Timer(const Duration(seconds: 15), () {
-            unawaited(_checkFirstFrame('$sessionId', request));
+            unawaited(_checkFirstFrame(sessionId, request));
           });
         } catch (e) {
           if (request == _selectionRequest) _activeCandidate = candidate;
@@ -445,7 +442,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     bool current() =>
         !_closed &&
         request == _selectionRequest &&
-        playback.session?['id'] == sessionId;
+        playback.session?.id == sessionId;
     if (!current()) return;
     final platform = playback.player.platform;
     if (platform is! NativePlayer) return;
@@ -482,17 +479,12 @@ class PlaybackCoordinator extends ChangeNotifier {
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
     try {
-      final saved = await library.progress(
-        item['subjectId'] as int,
-        episode['episodeId'] as int,
-      );
+      final saved = await library.progress(item.id, episode.id);
       final position =
-          playback.session?['subjectId'] == item['subjectId'] &&
-              playback.session?['episodeId'] == episode['episodeId']
+          playback.session?.subjectId == item.id &&
+              playback.session?.episodeId == episode.id
           ? playback.player.state.position
-          : Duration(
-              milliseconds: (number(saved?['positionSeconds']) * 1000).round(),
-            );
+          : Duration(milliseconds: ((saved?.position ?? 0) * 1000).round());
       while (!_closed && request == _selectionRequest) {
         selection.failed(failed!);
         if (failed.kind == PlayKind.online && !_onlineRefreshed) {
@@ -573,34 +565,22 @@ class PlaybackCoordinator extends ChangeNotifier {
 
   /// The next aired main episode and how it would play; never starts a new
   /// BT task.
-  Future<AutoplayTarget?> _prepareAutoplay(Json session) async {
+  Future<AutoplayTarget?> _prepareAutoplay(PlaybackSession session) async {
     final cancellation = _selectionCancel;
-    final id = session['subjectId'] as int?,
-        currentId = session['episodeId'] as int?;
+    final id = session.subjectId, currentId = session.episodeId;
     if (id == null || currentId == null) return null;
-    final item = subject?['subjectId'] == id
+    final item = subject?.id == id
         ? subject!
         : await tracking.subject(id, forPlayback: true);
-    final episodes =
-        objects(item['episodes'])
-            .where(
-              (e) => e['type'] == 0 || e['type'] == 'main' || e['type'] == null,
-            )
-            .toList()
-          ..sort((a, b) => number(a['sort']).compareTo(number(b['sort'])));
-    final current = episodes
-        .where((e) => e['episodeId'] == currentId)
-        .firstOrNull;
+    final episodes = item.episodes.where((e) => e.main).toList()
+      ..sort((a, b) => a.sort.compareTo(b.sort));
+    final current = episodes.where((e) => e.id == currentId).firstOrNull;
     if (current == null) return null;
-    final next = episodes
-        .where((e) => number(e['sort']) > number(current['sort']))
-        .firstOrNull;
+    final next = episodes.where((e) => e.sort > current.sort).firstOrNull;
     if (next == null) return null;
-    final date = DateTime.tryParse(
-      '${next['airdate'] ?? next['airDate'] ?? ''}',
-    );
+    final date = next.aired;
     if (date != null && date.isAfter(DateTime.now())) return null;
-    if ((await library.playableEpisodes(id)).contains(next['episodeId'])) {
+    if ((await library.playableEpisodes(id)).contains(next.id)) {
       final local = await selection.candidates(
         item,
         next,
@@ -642,8 +622,8 @@ class PlaybackCoordinator extends ChangeNotifier {
 
   void _show(int ticket) {
     if (_closed || ticket != _playbackRequest) return;
-    final sessionId = playback.session?['id'];
-    final subjectId = playback.session?['subjectId'] as int?;
+    final sessionId = playback.session?.id;
+    final subjectId = playback.session?.subjectId;
     shell.enterPlayer();
     _preparingTicket++;
     subject = null;
@@ -653,7 +633,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     unawaited(
       _perform(() async {
         final detail = await tracking.subject(subjectId, forPlayback: true);
-        if (!_closed && sessionId == playback.session?['id']) {
+        if (!_closed && sessionId == playback.session?.id) {
           subject = detail;
           notifyListeners();
         }

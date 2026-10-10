@@ -556,7 +556,28 @@ class PikPakTransfer implements Transfer {
     _emit();
   }
 
-  Future<void> accountChanged() async {
+  /// The signed-in account's name; null when signed out.
+  String? get accountName =>
+      client.isSignedIn ? client.displayName ?? 'PikPak' : null;
+  bool get needsAuthorization => client.needsAuthorization;
+  Uri? get verificationUrl => client.verificationUrl;
+
+  /// Releases credentials held behind system authorization.
+  Future<void> unlock() => _changeAccount(client.unlock);
+  Future<void> signIn(String username, String password) =>
+      _changeAccount(() => client.signIn(username, password));
+  Future<void> signOut() => _changeAccount(client.signOut);
+
+  Future<void> _changeAccount(Future<void> Function() change) async {
+    try {
+      await change();
+    } on PikPakCaptchaRequired catch (error) {
+      throw SourceVerificationRequired(error.url.toString());
+    }
+    await _accountChanged();
+  }
+
+  Future<void> _accountChanged() async {
     _requireOpen();
     final running = _runningId;
     if (running != null && !_owns(_task(running))) await _stop(running);

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
 
+import '../domain/catalog.dart';
+
 typedef Json = Map<String, dynamic>;
 Json object(dynamic value) =>
     value is Map ? Map<String, dynamic>.from(value) : {};
@@ -31,35 +33,6 @@ const collectionFieldNames = {
   'tags': 'collectionTags',
   'comment': 'comment',
 };
-
-enum CollectionStatus {
-  wish(1),
-  completed(2),
-  watching(3),
-  onHold(4),
-  dropped(5);
-
-  const CollectionStatus(this.remoteValue);
-  final int remoteValue;
-  String get key => this == onHold ? 'on_hold' : name;
-  static CollectionStatus parse(String key) =>
-      values.firstWhere((v) => v.key == key);
-  static CollectionStatus fromRemote(int value) =>
-      values.firstWhere((v) => v.remoteValue == value);
-}
-
-enum EpisodeStatus {
-  unwatched(0),
-  wish(1),
-  watched(2),
-  dropped(3);
-
-  const EpisodeStatus(this.remoteValue);
-  final int remoteValue;
-  String get key => this == wish ? 'queue' : name;
-  static EpisodeStatus parse(String key) =>
-      values.firstWhere((v) => v.key == key);
-}
 
 final _bangumiCover = RegExp(
   r'^https?://lain\.bgm\.tv/(?:r/\d+/)?pic/cover/[a-z]/(.+)$',

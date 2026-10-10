@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:url_launcher/url_launcher.dart';
 
+import '../domain/catalog.dart';
 import 'json.dart';
 import 'network.dart';
 import 'credentials.dart';
@@ -32,6 +33,8 @@ class AccountRepository {
   Json? _bundle;
   Json? _profile;
   Json? get session => _bundle == null ? _profile : object(_bundle!['user']);
+  AccountProfile? get profile =>
+      session == null ? null : AccountProfile.fromJson(session!);
   bool get needsAuthorization => _restoreNeedsAuthorization;
   String get userId => '${session?['userId'] ?? 'local'}';
   HttpServer? _callback;

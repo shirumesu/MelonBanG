@@ -2,31 +2,38 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/collection_edit.dart';
-import '../../data/json.dart';
+import '../../domain/catalog.dart';
 import '../core/motion.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'collection_labels.dart';
 
+/// An unsaved drawer edit.
+class CollectionDraft {
+  const CollectionDraft(this.collection, {this.completeEpisodes = false});
+  final SubjectCollection collection;
+  final bool completeEpisodes;
+}
+
 /// Unsaved drawer edits, kept per account and subject for this app run.
 abstract final class CollectionDrafts {
-  static final _values = <String, Json>{};
-  static String key(String user, Object? subjectId) => '$user:$subjectId';
-  static Json? read(String key) => _values[key];
+  static final _values = <String, CollectionDraft>{};
+  static String key(String user, int? subjectId) => '$user:$subjectId';
+  static CollectionDraft? read(String key) => _values[key];
   static bool has(String key) => _values.containsKey(key);
-  static void write(String key, Json value) => _values[key] = value;
+  static void write(String key, CollectionDraft value) => _values[key] = value;
   static void clear(String key) => _values.remove(key);
 }
 
 /// Opens the right-side editor. Returns the changed fields, or null when the
 /// drawer was closed; closing keeps any difference as a draft.
-Future<Json?> showCollectionDrawer(
+Future<CollectionChange?> showCollectionDrawer(
   BuildContext context, {
-  required Json subject,
+  required Subject subject,
   required String draftKey,
   bool focusComment = false,
-}) => showGeneralDialog<Json>(
+}) => showGeneralDialog<CollectionChange>(
   context: context,
   barrierDismissible: true,
   barrierLabel: '关闭编辑收藏',
@@ -56,7 +63,7 @@ class CollectionDrawer extends StatefulWidget {
     required this.draftKey,
     this.focusComment = false,
   });
-  final Json subject;
+  final Subject subject;
   final String draftKey;
   final bool focusComment;
 
@@ -65,30 +72,25 @@ class CollectionDrawer extends StatefulWidget {
 }
 
 class _CollectionDrawerState extends State<CollectionDrawer> {
-  late final Json saved = _fields(object(widget.subject['collection']));
+  late final SubjectCollection saved =
+      widget.subject.collection ?? const SubjectCollection();
   late final bool restored = CollectionDrafts.has(widget.draftKey);
-  late Json draft = {...saved, ...?CollectionDrafts.read(widget.draftKey)};
-  late final comment = TextEditingController(text: '${draft['comment']}');
+  late CollectionDraft draft =
+      CollectionDrafts.read(widget.draftKey) ?? CollectionDraft(saved);
+  late final comment = TextEditingController(text: draft.collection.comment);
   final tagInput = TextEditingController();
   String? tagError;
 
-  static Json _fields(Json collection) => {
-    'status': collection['status'],
-    'score': number(collection['score']).toInt(),
-    'tags': (collection['tags'] as List? ?? []).whereType<String>().toList(),
-    'comment': '${collection['comment'] ?? ''}',
-    'completeEpisodes': false,
-  };
+  CollectionStatus? get status => draft.collection.status;
+  int get score => draft.collection.score;
+  List<String> get tags => draft.collection.tags;
 
-  String? get status => draft['status'] as String?;
-  int get score => draft['score'] as int;
-  List<String> get tags => (draft['tags'] as List).cast<String>();
-
-  bool _same(String field) => field == 'tags'
-      ? listEquals(tags, (saved['tags'] as List).cast<String>())
-      : draft[field] == saved[field];
-
-  bool get changed => draft.keys.any((field) => !_same(field));
+  bool get changed =>
+      status != saved.status ||
+      score != saved.score ||
+      !listEquals(tags, saved.tags) ||
+      draft.collection.comment != saved.comment ||
+      draft.completeEpisodes;
 
   @override
   void dispose() {
@@ -97,8 +99,25 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
     super.dispose();
   }
 
-  void _update(Json values) {
-    setState(() => draft = {...draft, ...values});
+  void _update({
+    CollectionStatus? status,
+    int? score,
+    List<String>? tags,
+    String? comment,
+    bool? completeEpisodes,
+  }) {
+    final current = draft.collection;
+    setState(
+      () => draft = CollectionDraft(
+        SubjectCollection(
+          status: status ?? current.status,
+          score: score ?? current.score,
+          tags: tags ?? current.tags,
+          comment: comment ?? current.comment,
+        ),
+        completeEpisodes: completeEpisodes ?? draft.completeEpisodes,
+      ),
+    );
     if (changed) {
       CollectionDrafts.write(widget.draftKey, draft);
     } else {
@@ -113,8 +132,8 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
 
   void _reset() {
     CollectionDrafts.clear(widget.draftKey);
-    comment.text = '${saved['comment']}';
-    setState(() => draft = {...saved});
+    comment.text = saved.comment;
+    setState(() => draft = CollectionDraft(saved));
   }
 
   bool _addTags(String text) {
@@ -125,7 +144,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
       ]);
       setState(() => tagError = null);
       tagInput.clear();
-      _update({'tags': updated});
+      _update(tags: updated);
       return true;
     } on FormatException catch (error) {
       setState(() => tagError = error.message);
@@ -135,9 +154,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
 
   void _toggleTag(String tag) {
     if (tags.contains(tag)) {
-      _update({
-        'tags': [...tags]..remove(tag),
-      });
+      _update(tags: [...tags]..remove(tag));
     } else {
       _addTags(tag);
     }
@@ -145,25 +162,30 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
 
   void _save() {
     if (tagInput.text.trim().isNotEmpty && !_addTags(tagInput.text)) return;
-    Navigator.pop(context, <String, dynamic>{
-      for (final field in ['status', 'score', 'tags', 'comment'])
-        if (!_same(field) && !(field == 'score' && status == 'wish'))
-          field: draft[field],
-      if (status == 'completed' && draft['completeEpisodes'] == true)
-        'completeEpisodes': true,
-    });
+    final value = draft.collection;
+    Navigator.pop(
+      context,
+      CollectionChange(
+        status: status != saved.status ? status : null,
+        score: score != saved.score && status != CollectionStatus.wish
+            ? score
+            : null,
+        tags: listEquals(tags, saved.tags) ? null : tags,
+        comment: value.comment != saved.comment ? value.comment : null,
+        completeEpisodes:
+            status == CollectionStatus.completed && draft.completeEpisodes,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final episodes = objects(widget.subject['episodes']);
-    final watched = episodes.where((e) => e['status'] == 'watched').length;
+    final episodes = widget.subject.episodes;
+    final watched = episodes.where((e) => e.watched).length;
     final tooLong = comment.text.runes.length > collectionCommentLimit;
-    final popular = objects(widget.subject['tags'])
-        .map((tag) => '${tag['name']}')
-        .take(16);
+    final popular = widget.subject.tags.map((tag) => tag.name).take(16);
     Widget section(String title, Widget child, {String? detail}) => Padding(
       padding: const EdgeInsets.only(bottom: Gap.lg + 2),
       child: Column(
@@ -210,9 +232,9 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                     child: ClipRRect(
                       borderRadius: badgeBorderRadius,
                       child: SubjectCover(
-                        url: widget.subject['coverUrl'],
-                        title: titleOf(widget.subject),
-                        id: number(widget.subject['subjectId']).toInt(),
+                        url: widget.subject.coverUrl,
+                        title: widget.subject.title,
+                        id: widget.subject.id,
                       ),
                     ),
                   ),
@@ -223,7 +245,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                       children: [
                         Text('编辑收藏', style: text.titleMedium),
                         Text(
-                          '${titleOf(widget.subject)} · 已看 $watched / ${episodes.length} 话',
+                          '${widget.subject.title} · 已看 $watched / ${episodes.length} 话',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: text.bodySmall,
@@ -268,14 +290,16 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                     ),
                   section(
                     '状态',
-                    MelonSegmentedControl<String>(
+                    MelonSegmentedControl<CollectionStatus>(
                       options: collectionLabels,
                       value: status,
                       semanticLabel: '收藏状态',
-                      onChanged: (value) => _update({
-                        'status': value,
-                        if (value != 'completed') 'completeEpisodes': false,
-                      }),
+                      onChanged: (value) => _update(
+                        status: value,
+                        completeEpisodes: value == CollectionStatus.completed
+                            ? null
+                            : false,
+                      ),
                     ),
                     detail: status == null ? '先选一个状态，才能保存其他内容' : null,
                   ),
@@ -290,26 +314,31 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                       child: Row(
                         children: [
                           StarRating(
-                            value: status == 'wish' ? 0 : score,
+                            value: status == CollectionStatus.wish ? 0 : score,
                             size: 22,
                             labelWidth: 80,
-                            enabled: status != null && status != 'wish',
+                            enabled:
+                                status != null &&
+                                status != CollectionStatus.wish,
                             onTap: (value) {
-                              if (status != null && status != 'wish') {
-                                _update({'score': value});
+                              if (status != null &&
+                                  status != CollectionStatus.wish) {
+                                _update(score: value);
                               }
                             },
                           ),
                           const Spacer(),
-                          if (score > 0 && status != 'wish')
+                          if (score > 0 && status != CollectionStatus.wish)
                             TextButton(
-                              onPressed: () => _update({'score': 0}),
+                              onPressed: () => _update(score: 0),
                               child: const Text('清除'),
                             ),
                         ],
                       ),
                     ),
-                    detail: status == 'wish' ? '想看状态不能评分，改回其他状态时恢复原评分' : null,
+                    detail: status == CollectionStatus.wish
+                        ? '想看状态不能评分，改回其他状态时恢复原评分'
+                        : null,
                   ),
                   section(
                     '标签',
@@ -386,7 +415,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                       autofocus: widget.focusComment,
                       minLines: 4,
                       maxLines: 8,
-                      onChanged: (value) => _update({'comment': value}),
+                      onChanged: (value) => _update(comment: value),
                       decoration: InputDecoration(
                         hintText: '写一句吐槽…',
                         counterText:
@@ -395,12 +424,12 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                       ),
                     ),
                   ),
-                  if (status == 'completed')
+                  if (status == CollectionStatus.completed)
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
-                      value: draft['completeEpisodes'] == true,
+                      value: draft.completeEpisodes,
                       onChanged: (value) =>
-                          _update({'completeEpisodes': value ?? false}),
+                          _update(completeEpisodes: value ?? false),
                       title: const Text('同时将全部正片标为已看'),
                     ),
                 ],

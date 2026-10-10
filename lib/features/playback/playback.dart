@@ -7,7 +7,9 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../data/json.dart';
+import '../../domain/catalog.dart';
+import '../../domain/playback_session.dart';
+import '../../domain/sources.dart';
 import '../danmaku/danmaku_controller.dart';
 import '../danmaku/danmaku_repository.dart';
 import '../downloads/download_repository.dart';
@@ -96,13 +98,13 @@ class Playback extends ChangeNotifier {
   bool _scoredSubtitle = false, _scoredAudio = false;
   int danmakuRevision = 0, _autoplayTicket = 0;
   String? _completedSession;
-  Future<AutoplayTarget?> Function(Json session)? resolveNext;
+  Future<AutoplayTarget?> Function(PlaybackSession session)? resolveNext;
   AutoplayTarget? autoplayTarget;
-  Json? autoplayEndEpisode;
+  Episode? autoplayEndEpisode;
   String? autoplayMessage;
   int autoplaySeconds = 0;
   static const _volumeKey = 'player-volume', _mutedKey = 'player-muted';
-  Json? session;
+  PlaybackSession? session;
   String? uri;
   String? error, notice;
   Media? _manifest;
@@ -111,10 +113,10 @@ class Playback extends ChangeNotifier {
     notifyListeners();
   }
 
-  void showResourceFailure(Json episode) {
+  void showResourceFailure(Episode episode) {
     cancelAutoplay(notify: false);
     autoplayEndEpisode = episode;
-    autoplayMessage = '第 ${episode['sort']} 话暂无可直接播放的资源';
+    autoplayMessage = '第 ${episode.number} 话暂无可直接播放的资源';
     notifyListeners();
   }
 
@@ -172,14 +174,14 @@ class Playback extends ChangeNotifier {
     }
   }
 
-  Future<void> open(Json next) {
+  Future<void> open(PlaybackSession next) {
     if (_closed) return Future.error(StateError('播放器已关闭'));
     final operation = _openQueue.then((_) => _open(next));
     _openQueue = operation.catchError((Object _) {});
     return operation;
   }
 
-  Future<void> _open(Json next) async {
+  Future<void> _open(PlaybackSession next) async {
     if (_closed) return;
     await saveProgress();
     cancelAutoplay();
@@ -192,37 +194,29 @@ class Playback extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      if (next['status'] == 'failed') {
-        throw StateError('${next['errorMessage']}');
-      }
       await library.activate(next);
       session = next;
-      final source = object(next['source']);
-      final embedded = object(source['danmaku']);
       final danmakuTarget = DanmakuTarget(
-        matchKey: (next['path'] ?? next['resumeKey']) as String?,
-        offsetKey: (next['resumeKey'] ?? source['url']) as String?,
-        embedded: embedded['provider'] is String
-            ? ('${embedded['provider']}', '${embedded['locator']}')
-            : null,
-        subjectId: next['subjectId'] as int?,
-        episodeId: next['episodeId'] as int?,
-        path: next['path'] as String?,
-        fileSize: next['fileSize'] as int?,
-        remote: next['remoteSource'] == true || next['streamId'] != null,
+        matchKey: next.path ?? next.resumeKey,
+        offsetKey: next.progressKey,
+        embedded: next.danmaku,
+        subjectId: next.subjectId,
+        episodeId: next.episodeId,
+        path: next.path,
+        fileSize: next.fileSize,
+        remote: next.remote || next.streamId != null,
       );
       await danmaku.begin(danmakuTarget);
       subtitleDelay = 0;
-      uri = object(next['source'])['url'] as String?;
-      if (uri == null) throw StateError('没有可播放的文件。');
+      uri = next.url;
+      final playlist = next.playlist;
       final platform = player.platform;
       if (platform is NativePlayer) {
-        final manifest = object(next['source'])['playlist'] is String;
-        await platform.setProperty('demuxer', manifest ? 'lavf' : '');
+        await platform.setProperty('demuxer', playlist != null ? 'lavf' : '');
         await platform.setProperty(
           'demuxer-lavf-format',
-          manifest
-              ? object(next['source'])['kind'] == 'dash'
+          playlist != null
+              ? next.format == StreamFormat.dash
                     ? 'dash'
                     : 'hls'
               : '',
@@ -239,36 +233,24 @@ class Playback extends ChangeNotifier {
           languageCodes(settings.audioLanguage),
         );
       }
-      var resume = preferences.getDouble(
-        'progress:${next['resumeKey'] ?? uri}',
-      );
-      if (next['subjectId'] != null && next['episodeId'] != null) {
-        try {
-          final saved = object(
-            await library.progress(
-              next['subjectId'] as int,
-              next['episodeId'] as int,
-            ),
-          );
-          if (saved['completed'] == true) {
-            resume = 0;
-          } else if (saved.isNotEmpty) {
-            resume = number(saved['positionSeconds']);
-          }
-        } catch (_) {}
+      var resume = preferences.getDouble('progress:${next.progressKey}');
+      if (next.subjectId case final subjectId?) {
+        if (next.episodeId case final episodeId?) {
+          try {
+            final saved = await library.progress(subjectId, episodeId);
+            if (saved != null) resume = saved.completed ? 0 : saved.position;
+          } catch (_) {}
+        }
       }
-      if (next['startSeconds'] is num) resume = number(next['startSeconds']);
+      if (next.startSeconds != null) resume = next.startSeconds;
       // Apply continuation while loading; open() can return before native seek is ready.
-      _manifest = source['playlist'] is String
-          ? await Media.memory(
-              Uint8List.fromList(utf8.encode(source['playlist'] as String)),
-            )
+      _manifest = playlist != null
+          ? await Media.memory(Uint8List.fromList(utf8.encode(playlist)))
           : null;
       await player.open(
         Media(
-          _manifest?.uri ?? uri!,
-          httpHeaders: object(object(next['source'])['headers'])
-              .map((key, value) => MapEntry(key, '$value')),
+          _manifest?.uri ?? next.url,
+          httpHeaders: next.headers,
           start: Duration(milliseconds: ((resume ?? 0) * 1000).round()),
         ),
         play: false,
@@ -278,9 +260,9 @@ class Playback extends ChangeNotifier {
       }
       await player.setRate(_savedRate);
       await _preferTracks(player.state.tracks);
-      downloads.releaseStreamsExcept(next['streamId'] as int?);
+      downloads.releaseStreamsExcept(next.streamId);
       await player.play();
-      if (!_closed && next['standalone'] != true) {
+      if (!_closed && !next.standalone) {
         unawaited(
           danmaku.autoMatch(
             player.state.duration.inMilliseconds / 1000,
@@ -305,7 +287,7 @@ class Playback extends ChangeNotifier {
 
   Future<void> saveProgress({bool ended = false}) {
     if (uri == null || session == null || opening) return _progressWrites;
-    final savedUri = '${session!['resumeKey'] ?? uri!}';
+    final savedUri = session!.progressKey;
     final savedSession = session!;
     ended = error == null && (ended || player.state.completed);
     final position = player.state.position.inMilliseconds / 1000;
@@ -313,7 +295,7 @@ class Playback extends ChangeNotifier {
     final completed = ended;
     final signature = (
       savedUri,
-      savedSession['id'],
+      savedSession.id,
       position,
       duration,
       completed,
@@ -357,7 +339,7 @@ class Playback extends ChangeNotifier {
   }
 
   Future<void> _preferTracks(Tracks tracks) async {
-    final id = session?['id'];
+    final id = session?.id;
     if (id == null) return;
     if (!_manualSubtitle && !_scoredSubtitle) {
       final candidates = tracks.subtitle
@@ -391,7 +373,7 @@ class Playback extends ChangeNotifier {
                   selected.language,
                   selected.title ?? selected.id,
                 ) &&
-            session?['id'] == id &&
+            session?.id == id &&
             !_manualSubtitle) {
           await player.setSubtitleTrack(best);
         }
@@ -417,7 +399,7 @@ class Playback extends ChangeNotifier {
                   selected.language,
                   selected.title,
                 ) &&
-            session?['id'] == id &&
+            session?.id == id &&
             !_manualAudio) {
           await player.setAudioTrack(best);
         }
@@ -426,9 +408,9 @@ class Playback extends ChangeNotifier {
   }
 
   Future<Duration> stepFrame(bool forward) {
-    final id = session?['id'];
+    final id = session?.id;
     final operation = _frameQueue.then(
-      (_) => session?['id'] == id
+      (_) => session?.id == id
           ? _stepFrame(forward)
           : Future.value(player.state.position),
     );
@@ -443,7 +425,7 @@ class Playback extends ChangeNotifier {
     frameStepping = true;
     await player.pause();
     notifyListeners();
-    final id = session?['id'];
+    final id = session?.id;
     final before = double.tryParse(await platform.getProperty('time-pos'));
     if (!forward && before != null && before <= 0) return Duration.zero;
     await platform.command([forward ? 'frame-step' : 'frame-back-step']);
@@ -458,7 +440,7 @@ class Playback extends ChangeNotifier {
       }
       if (!DateTime.now().isBefore(deadline) ||
           _closed ||
-          session?['id'] != id) {
+          session?.id != id) {
         break;
       }
       await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -475,20 +457,18 @@ class Playback extends ChangeNotifier {
     final current = session;
     if (!settings.autoplay ||
         current == null ||
-        current['subjectId'] == null ||
-        current['episodeId'] == null ||
-        current['standalone'] == true ||
-        _completedSession == current['id'] ||
+        current.subjectId == null ||
+        current.episodeId == null ||
+        current.standalone ||
+        _completedSession == current.id ||
         resolveNext == null) {
       return;
     }
-    _completedSession = current['id'] as String?;
+    _completedSession = current.id;
     final ticket = ++_autoplayTicket;
     try {
-      final target = await resolveNext!(Map<String, dynamic>.from(current));
-      if (_closed ||
-          ticket != _autoplayTicket ||
-          session?['id'] != current['id']) {
+      final target = await resolveNext!(current);
+      if (_closed || ticket != _autoplayTicket || session?.id != current.id) {
         return;
       }
       if (target == null) {
@@ -498,7 +478,7 @@ class Playback extends ChangeNotifier {
       }
       if (target.unavailable) {
         autoplayEndEpisode = target.episode;
-        autoplayMessage = '第 ${target.episode['sort']} 话暂无可直接播放的资源';
+        autoplayMessage = '第 ${target.episode.number} 话暂无可直接播放的资源';
         notifyListeners();
         return;
       }
@@ -570,7 +550,7 @@ class AutoplayTarget {
     required this.play,
     this.unavailable = false,
   });
-  final Json episode;
+  final Episode episode;
   final String sourceLabel;
   final Future<void> Function() play;
   final bool unavailable;

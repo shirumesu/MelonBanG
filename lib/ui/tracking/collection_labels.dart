@@ -1,9 +1,11 @@
+import '../../domain/catalog.dart';
+
 const collectionLabels = {
-  'watching': '在看',
-  'wish': '想看',
-  'completed': '看过',
-  'on_hold': '搁置',
-  'dropped': '抛弃',
+  CollectionStatus.watching: '在看',
+  CollectionStatus.wish: '想看',
+  CollectionStatus.completed: '看过',
+  CollectionStatus.onHold: '搁置',
+  CollectionStatus.dropped: '抛弃',
 };
 
 /// Bangumi's wording for personal scores 1–10.
