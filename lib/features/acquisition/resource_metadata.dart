@@ -29,3 +29,28 @@ List<String> resourceNames(Subject subject) {
       .map((value) => value.trim())
       .toList();
 }
+
+/// What a resource search sends to the sources: the main keyword, catalogue
+/// aliases searched with it and the free-text episode term for torrents.
+class ResourceTerms {
+  const ResourceTerms({
+    required this.keyword,
+    this.names = const [],
+    this.episodeKeyword = '',
+  });
+
+  /// The catalogue title with every alias and the chapter's padded number.
+  ResourceTerms.of(Subject subject, Episode? episode)
+    : keyword = subject.title,
+      names = resourceNames(subject),
+      episodeKeyword = resourceEpisodeKeyword(episode);
+
+  final String keyword, episodeKeyword;
+  final List<String> names;
+
+  /// Distinct non-empty names, keyword first.
+  List<String> get searchNames => {
+    keyword.trim(),
+    ...names.map((e) => e.trim()),
+  }.where((e) => e.isNotEmpty).toList();
+}

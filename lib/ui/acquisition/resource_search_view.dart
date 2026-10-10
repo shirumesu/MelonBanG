@@ -1,37 +1,58 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../domain/catalog.dart';
-import '../../domain/transfer.dart';
-import '../../features/acquisition/resource_metadata.dart';
+import '../../domain/play_candidate.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
-import '../../features/acquisition/resources_controller.dart';
+import '../../domain/transfer.dart';
+import '../../features/acquisition/online_candidates.dart';
+import '../../features/acquisition/resource_metadata.dart';
+import '../../features/acquisition/title_matching.dart';
+import '../../features/playback/resource_search.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'resource_widgets.dart';
 
-class ResourcesPage extends StatefulWidget {
+/// The resource search shared by the resources page, the player's resource
+/// sheet and the source picker: a search form, pinned local filters and one
+/// table of cached, online and torrent candidates. Hosts key it by subject
+/// and chapter.
+class ResourceSearchView extends StatefulWidget {
   static String formStorageId(int? subjectId, int? episodeId) =>
       'resource-form:$subjectId:$episodeId';
 
-  const ResourcesPage({
+  const ResourceSearchView({
     super.key,
-    required this.resources,
-    required this.resourceSearch,
-    required this.defaultMethod,
+    required this.search,
+    required this.onPlay,
+    this.active = true,
+    this.actions = const [],
   });
-  final ResourcesController resources;
-  final TextEditingController resourceSearch;
-  final CacheMethod defaultMethod;
+  final ResourceSearchController search;
+
+  /// Plays [candidate] as [episode]; the episode is null only for a cached
+  /// file without a chapter.
+  final Future<void> Function(PlayCandidate candidate, Episode? episode) onPlay;
+
+  /// While active, a context that was never searched is searched with the
+  /// form.
+  final bool active;
+
+  /// Trailing actions of the heading row, such as open-in-page and close.
+  final List<Widget> actions;
   @override
-  State<ResourcesPage> createState() => _ResourcesPageState();
+  State<ResourceSearchView> createState() => _ResourceSearchViewState();
 }
 
-class _ResourcesPageState extends State<ResourcesPage> {
-  final episodeQuery = TextEditingController();
+class _ResourceSearchViewState extends State<ResourceSearchView> {
+  final keyword = TextEditingController(),
+      episodeQuery = TextEditingController();
   final queryFocus = FocusNode(), episodeFocus = FocusNode();
   final excluded = <String>{}, expandedTitles = <String>{};
   final excludedProviders = <String>{};
@@ -40,25 +61,26 @@ class _ResourcesPageState extends State<ResourcesPage> {
   final downloadPhases = <String, ResourceDownloadPhase>{};
   final downloadErrors = <String, String>{};
   final annotations = <String, ResourceTitleInfo>{};
+  final entries = <String, Future<List<SourceEpisode>>>{};
+
+  /// 'all' or a [PlayKind] name.
+  String kind = 'all';
   bool includeUnknown = false, searching = false;
+  String? opening;
   PageStorageBucket? storage;
   bool formRestored = false, restoringForm = false;
-  late String activeStorageId;
-  ResourcesState get state => widget.resources.state;
+  late final String storageId;
+  ResourceSearchController get controller => widget.search;
+  ResourceSearchState get state => controller.state;
   Subject? get subject => state.subject;
-  ReleaseSearchResult get releases => state.releases;
-  bool get searchBusy => widget.resources.busy || searching;
-
-  String get storageId =>
-      ResourcesPage.formStorageId(subject?.id, state.episodeId);
-  Episode? get selectedEpisode =>
-      state.episodeId == null ? null : subject?.episode(state.episodeId!);
+  Episode? get episode => state.episode;
+  bool get searchBusy => controller.busy || searching;
 
   @override
   void initState() {
     super.initState();
-    activeStorageId = storageId;
-    episodeQuery.text = resourceEpisodeKeyword(selectedEpisode);
+    storageId = ResourceSearchView.formStorageId(subject?.id, episode?.id);
+    keyword.addListener(saveForm);
     episodeQuery.addListener(saveForm);
   }
 
@@ -66,57 +88,57 @@ class _ResourcesPageState extends State<ResourcesPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     storage = PageStorage.maybeOf(context);
-    if (!formRestored) restoreForm();
+    if (!formRestored) {
+      restoreForm();
+      if (widget.active) searchIfNew();
+    }
   }
 
   @override
-  void didUpdateWidget(ResourcesPage oldWidget) {
+  void didUpdateWidget(ResourceSearchView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (activeStorageId != storageId) {
-      activeStorageId = storageId;
-      restoringForm = true;
-      episodeQuery.text = resourceEpisodeKeyword(selectedEpisode);
-      includeUnknown = false;
-      for (final set in [qualities, groups, languages, subtitleForms]) {
-        set.clear();
-      }
-      excluded.clear();
-      excludedProviders.clear();
-      expandedTitles.clear();
-      annotations.clear();
-      restoringForm = false;
-      restoreForm();
-    }
+    if (widget.active && !oldWidget.active) searchIfNew();
+  }
+
+  void searchIfNew() {
+    if (state.terms != null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && state.terms == null) unawaited(search());
+    });
   }
 
   void restoreForm() {
     formRestored = true;
-    final saved = storage?.readState(context, identifier: activeStorageId);
-    if (saved is! Map) return;
+    final saved = storage?.readState(context, identifier: storageId);
+    final form = saved is Map ? saved : const {};
+    final terms = state.terms;
     restoringForm = true;
+    keyword.text =
+        form['keyword'] as String? ?? terms?.keyword ?? subject?.title ?? '';
     episodeQuery.text =
-        saved['episode'] as String? ?? resourceEpisodeKeyword(selectedEpisode);
+        form['episode'] as String? ??
+        terms?.episodeKeyword ??
+        resourceEpisodeKeyword(episode);
     Iterable<String> strings(Object? value) =>
         value is List ? value.whereType<String>() : const [];
-    qualities.addAll(strings(saved['qualities']));
-    groups.addAll(strings(saved['sourceGroups']));
-    languages.addAll(strings(saved['languages']));
-    subtitleForms.addAll(strings(saved['subtitleForms']));
-    includeUnknown = saved['includeUnknown'] as bool? ?? false;
-    excluded.addAll(strings(saved['excluded']));
-    excludedProviders.addAll(
-      (saved['excludedProviders'] as List? ?? []).whereType<String>(),
-    );
-    expandedTitles.addAll(
-      (saved['expandedTitles'] as List? ?? []).whereType<String>(),
-    );
+    kind = form['kind'] as String? ?? 'all';
+    qualities.addAll(strings(form['qualities']));
+    groups.addAll(strings(form['sourceGroups']));
+    languages.addAll(strings(form['languages']));
+    subtitleForms.addAll(strings(form['subtitleForms']));
+    includeUnknown = form['includeUnknown'] as bool? ?? false;
+    excluded.addAll(strings(form['excluded']));
+    excludedProviders.addAll(strings(form['excludedProviders']));
+    expandedTitles.addAll(strings(form['expandedTitles']));
     restoringForm = false;
   }
 
   void saveForm() {
     if (restoringForm || !mounted) return;
     storage?.writeState(context, {
+      'keyword': keyword.text,
       'episode': episodeQuery.text,
+      'kind': kind,
       'qualities': qualities.toList(),
       'sourceGroups': groups.toList(),
       'languages': languages.toList(),
@@ -125,7 +147,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
       'excluded': excluded.toList(),
       'excludedProviders': excludedProviders.toList(),
       'expandedTitles': expandedTitles.toList(),
-    }, identifier: activeStorageId);
+    }, identifier: storageId);
   }
 
   void changeForm(VoidCallback update) {
@@ -135,6 +157,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
 
   @override
   void dispose() {
+    keyword.dispose();
     episodeQuery.dispose();
     queryFocus.dispose();
     episodeFocus.dispose();
@@ -143,14 +166,21 @@ class _ResourcesPageState extends State<ResourcesPage> {
 
   Future<void> search() async {
     if (searchBusy) return;
-    setState(() => searching = true);
+    setState(() {
+      searching = true;
+      entries.clear();
+    });
     try {
-      await widget.resources.search(
-        widget.resourceSearch.text,
-        names: (subject == null ? const <String>[] : resourceNames(subject!))
-            .where((e) => !excluded.contains(e))
-            .toList(),
-        episodeKeyword: episodeQuery.text,
+      await controller.search(
+        ResourceTerms(
+          keyword: keyword.text,
+          names: [
+            if (subject != null)
+              for (final name in resourceNames(subject!))
+                if (!excluded.contains(name)) name,
+          ],
+          episodeKeyword: episodeQuery.text,
+        ),
       );
     } catch (_) {
       if (mounted) {
@@ -168,6 +198,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
     }
     includeUnknown = false;
     excludedProviders.clear();
+    kind = 'all';
   });
 
   void toggle(Set<String> set, String value, bool selected) =>
@@ -181,27 +212,27 @@ class _ResourcesPageState extends State<ResourcesPage> {
         : '${selected.length} 项';
   }
 
-  String downloadKey(ReleaseCandidate candidate, CacheMethod method) =>
-      '${candidate.candidateId}:${method.name}';
+  String downloadKey(PlayCandidate candidate, CacheMethod method) =>
+      '${candidate.id}:${method.name}';
 
-  ResourceDownloadPhase phaseFor(
-    ReleaseCandidate candidate,
-    CacheMethod method,
-  ) =>
+  ResourceDownloadPhase phaseFor(PlayCandidate candidate, CacheMethod method) =>
       downloadPhases[downloadKey(candidate, method)] ??
       ResourceDownloadPhase.idle;
 
-  String? errorFor(ReleaseCandidate candidate) {
-    for (final method in [widget.defaultMethod, widget.defaultMethod.other]) {
-      final error = downloadErrors[downloadKey(candidate, method)];
-      if (error != null) {
-        return '${method.label}：$error';
-      }
+  String? errorFor(PlayCandidate candidate) {
+    final method = controller.defaultMethod();
+    for (final value in [method, method.other]) {
+      final error = downloadErrors[downloadKey(candidate, value)];
+      if (error != null) return '添加失败：${value.label}：$error';
     }
     return null;
   }
 
-  Future<void> download(ReleaseCandidate candidate, CacheMethod method) async {
+  Future<void> download(
+    PlayCandidate candidate,
+    ReleaseCandidate release,
+    CacheMethod method,
+  ) async {
     final id = downloadKey(candidate, method);
     if (CacheMethod.values.any(
           (value) => phaseFor(candidate, value) == ResourceDownloadPhase.adding,
@@ -217,7 +248,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
       downloadErrors.remove(id);
     });
     try {
-      await widget.resources.enqueue(candidate, method: method);
+      await controller.enqueue(release, method: method);
       if (mounted) {
         setState(() => downloadPhases[id] = ResourceDownloadPhase.added);
       }
@@ -231,37 +262,221 @@ class _ResourcesPageState extends State<ResourcesPage> {
     }
   }
 
-  ResourceTitleInfo annotate(ReleaseCandidate candidate) {
-    final id = candidate.candidateId;
-    final previous = annotations[id];
-    final release = candidate.release;
+  /// The chapter a candidate plays as; null when it has none.
+  Episode? episodeOf(PlayCandidate candidate) =>
+      episode ??
+      switch (candidate.target) {
+        DownloadTarget(task: DownloadTask(:final episodeId?)) =>
+          subject?.episode(episodeId),
+        _ => null,
+      };
+
+  bool playable(PlayCandidate candidate) => switch (candidate.target) {
+    DownloadTarget() => true,
+    OnlineTarget(:final chooseFrom) => chooseFrom == null,
+    ReleaseTarget() => episode != null,
+  };
+
+  Future<void> play(PlayCandidate candidate, Episode? target) async {
+    if (opening != null) return;
+    if (candidate.possibleMatch) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('确认条目匹配'),
+          content: Text(
+            '请确认所选资源对应${target == null ? '本作' : '第 ${target.number} 话'}：\n${candidate.title}',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('播放'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    setState(() => opening = candidate.id);
+    try {
+      await widget.onPlay(candidate, target);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error.toString().replaceFirst('Bad state: ', '')),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => opening = null);
+    }
+  }
+
+  ResourceTitleInfo annotate(PlayCandidate candidate) {
+    final (title, releaseGroups) = switch (candidate.target) {
+      ReleaseTarget(candidate: ReleaseCandidate(:final release)) => (
+        release.title,
+        release.releaseGroups,
+      ),
+      DownloadTarget(:final task) => (task.title, task.releaseGroups),
+      OnlineTarget() => (candidate.title, const <String>[]),
+    };
+    final previous = annotations[candidate.id];
     if (previous != null &&
-        previous.title == release.title &&
-        listEquals(previous.sourceGroups, release.releaseGroups)) {
+        previous.title == title &&
+        listEquals(previous.sourceGroups, releaseGroups)) {
       return previous;
     }
-    return annotations[id] = describeResource(
-      release.title,
-      releaseGroups: release.releaseGroups,
+    return annotations[candidate.id] = describeResource(
+      title,
+      releaseGroups: releaseGroups,
     );
   }
 
+  List<String> notesOf(PlayCandidate candidate) => [
+    if (candidate.kind == PlayKind.online)
+      ?switch (controller.sources.status(candidate.provider)) {
+        SourceHealth.partial => '站点部分失败',
+        SourceHealth.error => '站点失效',
+        SourceHealth.verification => '站点需要验证',
+        _ => null,
+      },
+    if (candidate.target case OnlineTarget(:final description?)) description,
+    if (candidate.possibleMatch) '可能匹配',
+    if (candidate.health < 0) '近期播放失败',
+    if (!candidate.instant && episode != null) '边下边播',
+    if (candidate.target case DownloadTarget(:final task) when !task.complete)
+      '已下载 ${(task.progress * 100).floor()}%',
+  ];
+
+  /// Entries of an upload or site subject, grouped by line; each plays as
+  /// the shown chapter or, for a whole-subject search, the matching one.
+  Widget entryPicker(PlayCandidate parent) {
+    final upload = (parent.target as OnlineTarget).chooseFrom!;
+    final small = Theme.of(context).textTheme.bodySmall;
+    return FutureBuilder<List<SourceEpisode>>(
+      future: entries[parent.id] ??= controller.entries(parent),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Row(
+            children: [
+              Text(
+                '读取失败：${snapshot.error}',
+                style: small?.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
+              TextButton(
+                onPressed: () => setState(() => entries.remove(parent.id)),
+                child: const Text('重试'),
+              ),
+            ],
+          );
+        }
+        final rows = snapshot.data;
+        if (rows == null) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: Gap.sm),
+            child: SizedBox(
+              width: 160,
+              child: LinearProgressIndicator(minHeight: 2),
+            ),
+          );
+        }
+        if (rows.isEmpty) return Text('没有可播放的条目', style: small);
+        final lines = <String, List<SourceEpisode>>{};
+        for (final row in rows) {
+          (lines[row.line] ??= []).add(row);
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final MapEntry(key: line, value: items) in lines.entries) ...[
+              if (lines.length > 1 && line.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: Gap.sm),
+                  child: Text(line, style: small),
+                ),
+              const SizedBox(height: Gap.xs),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final item in items)
+                    entryButton(
+                      onlinePartCandidate(parent, upload, item),
+                      item,
+                      episode ??
+                          subject?.episodes
+                              .where((e) => sourceEpisodeMatches(item.label, e))
+                              .firstOrNull,
+                    ),
+                ],
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget entryButton(
+    PlayCandidate candidate,
+    SourceEpisode item,
+    Episode? target,
+  ) => Tooltip(
+    message: target == null
+        ? '没有对应的本作集数'
+        : item.description ?? '作为第 ${target.number} 话播放',
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 260),
+      child: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          minimumSize: const Size(44, 32),
+        ),
+        onPressed: target == null || opening != null
+            ? null
+            : () => play(candidate, target),
+        child: opening == candidate.id
+            ? const SizedBox.square(
+                dimension: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Text(item.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      ),
+    ),
+  );
+
   @override
-  Widget build(BuildContext context) =>
-      ListenableBuilder(listenable: widget.resources, builder: _page);
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([controller, controller.sources]),
+    builder: _page,
+  );
 
   Widget _page(BuildContext context, Widget? _) {
     final names = subject == null ? const <String>[] : resourceNames(subject!);
-    final aliases = names
-        .where((name) => name != widget.resourceSearch.text.trim())
-        .toList();
-    final annotated = releases.candidates
+    final aliases = names.where((name) => name != keyword.text.trim()).toList();
+    final candidates = state.candidates;
+    final sources = state.sources;
+    bool providerShown(PlayCandidate candidate) =>
+        candidate.target is DownloadTarget ||
+        !excludedProviders.contains(candidate.provider);
+    bool kindShown(PlayCandidate candidate) =>
+        kind == 'all' || candidate.kind.name == kind;
+    final annotated = candidates
         .map((candidate) => (candidate, annotate(candidate)))
         .toList();
     final fromShownProviders = annotated
-        .where((entry) => !excludedProviders.contains(entry.$1.sourceId))
+        .where((entry) => providerShown(entry.$1))
         .toList();
-    final visible = fromShownProviders
+    final matching = fromShownProviders
         .where(
           (entry) => matchesResourceSelection(
             entry.$2,
@@ -273,10 +488,12 @@ class _ResourcesPageState extends State<ResourcesPage> {
           ),
         )
         .toList();
-    // Option counts cover results from the shown sites, before other filters.
+    final visible = matching.where((entry) => kindShown(entry.$1)).toList();
+    // Option counts cover results of the shown sites and kind, before other
+    // filters; kind counts cover every other filter.
     Map<String, int> tally(Iterable<String> Function(ResourceTitleInfo) of) {
       final counts = <String, int>{};
-      for (final entry in fromShownProviders) {
+      for (final entry in fromShownProviders.where((e) => kindShown(e.$1))) {
         for (final value in of(entry.$2)) {
           counts[value] = (counts[value] ?? 0) + 1;
         }
@@ -302,13 +519,20 @@ class _ResourcesPageState extends State<ResourcesPage> {
           detail: '${counts[value] ?? 0}',
           enabled: (counts[value] ?? 0) > 0,
         );
-    final episode = selectedEpisode;
+    final kindCounts = {
+      for (final value in PlayKind.values)
+        value.name: matching.where((e) => e.$1.kind == value).length,
+    };
+    final recommended = episode != null && candidates.isNotEmpty
+        ? candidates.first.id
+        : null;
     final providersFailed =
-        releases.sources.isNotEmpty &&
-        releases.sources.every((e) => e.status == SearchStatus.error);
+        sources.isNotEmpty &&
+        sources.every((e) => e.status == SearchStatus.error) &&
+        candidates.isEmpty;
     final allProvidersExcluded =
-        releases.sources.isNotEmpty &&
-        releases.sources.every(
+        sources.isNotEmpty &&
+        sources.every(
           (provider) => excludedProviders.contains(provider.sourceId),
         );
     final filtered =
@@ -320,6 +544,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
         ].any((e) => e.isNotEmpty) ||
         includeUnknown ||
         excludedProviders.isNotEmpty;
+    final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final background = Material.of(context).color!;
     final includedAliases = aliases.where((name) => !excluded.contains(name));
@@ -346,6 +571,16 @@ class _ResourcesPageState extends State<ResourcesPage> {
               : ('全部取消', () => changeForm(() => excluded.addAll(aliases))),
       ],
     );
+    final sourceRegistry = controller.sources;
+    final failingSites = [
+      if (state.terms != null &&
+          (kind == 'all' || kind == PlayKind.online.name))
+        for (final rule in sourceRegistry.instancesOf(SourceKind.online))
+          if (sourceRegistry.isEnabled(rule.id) &&
+              (sourceRegistry.errors.containsKey(rule.id) ||
+                  sourceRegistry.status(rule.id) == SourceHealth.update))
+            rule,
+    ];
     final form = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -377,21 +612,21 @@ class _ResourcesPageState extends State<ResourcesPage> {
                   const SizedBox(height: 2),
                   Text(
                     episode == null
-                        ? '查找字幕组与视频版本 · 集数留空可查找合集'
-                        : '下载将关联到第 ${episode.number} 话',
+                        ? '本地缓存、在线源与 BT 资源 · 集数留空可查找合集'
+                        : '第 ${episode!.number} 话 · 播放和下载都会关联到这一话',
                     style: small,
                   ),
                 ],
               ),
             ),
+            ...widget.actions,
           ],
         ),
         const SizedBox(height: Gap.md),
         LayoutBuilder(
           builder: (context, constraints) {
-            final keyword = TextField(
-              key: const PageStorageKey('resource-query'),
-              controller: widget.resourceSearch,
+            final keywordField = TextField(
+              controller: keyword,
               focusNode: queryFocus,
               onChanged: (_) => setState(() {}),
               onSubmitted: (_) => search(),
@@ -405,7 +640,6 @@ class _ResourcesPageState extends State<ResourcesPage> {
               ),
             );
             final episodeField = TextField(
-              key: const PageStorageKey('resource-episode'),
               controller: episodeQuery,
               focusNode: episodeFocus,
               onChanged: (_) => setState(() {}),
@@ -438,7 +672,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
             if (constraints.maxWidth < 490) {
               return Column(
                 children: [
-                  keyword,
+                  keywordField,
                   const SizedBox(height: Gap.md),
                   Row(
                     children: [
@@ -452,7 +686,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
             }
             return Row(
               children: [
-                Expanded(child: keyword),
+                Expanded(child: keywordField),
                 const SizedBox(width: 10),
                 SizedBox(width: 168, child: episodeField),
                 const SizedBox(width: 10),
@@ -463,17 +697,44 @@ class _ResourcesPageState extends State<ResourcesPage> {
         ),
         if (searchBusy) ...[
           const SizedBox(height: Gap.md),
-          ResourceSearchStatus(providers: releases.sources),
+          ResourceSearchStatus(providers: sources),
         ],
+        for (final rule in failingSites)
+          Padding(
+            padding: const EdgeInsets.only(top: Gap.sm),
+            child: Row(
+              children: [
+                const Icon(Icons.error_outline, size: 18, color: coral),
+                const SizedBox(width: Gap.sm),
+                Expanded(
+                  child: Text(
+                    '${rule.name}：${sourceRegistry.errors[rule.id] ?? '需要更新应用'}',
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: small?.copyWith(color: scheme.error),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => launchUrl(
+                    Uri.parse(
+                      rule.website ?? sourceRegistry.currentDomain(rule.id),
+                    ),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                  child: const Text('打开站点'),
+                ),
+              ],
+            ),
+          ),
       ],
     );
-    final providerWarning = releases.sources.any(
+    final providerWarning = sources.any(
       (provider) => const [
         SearchStatus.error,
         SearchStatus.partial,
       ].contains(provider.status),
     );
-    final shownProviders = releases.sources
+    final shownProviders = sources
         .where((provider) => !excludedProviders.contains(provider.sourceId))
         .length;
     final filterBar = ColoredBox(
@@ -488,38 +749,50 @@ class _ResourcesPageState extends State<ResourcesPage> {
                 child: Row(
                   children: [
                     for (final menu in <Widget>[
+                      MelonSegmentedControl<String>(
+                        key: const ValueKey('resource-filter-kind'),
+                        semanticLabel: '资源类型',
+                        options: {
+                          'all': '全部 · ${matching.length}',
+                          for (final value in PlayKind.values)
+                            if (value != PlayKind.pikpak ||
+                                kindCounts[value.name]! > 0 ||
+                                kind == value.name)
+                              value.name:
+                                  '${value.label} · ${kindCounts[value.name]}',
+                        },
+                        value: kind,
+                        onChanged: (value) => changeForm(() => kind = value),
+                      ),
                       MelonFilterMenu<String>(
                         key: const ValueKey('resource-filter-providers'),
                         label: '资源站',
                         icon: Icons.public_rounded,
                         active: excludedProviders.isNotEmpty,
-                        summary: '$shownProviders / ${releases.sources.length}',
+                        summary: '$shownProviders / ${sources.length}',
                         warning: providerWarning,
                         tooltip: providerWarning
                             ? '有资源站搜索失败，打开查看'
                             : '显示或隐藏资源站的结果',
                         sections: [
-                          MelonFilterSection(
-                            [
-                              for (final provider in releases.sources)
-                                MelonFilterOption(
-                                  provider.sourceId,
-                                  provider.sourceName,
-                                  detail: resourceProviderStatus(provider),
-                                  detailColor:
-                                      const [
-                                        SearchStatus.error,
-                                        SearchStatus.partial,
-                                      ].contains(provider.status)
-                                      ? Theme.of(context).colorScheme.tertiary
-                                      : null,
-                                ),
-                            ],
-                            title: releases.sources.isEmpty ? '搜索后显示资源站' : null,
-                          ),
+                          MelonFilterSection([
+                            for (final provider in sources)
+                              MelonFilterOption(
+                                provider.sourceId,
+                                provider.sourceName,
+                                detail: resourceProviderStatus(provider),
+                                detailColor:
+                                    const [
+                                      SearchStatus.error,
+                                      SearchStatus.partial,
+                                    ].contains(provider.status)
+                                    ? scheme.tertiary
+                                    : null,
+                              ),
+                          ], title: sources.isEmpty ? '搜索后显示资源站' : null),
                         ],
                         selected: {
-                          for (final provider in releases.sources)
+                          for (final provider in sources)
                             if (!excludedProviders.contains(provider.sourceId))
                               provider.sourceId,
                         },
@@ -617,11 +890,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
                       child: FilterChip(
                         label: const Text('含未标明'),
                         selected: includeUnknown,
-                        backgroundColor: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHigh,
+                        backgroundColor: scheme.surfaceContainerHigh,
                         showCheckmark: true,
-                        checkmarkColor: Theme.of(context).colorScheme.primary,
+                        checkmarkColor: scheme.primary,
                         onSelected: (value) =>
                             changeForm(() => includeUnknown = value),
                       ),
@@ -639,9 +910,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
             ),
             const SizedBox(width: Gap.md),
             Text(
-              filtered
-                  ? '${visible.length} / ${releases.candidates.length} 条'
-                  : '${releases.candidates.length} 条',
+              filtered || kind != 'all'
+                  ? '${visible.length} / ${candidates.length} 条'
+                  : '${candidates.length} 条',
               style: small?.copyWith(
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
@@ -650,7 +921,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
         ),
       ),
     );
-    final downloadWidth = resourceDownloadWidth(labelled: true, split: true);
+    final method = controller.defaultMethod();
     return CustomScrollView(
       key: const PageStorageKey('page-scroll'),
       slivers: [
@@ -680,7 +951,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                             constraints.maxWidth < resourceTableWidth
                             ? const SizedBox.shrink()
                             : Material(
-                                color: Theme.of(context).colorScheme.surface,
+                                color: scheme.surface,
                                 borderRadius: BorderRadius.vertical(
                                   top: panelBorderRadius.topLeft,
                                 ),
@@ -715,7 +986,11 @@ class _ResourcesPageState extends State<ResourcesPage> {
                                           ),
                                         ),
                                       ],
-                                      SizedBox(width: Gap.sm + downloadWidth),
+                                      SizedBox(
+                                        width:
+                                            Gap.sm +
+                                            resourceActionsWidth(wide: true),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -723,21 +998,26 @@ class _ResourcesPageState extends State<ResourcesPage> {
                       );
               }
               if (index == visible.length + 1) {
+                final emptyKind = matching.isNotEmpty;
                 return (visible.isEmpty &&
                         (allProvidersExcluded ||
                             !searchBusy ||
-                            releases.candidates.isNotEmpty))
+                            candidates.isNotEmpty))
                     ? EmptyState(
                         text: allProvidersExcluded
                             ? '已隐藏全部资源站的结果'
-                            : releases.candidates.isNotEmpty
+                            : emptyKind
+                            ? '此分类暂无资源'
+                            : candidates.isNotEmpty
                             ? '没有符合筛选条件的资源'
                             : providersFailed
                             ? '资源站暂时无法连接'
                             : '没有找到资源，试试其他名称或清空集数关键词',
                         action: allProvidersExcluded
                             ? () => changeForm(excludedProviders.clear)
-                            : releases.candidates.isNotEmpty
+                            : emptyKind
+                            ? () => changeForm(() => kind = 'all')
+                            : candidates.isNotEmpty
                             ? clearFilters
                             : () {
                                 if (!providersFailed) episodeQuery.clear();
@@ -745,7 +1025,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
                               },
                         actionLabel: allProvidersExcluded
                             ? '显示全部资源站'
-                            : releases.candidates.isNotEmpty
+                            : emptyKind
+                            ? '查看全部'
+                            : candidates.isNotEmpty
                             ? '清除筛选'
                             : !providersFailed && episodeQuery.text.isNotEmpty
                             ? '清空集数并搜索'
@@ -754,10 +1036,13 @@ class _ResourcesPageState extends State<ResourcesPage> {
                     : const SizedBox.shrink();
               }
               final i = index - 1;
+              final (candidate, info) = visible[i];
+              final expanded = expandedTitles.contains(candidate.id);
+              final target = episodeOf(candidate);
               return LayoutBuilder(
-                key: ValueKey(visible[i].$1.candidateId),
+                key: ValueKey(candidate.id),
                 builder: (context, constraints) => Material(
-                  color: Theme.of(context).colorScheme.surface,
+                  color: scheme.surface,
                   borderRadius: BorderRadius.vertical(
                     top: i == 0 && constraints.maxWidth < resourceTableWidth
                         ? panelBorderRadius.topLeft
@@ -773,30 +1058,43 @@ class _ResourcesPageState extends State<ResourcesPage> {
                         const Divider(height: 1, indent: 16, endIndent: 16),
                       ResourceArrival(
                         child: ResourceResultRow(
-                          candidate: visible[i].$1,
-                          info: visible[i].$2,
-                          expanded: expandedTitles.contains(
-                            visible[i].$1.candidateId,
-                          ),
+                          candidate: candidate,
+                          info: info,
+                          expanded: expanded,
                           onExpand: () => changeForm(() {
-                            final id = visible[i].$1.candidateId;
-                            if (!expandedTitles.remove(id)) {
-                              expandedTitles.add(id);
+                            if (!expandedTitles.remove(candidate.id)) {
+                              expandedTitles.add(candidate.id);
                             }
                           }),
-                          phase: phaseFor(visible[i].$1, widget.defaultMethod),
-                          error: errorFor(visible[i].$1),
-                          onDownload: () =>
-                              download(visible[i].$1, widget.defaultMethod),
-                          defaultMethod: widget.defaultMethod,
-                          alternativePhase: phaseFor(
-                            visible[i].$1,
-                            widget.defaultMethod.other,
-                          ),
-                          onAlternative: () => download(
-                            visible[i].$1,
-                            widget.defaultMethod.other,
-                          ),
+                          notes: notesOf(candidate),
+                          recommended: candidate.id == recommended,
+                          playing: opening == candidate.id,
+                          onPlay: playable(candidate) && opening == null
+                              ? () => play(candidate, target)
+                              : null,
+                          error: errorFor(candidate),
+                          details: switch (candidate.target) {
+                            OnlineTarget(chooseFrom: _?) when expanded =>
+                              entryPicker(candidate),
+                            _ => null,
+                          },
+                          download: switch (candidate.target) {
+                            ReleaseTarget(candidate: final release) =>
+                              (wide) => ResourceDownloadButton(
+                                phase: phaseFor(candidate, method),
+                                showLabel: wide,
+                                onPressed: () =>
+                                    download(candidate, release, method),
+                                defaultMethod: method,
+                                alternativePhase: phaseFor(
+                                  candidate,
+                                  method.other,
+                                ),
+                                onAlternative: () =>
+                                    download(candidate, release, method.other),
+                              ),
+                            _ => null,
+                          },
                         ),
                       ),
                     ],

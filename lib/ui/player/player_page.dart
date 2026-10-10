@@ -10,8 +10,8 @@ import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/transfer.dart';
 import '../../features/downloads/downloads_controller.dart';
-import '../../features/playback/play_selection.dart';
 import '../../features/playback/playback_coordinator.dart';
+import '../../features/playback/resource_search.dart';
 import '../core/motion.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -27,7 +27,7 @@ class PlayerPage extends StatefulWidget {
   const PlayerPage({
     super.key,
     required this.playback,
-    required this.choices,
+    required this.newResourceSearch,
     required this.onBack,
     required this.onError,
     required this.fullScreen,
@@ -43,11 +43,12 @@ class PlayerPage extends StatefulWidget {
     this.onPlayFile,
     this.onPlayCandidate,
     this.onFindAllResources,
+    this.onOpenResources,
     this.lightsOff,
     this.onLightsChanged,
   });
   final Playback playback;
-  final SourceChoices choices;
+  final ResourceSearchController Function() newResourceSearch;
   final VoidCallback onBack;
   final ValueChanged<Object> onError;
   final bool fullScreen, windowFullScreen;
@@ -61,9 +62,15 @@ class PlayerPage extends StatefulWidget {
   final DownloadsController downloads;
   final ValueChanged<Episode> onEpisode;
   final void Function(String id, String? fileId)? onPlayFile;
-  final Future<void> Function(PlayCandidate candidate, Episode episode)?
+
+  /// Plays a chosen resource; the episode is null only for a cached file
+  /// without a chapter.
+  final Future<void> Function(PlayCandidate candidate, Episode? episode)?
   onPlayCandidate;
   final ValueChanged<Episode?>? onFindAllResources;
+
+  /// Continues a resource-sheet search on the resources page.
+  final void Function(ResourceSearchController search)? onOpenResources;
 
   /// Null when the app theme is already dark and there are no lights to switch.
   final bool? lightsOff;
@@ -506,10 +513,12 @@ class _PlayerPageState extends State<PlayerPage> {
                             key: ValueKey(
                               'resource-sheet:${widget.subject!.id}',
                             ),
-                            choices: widget.choices,
+                            newSearch: widget.newResourceSearch,
                             playback: playback,
-                            onPlayCandidate: widget.onPlayCandidate,
-                            onFindAllResources: widget.onFindAllResources,
+                            onPlay: (candidate, episode) async => widget
+                                .onPlayCandidate
+                                ?.call(candidate, episode),
+                            onOpenPage: widget.onOpenResources,
                             subject: widget.subject!,
                             episodeId: resourceEpisode,
                             visible: resourcesOpen,
@@ -740,23 +749,10 @@ class _PlayerPageState extends State<PlayerPage> {
                               ],
                             ),
                           ] else if (playback.autoplayEndEpisode != null)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                TextButton(
-                                  onPressed: () => findResources(
-                                    playback.autoplayEndEpisode,
-                                  ),
-                                  child: const Text('查找资源'),
-                                ),
-                                if (widget.onFindAllResources != null)
-                                  TextButton(
-                                    onPressed: () => widget.onFindAllResources!(
-                                      playback.autoplayEndEpisode,
-                                    ),
-                                    child: const Text('改用 BT'),
-                                  ),
-                              ],
+                            TextButton(
+                              onPressed: () =>
+                                  findResources(playback.autoplayEndEpisode),
+                              child: const Text('查找资源'),
                             ),
                         ],
                       ),
