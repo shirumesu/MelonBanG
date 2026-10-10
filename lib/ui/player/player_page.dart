@@ -94,7 +94,10 @@ class _PlayerPageState extends State<PlayerPage> {
   int? resourceEpisode;
   PlayerMenu? menu;
   PlayerMenu lastMenu = PlayerMenu.settings;
+
+  /// Position shown instead of the player's while dragging or seeking.
   double? dragging;
+  int seekTicket = 0;
   String? feedback;
   Timer? hideTimer, feedbackTimer;
   StreamSubscription<bool>? playingSubscription;
@@ -146,6 +149,7 @@ class _PlayerPageState extends State<PlayerPage> {
     if (next != sessionId) {
       sessionId = next;
       dragging = null;
+      seekTicket++;
       menu = null;
     }
     setState(() {});
@@ -262,14 +266,45 @@ class _PlayerPageState extends State<PlayerPage> {
     reveal();
   }
 
-  Future<void> seekRelative(int seconds) async {
+  /// Seeks to [seconds] and keeps showing that position until the player
+  /// reports it, so a slow network seek never flashes the previous one.
+  Future<void> seekTo(double seconds) async {
     playback.cancelAutoplay();
-    final maximum = player.state.duration.inMilliseconds;
-    final target = (player.state.position.inMilliseconds + seconds * 1000)
-        .clamp(0, maximum > 0 ? maximum : 1 << 40);
-    await player.seek(Duration(milliseconds: target));
-    showFeedback(seconds > 0 ? '快进 $seconds 秒' : '快退 ${-seconds} 秒');
+    final ticket = ++seekTicket;
+    final duration = player.state.duration.inMilliseconds / 1000;
+    final value = seconds.clamp(0.0, duration > 0 ? duration : seconds);
+    setState(() => dragging = value);
     reveal();
+    final target = Duration(milliseconds: (value * 1000).round());
+    bool arrived(Duration position) =>
+        (position - target).abs() < const Duration(seconds: 2);
+    await player.seek(target);
+    if (!arrived(player.state.position)) {
+      await player.stream.position
+          .firstWhere(arrived)
+          .timeout(const Duration(seconds: 10), onTimeout: () => target);
+    }
+    if (mounted && ticket == seekTicket) setState(() => dragging = null);
+  }
+
+  /// Relative seeks add up while an earlier one is still in flight.
+  Future<void> seekRelative(int seconds) async {
+    final from = dragging ?? player.state.position.inMilliseconds / 1000;
+    showFeedback(seconds > 0 ? '快进 $seconds 秒' : '快退 ${-seconds} 秒');
+    await seekTo(from + seconds);
+  }
+
+  Future<void> changeRate(int step) async {
+    playback.cancelAutoplay();
+    const rates = [.5, .75, 1.0, 1.25, 1.5, 2.0];
+    final current = rates.indexWhere((rate) => rate >= player.state.rate);
+    final next =
+        rates[((current < 0 ? rates.length - 1 : current) + step).clamp(
+          0,
+          rates.length - 1,
+        )];
+    await player.setRate(next);
+    showFeedback('倍速 $next×');
   }
 
   Future<void> changeVolume(double delta) async {
@@ -296,13 +331,36 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   KeyEventResult handleKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    // Held arrows repeat seeks and volume steps like other players.
+    if (event is! KeyDownEvent &&
+        !(event is KeyRepeatEvent &&
+            const [
+              LogicalKeyboardKey.arrowLeft,
+              LogicalKeyboardKey.arrowRight,
+              LogicalKeyboardKey.arrowUp,
+              LogicalKeyboardKey.arrowDown,
+            ].contains(event.logicalKey))) {
+      return KeyEventResult.ignored;
+    }
     final keyboard = HardwareKeyboard.instance;
     if (keyboard.isControlPressed ||
         keyboard.isMetaPressed ||
-        keyboard.isAltPressed ||
-        keyboard.isShiftPressed) {
+        keyboard.isAltPressed) {
       return KeyEventResult.ignored;
+    }
+    if (keyboard.isShiftPressed) {
+      if (menu != null ||
+          !const [
+            LogicalKeyboardKey.period,
+            LogicalKeyboardKey.comma,
+          ].contains(event.logicalKey)) {
+        return KeyEventResult.ignored;
+      }
+      unawaited(
+        changeRate(event.logicalKey == LogicalKeyboardKey.period ? 1 : -1),
+      );
+      reveal();
+      return KeyEventResult.handled;
     }
     if (event.logicalKey == LogicalKeyboardKey.escape &&
         playback.autoplayTarget != null) {
@@ -323,9 +381,18 @@ class _PlayerPageState extends State<PlayerPage> {
     if (event.logicalKey == LogicalKeyboardKey.period ||
         event.logicalKey == LogicalKeyboardKey.comma) {
       unawaited(stepFrame(event.logicalKey == LogicalKeyboardKey.period));
-    } else if (event.logicalKey == LogicalKeyboardKey.space) {
+    } else if (event.logicalKey == LogicalKeyboardKey.space ||
+        event.logicalKey == LogicalKeyboardKey.keyK) {
       playback.cancelAutoplay();
       unawaited(playback.playOrPause());
+    } else if (event.logicalKey == LogicalKeyboardKey.home) {
+      unawaited(seekTo(0));
+    } else if (_digits.indexOf(event.logicalKey) case final digit
+        when digit >= 0) {
+      // 0–9 jump to that tenth of the episode.
+      unawaited(
+        seekTo(player.state.duration.inMilliseconds / 1000 * (digit % 10) / 10),
+      );
     } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
       unawaited(seekRelative(5));
     } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
@@ -555,10 +622,14 @@ class _PlayerPageState extends State<PlayerPage> {
                   playback.cancelAutoplay();
                   if (menu != null) {
                     closeMenu();
-                  } else {
-                    focus.requestFocus();
-                    reveal();
+                    return;
                   }
+                  focus.requestFocus();
+                  if (playback.uri != null && !playback.opening) {
+                    showFeedback(player.state.playing ? '暂停' : '播放');
+                    unawaited(playback.playOrPause());
+                  }
+                  reveal();
                 },
                 onDoubleTap: fullscreen,
                 child: Video(
@@ -795,18 +866,13 @@ class _PlayerPageState extends State<PlayerPage> {
                             dragging: dragging,
                             onDragStart: (value) {
                               playback.cancelAutoplay();
+                              seekTicket++;
                               setState(() => dragging = value);
                               hideTimer?.cancel();
                             },
                             onDragChanged: (value) =>
                                 setState(() => dragging = value),
-                            onDragEnd: (value) async {
-                              await player.seek(
-                                Duration(milliseconds: (value * 1000).round()),
-                              );
-                              if (mounted) setState(() => dragging = null);
-                              reveal();
-                            },
+                            onDragEnd: seekTo,
                             menuFocusNodes: menuFocusNodes,
                             panelOpen: panel ?? false,
                             onTogglePanel: togglePanel,
@@ -1014,3 +1080,26 @@ class _PreparingView extends StatelessWidget {
     );
   }
 }
+
+const _digits = [
+  LogicalKeyboardKey.digit0,
+  LogicalKeyboardKey.digit1,
+  LogicalKeyboardKey.digit2,
+  LogicalKeyboardKey.digit3,
+  LogicalKeyboardKey.digit4,
+  LogicalKeyboardKey.digit5,
+  LogicalKeyboardKey.digit6,
+  LogicalKeyboardKey.digit7,
+  LogicalKeyboardKey.digit8,
+  LogicalKeyboardKey.digit9,
+  LogicalKeyboardKey.numpad0,
+  LogicalKeyboardKey.numpad1,
+  LogicalKeyboardKey.numpad2,
+  LogicalKeyboardKey.numpad3,
+  LogicalKeyboardKey.numpad4,
+  LogicalKeyboardKey.numpad5,
+  LogicalKeyboardKey.numpad6,
+  LogicalKeyboardKey.numpad7,
+  LogicalKeyboardKey.numpad8,
+  LogicalKeyboardKey.numpad9,
+];

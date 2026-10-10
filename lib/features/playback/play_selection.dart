@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 
 import '../../domain/catalog.dart';
 import '../../core/network.dart';
@@ -59,6 +60,7 @@ class PlaySelectionRepository {
       onlineFirst: onlineFirst,
       language: language,
       continuity: useContinuity ? continuity[subjectId] : null,
+      singleEpisode: episode != null,
     );
     void add(Iterable<PlayCandidate> values) {
       if (cancel?.isCancelled == true) return;
@@ -248,45 +250,38 @@ PlayCandidate releaseCandidate(ReleaseCandidate candidate, int order) {
   );
 }
 
+/// Ranks candidates for playback and recommendation: cached files first, then
+/// online or torrent by [onlineFirst], PikPak last. Within a tier confident
+/// matches precede possible ones, recently failed sources drop, the subject's
+/// previous choice continues, and [resourceScores] orders the rest.
 List<PlayCandidate> rankPlayCandidates(
   Iterable<PlayCandidate> candidates, {
   required bool onlineFirst,
   String? continuity,
   String language = 'auto',
+  bool singleEpisode = true,
 }) {
-  int tier(PlayCandidate c) => c.kind == PlayKind.local
-      ? 0
-      : switch (c.kind) {
-          PlayKind.online => onlineFirst ? 1 : 2,
-          PlayKind.bt => onlineFirst ? 2 : 1,
-          PlayKind.pikpak => 3,
-          PlayKind.local => 0,
-        };
-  int languageMatch(PlayCandidate c) =>
-      c.languages.contains(switch (language) {
-        'simplified' || 'chs' => '简体',
-        'traditional' || 'cht' => '繁体',
-        'japanese' || 'ja' => '日文',
-        _ => '',
-      })
-      ? 1
-      : 0;
-  int quality(PlayCandidate c) => switch (c.quality) {
-    '4K' || '2160p' => 3,
-    '1080p' => 2,
-    '720p' => 1,
-    _ => 0,
+  int tier(PlayCandidate c) => switch (c.kind) {
+    PlayKind.local => 0,
+    PlayKind.online => onlineFirst ? 1 : 2,
+    PlayKind.bt => onlineFirst ? 2 : 1,
+    PlayKind.pikpak => 3,
   };
   final result = candidates.toList();
+  final scores = resourceScores(
+    result,
+    language: language,
+    singleEpisode: singleEpisode,
+  );
   result.sort((a, b) {
     for (final comparison in [
       tier(a).compareTo(tier(b)),
+      (a.possibleMatch ? 1 : 0).compareTo(b.possibleMatch ? 1 : 0),
+      b.health.compareTo(a.health),
       (b.continuityKey == continuity ? 1 : 0).compareTo(
         a.continuityKey == continuity ? 1 : 0,
       ),
-      languageMatch(b).compareTo(languageMatch(a)),
-      quality(b).compareTo(quality(a)),
-      b.health.compareTo(a.health),
+      scores[b.id]!.compareTo(scores[a.id]!),
       a.order.compareTo(b.order),
       a.provider.compareTo(b.provider),
       a.title.compareTo(b.title),
@@ -297,4 +292,116 @@ List<PlayCandidate> rankPlayCandidates(
     return 0;
   });
   return result;
+}
+
+/// Title annotations of a candidate: the original release or task title with
+/// its site release groups.
+ResourceTitleInfo describeCandidate(PlayCandidate candidate) =>
+    switch (candidate.target) {
+      ReleaseTarget(candidate: ReleaseCandidate(:final release)) =>
+        describeResource(release.title, releaseGroups: release.releaseGroups),
+      DownloadTarget(:final task) => describeResource(
+        task.title,
+        releaseGroups: task.releaseGroups,
+      ),
+      OnlineTarget() => describeResource(candidate.title),
+    };
+
+/// Quality-first value of each candidate, by id. Output quality dominates;
+/// subtitle language and form, source format, codec and size relative to
+/// releases of the same quality balance the rest, so a reasonably sized
+/// release with preferred subtitles beats a bloated or starved one. Episode
+/// conflicts, and batches when [singleEpisode], score far lower.
+Map<String, double> resourceScores(
+  List<PlayCandidate> candidates, {
+  String language = 'auto',
+  bool singleEpisode = true,
+}) {
+  final preferred = switch (language) {
+    'traditional' || 'cht' => '繁体',
+    'japanese' || 'ja' => '日文',
+    _ => '简体',
+  };
+  final details = {
+    for (final candidate in candidates)
+      candidate.id: (
+        describeCandidate(candidate),
+        switch (candidate.target) {
+          ReleaseTarget(candidate: ReleaseCandidate(:final release)) =>
+            releaseBytes(release),
+          _ => null,
+        },
+      ),
+  };
+  bool batch(ResourceTitleInfo info) =>
+      info.episodeLabel?.contains('–') ?? false;
+  final sizes = <String?, List<int>>{};
+  for (final (info, size) in details.values) {
+    if (size != null && !batch(info)) (sizes[info.quality] ??= []).add(size);
+  }
+  final medians = {
+    for (final MapEntry(key: quality, value: values) in sizes.entries)
+      quality: (values..sort())[values.length ~/ 2],
+  };
+  double score(ResourceTitleInfo info, int? size) {
+    final labels = info.labels;
+    final languages = info.languages;
+    final median = medians[info.quality];
+    var value = switch (info.quality) {
+      '4K' => 300.0,
+      '1080p' => 200.0,
+      '720p' => 100.0,
+      _ => 80.0,
+    };
+    value += languages.contains(preferred)
+        ? 30
+        : languages.any((e) => e != '日文')
+        ? 18
+        : languages.isNotEmpty
+        ? 5
+        : 0;
+    value += info.subtitleForms.contains('内封')
+        ? 10
+        : info.subtitleForms.isNotEmpty
+        ? 6
+        : 3;
+    value += labels.any((e) => e.startsWith('BD'))
+        ? 8
+        : labels.contains('WEB-DL')
+        ? 6
+        : labels.contains('WebRip')
+        ? 5
+        : 3;
+    value += labels.contains('HEVC')
+        ? 6
+        : labels.contains('AVC')
+        ? 4
+        : 3;
+    if (labels.contains('10bit')) value += 2;
+    if (median != null && !batch(info)) {
+      value += size == null
+          ? -4
+          : (6 - 12 * (log(size / median) / ln2).abs()).clamp(-20, 6);
+    }
+    if (info.episodeConflict) value -= 400;
+    if (singleEpisode && batch(info)) value -= 40;
+    return value;
+  }
+
+  return {
+    for (final MapEntry(key: id, value: (info, size)) in details.entries)
+      id: score(info, size),
+  };
+}
+
+/// Release size in bytes from the site's byte count or its size label.
+int? releaseBytes(TorrentRelease release) {
+  if ((release.sizeBytes ?? 0) > 1) return release.sizeBytes;
+  final match = RegExp(
+    r'(\d+(?:\.\d+)?)\s*([KMGT])i?B',
+    caseSensitive: false,
+  ).firstMatch(release.sizeLabel ?? '');
+  if (match == null) return null;
+  final unit = 'KMGT'.indexOf(match[2]!.toUpperCase()) + 1;
+  return (double.parse(match[1]!) * pow(1024, unit)).round();
 }
