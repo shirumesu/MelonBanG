@@ -8,17 +8,16 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/json.dart';
-import '../../data/store.dart';
+import '../danmaku/danmaku_controller.dart';
+import '../danmaku/danmaku_repository.dart';
 import '../downloads/download_repository.dart';
 import 'playback_library.dart';
 import 'playback_preferences.dart';
 
 class Playback extends ChangeNotifier {
-  Playback(this.library, this.store, this.downloads, this.preferences) {
-    _subscriptions.add(library.changes.stream.listen(accept));
+  Playback(this.library, this.downloads, this.danmaku, this.preferences) {
     settings = PlaybackPreferences(preferences);
-    danmaku = DanmakuPreferences(preferences);
-    danmaku.addListener(_presentationChanged);
+    danmaku.addListener(_danmakuChanged);
     settings.addListener(_settingsChanged);
     _savedRate = preferences.getDouble('player-rate') ?? 1;
     unawaited(player.setRate(_savedRate));
@@ -81,8 +80,8 @@ class Playback extends ChangeNotifier {
     });
   }
   final PlaybackLibrary library;
-  final AppStore store;
   final DownloadRepository downloads;
+  final DanmakuController danmaku;
   final SharedPreferences preferences;
   final player = Player(
     configuration: const PlayerConfiguration(title: 'Melonbang', libass: true),
@@ -91,7 +90,6 @@ class Playback extends ChangeNotifier {
   final _subscriptions = <StreamSubscription<dynamic>>[];
   Timer? _timer, _volumeWrite, _rateWrite, _autoplayTimer;
   late final PlaybackPreferences settings;
-  late final DanmakuPreferences danmaku;
   double _savedRate = 1;
   bool frameStepping = false;
   bool _manualSubtitle = false, _manualAudio = false;
@@ -103,10 +101,6 @@ class Playback extends ChangeNotifier {
   Json? autoplayEndEpisode;
   String? autoplayMessage;
   int autoplaySeconds = 0;
-  List<Json> _comments = [];
-  List<Json> visibleComments = [];
-  Map<String, double> danmakuOffsets = {};
-  Future<void>? _offsetTable;
   static const _volumeKey = 'player-volume', _mutedKey = 'player-muted';
   Json? session;
   String? uri;
@@ -126,22 +120,8 @@ class Playback extends ChangeNotifier {
 
   bool opening = false;
   bool _closed = false;
-  bool get danmakuEnabled => danmaku.enabled;
-  set danmakuEnabled(bool value) =>
-      danmaku.update(() => danmaku.enabled = value);
+  bool get danmakuEnabled => danmaku.preferences.enabled;
   double subtitleDelay = 0;
-  double get danmakuOpacity => danmaku.opacity;
-  set danmakuOpacity(double value) =>
-      danmaku.update(() => danmaku.opacity = value);
-  double get danmakuSize => danmaku.size;
-  set danmakuSize(double value) => danmaku.update(() => danmaku.size = value);
-  double get danmakuArea => danmaku.area;
-  set danmakuArea(double value) => danmaku.update(() => danmaku.area = value);
-  List<Json> get comments => _comments;
-  set comments(List<Json> value) {
-    _comments = value;
-    _presentationChanged();
-  }
 
   Future<void> _openQueue = Future.value();
   Future<void> _frameQueue = Future.value();
@@ -179,7 +159,8 @@ class Playback extends ChangeNotifier {
 
   void toggleDanmaku() {
     cancelAutoplay();
-    danmakuEnabled = !danmakuEnabled;
+    final preferences = danmaku.preferences;
+    preferences.update(() => preferences.enabled = !preferences.enabled);
   }
 
   Future<void> offsetSubtitle(double delta) async {
@@ -216,9 +197,21 @@ class Playback extends ChangeNotifier {
       }
       await library.activate(next);
       session = next;
-      comments = [];
-      danmakuOffsets = {};
-      await _loadOffsets(next);
+      final source = object(next['source']);
+      final embedded = object(source['danmaku']);
+      final danmakuTarget = DanmakuTarget(
+        matchKey: (next['path'] ?? next['resumeKey']) as String?,
+        offsetKey: (next['resumeKey'] ?? source['url']) as String?,
+        embedded: embedded['provider'] is String
+            ? ('${embedded['provider']}', '${embedded['locator']}')
+            : null,
+        subjectId: next['subjectId'] as int?,
+        episodeId: next['episodeId'] as int?,
+        path: next['path'] as String?,
+        fileSize: next['fileSize'] as int?,
+        remote: next['remoteSource'] == true || next['streamId'] != null,
+      );
+      await danmaku.begin(danmakuTarget);
       subtitleDelay = 0;
       uri = object(next['source'])['url'] as String?;
       if (uri == null) throw StateError('没有可播放的文件。');
@@ -266,7 +259,6 @@ class Playback extends ChangeNotifier {
       }
       if (next['startSeconds'] is num) resume = number(next['startSeconds']);
       // Apply continuation while loading; open() can return before native seek is ready.
-      final source = object(next['source']);
       _manifest = source['playlist'] is String
           ? await Media.memory(
               Uint8List.fromList(utf8.encode(source['playlist'] as String)),
@@ -288,13 +280,11 @@ class Playback extends ChangeNotifier {
       await _preferTracks(player.state.tracks);
       downloads.releaseStreamsExcept(next['streamId'] as int?);
       await player.play();
-      if (!_closed &&
-          next['standalone'] != true &&
-          library.current?['id'] == next['id']) {
+      if (!_closed && next['standalone'] != true) {
         unawaited(
-          library.autoMatch(
+          danmaku.autoMatch(
             player.state.duration.inMilliseconds / 1000,
-            sessionId: next['id'] as String,
+            target: danmakuTarget,
           ),
         );
       }
@@ -309,14 +299,6 @@ class Playback extends ChangeNotifier {
       opening = false;
       notifyListeners();
     }
-  }
-
-  void accept(Json next) {
-    if (next['id'] != session?['id']) return;
-    session = next;
-    final incoming = objects(next['danmaku']);
-    if (incoming.isNotEmpty || comments.isNotEmpty) comments = incoming;
-    notifyListeners();
   }
 
   (Object, Object?, double, double, bool)? _lastProgress;
@@ -357,47 +339,9 @@ class Playback extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _presentationChanged() {
-    visibleComments = danmaku.visible(_comments, danmakuOffsets);
+  void _danmakuChanged() {
     danmakuRevision++;
     notifyListeners();
-  }
-
-  Future<void> _ensureOffsetTable() => _offsetTable ??= store.database.execute(
-    'CREATE TABLE IF NOT EXISTS danmaku_offsets (resume_key TEXT NOT NULL, source TEXT NOT NULL, seconds REAL NOT NULL, PRIMARY KEY(resume_key,source))',
-  );
-
-  Future<void> _loadOffsets(Json next) async {
-    final key = next['resumeKey'] ?? object(next['source'])['url'];
-    if (key == null) return;
-    try {
-      await _ensureOffsetTable();
-      final rows = await store.database.query(
-        'danmaku_offsets',
-        where: 'resume_key=?',
-        whereArgs: ['$key'],
-      );
-      if (session?['id'] != next['id']) return;
-      danmakuOffsets = {
-        for (final row in rows) '${row['source']}': number(row['seconds']),
-      };
-      _presentationChanged();
-    } catch (_) {
-      _offsetTable = null;
-      /* Keep playback usable if danmaku offset storage fails. */
-    }
-  }
-
-  Future<void> offsetDanmaku(String provider, double seconds) async {
-    final key = session?['resumeKey'] ?? uri;
-    if (key == null) return;
-    danmakuOffsets = {...danmakuOffsets, provider: seconds};
-    _presentationChanged();
-    await _ensureOffsetTable();
-    await store.database.rawInsert(
-      'INSERT OR REPLACE INTO danmaku_offsets (resume_key,source,seconds) VALUES (?,?,?)',
-      ['$key', provider, seconds],
-    );
   }
 
   Future<void> selectSubtitle(SubtitleTrack track) async {
@@ -606,7 +550,7 @@ class Playback extends ChangeNotifier {
     _rateWrite?.cancel();
     cancelAutoplay();
     await preferences.setDouble('player-rate', _savedRate);
-    danmaku.removeListener(_presentationChanged);
+    danmaku.removeListener(_danmakuChanged);
     settings.removeListener(_settingsChanged);
     await _openQueue;
     await _frameQueue;

@@ -384,7 +384,9 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       const SectionTitle(title: '弹幕'),
       MelonPanel(
-        child: DanmakuPreferencesEditor(preferences: playback.danmaku),
+        child: DanmakuPreferencesEditor(
+          preferences: playback.danmaku.preferences,
+        ),
       ),
     ];
   }
