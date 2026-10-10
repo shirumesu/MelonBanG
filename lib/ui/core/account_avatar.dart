@@ -36,12 +36,9 @@ class AccountAvatar extends StatelessWidget {
         dimension: size,
         child: url == null || url!.isEmpty
             ? fallback
-            : Image(
-                image: cachedImageProvider(
-                  context,
-                  url!,
-                  cacheWidth: imageDecodeWidth(context, size),
-                ),
+            : CachedImage(
+                url: url!,
+                cacheWidth: imageDecodeWidth(context, size),
                 fit: BoxFit.cover,
                 frameBuilder: (_, child, frame, synchronous) =>
                     frame == null && !synchronous ? fallback : child,
