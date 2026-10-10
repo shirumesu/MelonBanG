@@ -796,7 +796,7 @@ class _MelonAppState extends State<MelonApp>
           subjects: subjects,
           personal: personal,
           resume: resume,
-          community: service.tracking.community,
+          community: service.community,
           onFindResources: (episode) {
             final item = subjects.subject;
             if (episode == null) {

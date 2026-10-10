@@ -1,13 +1,12 @@
 import 'package:flutter/foundation.dart';
 
-import '../../integrations/bangumi/account.dart';
 import 'tracking_repository.dart';
 import '../../domain/catalog.dart';
 
 /// The Bangumi account, its collection and sync state.
 class TrackingController extends ChangeNotifier {
   TrackingController(this.account, this.tracking);
-  final AccountRepository account;
+  final Account account;
   final TrackingRepository tracking;
 
   AccountProfile? profile;
@@ -51,7 +50,7 @@ class TrackingController extends ChangeNotifier {
   /// Pulls the remote collection; returns what still needs attention.
   Future<String?> synchronize() async {
     final user = account.userId;
-    if (account.session == null) return '登录 Bangumi 后可同步收藏。';
+    if (account.profile == null) return '登录 Bangumi 后可同步收藏。';
     try {
       await tracking.refresh();
       await refresh();
@@ -67,7 +66,7 @@ class TrackingController extends ChangeNotifier {
 
   /// Refreshes the remote collection when signed in.
   Future<void> pull() async {
-    if (account.session != null && !account.needsAuthorization) {
+    if (account.profile != null && !account.needsAuthorization) {
       await tracking.refresh();
     }
   }
@@ -78,7 +77,7 @@ class TrackingController extends ChangeNotifier {
     accountBusy = true;
     notifyListeners();
     try {
-      if (account.session == null || account.needsAuthorization) {
+      if (account.profile == null || account.needsAuthorization) {
         await account.signIn();
         await refresh();
         await tracking.refresh();

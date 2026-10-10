@@ -3,16 +3,21 @@ import 'dart:convert';
 import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../domain/sources.dart';
+import 'bundled_source_rules.dart';
 
 const melonApiOrigin = 'https://melonapi.konataizumi.com';
 
 /// Reads the maintained rule snapshot with conditional requests.
-class SourceRulesClient {
+class SourceRulesClient implements SourceRules {
   SourceRulesClient(this.api, {this.origin = melonApiOrigin});
   final ApiClient api;
   final String origin;
 
-  /// Returns `null` when the snapshot matching [etag] is still current.
+  @override
+  SourceSnapshot get bundled =>
+      SourceSnapshot.fromJson(object(jsonDecode(bundledSourceRules)));
+
+  @override
   Future<({SourceSnapshot snapshot, String? etag})?> fetch({
     String? etag,
   }) async {

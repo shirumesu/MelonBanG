@@ -213,6 +213,18 @@ final class TorrentRelease {
   );
 }
 
+/// The maintained rule snapshot: one bundled with the app, and conditional
+/// reads of the current one.
+abstract interface class SourceRules {
+  SourceSnapshot get bundled;
+
+  /// Returns `null` when the snapshot matching [etag] is still current.
+  Future<({SourceSnapshot snapshot, String? etag})?> fetch({String? etag});
+}
+
+/// Creates the engine that runs [instance]; keyed by the rule `engine` name.
+typedef SourceEngineFactory = SourceEngine Function(SourceInstance instance);
+
 abstract interface class SourceEngine {
   SourceInstance get instance;
   String get currentBase;

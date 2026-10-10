@@ -14,7 +14,7 @@ Future<Json?> cachedSubjectDetail(AppStore store, int id) async {
   return cached == null ? null : object(object(cached['value'])['data']);
 }
 
-class CatalogRepository implements SubjectCovers {
+class CatalogRepository implements Catalog {
   CatalogRepository(
     this.api,
     this.store,
@@ -153,15 +153,16 @@ class CatalogRepository implements SubjectCovers {
     return result;
   }
 
-  /// A list card or stored row; remembers its cover for other pages.
+  @override
   Subject card(Json value) => Subject.fromJson(_summary(value));
 
-  /// The locally cached detail, without a request.
+  @override
   Future<Subject?> cached(int id) async {
     final detail = await cachedSubjectDetail(store, id);
     return detail == null ? null : card(detail);
   }
 
+  @override
   Future<SubjectResults> search(
     String keyword, {
     int offset = 0,
@@ -189,6 +190,7 @@ class CatalogRepository implements SubjectCovers {
     return page(response);
   }
 
+  @override
   Future<List<Subject>> trending({
     bool refresh = false,
     int? limit,
@@ -226,6 +228,7 @@ class CatalogRepository implements SubjectCovers {
   }
 
   // The schedule API defines its day in Asia/Shanghai, independent of the host.
+  @override
   String get scheduleDate => DateTime.now()
       .toUtc()
       .add(const Duration(hours: 8))
@@ -243,6 +246,7 @@ class CatalogRepository implements SubjectCovers {
     );
   }
 
+  @override
   Future<SchedulePage> today({
     bool refresh = false,
     void Function(SchedulePage)? onCached,
@@ -259,6 +263,7 @@ class CatalogRepository implements SubjectCovers {
     return _today(response);
   }
 
+  @override
   Future<List<ScheduleDay>> calendar({
     void Function(List<ScheduleDay>)? onCached,
   }) async {
@@ -298,6 +303,7 @@ class CatalogRepository implements SubjectCovers {
     }).toList();
   }
 
+  @override
   Future<Subject> subject(
     int id, {
     FutureOr<void> Function(Subject)? onAvailable,

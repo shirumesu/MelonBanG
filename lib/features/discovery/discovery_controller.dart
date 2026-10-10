@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-import '../../integrations/melon_api/catalog.dart';
 import '../../domain/catalog.dart';
 
 /// One catalogue search: the query, the pages received so far, and where the
@@ -28,7 +27,7 @@ class SearchResults {
 /// Home feeds, the weekly calendar and catalogue search.
 class DiscoveryController extends ChangeNotifier {
   DiscoveryController(this.catalog);
-  final CatalogRepository catalog;
+  final Catalog catalog;
 
   List<Subject> trending = [], today = [];
   String? todayDate;

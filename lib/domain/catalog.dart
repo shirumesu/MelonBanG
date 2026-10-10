@@ -4,6 +4,8 @@
 /// rows; stored JSON keeps its original field names.
 library;
 
+import 'dart:async';
+
 typedef _Json = Map<String, dynamic>;
 
 _Json _object(Object? value) =>
@@ -518,4 +520,60 @@ abstract interface class SubjectCovers {
 
   /// Ids whose cover became known.
   Stream<int> get coverUpdates;
+}
+
+/// Public catalogue reads. An `onCached` callback receives the cached value
+/// before the request completes.
+abstract interface class Catalog implements SubjectCovers {
+  /// A list card or stored row; remembers its cover for other pages.
+  Subject card(Map<String, dynamic> value);
+
+  /// The locally cached detail, without a request.
+  Future<Subject?> cached(int id);
+  Future<SubjectResults> search(
+    String keyword, {
+    int offset = 0,
+    void Function(SubjectResults)? onCached,
+  });
+  Future<List<Subject>> trending({
+    bool refresh = false,
+    int? limit,
+    void Function(List<Subject>)? onCached,
+  });
+
+  /// The schedule's current day, `yyyy-MM-dd`.
+  String get scheduleDate;
+  Future<SchedulePage> today({
+    bool refresh = false,
+    void Function(SchedulePage)? onCached,
+  });
+  Future<List<ScheduleDay>> calendar({
+    void Function(List<ScheduleDay>)? onCached,
+  });
+  Future<Subject> subject(
+    int id, {
+    FutureOr<void> Function(Subject)? onAvailable,
+    bool forPlayback = false,
+  });
+}
+
+/// The account collection edits sync to; `local` while signed out.
+abstract interface class Account {
+  String get userId;
+
+  /// Present while signed in.
+  AccountProfile? get profile;
+
+  /// Saved credentials must be unlocked before requests are authorized.
+  bool get needsAuthorization;
+
+  /// An authorized API request; throws once the account changes.
+  Future<dynamic> request(
+    String path, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+  });
+  Future<void> signIn();
+  Future<void> cancelSignIn();
+  Future<void> signOut();
 }
