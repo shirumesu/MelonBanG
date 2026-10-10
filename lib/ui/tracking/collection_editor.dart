@@ -182,8 +182,6 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final episodes = widget.subject.episodes;
-    final watched = episodes.where((e) => e.watched).length;
     final tooLong = comment.text.runes.length > collectionCommentLimit;
     final popular = widget.subject.tags.map((tag) => tag.name).take(16);
     Widget section(String title, Widget child, {String? detail}) => Padding(
@@ -245,7 +243,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                       children: [
                         Text('编辑收藏', style: text.titleMedium),
                         Text(
-                          '${widget.subject.title} · 已看 $watched / ${episodes.length} 话',
+                          widget.subject.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: text.bodySmall,
@@ -442,7 +440,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                 children: [
                   Expanded(
                     child: Text(
-                      changed ? '关闭会暂存草稿' : '保存后同步到 Bangumi',
+                      changed ? '关闭会暂存草稿' : '',
                       style: text.bodySmall,
                     ),
                   ),

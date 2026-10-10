@@ -427,30 +427,6 @@ class _SubjectPosterState extends State<SubjectPoster> {
                           ),
                         ),
                       ),
-                    if (tracking && item.episodeTotal != null)
-                      Positioned(
-                        top: 10,
-                        right: 9,
-                        child: Container(
-                          constraints: const BoxConstraints(minHeight: 24),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black38,
-                            borderRadius: badgeBorderRadius,
-                          ),
-                          child: Text(
-                            '全 ${item.episodeTotal} 话',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
                     IgnorePointer(
                       child: AnimatedContainer(
                         duration: motionDuration(context, pressed ? 80 : 120),
@@ -509,9 +485,12 @@ class _SubjectPosterState extends State<SubjectPoster> {
               const Spacer(),
               if (tracking)
                 Text(
-                  item.watchedEpisodes == null
-                      ? '未记录进度'
-                      : '已看 ${item.watchedEpisodes} 话',
+                  switch ((item.watchedEpisodes, item.episodeTotal)) {
+                    (null, null) => '',
+                    (null, final total?) => '全 $total 话',
+                    (final watched?, null) => '已看 $watched 话',
+                    (final watched?, final total?) => '已看 $watched/$total',
+                  },
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -522,7 +501,6 @@ class _SubjectPosterState extends State<SubjectPoster> {
                 Text(
                   [
                     if (item.season?.year case final year?) '$year',
-                    item.platform ?? '动画',
                     if (item.episodeTotal != null) '${item.episodeTotal} 话',
                   ].join(' · '),
                   style: TextStyle(

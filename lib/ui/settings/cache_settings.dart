@@ -123,11 +123,9 @@ class _CacheSettingsState extends State<CacheSettings> {
                       : (method) => run(() => widget.onMethodChanged(method)),
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text('BT 直接从节点下载到本机；PikPak 先在云端完成离线下载，再缓存到本机。'),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Text(
-                '下载按钮使用默认方式，右侧下拉菜单可为单个资源选择另一种方式。',
+                'BT 直接下载到本机；PikPak 先离线到云端，再下载到本机',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -139,7 +137,7 @@ class _CacheSettingsState extends State<CacheSettings> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (widget.needsAuthorization) ...[
-                const Text('PikPak 凭据等待系统授权，解锁后可继续使用云端下载。'),
+                const Text('PikPak 登录凭据待解锁'),
                 const SizedBox(height: 16),
                 FilledButton.icon(
                   onPressed: busy || widget.onUnlock == null
@@ -159,7 +157,7 @@ class _CacheSettingsState extends State<CacheSettings> {
                   label: const Text('退出 PikPak'),
                 ),
               ] else ...[
-                const Text('连接 PikPak 后可使用云端离线下载。云端任务完成后，即可开始缓存和播放。'),
+                const Text('登录后可用 PikPak 云端离线下载'),
                 const SizedBox(height: 16),
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 420),
@@ -196,11 +194,6 @@ class _CacheSettingsState extends State<CacheSettings> {
                   label: Text(busy ? '连接中…' : '登录 PikPak'),
                 ),
               ],
-              const SizedBox(height: 16),
-              Text(
-                'PikPak 的云端容量和离线下载额度取决于你的账户。移除本机缓存会保留云端文件。',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
               if (message != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),

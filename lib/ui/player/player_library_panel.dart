@@ -163,7 +163,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                       Text(
                         current == null
                             ? '正在播放'
-                            : '正在播放第 ${current.number} 话 · 共 ${episodes.length} 话',
+                            : '第 ${current.number} 话 / 共 ${episodes.length} 话',
                         style: small,
                       ),
                     ],
@@ -181,7 +181,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
           if (widget.subjectId == null)
             Padding(
               padding: const EdgeInsets.all(Gap.lg),
-              child: Text('此视频没有关联番剧。关联番剧播放时，可在这里选集、查找资源和查看缓存。', style: small),
+              child: Text('这个视频没有关联番剧', style: small),
             )
           else ...[
             if (tasks.isNotEmpty)
@@ -189,8 +189,8 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                 padding: const EdgeInsets.fromLTRB(Gap.lg, 0, Gap.lg, Gap.sm),
                 child: MelonSegmentedControl<String>(
                   options: {
-                    'episodes': '选集 · ${episodes.length}',
-                    'tasks': '本作缓存 · ${tasks.length}',
+                    'episodes': '选集 ${episodes.length}',
+                    'tasks': '缓存 ${tasks.length}',
                   },
                   value: showTasks ? 'tasks' : 'episodes',
                   onChanged: (value) {
@@ -228,7 +228,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                   : episodes.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.all(Gap.sm),
-                      child: Text('暂未获取到章节信息，可点“找资源”搜索本作。', style: small),
+                      child: Text('暂无剧集信息', style: small),
                     )
                   : ListView.builder(
                       controller: episodeScroll,
@@ -263,8 +263,8 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
         : available
         ? (task != null && !task.complete ? '可边下边看' : '已缓存')
         : task != null
-        ? '${taskStatus(task)} · ${(task.progress * 100).round()}%'
-        : '未缓存 · 点击查找资源';
+        ? '${taskStatus(task)} ${(task.progress * 100).round()}%'
+        : null;
     final title = episode.title;
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
@@ -332,18 +332,20 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                               : scheme.onSurfaceVariant,
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        status,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: small?.copyWith(
-                          fontSize: 11,
-                          color: current || (available && task != null)
-                              ? scheme.primary
-                              : null,
+                      if (status != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          status,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: small?.copyWith(
+                            fontSize: 11,
+                            color: current || (available && task != null)
+                                ? scheme.primary
+                                : null,
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -417,7 +419,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                   ),
                 if (task.playable && files.length == 1)
                   IconButton(
-                    tooltip: progress >= 1 ? '播放已缓存视频' : '边下边看',
+                    tooltip: progress >= 1 ? '播放' : '边下边看',
                     onPressed: () => widget.onPlayFile(task.id, files.first.id),
                     icon: const Icon(Icons.play_arrow, size: 18),
                   ),
@@ -431,9 +433,9 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
             const SizedBox(height: 7),
             Text(
               '${taskStatus(task)}${task.status == DownloadStatus.seeding
-                  ? ' · ↑ ${(task.uploadSpeed / 1048576).toStringAsFixed(1)} MiB/s'
+                  ? '  ↑ ${transferRate(task.uploadSpeed)}'
                   : task.status == DownloadStatus.downloading
-                  ? ' · ${(task.downloadSpeed / 1048576).toStringAsFixed(1)} MB/s'
+                  ? '  ↓ ${transferRate(task.downloadSpeed)}'
                   : ''}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
@@ -449,7 +451,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
               ExpansionTile(
                 tilePadding: EdgeInsets.zero,
                 title: Text(
-                  '选择文件播放 · ${files.length} 个',
+                  '选择文件（${files.length}）',
                   style: const TextStyle(fontSize: 12),
                 ),
                 children: [
@@ -473,4 +475,4 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
 }
 
 String taskStatus(DownloadTask task) =>
-    task.cloud ? 'PikPak · ${downloadStatus(task)}' : downloadStatus(task);
+    task.cloud ? 'PikPak ${downloadStatus(task)}' : downloadStatus(task);

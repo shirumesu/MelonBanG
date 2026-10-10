@@ -126,16 +126,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
 
   Widget _row(CommunityEntry entry) {
     final name = entry.author;
-    final meta = <String>[
-      name,
-      if (segment == 'comments' && entry.score > 0) '★ ${entry.score}',
-      if (segment == 'comments') collectionLabels[entry.status] ?? '',
-      if (segment == 'topics') '${entry.replies} 回复',
-      if (segment == 'topics')
-        '最后回复 ${_time(entry.time)}'
-      else
-        _time(entry.time),
-    ].where((value) => value.isNotEmpty).toList();
+    final small = Theme.of(context).textTheme.bodySmall;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
@@ -162,9 +153,39 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                           ),
                     child: Text(entry.title ?? '无标题'),
                   ),
-                Text(
-                  meta.join(' · '),
-                  style: Theme.of(context).textTheme.bodySmall,
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: small?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (segment == 'comments' && entry.score > 0) ...[
+                      const SizedBox(width: Gap.sm),
+                      Text(
+                        '★ ${entry.score}',
+                        style: small?.copyWith(color: gold),
+                      ),
+                    ],
+                    if (segment == 'comments')
+                      if (collectionLabels[entry.status]
+                          case final status?) ...[
+                        const SizedBox(width: Gap.sm),
+                        Text(status, style: small),
+                      ],
+                    if (segment == 'topics') ...[
+                      const SizedBox(width: Gap.sm),
+                      Text('${entry.replies} 回复', style: small),
+                    ],
+                    const Spacer(),
+                    Text(_time(entry.time), style: small),
+                  ],
                 ),
                 if (segment != 'topics') ...[
                   const SizedBox(height: 6),
@@ -627,8 +648,8 @@ class _SubjectRelationsState extends State<SubjectRelations> {
                           ),
                           Text(
                             [
-                              '${row.relation}',
-                              '${row.platform}',
+                              if (row.relation != _group(row)) ?row.relation,
+                              ?row.platform,
                               ?row.season?.year,
                             ].join(' · '),
                             style: text.bodySmall,
