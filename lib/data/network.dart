@@ -50,7 +50,7 @@ class _HostRequests {
   int active = 0;
   final waiting = Queue<Completer<void>>();
   Future<T> run<T>(Future<T> Function() action) async {
-    if (active >= 4) {
+    if (active >= ApiClient.maxRequestsPerHost) {
       final slot = Completer<void>();
       waiting.add(slot);
       await slot.future;
@@ -83,6 +83,7 @@ class ApiException implements Exception {
 class ApiClient {
   ApiClient({http.Client? client, this.timeout = const Duration(seconds: 20)})
     : client = client ?? http.Client();
+  static const maxRequestsPerHost = 4;
   final Duration timeout;
   final _active = <Completer<void>>{};
   final _hosts = <String, _HostRequests>{};
@@ -160,7 +161,9 @@ class ApiClient {
             return client.send(request).then(http.Response.fromStream);
           })
           .whenComplete(() {
-            if (queue.active == 0) _hosts.remove(uri.host);
+            if (queue.active == 0 && identical(_hosts[uri.host], queue)) {
+              _hosts.remove(uri.host);
+            }
           });
       final response = await Future.any([
         receiving,
