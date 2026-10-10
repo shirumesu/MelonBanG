@@ -25,6 +25,7 @@ class CacheSettings extends StatefulWidget {
   final Future<void> Function(CacheMethod) onMethodChanged;
   final Future<void> Function(String, String) onLogin;
   final Future<void> Function() onLogout;
+
   /// Signed-in PikPak account name.
   final String? account;
   final bool busy;
@@ -148,10 +149,7 @@ class _CacheSettingsState extends State<CacheSettings> {
                   label: const Text('解锁 PikPak'),
                 ),
               ] else if (account != null) ...[
-                Text(
-                  account,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
+                Text(account, style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
                 const MelonBadge('已连接'),
                 const SizedBox(height: 16),

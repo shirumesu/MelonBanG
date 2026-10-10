@@ -28,6 +28,7 @@ class TrackingRepository {
   final _collectionRefreshes = <String, Future<void>>{};
   final _episodeRefreshes = <String, Future<void>>{};
   final _episodeRefreshedAt = <String, DateTime>{};
+
   /// Scores cleared on entering wish, keyed `user:subject`, restored on leaving it.
   final _heldScores = <String, int>{};
   _SyncStatus get _currentSync =>

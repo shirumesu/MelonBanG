@@ -354,9 +354,7 @@ class Subject {
     return episodes.any(
       (episode) =>
           episode.main &&
-          (episode.aired?.isAfter(
-                today.subtract(const Duration(days: 90)),
-              ) ??
+          (episode.aired?.isAfter(today.subtract(const Duration(days: 90))) ??
               false),
     );
   }

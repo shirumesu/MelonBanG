@@ -110,7 +110,10 @@ class ResourcesController extends ChangeNotifier {
     }
   }
 
-  Future<void> enqueue(ReleaseCandidate candidate, {CacheMethod? method}) async {
+  Future<void> enqueue(
+    ReleaseCandidate candidate, {
+    CacheMethod? method,
+  }) async {
     await downloadsReady();
     await releases.enqueue(candidate, method: method);
   }
