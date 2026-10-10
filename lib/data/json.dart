@@ -61,13 +61,23 @@ enum EpisodeStatus {
       values.firstWhere((v) => v.key == key);
 }
 
+final _bangumiCover = RegExp(
+  r'^https?://lain\.bgm\.tv/(?:r/\d+/)?pic/cover/[a-z]/(.+)$',
+);
+
+/// Bangumi covers resolve to one 400 px rendition, the size the catalogue
+/// API serves, so every page shares a single cached image per subject.
 String? coverAddress(Object? value) {
   if (value is! String) return null;
   final address = value.trim();
   final uri = Uri.tryParse(address);
-  return uri != null &&
-          (uri.scheme == 'https' || uri.scheme == 'http') &&
-          uri.host.isNotEmpty
+  if (uri == null ||
+      (uri.scheme != 'https' && uri.scheme != 'http') ||
+      uri.host.isEmpty) {
+    return null;
+  }
+  final cover = _bangumiCover.firstMatch(address);
+  return cover == null
       ? address
-      : null;
+      : 'https://lain.bgm.tv/r/400/pic/cover/l/${cover[1]}';
 }
