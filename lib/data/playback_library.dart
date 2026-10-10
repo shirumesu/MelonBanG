@@ -313,6 +313,10 @@ class PlaybackLibrary {
     await Future.wait(
       enabled.map(
         (provider) => _load(provider, () async {
+          final embedded = object(object(session['source'])['danmaku']);
+          if (embedded['provider'] == provider) {
+            return _fetch(provider, embedded['locator'] as String);
+          }
           final saved = await store.get(
             'danmaku_matches',
             '${session['path'] ?? session['resumeKey']}:$provider',

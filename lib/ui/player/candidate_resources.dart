@@ -124,36 +124,83 @@ class _CandidateResourcesState extends State<CandidateResources> {
     if (opening != null) return;
     final ticket = request;
     final playAction = widget.onPlay;
-    if (candidate.possibleMatch) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('确认条目匹配'),
-          content: Text('此资源可能匹配当前番剧，请确认标题：\n${candidate.title}'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('播放'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true || !mounted || ticket != request) return;
-    }
-    if (!mounted || ticket != request) return;
     setState(() => opening = candidate.id);
+    var chosen = candidate;
     await feedback.run(() async {
-      await playAction(candidate);
+      final ref = object(candidate.ref['ref']);
+      if (ref['selectEpisode'] == true) {
+        final entries = await widget.service.online.episodes(
+          candidate.provider,
+          object(ref['subject']),
+          cancel: cancellation,
+        );
+        if (!mounted || ticket != request) return null;
+        if (entries.isEmpty) throw StateError('此视频没有可播放的分 P');
+        final entry = entries.length == 1
+            ? entries.single
+            : await showDialog<Json>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('选择分 P'),
+                  content: SizedBox(
+                    width: 520,
+                    height: 360,
+                    child: ListView.builder(
+                      itemCount: entries.length,
+                      itemBuilder: (context, index) => ListTile(
+                        title: Text('${entries[index]['label']}'),
+                        subtitle: Text('${entries[index]['description']}'),
+                        onTap: () => Navigator.pop(context, entries[index]),
+                      ),
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('取消'),
+                    ),
+                  ],
+                ),
+              );
+        if (entry == null || !mounted || ticket != request) return null;
+        chosen = PlayCandidate.online({
+          ...candidate.ref,
+          'title': '${object(ref['subject'])['title']} · ${entry['label']}',
+          'line': entry['line'],
+          'ref': entry['ref'],
+          'candidateId': '${candidate.id}:${object(entry['ref'])['cid']}',
+        }, candidate.order);
+      }
+      if (chosen.possibleMatch) {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('确认条目匹配'),
+            content: Text(
+              '请确认所选资源对应第 ${widget.episode['sort']} 话：\n${chosen.title}',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('播放'),
+              ),
+            ],
+          ),
+        );
+        if (confirmed != true || !mounted || ticket != request) return null;
+      }
+      if (!mounted || ticket != request) return null;
+      await playAction(chosen);
       return null;
     });
     if (mounted && ticket == request) {
       setState(() {
         opening = null;
-        failedPlay = feedback.issue == null ? null : candidate;
+        failedPlay = feedback.issue == null ? null : chosen;
       });
     }
   }
@@ -302,6 +349,8 @@ class _CandidateResourcesState extends State<CandidateResources> {
                           _ => '未检查',
                         },
                       if (candidate.quality != null) candidate.quality!,
+                      if (candidate.ref['description'] != null)
+                        '${candidate.ref['description']}',
                       ...candidate.languages,
                       if (candidate.possibleMatch) '可能匹配',
                       if (candidate.health < 0) '近期播放失败',

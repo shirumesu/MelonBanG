@@ -269,6 +269,7 @@ class _SourcesPageState extends State<SourcesPage> {
                               (e) =>
                                   repository.isEnabled('${e['id']}') &&
                                   e['disabled'] != true &&
+                                  e['manualOnly'] != true &&
                                   number(e['minEngine']) <= onlineEngineVersion,
                             )) {
                               await _probeSource('${entry['id']}');
@@ -392,10 +393,12 @@ class _SourcesPageState extends State<SourcesPage> {
       children: [
         FeedbackIssue(
           feedback: _runtimeIssue,
-          onRetry: () => _probe.run(() async {
-            await _probeSource(id);
-            return null;
-          }),
+          onRetry: entry['manualOnly'] == true
+              ? () => _manualSearch(id)
+              : () => _probe.run(() async {
+                  await _probeSource(id);
+                  return null;
+                }),
         ),
         if (narrow)
           Align(
@@ -437,45 +440,61 @@ class _SourcesPageState extends State<SourcesPage> {
                 ],
               ),
               Text(
-                '${entry['engine']}${online ? ' · 规则 ${repository.version}' : ''}',
+                entry['manualOnly'] == true
+                    ? '外接数据源 · 手动选择'
+                    : '${entry['engine']}${online ? ' · 规则 ${repository.version}' : ''}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+              if (entry['description'] != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: Gap.sm),
+                  child: Text(
+                    '${entry['description']}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
             ],
           ),
         ),
-        SectionTitle(
-          title: '测试结果',
-          top: Gap.lg,
-          trailing: FeedbackButton(
-            feedback: _probe,
-            label: '测试此源',
-            runningLabel: '测试中',
-            successLabel: '测试完成',
-            icon: Icons.play_arrow,
-            onPressed: () => _probe.run(() async {
-              await _probeSource(id);
-              return null;
-            }),
-          ),
-        ),
-        if (repository.results[id] case final steps?)
-          MelonPanel(
-            padding: EdgeInsets.zero,
-            child: Column(
-              children: [
-                for (var index = 0; index < steps.length; index++) ...[
-                  if (index > 0)
-                    const Divider(height: 1, indent: Gap.lg, endIndent: Gap.lg),
-                  _diagnostic(id, steps[index]),
-                ],
-              ],
+        if (entry['manualOnly'] != true) ...[
+          SectionTitle(
+            title: '测试结果',
+            top: Gap.lg,
+            trailing: FeedbackButton(
+              feedback: _probe,
+              label: '测试此源',
+              runningLabel: '测试中',
+              successLabel: '测试完成',
+              icon: Icons.play_arrow,
+              onPressed: () => _probe.run(() async {
+                await _probeSource(id);
+                return null;
+              }),
             ),
-          )
-        else
-          Text(
-            '检查搜索与播放链路，结果仅保留于本次运行。',
-            style: Theme.of(context).textTheme.bodySmall,
           ),
+          if (repository.results[id] case final steps?)
+            MelonPanel(
+              padding: EdgeInsets.zero,
+              child: Column(
+                children: [
+                  for (var index = 0; index < steps.length; index++) ...[
+                    if (index > 0)
+                      const Divider(
+                        height: 1,
+                        indent: Gap.lg,
+                        endIndent: Gap.lg,
+                      ),
+                    _diagnostic(id, steps[index]),
+                  ],
+                ],
+              ),
+            )
+          else
+            Text(
+              '检查搜索与播放链路，结果仅保留于本次运行。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+        ],
         if (online) ...[
           const SectionTitle(title: '手动搜索', top: Gap.lg),
           Row(
@@ -483,7 +502,11 @@ class _SourcesPageState extends State<SourcesPage> {
               Expanded(
                 child: TextField(
                   controller: _query,
-                  decoration: const InputDecoration(hintText: '输入番名'),
+                  decoration: InputDecoration(
+                    hintText: entry['manualOnly'] == true
+                        ? '输入番名、BV 号或 B 站播放链接'
+                        : '输入番名',
+                  ),
                   onSubmitted: (_) => _manualSearch(id),
                 ),
               ),
@@ -522,6 +545,9 @@ class _SourcesPageState extends State<SourcesPage> {
                         dense: true,
                         minTileHeight: 44,
                         title: Text('${site['title']}'),
+                        subtitle: site['description'] == null
+                            ? null
+                            : Text('${site['description']}'),
                         selected: _subject?['id'] == site['id'],
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -565,7 +591,8 @@ class _SourcesPageState extends State<SourcesPage> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: Gap.sm),
-                  if (_resolved!['playlist'] != null)
+                  if (_resolved!['kind'] == 'hls' &&
+                      _resolved!['playlist'] != null)
                     const Text('已过滤验证过的插入广告分片'),
                   FeedbackButton(
                     feedback: _resolve,

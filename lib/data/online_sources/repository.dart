@@ -10,6 +10,7 @@ import '../network.dart';
 import '../resource_title.dart';
 import '../resource_metadata.dart';
 import 'builtin.dart';
+import 'bilibili.dart';
 import 'engine.dart';
 export 'engine.dart' show onlineEngineVersion, SourceVerificationRequired;
 
@@ -31,7 +32,7 @@ class OnlineSourceRepository extends ChangeNotifier {
   final health = <String, String>{};
   final errors = <String, String>{};
   final results = <String, List<Json>>{};
-  final _engines = <String, RuleOnlineSource>{};
+  final _engines = <String, OnlineSource>{};
   final _reads = <String, _SourceRead>{};
   final _cache = <String, ({DateTime expires, List<Json> rows})>{};
   Json snapshot = object(jsonDecode(builtinSourceRules));
@@ -40,7 +41,7 @@ class OnlineSourceRepository extends ChangeNotifier {
   DateTime? checkedAt;
   bool _closed = false;
   Future<void>? _refreshing;
-  List<Json> get rules => objects(snapshot['rules']);
+  List<Json> get rules => [...objects(snapshot['rules']), bilibiliSourceRule];
   String get version => '${snapshot['version']}';
   bool get warning => health.entries.any(
     (e) =>
@@ -74,10 +75,12 @@ class OnlineSourceRepository extends ChangeNotifier {
     if (!_closed) notifyListeners();
   }
 
-  RuleOnlineSource source(String id) => _engines.putIfAbsent(
-    id,
-    () => RuleOnlineSource(api, rules.firstWhere((e) => e['id'] == id)),
-  );
+  OnlineSource source(String id) => _engines.putIfAbsent(id, () {
+    final rule = rules.firstWhere((e) => e['id'] == id);
+    return rule['engine'] == 'bilibili-web'
+        ? BilibiliSource(api, rule)
+        : RuleOnlineSource(api, rule);
+  });
   String currentDomain(String id) =>
       _engines[id]?.currentBase ??
       '${array(rules.where((r) => r['id'] == id).firstOrNull?['baseUrls']).firstOrNull ?? ''}';
@@ -292,6 +295,7 @@ class OnlineSourceRepository extends ChangeNotifier {
     Json episode, {
     RequestCancellation? cancel,
     bool firstReady = false,
+    bool includeManual = true,
   }) async {
     final names = resourceNames(subject);
     final result = <Json>[];
@@ -299,63 +303,92 @@ class OnlineSourceRepository extends ChangeNotifier {
     final stop = cancel?.listen(operation.cancel);
     final ready = Completer<List<Json>>();
     final all = Future.wait(
-      rules.where(usable).map((rule) async {
-        final id = '${rule['id']}';
-        try {
-          final matches = await search(
-            id,
-            names,
-            cancel: operation,
-            enough: firstReady
-                ? (rows) => rows.any(
-                    (site) => onlineMatchScore(subject, site, names) >= .84,
-                  )
-                : null,
-          );
-          for (final site in matches) {
-            final score = onlineMatchScore(subject, site, names);
-            if (score < .55) continue;
-            final rows = await episodes(id, site, cancel: operation);
-            for (final row in rows.where(
-              (row) => onlineEpisodeMatches('${row['label']}', episode),
-            )) {
-              final title = '${site['title']} · ${row['label']}';
-              final info = describeResource({'title': title});
-              result.add({
-                'kind': 'online',
-                'sourceId': id,
-                'provider': id,
-                'providerId': id,
-                'providerName': rule['name'],
-                'line': row['line'],
-                'title': title,
-                'candidateId':
-                    '$id:${site['id']}:${row['line']}:${row['label']}',
-                'instant': true,
-                'ref': row['ref'],
-                'matchScore': score,
-                'possibleMatch': score < .84,
-                'languages': info.languages.toList(),
-                'quality': info.quality,
-                'health': status(id),
-              });
+      rules
+          .where(
+            (rule) =>
+                usable(rule) && (includeManual || rule['manualOnly'] != true),
+          )
+          .map((rule) async {
+            final id = '${rule['id']}';
+            final manual = rule['manualOnly'] == true;
+            try {
+              final matches = await search(
+                id,
+                names,
+                cancel: operation,
+                enough: manual
+                    ? (rows) => rows.isNotEmpty
+                    : firstReady
+                    ? (rows) => rows.any(
+                        (site) => onlineMatchScore(subject, site, names) >= .84,
+                      )
+                    : null,
+              );
+              for (final site in matches) {
+                final score = onlineMatchScore(subject, site, names);
+                if (!manual && score < .55) continue;
+                final rows = site['selectEpisode'] == true
+                    ? <Json>[
+                        {
+                          'label': '选择分 P',
+                          'line': site['line'],
+                          'ref': {
+                            'sourceId': id,
+                            'subject': site,
+                            'selectEpisode': true,
+                          },
+                        },
+                      ]
+                    : await episodes(id, site, cancel: operation);
+                for (final row in rows.where(
+                  (row) =>
+                      site['selectEpisode'] == true ||
+                      onlineEpisodeMatches('${row['label']}', episode),
+                )) {
+                  final title = '${site['title']} · ${row['label']}';
+                  final info = describeResource({'title': title});
+                  result.add({
+                    'kind': 'online',
+                    'sourceId': id,
+                    'provider': id,
+                    'providerId': id,
+                    'providerName': rule['name'],
+                    'line': row['line'],
+                    'title': title,
+                    'candidateId':
+                        '$id:${site['id']}:${row['line']}:${row['label']}',
+                    'instant': true,
+                    'ref': row['ref'],
+                    'matchScore': score,
+                    'possibleMatch': manual || score < .84,
+                    'languages': info.languages.toList(),
+                    if (!manual) 'quality': info.quality,
+                    if (site['description'] != null)
+                      'description': site['description'],
+                    'health': status(id),
+                  });
+                }
+              }
+              if (firstReady &&
+                  !ready.isCompleted &&
+                  result.any((row) => row['possibleMatch'] != true)) {
+                ready.complete(List<Json>.of(result));
+              }
+            } catch (_) {
+              /* Failed providers retain their health while others remain usable. */
             }
-          }
-          if (firstReady &&
-              !ready.isCompleted &&
-              result.any((row) => row['possibleMatch'] != true)) {
-            ready.complete(List<Json>.of(result));
-          }
-        } catch (_) {
-          /* Failed providers retain their health while others remain usable. */
-        }
-      }),
+          }),
     ).then((_) => List<Json>.of(result));
     try {
       final rows = await (firstReady ? Future.any([ready.future, all]) : all);
       cancel?.throwIfCancelled();
       if (firstReady && !rows.any((row) => row['possibleMatch'] != true)) {
-        return await candidates(subject, episode, cancel: cancel);
+        return await candidates(
+          subject,
+          episode,
+          cancel: cancel,
+          includeManual: includeManual,
+        );
       }
       return rows;
     } finally {

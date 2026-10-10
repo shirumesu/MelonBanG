@@ -113,6 +113,7 @@ class PlaySelectionRepository {
                 episode,
                 cancel: cancel,
                 firstReady: forPlayback && !useContinuity,
+                includeManual: !forPlayback && !instantOnly,
               )
               .then(
                 (rows) => add([
