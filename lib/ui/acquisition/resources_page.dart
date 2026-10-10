@@ -1,11 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../domain/catalog.dart';
 import '../../domain/transfer.dart';
-import '../../data/json.dart';
 import '../../data/resource_metadata.dart';
 import '../../data/resource_title.dart';
 import '../../domain/sources.dart';
+import '../../features/acquisition/resources_controller.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
@@ -18,26 +19,13 @@ class ResourcesPage extends StatefulWidget {
 
   const ResourcesPage({
     super.key,
-    required this.subject,
+    required this.resources,
     required this.resourceSearch,
-    required this.resourceEpisode,
-    required this.releases,
-    required this.busy,
-    required this.onSearch,
-    required this.onDownload,
-    this.defaultMethod = CacheMethod.bt,
-    this.onDownloadWithMethod,
+    required this.defaultMethod,
   });
-  final Json? subject;
+  final ResourcesController resources;
   final TextEditingController resourceSearch;
-  final int? resourceEpisode;
-  final ReleaseSearchResult releases;
-  final bool busy;
-  final Future<void> Function(List<String>, String) onSearch;
-  final Future<void> Function(ReleaseCandidate) onDownload;
   final CacheMethod defaultMethod;
-  final Future<void> Function(ReleaseCandidate, CacheMethod)?
-  onDownloadWithMethod;
   @override
   State<ResourcesPage> createState() => _ResourcesPageState();
 }
@@ -56,16 +44,15 @@ class _ResourcesPageState extends State<ResourcesPage> {
   PageStorageBucket? storage;
   bool formRestored = false, restoringForm = false;
   late String activeStorageId;
-  bool get searchBusy => widget.busy || searching;
+  ResourcesState get state => widget.resources.state;
+  Subject? get subject => state.subject;
+  ReleaseSearchResult get releases => state.releases;
+  bool get searchBusy => widget.resources.busy || searching;
 
-  String get storageId => ResourcesPage.formStorageId(
-    widget.subject?['subjectId'] as int?,
-    widget.resourceEpisode,
-  );
-  Json? get selectedEpisode =>
-      objects(widget.subject?['episodes'])
-          .where((episode) => episode['episodeId'] == widget.resourceEpisode)
-          .firstOrNull;
+  String get storageId =>
+      ResourcesPage.formStorageId(subject?.id, state.episodeId);
+  Episode? get selectedEpisode =>
+      state.episodeId == null ? null : subject?.episode(state.episodeId!);
 
   @override
   void initState() {
@@ -158,11 +145,12 @@ class _ResourcesPageState extends State<ResourcesPage> {
     if (searchBusy) return;
     setState(() => searching = true);
     try {
-      await widget.onSearch(
-        resourceNames(widget.subject ?? {})
+      await widget.resources.search(
+        widget.resourceSearch.text,
+        names: (subject == null ? const <String>[] : resourceNames(subject!))
             .where((e) => !excluded.contains(e))
             .toList(),
-        episodeQuery.text,
+        episodeKeyword: episodeQuery.text,
       );
     } catch (_) {
       if (mounted) {
@@ -207,9 +195,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
     for (final method in [widget.defaultMethod, widget.defaultMethod.other]) {
       final error = downloadErrors[downloadKey(candidate, method)];
       if (error != null) {
-        return widget.onDownloadWithMethod == null
-            ? error
-            : '${method.label}：$error';
+        return '${method.label}：$error';
       }
     }
     return null;
@@ -231,11 +217,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
       downloadErrors.remove(id);
     });
     try {
-      if (widget.onDownloadWithMethod case final callback?) {
-        await callback(candidate, method);
-      } else {
-        await widget.onDownload(candidate);
-      }
+      await widget.resources.enqueue(candidate, method: method);
       if (mounted) {
         setState(() => downloadPhases[id] = ResourceDownloadPhase.added);
       }
@@ -265,12 +247,15 @@ class _ResourcesPageState extends State<ResourcesPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final names = resourceNames(widget.subject ?? {});
+  Widget build(BuildContext context) =>
+      ListenableBuilder(listenable: widget.resources, builder: _page);
+
+  Widget _page(BuildContext context, Widget? _) {
+    final names = subject == null ? const <String>[] : resourceNames(subject!);
     final aliases = names
         .where((name) => name != widget.resourceSearch.text.trim())
         .toList();
-    final annotated = widget.releases.candidates
+    final annotated = releases.candidates
         .map((candidate) => (candidate, annotate(candidate)))
         .toList();
     final fromShownProviders = annotated
@@ -319,11 +304,11 @@ class _ResourcesPageState extends State<ResourcesPage> {
         );
     final episode = selectedEpisode;
     final providersFailed =
-        widget.releases.sources.isNotEmpty &&
-        widget.releases.sources.every((e) => e.status == SearchStatus.error);
+        releases.sources.isNotEmpty &&
+        releases.sources.every((e) => e.status == SearchStatus.error);
     final allProvidersExcluded =
-        widget.releases.sources.isNotEmpty &&
-        widget.releases.sources.every(
+        releases.sources.isNotEmpty &&
+        releases.sources.every(
           (provider) => excludedProviders.contains(provider.sourceId),
         );
     final filtered =
@@ -372,9 +357,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
                 width: 34,
                 height: 46,
                 child: SubjectCover(
-                  url: widget.subject?['coverUrl'],
-                  title: titleOf(widget.subject ?? {}),
-                  id: number(widget.subject?['subjectId']).toInt(),
+                  url: subject?.coverUrl,
+                  title: subject?.title ?? '未命名',
+                  id: subject?.id ?? 0,
                 ),
               ),
             ),
@@ -384,7 +369,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    titleOf(widget.subject ?? {}),
+                    subject?.title ?? '未命名',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleMedium,
@@ -393,7 +378,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                   Text(
                     episode == null
                         ? '查找字幕组与视频版本 · 集数留空可查找合集'
-                        : '下载将关联到第 ${episode['sort']} 话',
+                        : '下载将关联到第 ${episode.number} 话',
                     style: small,
                   ),
                 ],
@@ -478,17 +463,17 @@ class _ResourcesPageState extends State<ResourcesPage> {
         ),
         if (searchBusy) ...[
           const SizedBox(height: Gap.md),
-          ResourceSearchStatus(providers: widget.releases.sources),
+          ResourceSearchStatus(providers: releases.sources),
         ],
       ],
     );
-    final providerWarning = widget.releases.sources.any(
+    final providerWarning = releases.sources.any(
       (provider) => const [
         SearchStatus.error,
         SearchStatus.partial,
       ].contains(provider.status),
     );
-    final shownProviders = widget.releases.sources
+    final shownProviders = releases.sources
         .where((provider) => !excludedProviders.contains(provider.sourceId))
         .length;
     final filterBar = ColoredBox(
@@ -508,8 +493,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                         label: '资源站',
                         icon: Icons.public_rounded,
                         active: excludedProviders.isNotEmpty,
-                        summary:
-                            '$shownProviders / ${widget.releases.sources.length}',
+                        summary: '$shownProviders / ${releases.sources.length}',
                         warning: providerWarning,
                         tooltip: providerWarning
                             ? '有资源站搜索失败，打开查看'
@@ -517,7 +501,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                         sections: [
                           MelonFilterSection(
                             [
-                              for (final provider in widget.releases.sources)
+                              for (final provider in releases.sources)
                                 MelonFilterOption(
                                   provider.sourceId,
                                   provider.sourceName,
@@ -531,13 +515,11 @@ class _ResourcesPageState extends State<ResourcesPage> {
                                       : null,
                                 ),
                             ],
-                            title: widget.releases.sources.isEmpty
-                                ? '搜索后显示资源站'
-                                : null,
+                            title: releases.sources.isEmpty ? '搜索后显示资源站' : null,
                           ),
                         ],
                         selected: {
-                          for (final provider in widget.releases.sources)
+                          for (final provider in releases.sources)
                             if (!excludedProviders.contains(provider.sourceId))
                               provider.sourceId,
                         },
@@ -658,8 +640,8 @@ class _ResourcesPageState extends State<ResourcesPage> {
             const SizedBox(width: Gap.md),
             Text(
               filtered
-                  ? '${visible.length} / ${widget.releases.candidates.length} 条'
-                  : '${widget.releases.candidates.length} 条',
+                  ? '${visible.length} / ${releases.candidates.length} 条'
+                  : '${releases.candidates.length} 条',
               style: small?.copyWith(
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
@@ -668,10 +650,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
         ),
       ),
     );
-    final downloadWidth = resourceDownloadWidth(
-      labelled: true,
-      split: widget.onDownloadWithMethod != null,
-    );
+    final downloadWidth = resourceDownloadWidth(labelled: true, split: true);
     return CustomScrollView(
       key: const PageStorageKey('page-scroll'),
       slivers: [
@@ -747,18 +726,18 @@ class _ResourcesPageState extends State<ResourcesPage> {
                 return (visible.isEmpty &&
                         (allProvidersExcluded ||
                             !searchBusy ||
-                            widget.releases.candidates.isNotEmpty))
+                            releases.candidates.isNotEmpty))
                     ? EmptyState(
                         text: allProvidersExcluded
                             ? '已隐藏全部资源站的结果'
-                            : widget.releases.candidates.isNotEmpty
+                            : releases.candidates.isNotEmpty
                             ? '没有符合筛选条件的资源'
                             : providersFailed
                             ? '资源站暂时无法连接'
                             : '没有找到资源，试试其他名称或清空集数关键词',
                         action: allProvidersExcluded
                             ? () => changeForm(excludedProviders.clear)
-                            : widget.releases.candidates.isNotEmpty
+                            : releases.candidates.isNotEmpty
                             ? clearFilters
                             : () {
                                 if (!providersFailed) episodeQuery.clear();
@@ -766,7 +745,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                               },
                         actionLabel: allProvidersExcluded
                             ? '显示全部资源站'
-                            : widget.releases.candidates.isNotEmpty
+                            : releases.candidates.isNotEmpty
                             ? '清除筛选'
                             : !providersFailed && episodeQuery.text.isNotEmpty
                             ? '清空集数并搜索'
@@ -814,12 +793,10 @@ class _ResourcesPageState extends State<ResourcesPage> {
                             visible[i].$1,
                             widget.defaultMethod.other,
                           ),
-                          onAlternative: widget.onDownloadWithMethod == null
-                              ? null
-                              : () => download(
-                                  visible[i].$1,
-                                  widget.defaultMethod.other,
-                                ),
+                          onAlternative: () => download(
+                            visible[i].$1,
+                            widget.defaultMethod.other,
+                          ),
                         ),
                       ),
                     ],

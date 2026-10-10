@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/bangumi_private.dart';
-import '../../data/json.dart';
+import '../../data/json.dart' show coverAddress;
+import '../../domain/catalog.dart';
 import '../core/account_avatar.dart';
 import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
@@ -27,7 +28,7 @@ class SubjectCommunity extends StatefulWidget {
   final int subjectId;
 
   /// The signed-in user's collection, the source of the pinned own comment.
-  final Json collection;
+  final SubjectCollection? collection;
   final bool canWrite;
   final Future<void> Function(String comment) onSaveComment;
 
@@ -37,7 +38,7 @@ class SubjectCommunity extends StatefulWidget {
 
 class _SubjectCommunityState extends State<SubjectCommunity> {
   String segment = 'comments';
-  final _pages = <String, List<Json>>{};
+  final _pages = <String, List<CommunityEntry>>{};
   final _totals = <String, int>{};
   final _feedback = ActionFeedback();
   final _commentFeedback = ActionFeedback();
@@ -87,9 +88,9 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
       setState(() {
         _pages[requestedSegment] = [
           if (!refresh) ...?_pages[requestedSegment],
-          ...objects(result['data']),
+          ...result.entries,
         ];
-        _totals[requestedSegment] = number(result['total']).toInt();
+        _totals[requestedSegment] = result.total;
       });
       return null;
     });
@@ -118,42 +119,30 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
     }
   }
 
-  String _time(dynamic value) {
-    final seconds = number(value).toInt();
-    if (seconds <= 0) return '';
+  String _time(int? seconds) {
+    if (seconds == null || seconds <= 0) return '';
     final time = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
     return '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
   }
 
-  Widget _row(Json row) {
-    final entry = segment == 'reviews' ? object(row['entry']) : row;
-    final user = object(row[segment == 'topics' ? 'creator' : 'user']);
-    final name = '${user['nickname'] ?? user['username'] ?? '未知用户'}';
+  Widget _row(CommunityEntry entry) {
+    final name = entry.author;
     final meta = <String>[
       name,
-      if (segment == 'comments' && number(row['rate']) > 0) '★ ${row['rate']}',
-      if (segment == 'comments')
-        collectionLabels[CollectionStatus.values
-                .where((status) => status.remoteValue == number(row['type']))
-                .firstOrNull
-                ?.key] ??
-            '',
-      if (segment == 'topics') '${number(row['replyCount']).toInt()} 回复',
+      if (segment == 'comments' && entry.score > 0) '★ ${entry.score}',
+      if (segment == 'comments') collectionLabels[entry.status] ?? '',
+      if (segment == 'topics') '${entry.replies} 回复',
       if (segment == 'topics')
-        '最后回复 ${_time(row['updatedAt'])}'
+        '最后回复 ${_time(entry.time)}'
       else
-        _time(entry['createdAt'] ?? entry['updatedAt']),
+        _time(entry.time),
     ].where((value) => value.isNotEmpty).toList();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AccountAvatar(
-            url: coverAddress(object(user['avatar'])['medium']),
-            name: name,
-            size: 32,
-          ),
+          AccountAvatar(url: entry.avatarUrl, name: name, size: 32),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -165,14 +154,14 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                       padding: EdgeInsets.zero,
                       alignment: Alignment.centerLeft,
                     ),
-                    onPressed: number(entry['id']) <= 0
+                    onPressed: entry.id <= 0
                         ? null
                         : () => _open(
                             segment == 'reviews'
-                                ? '/blog/${entry['id']}'
-                                : '/subject/topic/${entry['id']}',
+                                ? '/blog/${entry.id}'
+                                : '/subject/topic/${entry.id}',
                           ),
-                    child: Text('${entry['title'] ?? '无标题'}'),
+                    child: Text(entry.title ?? '无标题'),
                   ),
                 Text(
                   meta.join(' · '),
@@ -181,7 +170,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                 if (segment != 'topics') ...[
                   const SizedBox(height: 6),
                   SelectableText(
-                    '${segment == 'comments' ? row['comment'] ?? '' : entry['summary'] ?? ''}',
+                    entry.text,
                     style: const TextStyle(fontSize: 13, height: 1.6),
                   ),
                 ],
@@ -193,9 +182,8 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
     );
   }
 
-  bool _own(Json row) =>
-      segment == 'comments' &&
-      '${object(row['user'])['id']}' == widget.client.account.userId;
+  bool _own(CommunityEntry entry) =>
+      segment == 'comments' && entry.userId == widget.client.account.userId;
 
   Future<void> _saveComment(String text) => _commentFeedback.run(() async {
     await widget.onSaveComment(text);
@@ -207,11 +195,12 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   Widget _mine(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
-    final session = object(widget.client.account.session);
-    final name = '${session['nickname'] ?? session['username'] ?? '我'}';
-    final status = widget.collection['status'] as String?;
-    final score = number(widget.collection['score']).toInt();
-    final comment = '${widget.collection['comment'] ?? ''}';
+    final profile = widget.client.account.profile;
+    final name = profile?.nickname ?? profile?.username ?? '我';
+    final collection = widget.collection;
+    final status = collection?.status;
+    final score = collection?.score ?? 0;
+    final comment = collection?.comment ?? '';
     final scoreStyle = small?.copyWith(
       color: Color.lerp(gold, Colors.black, .35),
       fontWeight: FontWeight.w700,
@@ -369,7 +358,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               AccountAvatar(
-                url: coverAddress(session['avatarUrl']),
+                url: coverAddress(profile?.avatarUrl),
                 name: name,
                 size: 32,
               ),
@@ -522,7 +511,7 @@ class SubjectRelations extends StatefulWidget {
   });
   final BangumiPrivateClient client;
   final int subjectId;
-  final ValueChanged<Json> onOpenSubject;
+  final ValueChanged<Subject> onOpenSubject;
 
   @override
   State<SubjectRelations> createState() => _SubjectRelationsState();
@@ -531,7 +520,7 @@ class SubjectRelations extends StatefulWidget {
 class _SubjectRelationsState extends State<SubjectRelations> {
   static const _groups = ['前传', '续集', '番外', '总集篇', '其他'];
   final _feedback = ActionFeedback();
-  List<Json> _relations = [];
+  List<Subject> _relations = [];
   bool _expanded = false;
 
   @override
@@ -555,8 +544,8 @@ class _SubjectRelationsState extends State<SubjectRelations> {
     return null;
   });
 
-  String _group(Json row) {
-    final relation = '${row['relation']}';
+  String _group(Subject row) {
+    final relation = '${row.relation}';
     if (relation.contains('前传')) return '前传';
     if (relation.contains('续集')) return '续集';
     if (relation.contains('番外') || relation.contains('外传')) return '番外';
@@ -617,9 +606,9 @@ class _SubjectRelationsState extends State<SubjectRelations> {
                       child: ClipRRect(
                         borderRadius: badgeBorderRadius,
                         child: SubjectCover(
-                          url: row['coverUrl'],
-                          title: titleOf(row),
-                          id: number(row['subjectId']).toInt(),
+                          url: row.coverUrl,
+                          title: row.title,
+                          id: row.id,
                         ),
                       ),
                     ),
@@ -629,7 +618,7 @@ class _SubjectRelationsState extends State<SubjectRelations> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            titleOf(row),
+                            row.title,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -639,9 +628,9 @@ class _SubjectRelationsState extends State<SubjectRelations> {
                           ),
                           Text(
                             [
-                              '${row['relation']}',
-                              '${row['platform']}',
-                              ?object(row['season'])['year'],
+                              '${row.relation}',
+                              '${row.platform}',
+                              ?row.season?.year,
                             ].join(' · '),
                             style: text.bodySmall,
                           ),

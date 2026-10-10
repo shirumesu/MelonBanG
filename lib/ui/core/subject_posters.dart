@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../data/catalog.dart';
-import '../../data/json.dart';
+import '../../data/json.dart' show coverAddress;
+import '../../domain/catalog.dart';
 import '../tracking/collection_labels.dart';
 import 'cached_image.dart';
 import 'page_widgets.dart';
@@ -50,8 +51,8 @@ class SubjectPosters extends StatelessWidget {
     this.ranked = false,
     this.tracking = false,
   });
-  final List<Json> items;
-  final ValueChanged<Json> onOpen;
+  final List<Subject> items;
+  final ValueChanged<Subject> onOpen;
   final bool horizontal, ranked, tracking;
   @override
   Widget build(BuildContext context) {
@@ -85,8 +86,8 @@ class SubjectPosterGrid extends StatelessWidget {
     required this.onOpen,
     this.tracking = false,
   });
-  final List<Json> items;
-  final ValueChanged<Json> onOpen;
+  final List<Subject> items;
+  final ValueChanged<Subject> onOpen;
   final bool tracking;
 
   @override
@@ -100,7 +101,7 @@ class SubjectPosterGrid extends StatelessWidget {
         childAspectRatio: .65,
       ),
       itemBuilder: (_, i) => SubjectPoster(
-        key: ValueKey(items[i]['subjectId']),
+        key: ValueKey(items[i].id),
         onOpen: onOpen,
         item: items[i],
         tracking: tracking,
@@ -286,8 +287,8 @@ class SubjectPoster extends StatefulWidget {
     required this.tracking,
     this.badge,
   });
-  final Json item;
-  final ValueChanged<Json> onOpen;
+  final Subject item;
+  final ValueChanged<Subject> onOpen;
   final int? rank;
   final bool tracking;
 
@@ -308,8 +309,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
     final item = widget.item;
     final rank = widget.rank;
     final tracking = widget.tracking;
-    final status =
-        '${item['status'] ?? object(item['collection'])['status'] ?? ''}';
+    final status = item.status;
     return InkWell(
       onTap: () => widget.onOpen(item),
       onHover: (value) => setState(() => hovered = value),
@@ -332,9 +332,9 @@ class _SubjectPosterState extends State<SubjectPoster> {
                   fit: StackFit.expand,
                   children: [
                     SubjectCover(
-                      url: item['coverUrl'],
-                      title: titleOf(item),
-                      id: number(item['subjectId']).toInt(),
+                      url: item.coverUrl,
+                      title: item.title,
+                      id: item.id,
                     ),
                     const DecoratedBox(
                       decoration: BoxDecoration(
@@ -351,7 +351,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
                       right: 10,
                       bottom: 12,
                       child: Text(
-                        titleOf(item),
+                        item.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -415,7 +415,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
                           ),
                         ),
                       )
-                    else if (tracking && collectionLabels.containsKey(status))
+                    else if (tracking && status != null)
                       Positioned(
                         top: 10,
                         left: 10,
@@ -428,7 +428,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
                           ),
                         ),
                       ),
-                    if (tracking && item['episodeTotal'] != null)
+                    if (tracking && item.episodeTotal != null)
                       Positioned(
                         top: 10,
                         right: 9,
@@ -443,7 +443,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
                             borderRadius: badgeBorderRadius,
                           ),
                           child: Text(
-                            '全 ${item['episodeTotal']} 话',
+                            '全 ${item.episodeTotal} 话',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 11,
@@ -485,14 +485,11 @@ class _SubjectPosterState extends State<SubjectPoster> {
                 spacing: 5,
                 runSpacing: 4,
                 children: [
-                  if (object(item['season'])['label'] != null)
-                    MelonBadge(
-                      '${object(item['season'])['label']}',
-                      color: coral,
-                    ),
-                  MelonBadge('${item['platform'] ?? 'TV'}', color: sky),
-                  if (item['episodeTotal'] != null)
-                    MelonBadge('全${item['episodeTotal']}话', color: sky),
+                  if (item.season?.label case final label?)
+                    MelonBadge(label, color: coral),
+                  MelonBadge(item.platform ?? 'TV', color: sky),
+                  if (item.episodeTotal != null)
+                    MelonBadge('全${item.episodeTotal}话', color: sky),
                 ],
               ),
             ),
@@ -501,7 +498,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
           Row(
             children: [
               Text(
-                '★ ${scoreLabel(tracking ? item['userScore'] : item['score'])}',
+                '★ ${scoreLabel(tracking ? item.collection?.score : item.score)}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -513,9 +510,9 @@ class _SubjectPosterState extends State<SubjectPoster> {
               const Spacer(),
               if (tracking)
                 Text(
-                  item['watchedEpisodes'] == null
+                  item.watchedEpisodes == null
                       ? '未记录进度'
-                      : '已看 ${item['watchedEpisodes']} 话',
+                      : '已看 ${item.watchedEpisodes} 话',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -525,11 +522,9 @@ class _SubjectPosterState extends State<SubjectPoster> {
               else if (rank == null)
                 Text(
                   [
-                    if (object(item['season'])['year'] != null)
-                      '${object(item['season'])['year']}',
-                    '${item['platform'] ?? '动画'}',
-                    if (item['episodeTotal'] != null)
-                      '${item['episodeTotal']} 话',
+                    if (item.season?.year case final year?) '$year',
+                    item.platform ?? '动画',
+                    if (item.episodeTotal != null) '${item.episodeTotal} 话',
                   ].join(' · '),
                   style: TextStyle(
                     fontSize: 11,
@@ -546,12 +541,12 @@ class _SubjectPosterState extends State<SubjectPoster> {
 
 String scoreLabel(Object? value) =>
     value is num && value > 0 ? value.toStringAsFixed(1) : '—';
-Color collectionColor(String status) => switch (status) {
-  'wish' => sky,
-  'on_hold' => gold,
-  'completed' => grape,
-  'dropped' => coral,
-  _ => mint,
+Color collectionColor(CollectionStatus status) => switch (status) {
+  CollectionStatus.wish => sky,
+  CollectionStatus.onHold => gold,
+  CollectionStatus.completed => grape,
+  CollectionStatus.dropped => coral,
+  CollectionStatus.watching => mint,
 };
 
 int imageDecodeWidth(BuildContext context, double width) =>

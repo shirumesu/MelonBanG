@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../domain/catalog.dart';
 import 'content_cache.dart';
 import 'json.dart';
 import 'network.dart';
@@ -137,7 +138,7 @@ class CatalogRepository {
     return expiresAt == null || expiresAt.millisecondsSinceEpoch > now;
   }
 
-  Json summary(Json value) {
+  Json _summary(Json value) {
     final result = <String, dynamic>{
       ...value,
       'subjectId': value['subjectId'] ?? value['id'],
@@ -148,18 +149,30 @@ class CatalogRepository {
     return result;
   }
 
-  Future<Json> search(
+  /// A list card or stored row; remembers its cover for other pages.
+  Subject card(Json value) => Subject.fromJson(_summary(value));
+
+  /// The locally cached detail, without a request.
+  Future<Subject?> cached(int id) async {
+    final detail = await cachedSubjectDetail(store, id);
+    return detail == null ? null : card(detail);
+  }
+
+  Future<SubjectResults> search(
     String keyword, {
     int offset = 0,
-    void Function(Json)? onCached,
+    void Function(SubjectResults)? onCached,
   }) async {
     final query = keyword.trim();
-    Json page(dynamic value) {
+    SubjectResults page(dynamic value) {
       final response = object(value);
-      return {
-        ...response,
-        'data': objects(response['data']).map(summary).toList(),
-      };
+      final items = objects(response['data']).map(card).toList();
+      return SubjectResults(
+        items: items,
+        offset: (response['offset'] as num).toInt() + items.length,
+        total: (response['total'] as num).toInt(),
+        hasMore: response['hasMore'] as bool,
+      );
     }
 
     final response = object(
@@ -172,19 +185,19 @@ class CatalogRepository {
     return page(response);
   }
 
-  Future<List<Json>> trending({
+  Future<List<Subject>> trending({
     bool refresh = false,
     int? limit,
-    void Function(List<Json>)? onCached,
+    void Function(List<Subject>)? onCached,
   }) async {
     if (limit != null && limit <= 0) return [];
     final pageSize = limit == null ? 50 : limit.clamp(1, 50);
-    List<Json> valuesFrom(dynamic value) {
-      final values = objects(object(value)['data']).map(summary);
+    List<Subject> valuesFrom(dynamic value) {
+      final values = objects(object(value)['data']).map(card);
       return (limit == null ? values : values.take(limit)).toList();
     }
 
-    final items = <Json>[];
+    final items = <Subject>[];
     for (var offset = 0; ;) {
       final page = object(
         await _cached(
@@ -198,7 +211,7 @@ class CatalogRepository {
         ),
       );
       final values = objects(page['data']);
-      items.addAll(values.map(summary));
+      items.addAll(values.map(card));
       if (limit != null && items.length >= limit) {
         return items.take(limit).toList();
       }
@@ -215,20 +228,20 @@ class CatalogRepository {
       .toIso8601String()
       .substring(0, 10);
 
-  Json _today(dynamic value) {
+  SchedulePage _today(dynamic value) {
     final response = object(value);
-    return {
-      'date': response['date'],
-      'items': objects(response['items'])
+    return SchedulePage(
+      date: response['date'] as String?,
+      items: objects(response['items'])
           .where((item) => number(item['subjectId']) > 0)
-          .map(summary)
+          .map(card)
           .toList(),
-    };
+    );
   }
 
-  Future<Json> today({
+  Future<SchedulePage> today({
     bool refresh = false,
-    void Function(Json)? onCached,
+    void Function(SchedulePage)? onCached,
   }) async {
     final response = object(
       await _cached(
@@ -242,7 +255,9 @@ class CatalogRepository {
     return _today(response);
   }
 
-  Future<List<Json>> calendar({void Function(List<Json>)? onCached}) async {
+  Future<List<ScheduleDay>> calendar({
+    void Function(List<ScheduleDay>)? onCached,
+  }) async {
     final response = object(
       await _cached(
         'week-forward:$scheduleDate',
@@ -256,7 +271,7 @@ class CatalogRepository {
     return _calendar(response);
   }
 
-  List<Json> _calendar(dynamic value) {
+  List<ScheduleDay> _calendar(dynamic value) {
     final response = object(value);
     final byDate = object(response['byDate']);
     final start = DateTime.parse('${scheduleDate}T00:00:00Z');
@@ -268,20 +283,20 @@ class CatalogRepository {
     const labels = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
     return dates.map((date) {
       final day = DateTime.parse(date).weekday;
-      return {
-        'date': date,
-        'weekday': {'id': day, 'cn': labels[day - 1]},
-        'items': objects(byDate[date])
+      return ScheduleDay(
+        date: date,
+        weekday: labels[day - 1],
+        items: objects(byDate[date])
             .where((item) => number(item['subjectId']) > 0)
-            .map(summary)
+            .map(card)
             .toList(),
-      };
+      );
     }).toList();
   }
 
-  Future<Json> subject(
+  Future<Subject> subject(
     int id, {
-    FutureOr<void> Function(Json)? onAvailable,
+    FutureOr<void> Function(Subject)? onAvailable,
     bool forPlayback = false,
   }) async {
     if (id <= 0) throw const FormatException('番剧编号无效');
@@ -329,10 +344,12 @@ class CatalogRepository {
                   }
                 }
                 if (onAvailable != null) {
-                  await onAvailable({
-                    ..._subject(id, {'data': available}),
-                    '_pending': pending,
-                  });
+                  await onAvailable(
+                    Subject.fromJson({
+                      ..._subjectJson(id, {'data': available}),
+                      '_pending': pending,
+                    }),
+                  );
                 }
               case 'complete':
                 final data = message['data'] ?? available;
@@ -361,8 +378,11 @@ class CatalogRepository {
     return _subject(id, response);
   }
 
-  Json _subject(int id, dynamic value) {
-    final data = summary(object(object(value)['data']));
+  Subject _subject(int id, dynamic value) =>
+      Subject.fromJson(_subjectJson(id, value));
+
+  Json _subjectJson(int id, dynamic value) {
+    final data = _summary(object(object(value)['data']));
     data['episodes'] = objects(data['episodes'])
         .where((e) => e['type'] == null || e['type'] == 'main')
         .map(

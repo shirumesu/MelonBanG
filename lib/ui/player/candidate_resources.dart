@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../app_services.dart';
+import '../../domain/catalog.dart';
 import '../../domain/transfer.dart';
 import '../../data/network.dart';
 import '../../features/playback/play_selection.dart';
@@ -20,7 +20,7 @@ import '../../features/playback/playback.dart';
 class CandidateResources extends StatefulWidget {
   const CandidateResources({
     super.key,
-    required this.service,
+    required this.choices,
     required this.playback,
     required this.subject,
     required this.episode,
@@ -29,9 +29,10 @@ class CandidateResources extends StatefulWidget {
     this.active = true,
   });
   final bool active;
-  final AppServices service;
+  final SourceChoices choices;
   final Playback playback;
-  final Json subject, episode;
+  final Subject subject;
+  final Episode episode;
   final Future<void> Function(PlayCandidate) onPlay;
   final VoidCallback? onFindResources;
   @override
@@ -60,8 +61,8 @@ class _CandidateResourcesState extends State<CandidateResources> {
   void didUpdateWidget(CandidateResources oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!widget.active) {
-      if (oldWidget.subject['subjectId'] != widget.subject['subjectId'] ||
-          oldWidget.episode['episodeId'] != widget.episode['episodeId']) {
+      if (oldWidget.subject.id != widget.subject.id ||
+          oldWidget.episode.id != widget.episode.id) {
         candidates = [];
         phases.clear();
         loading = true;
@@ -71,8 +72,8 @@ class _CandidateResourcesState extends State<CandidateResources> {
       return;
     }
     if ((!oldWidget.active && (loading || candidates.isEmpty)) ||
-        oldWidget.subject['subjectId'] != widget.subject['subjectId'] ||
-        oldWidget.episode['episodeId'] != widget.episode['episodeId']) {
+        oldWidget.subject.id != widget.subject.id ||
+        oldWidget.episode.id != widget.episode.id) {
       candidates = [];
       phases.clear();
       unawaited(load());
@@ -102,19 +103,18 @@ class _CandidateResourcesState extends State<CandidateResources> {
 
     await status.run(() async {
       final settings = widget.playback.settings;
-      final priority = subjectIsAiring(widget.subject)
+      final priority = widget.subject.airing()
           ? settings.airingPriority
           : settings.completedPriority;
       accept(
-        await widget.service.selection.candidates(
+        await widget.choices.selection.candidates(
           widget.subject,
           widget.episode,
           cancel: currentCancellation,
           onlineFirst: priority == 'online',
           language: settings.subtitleLanguage,
           useContinuity:
-              widget.playback.session?['subjectId'] ==
-              widget.subject['subjectId'],
+              widget.playback.session?.subjectId == widget.subject.id,
           onUpdate: accept,
         ),
       );
@@ -131,7 +131,7 @@ class _CandidateResourcesState extends State<CandidateResources> {
     var chosen = candidate;
     await feedback.run(() async {
       if (candidate.target case OnlineTarget(:final chooseFrom?)) {
-        final entries = await widget.service.sources.episodes(
+        final entries = await widget.choices.sources.episodes(
           candidate.provider,
           chooseFrom,
           cancel: cancellation,
@@ -173,7 +173,7 @@ class _CandidateResourcesState extends State<CandidateResources> {
           builder: (context) => AlertDialog(
             title: const Text('确认条目匹配'),
             content: Text(
-              '请确认所选资源对应第 ${widget.episode['sort']} 话：\n${chosen.title}',
+              '请确认所选资源对应第 ${widget.episode.number} 话：\n${chosen.title}',
             ),
             actions: [
               TextButton(
@@ -209,7 +209,7 @@ class _CandidateResourcesState extends State<CandidateResources> {
     final key = '${candidate.id}:${method.name}';
     setState(() => phases[key] = ResourceDownloadPhase.adding);
     try {
-      await widget.service.releases.enqueue(release, method: method);
+      await widget.choices.enqueue(release, method: method);
       if (mounted) setState(() => phases[key] = ResourceDownloadPhase.added);
     } catch (e) {
       if (mounted) {
@@ -230,7 +230,7 @@ class _CandidateResourcesState extends State<CandidateResources> {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: widget.service.sources,
+    listenable: widget.choices.sources,
     builder: (context, _) => content(context),
   );
 
@@ -287,12 +287,12 @@ class _CandidateResourcesState extends State<CandidateResources> {
                 onRetry: () => failedPlay == null ? load() : play(failedPlay!),
               ),
               if (selected == PlayKind.online)
-                for (final rule in widget.service.sources.instancesOf(
+                for (final rule in widget.choices.sources.instancesOf(
                   SourceKind.online,
                 ))
-                  if (widget.service.sources.isEnabled(rule.id) &&
-                      (widget.service.sources.errors.containsKey(rule.id) ||
-                          widget.service.sources.status(rule.id) ==
+                  if (widget.choices.sources.isEnabled(rule.id) &&
+                      (widget.choices.sources.errors.containsKey(rule.id) ||
+                          widget.choices.sources.status(rule.id) ==
                               SourceHealth.update))
                     Row(
                       children: [
@@ -300,7 +300,7 @@ class _CandidateResourcesState extends State<CandidateResources> {
                         const SizedBox(width: Gap.sm),
                         Expanded(
                           child: Text(
-                            '${rule.name}：${widget.service.sources.errors[rule.id] ?? '需要更新应用'}',
+                            '${rule.name}：${widget.choices.sources.errors[rule.id] ?? '需要更新应用'}',
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(fontSize: 12, color: scheme.error),
@@ -310,7 +310,7 @@ class _CandidateResourcesState extends State<CandidateResources> {
                           onPressed: () => launchUrl(
                             Uri.parse(
                               rule.website ??
-                                  widget.service.sources.currentDomain(rule.id),
+                                  widget.choices.sources.currentDomain(rule.id),
                             ),
                             mode: LaunchMode.externalApplication,
                           ),
@@ -337,7 +337,7 @@ class _CandidateResourcesState extends State<CandidateResources> {
                     final metadata = <String>[
                       candidate.sourceLabel,
                       if (candidate.kind == PlayKind.online)
-                        switch (widget.service.sources.status(
+                        switch (widget.choices.sources.status(
                           candidate.provider,
                         )) {
                           SourceHealth.ready => '正常',
@@ -403,27 +403,22 @@ class _CandidateResourcesState extends State<CandidateResources> {
                               ))
                                 ResourceDownloadButton(
                                   showLabel: true,
-                                  defaultMethod:
-                                      widget.service.downloads.defaultMethod,
+                                  defaultMethod: widget.choices.defaultMethod(),
                                   phase:
-                                      phases['${candidate.id}:${widget.service.downloads.defaultMethod.name}'] ??
+                                      phases['${candidate.id}:${widget.choices.defaultMethod().name}'] ??
                                       ResourceDownloadPhase.idle,
                                   alternativePhase:
-                                      phases['${candidate.id}:${widget.service.downloads.defaultMethod.other.name}'] ??
+                                      phases['${candidate.id}:${widget.choices.defaultMethod().other.name}'] ??
                                       ResourceDownloadPhase.idle,
                                   onPressed: () => download(
                                     candidate,
                                     release,
-                                    widget.service.downloads.defaultMethod,
+                                    widget.choices.defaultMethod(),
                                   ),
                                   onAlternative: () => download(
                                     candidate,
                                     release,
-                                    widget
-                                        .service
-                                        .downloads
-                                        .defaultMethod
-                                        .other,
+                                    widget.choices.defaultMethod().other,
                                   ),
                                 ),
                               IconButton(

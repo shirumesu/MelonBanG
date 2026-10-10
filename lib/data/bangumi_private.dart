@@ -1,3 +1,4 @@
+import '../domain/catalog.dart';
 import 'account.dart';
 import 'json.dart';
 import 'network.dart';
@@ -5,7 +6,7 @@ import 'network.dart';
 class BangumiPrivateClient {
   BangumiPrivateClient(this.account);
   final AccountRepository account;
-  final _cache = <String, ({DateTime savedAt, Json value})>{};
+  final _rows = <String, ({DateTime savedAt, List<Json> rows, int total})>{};
 
   Future<dynamic> _request(String path) async {
     final user = account.userId;
@@ -36,28 +37,68 @@ class BangumiPrivateClient {
     }
   }
 
-  Future<Json> page(
+  /// One page of `comments`, `reviews` or `topics`.
+  Future<CommunityPage> page(
     int subjectId,
     String segment, {
     int offset = 0,
     bool refresh = false,
   }) async {
-    if (!const {
-      'comments',
-      'reviews',
-      'topics',
-      'relations',
-    }.contains(segment)) {
+    if (!const {'comments', 'reviews', 'topics'}.contains(segment)) {
       throw const FormatException('未知社区分段');
     }
+    final page = await _page(
+      subjectId,
+      segment,
+      offset: offset,
+      refresh: refresh,
+    );
+    return CommunityPage(
+      entries: [for (final row in page.rows) _entry(row, segment)],
+      total: page.total,
+    );
+  }
+
+  CommunityEntry _entry(Json row, String segment) {
+    final entry = segment == 'reviews' ? object(row['entry']) : row;
+    final user = object(row[segment == 'topics' ? 'creator' : 'user']);
+    final comments = segment == 'comments';
+    return CommunityEntry(
+      id: number(entry['id']).toInt(),
+      userId: '${user['id']}',
+      author: '${user['nickname'] ?? user['username'] ?? '未知用户'}',
+      avatarUrl: coverAddress(object(user['avatar'])['medium']),
+      score: comments ? number(row['rate']).toInt() : 0,
+      status: comments
+          ? CollectionStatus.values
+                .where((status) => status.remoteValue == number(row['type']))
+                .firstOrNull
+          : null,
+      replies: number(row['replyCount']).toInt(),
+      title: entry['title'] as String?,
+      text: '${comments ? row['comment'] ?? '' : entry['summary'] ?? ''}',
+      time: number(
+        segment == 'topics'
+            ? row['updatedAt']
+            : entry['createdAt'] ?? entry['updatedAt'],
+      ).toInt(),
+    );
+  }
+
+  Future<({List<Json> rows, int total})> _page(
+    int subjectId,
+    String segment, {
+    int offset = 0,
+    bool refresh = false,
+  }) async {
     final prefix = '${account.userId}:$subjectId:$segment:';
     final key = '$prefix$offset';
-    final cached = _cache[key];
+    final cached = _rows[key];
     if (!refresh &&
         cached != null &&
         DateTime.now().difference(cached.savedAt) <
             const Duration(minutes: 5)) {
-      return cached.value;
+      return (rows: cached.rows, total: cached.total);
     }
     final response = object(
       await _request(
@@ -65,43 +106,41 @@ class BangumiPrivateClient {
       ),
     );
     final data = objects(response['data']);
-    final result = <String, dynamic>{
-      'subjectId': subjectId,
-      'data': data,
-      'total': response['total'] is num
-          ? number(response['total']).toInt()
-          : offset + data.length,
-    };
-    if (offset == 0) _cache.removeWhere((key, _) => key.startsWith(prefix));
-    _cache[key] = (savedAt: DateTime.now(), value: result);
-    return result;
+    final total = response['total'] is num
+        ? number(response['total']).toInt()
+        : offset + data.length;
+    if (offset == 0) _rows.removeWhere((key, _) => key.startsWith(prefix));
+    _rows[key] = (savedAt: DateTime.now(), rows: data, total: total);
+    return (rows: data, total: total);
   }
 
-  Future<List<Json>> relations(int subjectId, {bool refresh = false}) async {
+  Future<List<Subject>> relations(int subjectId, {bool refresh = false}) async {
     final values = <Json>[];
     try {
       for (var offset = 0; ;) {
-        final response = await page(
+        final response = await _page(
           subjectId,
           'relations',
           offset: offset,
           refresh: refresh,
         );
-        final data = objects(response['data']);
+        final data = response.rows;
         values.addAll(data.map((row) => _relation(row, private: true)));
         offset += data.length;
-        if (data.isEmpty || offset >= number(response['total'])) break;
+        if (data.isEmpty || offset >= response.total) break;
       }
-      return values.where((row) => number(row['subjectId']) > 0).toList();
     } catch (_) {
       final data = await account.api.json(
         Uri.https('api.bgm.tv', '/v0/subjects/$subjectId/subjects'),
       );
-      return objects(data)
-          .map((row) => _relation(row, private: false))
-          .where((row) => number(row['subjectId']) > 0)
-          .toList();
+      values
+        ..clear()
+        ..addAll(objects(data).map((row) => _relation(row, private: false)));
     }
+    return values
+        .where((row) => number(row['subjectId']) > 0)
+        .map(Subject.fromJson)
+        .toList();
   }
 
   Json _relation(Json row, {required bool private}) {

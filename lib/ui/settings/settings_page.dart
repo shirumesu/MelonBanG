@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../data/json.dart';
+import '../../domain/catalog.dart';
+import '../../features/tracking/tracking_controller.dart';
 import '../core/account_avatar.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
@@ -11,8 +12,7 @@ import '../player/danmaku_preferences_editor.dart';
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
     super.key,
-    required this.account,
-    required this.sync,
+    required this.personal,
     required this.dark,
     required this.dataDirectory,
     required this.bitTorrentSettings,
@@ -24,19 +24,14 @@ class SettingsPage extends StatefulWidget {
     this.storageSettings,
     this.cacheSettings,
     this.syncBusy = false,
-    this.needsAuthorization = false,
-    this.accountBusy = false,
   });
+  final TrackingController personal;
   final Playback? playback;
   final Widget? storageSettings;
   final Widget? cacheSettings;
   final VoidCallback? onSync;
   final bool syncBusy;
-  final Json? account;
-  final Json sync;
   final bool dark;
-  final bool needsAuthorization;
-  final bool accountBusy;
   final String? dataDirectory;
   final Widget bitTorrentSettings;
   final VoidCallback onAccountAction, onCancelSignIn;
@@ -64,12 +59,17 @@ class _SettingsPageState extends State<SettingsPage> {
     Icons.folder_outlined,
   ];
 
+  TrackingController get personal => widget.personal;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      ListenableBuilder(listenable: personal, builder: _page);
+
+  Widget _page(BuildContext context, Widget? _) {
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-    final account = widget.account;
-    final signedIn = account != null && !widget.needsAuthorization;
-    final pending = number(widget.sync['pendingMutationCount']).toInt();
+    final account = personal.profile;
+    final signedIn = account != null && !personal.needsAuthorization;
+    final pending = personal.sync.pending;
     return LayoutBuilder(
       builder: (context, constraints) => Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -130,7 +130,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _pages(
     BuildContext context,
-    Json? account,
+    AccountProfile? account,
     bool signedIn,
     int pending,
     Color muted,
@@ -145,40 +145,40 @@ class _SettingsPageState extends State<SettingsPage> {
             padding: EdgeInsets.zero,
             child: SettingRow(
               leading: AccountAvatar(
-                url: account?['avatarUrl'] as String?,
-                name: '${account?['nickname'] ?? ''}',
+                url: account?.avatarUrl,
+                name: account?.nickname ?? '',
                 size: 44,
               ),
-              title: '${account?['nickname'] ?? '连接 Bangumi'}',
+              title: account?.nickname ?? '连接 Bangumi',
               subtitle: account == null
                   ? '同步你的追番收藏与章节记录'
-                  : '@${account['username'] ?? ''} · ${widget.needsAuthorization ? '登录凭据待解锁' : '已连接 Bangumi'}',
+                  : '@${account.username ?? ''} · ${personal.needsAuthorization ? '登录凭据待解锁' : '已连接 Bangumi'}',
               trailing: Wrap(
                 spacing: Gap.sm,
                 children: [
-                  if (widget.accountBusy && !signedIn)
+                  if (personal.accountBusy && !signedIn)
                     TextButton(
                       onPressed: widget.onCancelSignIn,
                       child: const Text('取消登录'),
                     ),
                   if (signedIn)
                     OutlinedButton.icon(
-                      onPressed: widget.accountBusy
+                      onPressed: personal.accountBusy
                           ? null
                           : widget.onAccountAction,
                       icon: const Icon(Icons.logout, size: 18),
-                      label: Text(widget.accountBusy ? '退出中…' : '退出登录'),
+                      label: Text(personal.accountBusy ? '退出中…' : '退出登录'),
                     )
                   else
                     FilledButton.icon(
-                      onPressed: widget.accountBusy
+                      onPressed: personal.accountBusy
                           ? null
                           : widget.onAccountAction,
                       icon: const Icon(Icons.account_circle_outlined, size: 18),
                       label: Text(
-                        widget.accountBusy
+                        personal.accountBusy
                             ? '连接中…'
-                            : widget.needsAuthorization
+                            : personal.needsAuthorization
                             ? '解锁同步'
                             : '登录 Bangumi',
                       ),
@@ -194,7 +194,7 @@ class _SettingsPageState extends State<SettingsPage> {
               children: [
                 SettingRow(
                   title: account == null ? '追番记录保存在本机' : 'Bangumi 收藏与章节同步',
-                  subtitle: widget.needsAuthorization
+                  subtitle: personal.needsAuthorization
                       ? '登录凭据待授权，本地追番和播放记录仍可使用。点击「解锁同步」恢复连接。'
                       : account == null
                       ? '登录后可同步到 Bangumi，未登录也能记录追番。'
@@ -209,11 +209,11 @@ class _SettingsPageState extends State<SettingsPage> {
                         )
                       : null,
                 ),
-                if (widget.sync['lastSyncError'] != null) ...[
+                if (personal.sync.error case final error?) ...[
                   const Divider(height: 1, indent: 20, endIndent: 20),
                   SettingRow(
                     title: '上次同步失败',
-                    subtitle: '${widget.sync['lastSyncError']}',
+                    subtitle: error,
                     subtitleColor: coral,
                   ),
                 ],

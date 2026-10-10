@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
-import '../../data/json.dart';
-import '../../integrations/transfer/pikpak_client.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 
@@ -26,7 +25,8 @@ class CacheSettings extends StatefulWidget {
   final Future<void> Function(CacheMethod) onMethodChanged;
   final Future<void> Function(String, String) onLogin;
   final Future<void> Function() onLogout;
-  final Json? account;
+  /// Signed-in PikPak account name.
+  final String? account;
   final bool busy;
   final String? error;
   final bool needsAuthorization;
@@ -65,8 +65,12 @@ class _CacheSettingsState extends State<CacheSettings> {
     } catch (failure) {
       if (mounted) {
         setState(() {
-          error = '$failure'.replaceFirst('Bad state: ', '');
-          if (failure is PikPakCaptchaRequired) captcha = failure.url;
+          if (failure is SourceVerificationRequired) {
+            error = 'PikPak 需要网页验证，请完成验证后重试。';
+            captcha = Uri.parse(failure.url);
+          } else {
+            error = '$failure'.replaceFirst('Bad state: ', '');
+          }
         });
       }
     } finally {
@@ -145,7 +149,7 @@ class _CacheSettingsState extends State<CacheSettings> {
                 ),
               ] else if (account != null) ...[
                 Text(
-                  '${account['displayName'] ?? account['name'] ?? account['username'] ?? account['email'] ?? 'PikPak'}',
+                  account,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 8),

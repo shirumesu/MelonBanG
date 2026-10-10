@@ -1,40 +1,42 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app_services.dart';
-import 'ui/acquisition/download_dialogs.dart';
-import 'ui/acquisition/downloads_page.dart';
-import 'ui/acquisition/resources_page.dart';
-import 'data/resource_metadata.dart';
-import 'domain/play_candidate.dart';
-import 'domain/sources.dart';
-import 'domain/transfer.dart';
 import 'data/network.dart';
-import 'features/playback/play_selection.dart';
+import 'data/resource_metadata.dart';
+import 'domain/catalog.dart';
+import 'domain/play_candidate.dart';
+import 'features/acquisition/resources_controller.dart';
+import 'features/discovery/discovery_controller.dart';
+import 'features/downloads/downloads_controller.dart';
 import 'features/playback/playback.dart';
 import 'features/playback/playback_coordinator.dart';
+import 'features/playback/resume_controller.dart';
+import 'features/tracking/subject_controller.dart';
+import 'features/tracking/tracking_controller.dart';
 import 'integrations/transfer/pikpak.dart';
+import 'ui/acquisition/downloads_page.dart';
+import 'ui/acquisition/resources_page.dart';
 import 'ui/core/action_feedback.dart';
 import 'ui/core/app_chrome.dart';
+import 'ui/core/cached_image.dart';
 import 'ui/core/motion.dart';
 import 'ui/core/page_widgets.dart';
-import 'ui/core/theme.dart';
 import 'ui/core/subject_posters.dart';
+import 'ui/core/theme.dart';
 import 'ui/discovery/discovery_pages.dart';
-import 'ui/player/player_page.dart';
 import 'ui/player/candidate_resources.dart';
-import 'ui/sources/sources_page.dart';
+import 'ui/player/player_page.dart';
 import 'ui/settings/bittorrent_settings.dart';
 import 'ui/settings/cache_settings.dart';
-import 'ui/core/cached_image.dart';
 import 'ui/settings/settings_page.dart';
 import 'ui/settings/storage_settings.dart';
+import 'ui/sources/sources_page.dart';
 import 'ui/tracking/subject_page.dart';
 import 'ui/tracking/tracking_page.dart';
 
@@ -46,6 +48,8 @@ class MelonApp extends StatefulWidget {
   State<MelonApp> createState() => _MelonAppState();
 }
 
+/// The window: navigation, history, title bar, sidebar and full screen. Page
+/// state and requests belong to the feature controllers.
 class _MelonAppState extends State<MelonApp>
     with WindowListener
     implements PlaybackShell {
@@ -57,25 +61,17 @@ class _MelonAppState extends State<MelonApp>
   final searchFocus = FocusNode(debugLabel: 'Catalogue search');
   final pageStorage = PageStorageBucket();
   final List<_PageLocation> history = [];
-  String selectedSection = 'home';
-  String? searchError;
-  String resultQuery = '';
-  int resultOffset = 0, resultTotal = 0;
-  bool resultHasMore = false;
-  int _searchRequestOffset = 0;
-  List<String>? resourceQueryNames;
-  String resourceQueryEpisode = '';
-  Playback get playback => widget.service.playback;
-  PlaybackCoordinator get coordinator => widget.service.coordinator;
   final subscriptions = <StreamSubscription<dynamic>>[];
-  String route = 'home', collectionFilter = 'watching';
-  bool dark = false, ready = false, busy = false, fullScreen = false;
-  String? error;
-  bool trendingLoading = true;
-  bool todayLoading = true;
-  String? todayError;
-  String? todayDate;
+  final homeFeedback = ActionFeedback();
+  final syncFeedback = ActionFeedback();
+  String route = 'home', selectedSection = 'home';
+  bool dark = false, ready = false, fullScreen = false;
   bool closing = false, sidebarVisible = true, windowFullScreen = false;
+  String? startError;
+  List<String> recentSearches = [];
+  Listenable? _controllers;
+  Future<void> _fullScreenOperations = Future.value();
+  Completer<void>? _fullScreenTransition;
 
   /// The player starts with the sidebar collapsed so the video gets the width;
   /// toggling it there does not change the other pages.
@@ -84,61 +80,32 @@ class _MelonAppState extends State<MelonApp>
   /// "关灯" in the light theme darkens only the player; remembered across runs.
   bool playerLightsOff = false;
 
-  void setPlayerLights(bool off) {
-    setState(() => playerLightsOff = off);
-    unawaited(widget.preferences.setBool('player-lights-off', off));
-  }
+  AppServices get service => widget.service;
+  Playback get playback => service.playback;
+  PlaybackCoordinator get coordinator => service.coordinator;
+  DiscoveryController get discovery => service.discovery;
+  TrackingController get personal => service.personal;
+  SubjectController get subjects => service.subjects;
+  ResourcesController get resources => service.resources;
+  DownloadsController get downloads => service.downloadList;
+  ResumeController get resume => service.resume;
 
   bool get showSidebar =>
       route == 'player' ? playerSidebarVisible : sidebarVisible;
-  bool accountBusy = false;
-  final homeFeedback = ActionFeedback();
-  final syncFeedback = ActionFeedback();
-  List<String> recentSearches = [];
-  Json? account, subject, subjectResume;
-  Set<int>? cachedEpisodeIds;
-  List<Json> resumable = [];
-  int? mediaSubjectId;
-  int _mediaRequest = 0, _trackingRefreshRequest = 0;
-  List<Json> trending = [],
-      today = [],
-      calendar = [],
-      collection = [],
-      results = [];
-  ReleaseSearchResult releases = const ReleaseSearchResult();
-  final downloadState = ValueNotifier(const TransferSnapshot());
-  final downloadCount = ValueNotifier<int>(0);
-  TransferSnapshot get downloads => downloadState.value;
-  Json sync = {};
 
-  void acceptDownloads(TransferSnapshot value) {
-    downloadState.value = value;
-    downloadCount.value = value.tasks
-        .where(
-          (task) =>
-              const {
-                DownloadStatus.metadata,
-                DownloadStatus.downloading,
-                DownloadStatus.queued,
-                DownloadStatus.checking,
-              }.contains(task.status) &&
-              !task.complete,
-        )
-        .length;
-  }
+  /// Whether the current page is still loading.
+  bool get busy =>
+      ready &&
+      switch (route) {
+        'subject' => subjects.loading,
+        'search' => discovery.searching,
+        'resources' => resources.busy,
+        _ => false,
+      };
 
-  int? resourceEpisode;
-  int _navigation = 0;
-  int? _subjectRequest;
-  int _personalRequest = 0, _resourceRequest = 0;
-  Future<void> _fullScreenOperations = Future.value();
-  Completer<void>? _fullScreenTransition;
-  RequestCancellation _resourceCancel = RequestCancellation();
-
-  int nextNavigation() {
-    _resourceCancel.cancel();
-    _resourceRequest++;
-    return ++_navigation;
+  void setPlayerLights(bool off) {
+    setState(() => playerLightsOff = off);
+    unawaited(widget.preferences.setBool('player-lights-off', off));
   }
 
   @override
@@ -154,143 +121,74 @@ class _MelonAppState extends State<MelonApp>
 
   Future<void> boot() async {
     try {
-      await widget.service.start();
+      await service.start();
       if (!mounted || closing) return;
       coordinator.shell = this;
-      coordinator.addListener(servicesChanged);
+      _controllers = Listenable.merge([
+        coordinator,
+        service.sources,
+        service.downloadsAvailable,
+        discovery,
+        personal,
+        subjects,
+        resources,
+      ])..addListener(servicesChanged);
+      downloads.availability.addListener(availabilityChanged);
       subscriptions.add(
-        widget.service.downloads.changes.stream.listen((value) {
-          if (!mounted) return;
-          String availability(TransferSnapshot snapshot) => snapshot.tasks
-              .map((task) => '${task.id}:${task.status.name}:${task.complete}')
-              .join('|');
-          final changed = availability(downloads) != availability(value);
-          acceptDownloads(value);
-          if (changed && ready && ['home', 'subject'].contains(route)) {
-            unawaited(perform(refreshPlaybackAvailability));
-          }
+        service.tracking.changes.stream.listen((_) {
+          if (mounted) unawaited(perform(personal.refresh));
         }),
       );
-      subscriptions.add(
-        widget.service.tracking.changes.stream.listen((_) {
-          if (mounted) unawaited(perform(refreshPersonal));
-        }),
-      );
-      acceptDownloads(widget.service.downloads.snapshot());
-      widget.service.sources.addListener(servicesChanged);
-      widget.service.downloadsAvailable.addListener(servicesChanged);
       setState(() => ready = true);
-      if (!mounted || closing) return;
       await Future.wait([
-        loadHome().then((issue) {
+        discovery.loadHome().then((issue) {
           if (issue != null) showError(issue);
         }),
-        refreshPersonal(),
+        personal.refresh(),
         refreshPlaybackAvailability(),
       ]);
     } catch (e) {
-      if (mounted) setState(() => error = e.toString());
+      if (mounted) setState(() => startError = e.toString());
     }
   }
 
-  Future<String?> loadHome({bool refresh = false}) async {
-    if (!mounted) return null;
-    setState(() {
-      trendingLoading = true;
-      todayLoading = true;
-      error = null;
-      todayError = null;
-      if (todayDate != null &&
-          todayDate != widget.service.catalog.scheduleDate) {
-        today = [];
-      }
-    });
-    void showTrending(List<Json> value) {
-      if (mounted && !_dataEqual(trending, value)) {
-        setState(() => trending = value);
-      }
-    }
-
-    void showToday(Json value) {
-      if (mounted &&
-          (todayDate != value['date'] || !_dataEqual(today, value['items']))) {
-        setState(() {
-          today = objects(value['items']);
-          todayDate = value['date'] as String?;
-        });
-      }
-    }
-
-    var trendingFailed = false, todayFailed = false;
-    await Future.wait([
-      widget.service.catalog
-          .trending(refresh: refresh, limit: 8, onCached: showTrending)
-          .then(showTrending)
-          .catchError((Object e) {
-            trendingFailed = true;
-            if (mounted) setState(() => error = e.toString());
-          })
-          .whenComplete(() {
-            if (mounted) setState(() => trendingLoading = false);
-          }),
-      widget.service.catalog
-          .today(refresh: refresh, onCached: showToday)
-          .then(showToday)
-          .catchError((Object e) {
-            todayFailed = true;
-            if (mounted) setState(() => todayError = e.toString());
-          })
-          .whenComplete(() {
-            if (mounted) setState(() => todayLoading = false);
-          }),
-    ]);
-    if (trendingFailed && todayFailed) return '刷新失败，仍显示上次内容。';
-    if (trendingFailed) return '今日放送已更新，本季热度刷新失败。';
-    if (todayFailed) return '本季热度已更新，今日放送刷新失败。';
-    return null;
+  void servicesChanged() {
+    if (mounted && !closing) setState(() {});
   }
 
-  Future<void> refreshHome() => homeFeedback.run(() => loadHome(refresh: true));
-
-  Future<void> syncCollection() => syncFeedback.run(() async {
-    final user = widget.service.account.userId;
-    if (widget.service.account.session == null) return '登录 Bangumi 后可同步收藏。';
-    try {
-      await widget.service.tracking.refresh();
-      await refreshPersonal();
-      if (user != widget.service.account.userId) return '账号已切换，请重新同步。';
-      final status = await widget.service.tracking.syncState();
-      final pending = number(status['pendingMutationCount']).toInt();
-      if (pending > 0) return '已拉取收藏，仍有 $pending 项修改待上传。';
-      if (status['lastSyncError'] != null) return '部分修改未能同步，请重试。';
-      return null;
-    } catch (_) {
-      return '同步失败，本地收藏已保留。';
+  void availabilityChanged() {
+    if (mounted && ready && ['home', 'subject'].contains(route)) {
+      unawaited(perform(refreshPlaybackAvailability));
     }
-  });
+  }
+
+  Future<void> refreshHome() =>
+      homeFeedback.run(() => discovery.loadHome(refresh: true));
+
+  Future<void> syncCollection() => syncFeedback.run(personal.synchronize);
+
+  Future<void> refreshPlaybackAvailability() => resume.refresh(subjects.id);
 
   _PageLocation get location => _PageLocation(
     route: route,
-    accountId: widget.service.account.userId,
+    accountId: personal.userId,
     section: selectedSection,
-    subject: subject,
-    resourceEpisode: resourceEpisode,
+    subject: subjects.subject,
     resourceQuery: resourceSearch.text,
     query: search.text,
-    results: results,
-    releases: releases,
-    searchError: searchError,
-    resultQuery: resultQuery,
-    resultOffset: resultOffset,
-    resultTotal: resultTotal,
-    resultHasMore: resultHasMore,
-    searchRequestOffset: _searchRequestOffset,
-    pending: busy || (route == 'subject' && _subjectRequest == _navigation),
-    resourceQueryNames: resourceQueryNames,
-    resourceQueryEpisode: resourceQueryEpisode,
+    search: discovery.search,
+    resources: resources.state,
+    pending: busy,
   );
 
   void rememberLocation() => history.add(location);
+
+  /// Stops requests that belong to the page being left.
+  void nextNavigation() {
+    resources.cancel();
+    discovery.cancelSearch();
+    subjects.cancel();
+  }
 
   void leavePlayer() {
     // Navigation can happen before startup has created the coordinator.
@@ -309,62 +207,53 @@ class _MelonAppState extends State<MelonApp>
     }
     final previous = history.removeLast();
     nextNavigation();
+    final switched = previous.accountId != personal.userId;
+    final subject = switched
+        ? previous.subject?.copyWith(
+            clearCollection: true,
+            episodes: [
+              for (final episode in previous.subject!.episodes)
+                episode.withStatus(EpisodeStatus.unwatched),
+            ],
+          )
+        : previous.subject;
     setState(() {
       route = previous.route;
       selectedSection = previous.section;
-      subject =
-          previous.accountId != widget.service.account.userId &&
-              previous.subject != null
-          ? {
-              ...previous.subject!,
-              'collection': null,
-              'episodes': [
-                for (final episode in objects(previous.subject!['episodes']))
-                  {...episode, 'status': 'unwatched'},
-              ],
-            }
-          : previous.subject;
-      resourceEpisode = previous.resourceEpisode;
       resourceSearch.text = previous.resourceQuery;
       search.text = previous.query;
-      results = previous.results;
-      releases = previous.releases;
-      searchError = previous.searchError;
-      resultQuery = previous.resultQuery;
-      resultOffset = previous.resultOffset;
-      resultTotal = previous.resultTotal;
-      resultHasMore = previous.resultHasMore;
-      _searchRequestOffset = previous.searchRequestOffset;
-      resourceQueryNames = previous.resourceQueryNames;
-      resourceQueryEpisode = previous.resourceQueryEpisode;
-      busy = false;
     });
+    subjects.show(subject);
+    discovery.restoreSearch(
+      previous.search,
+      reload: previous.pending && route == 'search',
+    );
+    resources.restore(previous.resources);
     if (ready && ['home', 'subject'].contains(route)) {
       unawaited(perform(refreshPlaybackAvailability));
     }
-    if (previous.pending ||
-        (route == 'subject' &&
-            previous.accountId != widget.service.account.userId)) {
-      switch (route) {
-        case 'subject':
-          if (subject != null) unawaited(openSubject(subject!));
-        case 'search':
-          unawaited(_loadSearchPage(previous.searchRequestOffset));
-        case 'resources':
-          unawaited(
-            searchResources(
-              names: resourceQueryNames,
-              episodeKeyword: resourceQueryEpisode,
-            ),
-          );
-      }
+    if (route == 'subject' &&
+        subject != null &&
+        (previous.pending || switched)) {
+      unawaited(openSubject(subject));
+    } else if (route == 'resources' && previous.pending) {
+      unawaited(
+        perform(
+          () => resources.search(
+            resourceSearch.text,
+            names: previous.resources.names,
+            episodeKeyword: previous.resources.episodeKeyword,
+          ),
+        ),
+      );
     }
   }
 
   String get pageIdentity => switch (route) {
-    'subject' => 'subject:${subject?['subjectId']}',
-    'resources' => 'resources:${subject?['subjectId']}:$resourceEpisode',
-    'search' => 'search:$resultQuery',
+    'subject' => 'subject:${subjects.id}',
+    'resources' =>
+      'resources:${resources.state.subject?.id}:${resources.state.episodeId}',
+    'search' => 'search:${discovery.search.query}',
     _ => route,
   };
 
@@ -389,25 +278,6 @@ class _MelonAppState extends State<MelonApp>
     }
   }
 
-  Future<void> refreshPersonal() async {
-    final ticket = ++_personalRequest;
-    final userId = widget.service.account.userId;
-    final values = await Future.wait<dynamic>([
-      Future.value(widget.service.account.session),
-      widget.service.tracking.collection(),
-      widget.service.tracking.syncState(),
-    ]);
-    if (mounted &&
-        ticket == _personalRequest &&
-        userId == widget.service.account.userId) {
-      setState(() {
-        account = values[0] == null ? null : object(values[0]);
-        collection = objects(values[1]);
-        sync = object(values[2]);
-      });
-    }
-  }
-
   @override
   void showError(Object e) => messages.currentState?.showSnackBar(
     SnackBar(
@@ -415,6 +285,7 @@ class _MelonAppState extends State<MelonApp>
       behavior: SnackBarBehavior.floating,
     ),
   );
+
   Future<void> perform(Future<void> Function() action) async {
     try {
       await action();
@@ -425,47 +296,18 @@ class _MelonAppState extends State<MelonApp>
     }
   }
 
-  Future<void> openSubject(Json item) async {
-    final id = item['subjectId'];
-    if (id == null) {
+  Future<void> openSubject(Subject item) async {
+    if (item.id <= 0) {
       showError('该日程尚未关联番剧条目。');
       return;
     }
     leavePlayer();
-    if (route != 'subject' || subject?['subjectId'] != id) rememberLocation();
-    final ticket = nextNavigation();
-    _subjectRequest = ticket;
-    setState(() {
-      route = 'subject';
-      subject = item;
-      subjectResume = null;
-      cachedEpisodeIds = null;
-      mediaSubjectId = null;
-      busy = true;
-    });
-    try {
-      unawaited(perform(refreshPlaybackAvailability));
-      final detail = await widget.service.tracking.subject(
-        id as int,
-        onAvailable: (value) {
-          if (mounted && ticket == _navigation) {
-            setState(() {
-              subject = value;
-            });
-          }
-        },
-      );
-      if (mounted && ticket == _navigation) setState(() => subject = detail);
-    } catch (e) {
-      if (mounted && ticket == _navigation) showError(e);
-    } finally {
-      if (_subjectRequest == ticket) _subjectRequest = null;
-      if (mounted && ticket == _navigation) setState(() => busy = false);
-    }
-  }
-
-  void servicesChanged() {
-    if (mounted && !closing) setState(() {});
+    if (route != 'subject' || subjects.id != item.id) rememberLocation();
+    nextNavigation();
+    setState(() => route = 'subject');
+    final opening = subjects.open(item);
+    unawaited(perform(refreshPlaybackAvailability));
+    await perform(() => opening);
   }
 
   @override
@@ -475,20 +317,15 @@ class _MelonAppState extends State<MelonApp>
   void enterPlayer() {
     if (route != 'player') rememberLocation();
     nextNavigation();
-    setState(() {
-      route = 'player';
-      busy = false;
-    });
+    setState(() => route = 'player');
   }
 
   @override
-  Future<void> openResources(Json item, Json episode) {
-    subject = item;
-    return findResources(episode: episode);
-  }
+  Future<void> openResources(Subject subject, Episode episode) =>
+      findResources(subject, episode: episode);
 
   @override
-  Future<PlayCandidate?> chooseCandidate(Json item, Json episode) async {
+  Future<PlayCandidate?> chooseCandidate(Subject item, Episode episode) async {
     final target = navigation.currentState?.overlay?.context;
     if (target == null) return null;
     return showDialog<PlayCandidate>(
@@ -510,7 +347,7 @@ class _MelonAppState extends State<MelonApp>
                   children: [
                     Expanded(
                       child: Text(
-                        '选择资源 · 第 ${episode['sort']} 话',
+                        '选择资源 · 第 ${episode.number} 话',
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                     ),
@@ -523,7 +360,7 @@ class _MelonAppState extends State<MelonApp>
               ),
               Expanded(
                 child: CandidateResources(
-                  service: widget.service,
+                  choices: service.choices,
                   playback: playback,
                   subject: item,
                   episode: episode,
@@ -531,8 +368,7 @@ class _MelonAppState extends State<MelonApp>
                       Navigator.pop(context, candidate),
                   onFindResources: () {
                     Navigator.pop(context);
-                    subject = item;
-                    unawaited(findResources(episode: episode));
+                    unawaited(findResources(item, episode: episode));
                   },
                 ),
               ),
@@ -543,173 +379,24 @@ class _MelonAppState extends State<MelonApp>
     );
   }
 
-  Future<void> saveTracking(Json mutation) async {
-    final subjectId = mutation['subjectId'] as int;
-    final ticket = _navigation;
-    final accountId = widget.service.account.userId;
-    if (mutation['kind'] == 'subjectCollection') {
-      await widget.service.tracking.setCollection(
-        subjectId,
-        status: mutation['status'] == null
-            ? null
-            : CollectionStatus.parse('${mutation['status']}'),
-        score: mutation['score'] as int?,
-        tags: (mutation['tags'] as List?)?.cast<String>(),
-        comment: mutation['comment'] as String?,
-        completeEpisodes: mutation['completeEpisodes'] == true,
-      );
-    } else {
-      await widget.service.tracking.setEpisodes(
-        subjectId,
-        (mutation['episodeIds'] as List).cast<int>(),
-        EpisodeStatus.parse('${mutation['status']}'),
-      );
-    }
-    final refreshTicket = ++_trackingRefreshRequest;
-    bool isCurrent() =>
-        mounted &&
-        ticket == _navigation &&
-        route == 'subject' &&
-        subject?['subjectId'] == subjectId &&
-        accountId == widget.service.account.userId &&
-        refreshTicket == _trackingRefreshRequest;
-    if (isCurrent()) {
-      setState(() {
-        subject = {
-          ...subject!,
-          if (mutation['kind'] == 'subjectCollection')
-            'collection': {
-              ...object(subject!['collection']),
-              if (mutation['status'] != null) 'status': mutation['status'],
-              if (mutation['score'] != null) 'score': mutation['score'],
-              if (mutation['status'] == 'wish') 'score': 0,
-              if (mutation['tags'] != null) 'tags': mutation['tags'],
-              if (mutation['comment'] != null) 'comment': mutation['comment'],
-            },
-          if (mutation['completeEpisodes'] == true)
-            'episodes': [
-              for (final episode in objects(subject!['episodes']))
-                if (isMainEpisode(episode))
-                  {...episode, 'status': 'watched'}
-                else
-                  episode,
-            ]
-          else if (mutation['kind'] != 'subjectCollection')
-            'episodes': [
-              for (final episode in objects(subject!['episodes']))
-                if ((mutation['episodeIds'] as List).contains(
-                  episode['episodeId'],
-                ))
-                  {...episode, 'status': mutation['status']}
-                else
-                  episode,
-            ],
-        };
-      });
-    }
-    // Reflect committed local changes immediately; refresh has its own failure path.
-    unawaited(
-      perform(() async {
-        await refreshPersonal();
-        final detail = await widget.service.tracking.subject(subjectId);
-        if (isCurrent()) setState(() => subject = detail);
-      }),
-    );
-  }
-
-  Future<void> refreshPlaybackAvailability() async {
-    final ticket = ++_mediaRequest;
-    final id = subject?['subjectId'] as int?;
-    final recent = await widget.service.library.recent();
-    final resume =
-        recent.where((item) => item['subjectId'] == id).firstOrNull ??
-        (id == null
-            ? null
-            : (await widget.service.library.recent(
-                limit: 1,
-                forSubject: id,
-              )).firstOrNull);
-    final playable = id == null
-        ? null
-        : await widget.service.library.playableEpisodes(id);
-    if (!mounted || ticket != _mediaRequest) return;
-    setState(() {
-      resumable = recent;
-      mediaSubjectId = id;
-      cachedEpisodeIds = playable;
-      subjectResume = resume;
-    });
-  }
-
-  Future<void> findResources({Json? episode}) async {
+  Future<void> findResources(Subject? subject, {Episode? episode}) async {
     leavePlayer();
     if (route != 'resources') rememberLocation();
-    resourceEpisode = episode?['episodeId'] as int?;
     final episodeKeyword = resourceEpisodeKeyword(episode);
-    final formId = ResourcesPage.formStorageId(
-      subject?['subjectId'] as int?,
-      resourceEpisode,
-    );
+    final formId = ResourcesPage.formStorageId(subject?.id, episode?.id);
     final savedForm = pageStorage.readState(context, identifier: formId);
     pageStorage.writeState(context, {
       ...?savedForm as Map?,
       'episode': episodeKeyword,
     }, identifier: formId);
-    resourceSearch.text = titleOf(subject ?? {});
+    resourceSearch.text = subject?.title ?? '未命名';
     nextNavigation();
-    setState(() {
-      route = 'resources';
-      releases = const ReleaseSearchResult();
-    });
-    await searchResources(episodeKeyword: episodeKeyword);
-  }
-
-  Future<void> searchResources({
-    List<String>? names,
-    String episodeKeyword = '',
-  }) async {
-    if (subject == null) return;
-    final searchNames = names ?? resourceNames(subject!);
-    if (resourceSearch.text.trim().isEmpty && searchNames.isEmpty) return;
-    _resourceCancel.cancel();
-    final cancellation = _resourceCancel = RequestCancellation();
-    final ticket = ++_resourceRequest;
-    final navigation = _navigation;
-    final subjectId = subject!['subjectId'] as int;
-    final episodeId = resourceEpisode;
-    final keyword = resourceSearch.text.trim();
-    setState(() {
-      busy = true;
-      resourceQueryNames = searchNames;
-      resourceQueryEpisode = episodeKeyword;
-      releases = const ReleaseSearchResult();
-    });
-    await perform(() async {
-      final data = await widget.service.releases.search(
-        subjectId,
-        keyword,
-        cancel: cancellation,
-        episodeId: episodeId,
-        alternativeNames: searchNames,
-        episodeKeyword: episodeKeyword,
-        coverUrl: subject!['coverUrl'] as String?,
-        isCurrent: () =>
-            mounted && ticket == _resourceRequest && navigation == _navigation,
-        onUpdate: (data) {
-          if (mounted &&
-              ticket == _resourceRequest &&
-              navigation == _navigation) {
-            setState(() => releases = data);
-          }
-        },
-      );
-      if (mounted && ticket == _resourceRequest && navigation == _navigation) {
-        setState(() => releases = data);
-      }
-    });
-    if (mounted && ticket == _resourceRequest && navigation == _navigation) {
-      setState(() => busy = false);
-    }
+    resources.open(subject, episodeId: episode?.id);
+    setState(() => route = 'resources');
+    await perform(
+      () =>
+          resources.search(resourceSearch.text, episodeKeyword: episodeKeyword),
+    );
   }
 
   void rememberSearch(String query) {
@@ -737,56 +424,9 @@ class _MelonAppState extends State<MelonApp>
     rememberSearch(requestedQuery);
     leavePlayer();
     if (route != 'search') rememberLocation();
-    setState(() {
-      route = 'search';
-      results = [];
-      searchError = null;
-      resultQuery = requestedQuery;
-      resultOffset = 0;
-      resultTotal = 0;
-      resultHasMore = false;
-    });
-    await _loadSearchPage(0);
-  }
-
-  Future<void> loadMoreSearch() async {
-    if (busy || !resultHasMore) return;
-    await _loadSearchPage(resultOffset);
-  }
-
-  Future<void> _loadSearchPage(int offset) async {
-    final ticket = nextNavigation();
-    final previousResults = results.take(offset).toList();
-    final requestedQuery = resultQuery;
-    setState(() {
-      busy = true;
-      searchError = null;
-      _searchRequestOffset = offset;
-    });
-    void showPage(Json value) {
-      if (!mounted || ticket != _navigation) return;
-      final rows = objects(value['data']);
-      setState(() {
-        results = [...previousResults, ...rows];
-        resultOffset = (value['offset'] as num).toInt() + rows.length;
-        resultTotal = (value['total'] as num).toInt();
-        resultHasMore = value['hasMore'] as bool;
-      });
-    }
-
-    try {
-      final value = await widget.service.catalog.search(
-        requestedQuery,
-        offset: offset,
-        onCached: showPage,
-      );
-      showPage(value);
-    } catch (e) {
-      if (mounted && ticket == _navigation) {
-        setState(() => searchError = e.toString());
-      }
-    }
-    if (mounted && ticket == _navigation) setState(() => busy = false);
+    nextNavigation();
+    setState(() => route = 'search');
+    await discovery.searchSubjects(requestedQuery);
   }
 
   void navigate(String target) {
@@ -807,40 +447,20 @@ class _MelonAppState extends State<MelonApp>
       } else if (target == 'calendar') {
         selectedSection = 'home';
       }
-      busy = false;
     });
-    if (ready && target == 'home') {
-      unawaited(loadHome());
-      unawaited(perform(refreshPlaybackAvailability));
-    }
-    if (ready &&
-        target == 'tracking' &&
-        widget.service.account.session != null &&
-        !widget.service.account.needsAuthorization) {
-      unawaited(perform(widget.service.tracking.refresh));
-    }
-    if (ready && target == 'calendar') {
-      unawaited(loadCalendar());
-    }
-    if (ready && target == 'sources') {
-      unawaited(
-        widget.service.sources.refreshRules().catchError((Object _) {}),
-      );
+    if (!ready) return;
+    switch (target) {
+      case 'home':
+        unawaited(discovery.loadHome());
+        unawaited(perform(refreshPlaybackAvailability));
+      case 'tracking':
+        unawaited(perform(personal.pull));
+      case 'calendar':
+        unawaited(perform(discovery.loadCalendar));
+      case 'sources':
+        unawaited(service.sources.refreshRules().catchError((Object _) {}));
     }
   }
-
-  Future<void> loadCalendar() => perform(() async {
-    final value = await widget.service.catalog.calendar(
-      onCached: (value) {
-        if (mounted && !_dataEqual(calendar, value)) {
-          setState(() => calendar = value);
-        }
-      },
-    );
-    if (mounted && !_dataEqual(calendar, value)) {
-      setState(() => calendar = value);
-    }
-  });
 
   @override
   void onWindowClose() async {
@@ -852,7 +472,7 @@ class _MelonAppState extends State<MelonApp>
       if (ready) await coordinator.close();
     } finally {
       try {
-        await widget.service.close();
+        await service.close();
       } finally {
         // Use WM_CLOSE so the runner destroys its view before leaving the message
         // loop. windowManager.destroy posts WM_QUIT directly on Windows.
@@ -911,21 +531,17 @@ class _MelonAppState extends State<MelonApp>
   void dispose() {
     closing = true;
     if (ready) {
-      widget.service.sources.removeListener(servicesChanged);
-      widget.service.downloadsAvailable.removeListener(servicesChanged);
-      coordinator.removeListener(servicesChanged);
+      _controllers?.removeListener(servicesChanged);
+      downloads.availability.removeListener(availabilityChanged);
     }
     unawaited(
       (ready ? coordinator.close() : Future<void>.value()).whenComplete(
-        widget.service.close,
+        service.close,
       ),
     );
     for (final subscription in subscriptions) {
       unawaited(subscription.cancel());
     }
-    _resourceCancel.cancel();
-    downloadState.dispose();
-    downloadCount.dispose();
     homeFeedback.dispose();
     syncFeedback.dispose();
     search.dispose();
@@ -945,11 +561,8 @@ class _MelonAppState extends State<MelonApp>
       title: 'Melonbang',
       builder: (context, child) => ready
           ? ContentCacheScope(
-              cache: widget.service.cache,
-              child: SubjectCoverScope(
-                catalog: widget.service.catalog,
-                child: child!,
-              ),
+              cache: service.cache,
+              child: SubjectCoverScope(catalog: service.catalog, child: child!),
             )
           : child!,
       scaffoldMessengerKey: messages,
@@ -1007,26 +620,7 @@ class _MelonAppState extends State<MelonApp>
                             axis: Axis.horizontal,
                             child: SizedBox(
                               width: sidebarWidth,
-                              child: ValueListenableBuilder<int>(
-                                valueListenable: downloadCount,
-                                builder: (context, count, _) => AppSidebar(
-                                  dark: dark,
-                                  route: route,
-                                  selectedRoute: selectedSection,
-                                  sourcesWarning:
-                                      ready && widget.service.sources.warning,
-                                  nickname: '${account?['nickname'] ?? '尚未登录'}',
-                                  username: account?['username'] as String?,
-                                  avatarUrl: account?['avatarUrl'] as String?,
-                                  watchingCount: collection
-                                      .where(
-                                        (item) => item['status'] == 'watching',
-                                      )
-                                      .length,
-                                  downloadCount: count,
-                                  onNavigate: navigate,
-                                ),
-                              ),
+                              child: sidebar(),
                             ),
                           ),
                         Expanded(
@@ -1036,52 +630,7 @@ class _MelonAppState extends State<MelonApp>
                                 const LinearProgressIndicator(minHeight: 2),
                               Expanded(
                                 child: route == 'player'
-                                    ? PlayerPage(
-                                        key: playerPageKey,
-                                        playback: playback,
-                                        service: widget.service,
-                                        onError: showError,
-                                        onBack: goBack,
-                                        fullScreen: fullScreen,
-                                        windowFullScreen: windowFullScreen,
-                                        onWindowFullScreenChanged:
-                                            setWindowFullScreen,
-                                        downloads: downloadState,
-                                        onPlayFile: (id, fileId) =>
-                                            coordinator.play(
-                                              () => widget.service.library
-                                                  .fromDownload(
-                                                    id,
-                                                    fileId: fileId,
-                                                  ),
-                                            ),
-                                        onFullScreenChanged: setFullScreen,
-                                        lightsOff: dark
-                                            ? null
-                                            : playerLightsOff,
-                                        onLightsChanged: setPlayerLights,
-                                        subject: coordinator.subject,
-                                        preparing: coordinator.preparing,
-                                        onRetryPreparing:
-                                            coordinator.retryPreparing,
-                                        onChoosePreparing:
-                                            coordinator.choosePreparing,
-                                        onEpisode: coordinator.playEpisode,
-                                        onPlayCandidate: (candidate, episode) =>
-                                            coordinator.playCandidate(
-                                              candidate,
-                                              coordinator.subject!,
-                                              episode,
-                                            ),
-                                        onFindAllResources: (episode) {
-                                          final current = coordinator.subject;
-                                          if (current == null) return;
-                                          subject = current;
-                                          unawaited(
-                                            findResources(episode: episode),
-                                          );
-                                        },
-                                      )
+                                    ? player()
                                     : PageStorage(
                                         bucket: pageStorage,
                                         child: PageEntrance(
@@ -1105,6 +654,61 @@ class _MelonAppState extends State<MelonApp>
     );
   }
 
+  Widget sidebar() {
+    Widget build(int count) {
+      final account = ready ? personal.profile : null;
+      return AppSidebar(
+        dark: dark,
+        route: route,
+        selectedRoute: selectedSection,
+        sourcesWarning: ready && service.sources.warning,
+        nickname: account?.nickname ?? '尚未登录',
+        username: account?.username,
+        avatarUrl: account?.avatarUrl,
+        watchingCount: ready ? personal.watching.length : 0,
+        downloadCount: count,
+        onNavigate: navigate,
+      );
+    }
+
+    if (!ready) return build(0);
+    return ValueListenableBuilder<int>(
+      valueListenable: downloads.active,
+      builder: (context, count, _) => build(count),
+    );
+  }
+
+  Widget player() => PlayerPage(
+    key: playerPageKey,
+    playback: playback,
+    choices: service.choices,
+    onError: showError,
+    onBack: goBack,
+    fullScreen: fullScreen,
+    windowFullScreen: windowFullScreen,
+    onWindowFullScreenChanged: setWindowFullScreen,
+    downloads: downloads,
+    onPlayFile: (id, fileId) => coordinator.play(
+      () => service.library.fromDownload(id, fileId: fileId),
+    ),
+    onFullScreenChanged: setFullScreen,
+    lightsOff: dark ? null : playerLightsOff,
+    onLightsChanged: setPlayerLights,
+    subject: coordinator.subject,
+    preparing: coordinator.preparing,
+    onRetryPreparing: coordinator.retryPreparing,
+    onChoosePreparing: coordinator.choosePreparing,
+    onEpisode: coordinator.playEpisode,
+    onPlayCandidate: (candidate, episode) =>
+        coordinator.playCandidate(candidate, coordinator.subject!, episode),
+    onFindAllResources: (episode) {
+      final current = coordinator.subject;
+      if (current != null) {
+        unawaited(findResources(current, episode: episode));
+      }
+    },
+  );
+
   void setDark(bool value) {
     setState(() => dark = value);
     unawaited(widget.preferences.setBool('dark', value));
@@ -1112,12 +716,12 @@ class _MelonAppState extends State<MelonApp>
 
   Widget downloadsSection(Widget Function() content) => ListenableBuilder(
     listenable: Listenable.merge([
-      widget.service.downloadsAvailable,
-      widget.service.downloadIssue,
+      service.downloadsAvailable,
+      service.downloadIssue,
     ]),
     builder: (context, _) {
-      if (widget.service.downloadsAvailable.value) return content();
-      final issue = widget.service.downloadIssue.value;
+      if (service.downloadsAvailable.value) return content();
+      final issue = service.downloadIssue.value;
       return Padding(
         padding: const EdgeInsets.all(24),
         child: Center(
@@ -1138,10 +742,10 @@ class _MelonAppState extends State<MelonApp>
 
   Widget page() {
     if (!ready) {
-      return error == null
+      return startError == null
           ? Center(
               child: ValueListenableBuilder<String>(
-                valueListenable: widget.service.startupStatus,
+                valueListenable: service.startupStatus,
                 builder: (context, status, _) => Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1152,23 +756,18 @@ class _MelonAppState extends State<MelonApp>
                 ),
               ),
             )
-          : EmptyState(text: '应用服务未能启动', detail: error);
+          : EmptyState(text: '应用服务未能启动', detail: startError);
     }
     switch (route) {
       case 'home':
         return HomePage(
+          discovery: discovery,
+          personal: personal,
+          resume: resume,
           onOpenTracking: () => navigate('tracking'),
-          today: today,
-          trending: trending,
-          resumable: resumable,
-          onResume: (item) => perform(() => coordinator.resume(item)),
-          watching: collection
-              .where((item) => item['status'] == 'watching')
-              .toList(),
-          trendingLoading: trendingLoading,
-          todayLoading: todayLoading,
-          todayError: todayError,
-          error: error,
+          onResume: (item) => perform(
+            () => coordinator.resume(item.subject.id, item.episodeId),
+          ),
           onExplore: focusSearch,
           feedback: homeFeedback,
           onCalendar: () => navigate('calendar'),
@@ -1176,165 +775,116 @@ class _MelonAppState extends State<MelonApp>
           onOpenSubject: openSubject,
         );
       case 'search':
-        return SearchPage(
-          query: resultQuery,
-          results: results,
-          busy: busy,
-          total: resultTotal,
-          hasMore: resultHasMore,
-          error: searchError,
-          onRetry: () => _loadSearchPage(_searchRequestOffset),
-          onLoadMore: loadMoreSearch,
-          onOpenSubject: openSubject,
-        );
+        return SearchPage(discovery: discovery, onOpenSubject: openSubject);
       case 'calendar':
         return CalendarPage(
-          calendar: calendar,
+          calendar: discovery.calendar,
           onOpenSubject: openSubject,
-          onRetry: loadCalendar,
+          onRetry: () => perform(discovery.loadCalendar),
         );
       case 'tracking':
         return TrackingPage(
-          collection: collection,
-          collectionFilter: collectionFilter,
-          sync: sync,
-          onFilterChanged: (value) => setState(() => collectionFilter = value),
+          personal: personal,
           onOpenSubject: openSubject,
           feedback: syncFeedback,
-          signedIn: account != null,
           onSignIn: () => navigate('settings'),
           onSync: syncCollection,
           onExplore: focusSearch,
         );
       case 'subject':
-        final item = subject;
         return SubjectPage(
-          subject: item,
-          loading: busy,
-          community: widget.service.tracking.community,
-          signedIn: account != null,
-          collectionSyncError: widget.service.tracking.lastSyncError,
-          onRetryCollectionSync: widget.service.tracking.flush,
-          onSaveTracking: saveTracking,
-          resume: mediaSubjectId == item?['subjectId'] ? subjectResume : null,
-          cachedEpisodeIds: mediaSubjectId == item?['subjectId']
-              ? cachedEpisodeIds
-              : null,
-          onFindResources: (episode) => episode == null
-              ? findResources()
-              : coordinator.chooseSource(item!, episode),
-          onPlayEpisode: (episode) => coordinator.prepare(
-            item!,
-            episode,
-            () => coordinator.selectEpisode(item, episode),
-          ),
+          subjects: subjects,
+          personal: personal,
+          resume: resume,
+          community: service.tracking.community,
+          onFindResources: (episode) {
+            final item = subjects.subject;
+            if (episode == null) {
+              unawaited(findResources(item));
+            } else if (item != null) {
+              unawaited(coordinator.chooseSource(item, episode));
+            }
+          },
+          onPlayEpisode: (episode) {
+            final item = subjects.subject!;
+            unawaited(
+              coordinator.prepare(
+                item,
+                episode,
+                () => coordinator.selectEpisode(item, episode),
+              ),
+            );
+          },
           onOpenSubject: openSubject,
+          onError: showError,
         );
       case 'resources':
         return ResourcesPage(
-          subject: subject,
+          key: ValueKey(
+            'resources:${resources.state.subject?.id}:${resources.state.episodeId}',
+          ),
+          resources: resources,
           resourceSearch: resourceSearch,
-          resourceEpisode: resourceEpisode,
-          releases: releases,
-          busy: busy,
-          key: ValueKey('resources:${subject?["subjectId"]}:$resourceEpisode'),
-          onSearch: (names, episode) =>
-              searchResources(names: names, episodeKeyword: episode),
-          onDownload: (candidate) async {
-            await widget.service.downloadsReady;
-            await widget.service.releases.enqueue(candidate);
-          },
-          defaultMethod: widget.service.downloads.defaultMethod,
-          onDownloadWithMethod: (candidate, method) async {
-            await widget.service.downloadsReady;
-            await widget.service.releases.enqueue(candidate, method: method);
-          },
+          defaultMethod: downloads.defaultMethod,
         );
       case 'downloads':
         return downloadsSection(
-          () => ValueListenableBuilder<TransferSnapshot>(
-            valueListenable: downloadState,
-            builder: (context, value, _) => DownloadsPage(
-              downloads: value,
-              onAddMagnet: addMagnet,
-              onAddTorrent: addTorrent,
-              onExplore: () => navigate('home'),
-              onRemove: confirmRemoval,
-              onStopSeeding: (task) =>
-                  perform(() => widget.service.bt.stopSeeding(task.id)),
-              onTogglePause: (task) => perform(() async {
-                if (const {
-                  DownloadStatus.paused,
-                  DownloadStatus.failed,
-                  DownloadStatus.completed,
-                }.contains(task.status)) {
-                  await widget.service.downloads.resume(task.id);
-                } else {
-                  await widget.service.downloads.pause(task.id);
-                }
-              }),
-              onPlay: (id, fileId) => coordinator.play(
-                () => widget.service.library.fromDownload(id, fileId: fileId),
-              ),
+          () => DownloadsPage(
+            downloads: downloads,
+            onExplore: () => navigate('home'),
+            onError: showError,
+            onPlay: (id, fileId) => coordinator.play(
+              () => service.library.fromDownload(id, fileId: fileId),
             ),
           ),
         );
       case 'sources':
         return SourcesPage(
-          registry: widget.service.sources,
-          onProbePikPak: () => widget.service.sources.probe(
+          registry: service.sources,
+          onProbePikPak: () => service.sources.probe(
             'pikpak',
             url: PikPakTransfer.driveUrl,
-            external: widget.service.pikpakTransfer.checkAccess,
+            external: service.pikpakTransfer.checkAccess,
           ),
-          onPlay: (stream) => coordinator.play(
-            () => widget.service.library.online(stream.toSession()),
-          ),
+          onPlay: (stream) =>
+              coordinator.play(() async => service.library.online(stream)),
         );
       case 'settings':
+        final pikpak = service.pikpakTransfer;
+        Future<void> changeAccount(Future<void> Function() change) async {
+          await change();
+          if (mounted) setState(() {});
+        }
+
         return SettingsPage(
           playback: playback,
-          account: account,
-          sync: sync,
-          needsAuthorization: widget.service.account.needsAuthorization,
-          accountBusy: accountBusy,
+          personal: personal,
           dark: dark,
-          dataDirectory: widget.service.dataDirectory,
+          dataDirectory: service.dataDirectory,
           cacheSettings: downloadsSection(
             () => CacheSettings(
-              defaultMethod: widget.service.downloads.defaultMethod,
-              onMethodChanged: widget.service.downloads.saveCacheMethod,
-              account: widget.service.pikpak.session,
-              needsAuthorization: widget.service.pikpak.needsAuthorization,
-              verificationUrl: widget.service.pikpak.verificationUrl,
-              onUnlock: () async {
-                await widget.service.pikpak.unlock();
-                await widget.service.pikpakTransfer.accountChanged();
-                if (mounted) setState(() {});
-              },
-              onLogin: (username, password) async {
-                await widget.service.pikpak.signIn(username, password);
-                await widget.service.pikpakTransfer.accountChanged();
-                if (mounted) setState(() {});
-              },
-              onLogout: () async {
-                await widget.service.pikpak.signOut();
-                await widget.service.pikpakTransfer.accountChanged();
-                if (mounted) setState(() {});
-              },
+              defaultMethod: downloads.defaultMethod,
+              onMethodChanged: downloads.saveCacheMethod,
+              account: pikpak.accountName,
+              needsAuthorization: pikpak.needsAuthorization,
+              verificationUrl: pikpak.verificationUrl,
+              onUnlock: () => changeAccount(pikpak.unlock),
+              onLogin: (username, password) =>
+                  changeAccount(() => pikpak.signIn(username, password)),
+              onLogout: () => changeAccount(pikpak.signOut),
             ),
           ),
           storageSettings: StorageSettings(
-            readCacheSize: widget.service.cache.size,
+            readCacheSize: service.cache.size,
             onClearCache: () async {
-              await widget.service.cache.clear();
+              await service.cache.clear();
               PaintingBinding.instance.imageCache.clear();
               PaintingBinding.instance.imageCache.clearLiveImages();
             },
             onExit: () => windowManager.close(),
-            storage: widget.service.storage,
-            dataDirectory: widget.service.dataDirectory!,
-            mediaDirectory: widget.service.bt.directory,
+            storage: service.storage,
+            dataDirectory: service.dataDirectory!,
+            mediaDirectory: service.bt.directory,
           ),
           onSync: () => perform(() async {
             final syncing = syncCollection();
@@ -1348,130 +898,38 @@ class _MelonAppState extends State<MelonApp>
           syncBusy: syncFeedback.busy,
           bitTorrentSettings: downloadsSection(
             () => BitTorrentSettingsPanel(
-              settings: widget.service.bt.settings,
-              onSave: widget.service.bt.saveSettings,
+              settings: service.bt.settings,
+              onSave: service.bt.saveSettings,
             ),
           ),
           onThemeChanged: setDark,
-          onCancelSignIn: () => perform(() async {
-            await widget.service.account.cancelSignIn();
-          }),
-          onAccountAction: () => perform(() async {
-            if (accountBusy) return;
-            setState(() => accountBusy = true);
-            try {
-              if (widget.service.account.session == null ||
-                  widget.service.account.needsAuthorization) {
-                await widget.service.account.signIn();
-                await refreshPersonal();
-                await widget.service.tracking.refresh();
-              } else {
-                await widget.service.account.signOut();
-              }
-            } finally {
-              // A network failure must not hide a successfully restored login.
-              if (mounted) setState(() => accountBusy = false);
-              await refreshPersonal();
-            }
-          }),
+          onCancelSignIn: () => perform(personal.cancelSignIn),
+          onAccountAction: () => perform(personal.toggleAccount),
         );
       default:
         return const EmptyState(text: '打开一部喜欢的作品');
     }
   }
-
-  Future<void> addMagnet() async {
-    final context = navigation.currentState?.overlay?.context;
-    if (context == null) return;
-    final uri = await showDialog<String>(
-      context: context,
-      builder: (_) => const AddMagnetDialog(),
-    );
-    if (uri != null && uri.trim().isNotEmpty) {
-      await perform(() async {
-        await widget.service.downloadsReady;
-        await widget.service.downloads.addMagnet(uri.trim());
-      });
-    }
-  }
-
-  Future<void> addTorrent() async {
-    final file = await openFile(
-      acceptedTypeGroups: [
-        const XTypeGroup(label: 'Torrent', extensions: ['torrent']),
-      ],
-    );
-    if (file != null) {
-      await perform(() async {
-        await widget.service.downloadsReady;
-        await widget.service.downloads.addTorrent(
-          await file.readAsBytes(),
-          file.name,
-        );
-      });
-    }
-  }
-
-  Future<void> confirmRemoval(DownloadTask task) async {
-    final context = navigation.currentState?.overlay?.context;
-    if (context == null) return;
-    final remove = await showDialog<bool>(
-      context: context,
-      builder: (_) =>
-          RemoveDownloadDialog(title: task.title, cloud: task.cloud),
-    );
-    if (remove == true) {
-      await perform(() => widget.service.downloads.remove(task.id));
-    }
-  }
 }
 
+/// A page to return to, with what it showed.
 class _PageLocation {
   const _PageLocation({
     required this.route,
     required this.accountId,
     required this.section,
     required this.subject,
-    required this.resourceEpisode,
     required this.resourceQuery,
     required this.query,
-    required this.results,
-    required this.releases,
-    required this.searchError,
-    required this.resultQuery,
-    required this.resultOffset,
-    required this.resultTotal,
-    required this.resultHasMore,
-    required this.searchRequestOffset,
+    required this.search,
+    required this.resources,
     required this.pending,
-    required this.resourceQueryNames,
-    required this.resourceQueryEpisode,
   });
-  final String route, accountId, section, resourceQuery, query, resultQuery;
-  final bool pending;
-  final bool resultHasMore;
-  final int resultOffset, resultTotal, searchRequestOffset;
-  final List<String>? resourceQueryNames;
-  final String resourceQueryEpisode;
-  final Json? subject;
-  final int? resourceEpisode;
-  final List<Json> results;
-  final ReleaseSearchResult releases;
-  final String? searchError;
-}
+  final String route, accountId, section, resourceQuery, query;
+  final Subject? subject;
+  final SearchResults search;
+  final ResourcesState resources;
 
-bool _dataEqual(Object? a, Object? b) {
-  if (identical(a, b)) return true;
-  if (a is List && b is List) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (!_dataEqual(a[i], b[i])) return false;
-    }
-    return true;
-  }
-  if (a is Map && b is Map) {
-    return a.length == b.length &&
-        a.keys.every((key) => b.containsKey(key) && _dataEqual(a[key], b[key]));
-  }
-  return a == b;
+  /// Still loading when left; loaded again on return.
+  final bool pending;
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../data/json.dart';
+import '../../domain/catalog.dart';
+import '../../features/tracking/tracking_controller.dart';
 import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
@@ -11,25 +12,17 @@ import 'collection_labels.dart';
 class TrackingPage extends StatefulWidget {
   const TrackingPage({
     super.key,
-    required this.collection,
-    required this.collectionFilter,
-    required this.sync,
-    required this.onFilterChanged,
+    required this.personal,
     required this.onSync,
     required this.feedback,
-    required this.signedIn,
     required this.onSignIn,
     required this.onOpenSubject,
     this.onExplore,
   });
-  final List<Json> collection;
-  final String collectionFilter;
-  final Json sync;
-  final ValueChanged<String> onFilterChanged;
+  final TrackingController personal;
   final VoidCallback onSync, onSignIn;
   final ActionFeedback feedback;
-  final bool signedIn;
-  final ValueChanged<Json> onOpenSubject;
+  final ValueChanged<Subject> onOpenSubject;
   final VoidCallback? onExplore;
   @override
   State<TrackingPage> createState() => _TrackingPageState();
@@ -47,7 +40,7 @@ class _TrackingPageState extends State<TrackingPage> {
     restored = true;
     final saved = PageStorage.maybeOf(
       context,
-    )?.readState(context, identifier: 'tracking-filters') as Json?;
+    )?.readState(context, identifier: 'tracking-filters') as Map?;
     if (saved == null) return;
     query = saved['query'] as String;
     search.text = query;
@@ -71,32 +64,34 @@ class _TrackingPageState extends State<TrackingPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final items = widget.collection
+  Widget build(BuildContext context) =>
+      ListenableBuilder(listenable: widget.personal, builder: _page);
+
+  Widget _page(BuildContext context, Widget? _) {
+    final personal = widget.personal;
+    final collection = personal.collection;
+    int score(Subject item) => item.collection?.score ?? 0;
+    final items = collection
         .where(
           (item) =>
-              item['status'] == widget.collectionFilter &&
-              titleOf(item).toLowerCase().contains(query.toLowerCase()) &&
-              (quickFilter != '有进度' || number(item['watchedEpisodes']) > 0) &&
-              (quickFilter != '已评分' || number(item['userScore']) > 0),
+              item.status == personal.filter &&
+              item.title.toLowerCase().contains(query.toLowerCase()) &&
+              (quickFilter != '有进度' || (item.watchedEpisodes ?? 0) > 0) &&
+              (quickFilter != '已评分' || score(item) > 0),
         )
         .toList();
-    if (sortByScore) {
-      items.sort(
-        (a, b) => number(b['userScore']).compareTo(number(a['userScore'])),
-      );
-    }
+    if (sortByScore) items.sort((a, b) => score(b).compareTo(score(a)));
     return PageScroll(
       children: [
         const SizedBox(height: 8),
-        MelonSegmentedControl<String>(
+        MelonSegmentedControl<CollectionStatus>(
           options: {
             for (final entry in collectionLabels.entries)
               entry.key:
-                  '${entry.value} ${widget.collection.where((item) => item['status'] == entry.key).length}',
+                  '${entry.value} ${collection.where((item) => item.status == entry.key).length}',
           },
-          value: widget.collectionFilter,
-          onChanged: widget.onFilterChanged,
+          value: personal.filter,
+          onChanged: personal.setFilter,
           semanticLabel: '追番分类',
         ),
         const SizedBox(height: 18),
@@ -145,21 +140,21 @@ class _TrackingPageState extends State<TrackingPage> {
         ),
         FeedbackIssue(
           feedback: widget.feedback,
-          onRetry: widget.signedIn ? widget.onSync : widget.onSignIn,
-          actionLabel: widget.signedIn ? '重试' : '去登录',
+          onRetry: personal.signedIn ? widget.onSync : widget.onSignIn,
+          actionLabel: personal.signedIn ? '重试' : '去登录',
         ),
-        if (number(widget.sync['pendingMutationCount']) > 0)
+        if (personal.sync.pending > 0)
           Padding(
             padding: const EdgeInsets.only(top: 12),
             child: Text(
-              '${widget.sync['pendingMutationCount']} 项修改等待同步',
+              '${personal.sync.pending} 项修改等待同步',
               style: const TextStyle(color: gold, fontSize: 12),
             ),
           ),
         SectionTitle(title: '${items.length} 部收藏', color: mint),
         if (items.isEmpty)
           EmptyState(
-            text: widget.collection.isEmpty ? '还没有收藏的番剧' : '当前筛选下没有收藏条目',
+            text: collection.isEmpty ? '还没有收藏的番剧' : '当前筛选下没有收藏条目',
             actionLabel: query.isNotEmpty || quickFilter != '全部'
                 ? '清除筛选'
                 : '搜索番剧',
