@@ -438,9 +438,7 @@ class Playback extends ChangeNotifier {
           await platform.getProperty('seeking') != 'yes') {
         break;
       }
-      if (!DateTime.now().isBefore(deadline) ||
-          _closed ||
-          session?.id != id) {
+      if (!DateTime.now().isBefore(deadline) || _closed || session?.id != id) {
         break;
       }
       await Future<void>.delayed(const Duration(milliseconds: 20));
