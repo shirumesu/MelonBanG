@@ -2,8 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../data/catalog.dart';
-import '../../data/json.dart' show coverAddress;
+import '../../core/json.dart' show coverAddress;
 import '../../domain/catalog.dart';
 import '../tracking/collection_labels.dart';
 import 'cached_image.dart';
@@ -558,17 +557,17 @@ int imageDecodeWidth(BuildContext context, double width) =>
 class SubjectCoverScope extends InheritedWidget {
   const SubjectCoverScope({
     super.key,
-    required this.catalog,
+    required this.covers,
     required super.child,
   });
-  final CatalogRepository catalog;
+  final SubjectCovers covers;
 
-  static CatalogRepository? of(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<SubjectCoverScope>()?.catalog;
+  static SubjectCovers? of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<SubjectCoverScope>()?.covers;
 
   @override
   bool updateShouldNotify(SubjectCoverScope oldWidget) =>
-      catalog != oldWidget.catalog;
+      covers != oldWidget.covers;
 }
 
 class SubjectCover extends StatefulWidget {
@@ -589,7 +588,7 @@ class SubjectCover extends StatefulWidget {
 }
 
 class _SubjectCoverState extends State<SubjectCover> {
-  CatalogRepository? _catalog;
+  SubjectCovers? _catalog;
   StreamSubscription<int>? _subscription;
   final _unusable = <String>{};
 
@@ -600,7 +599,7 @@ class _SubjectCoverState extends State<SubjectCover> {
     if (_catalog == catalog) return;
     _subscription?.cancel();
     _catalog = catalog;
-    _subscription = catalog?.coverChanges.stream.listen((id) {
+    _subscription = catalog?.coverUpdates.listen((id) {
       if (mounted && id == widget.id) setState(() {});
     });
     _resolve();

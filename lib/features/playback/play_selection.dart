@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import '../../domain/catalog.dart';
-import '../../data/network.dart';
-import '../../data/resource_metadata.dart';
-import '../../data/resource_title.dart';
-import '../../data/store.dart';
+import '../../core/network.dart';
+import '../acquisition/resource_metadata.dart';
+import '../../domain/resource_title.dart';
+import '../../core/store.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/playback_session.dart';
 import '../../domain/sources.dart';

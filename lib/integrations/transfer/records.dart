@@ -1,6 +1,6 @@
-import '../../data/catalog.dart';
-import '../../data/json.dart';
-import '../../data/store.dart';
+import '../melon_api/catalog.dart';
+import '../../core/json.dart';
+import '../../core/store.dart';
 import '../../domain/transfer.dart';
 
 /// Decodes a stored task record; BT and PikPak share these field names.

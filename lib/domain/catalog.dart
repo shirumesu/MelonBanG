@@ -491,3 +491,31 @@ class CommunityPage {
   final List<CommunityEntry> entries;
   final int total;
 }
+
+/// A subject's community posts and related subjects, as the signed-in
+/// account sees them.
+abstract interface class SubjectCommunitySource {
+  /// The account whose view is shown; changes on sign-in and sign-out.
+  String get userId;
+  AccountProfile? get profile;
+
+  /// One page of `comments`, `reviews` or `topics`.
+  Future<CommunityPage> page(
+    int subjectId,
+    String segment, {
+    int offset = 0,
+    bool refresh = false,
+  });
+  Future<List<Subject>> relations(int subjectId, {bool refresh = false});
+}
+
+/// Cover addresses known for subjects, shared across pages.
+abstract interface class SubjectCovers {
+  String? coverFor(int id);
+
+  /// Looks up a locally known cover for [id].
+  Future<void> resolveCover(int id);
+
+  /// Ids whose cover became known.
+  Stream<int> get coverUpdates;
+}

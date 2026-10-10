@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-import '../../data/catalog.dart';
+import '../../integrations/melon_api/catalog.dart';
 import '../../domain/catalog.dart';
 
 /// One catalogue search: the query, the pages received so far, and where the

@@ -1,6 +1,6 @@
 import 'package:pinyin/pinyin.dart';
 
-import '../domain/catalog.dart';
+import '../../domain/catalog.dart';
 
 String resourceEpisodeKeyword(Episode? episode) {
   if (episode == null) return '';

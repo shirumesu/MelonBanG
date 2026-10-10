@@ -4,8 +4,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../data/json.dart';
-import '../../data/network.dart';
+import '../../core/json.dart';
+import '../../core/network.dart';
 import '../../domain/sources.dart';
 import '../../integrations/melon_api/bundled_source_rules.dart';
 import '../../integrations/melon_api/source_rules.dart';

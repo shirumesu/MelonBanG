@@ -7,38 +7,38 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app_services.dart';
-import 'data/network.dart';
-import 'data/resource_metadata.dart';
-import 'domain/catalog.dart';
-import 'domain/play_candidate.dart';
-import 'features/acquisition/resources_controller.dart';
-import 'features/discovery/discovery_controller.dart';
-import 'features/downloads/downloads_controller.dart';
-import 'features/playback/playback.dart';
-import 'features/playback/playback_coordinator.dart';
-import 'features/playback/resume_controller.dart';
-import 'features/tracking/subject_controller.dart';
-import 'features/tracking/tracking_controller.dart';
-import 'integrations/transfer/pikpak.dart';
-import 'ui/acquisition/downloads_page.dart';
-import 'ui/acquisition/resources_page.dart';
-import 'ui/core/action_feedback.dart';
-import 'ui/core/app_chrome.dart';
-import 'ui/core/cached_image.dart';
-import 'ui/core/motion.dart';
-import 'ui/core/page_widgets.dart';
-import 'ui/core/subject_posters.dart';
-import 'ui/core/theme.dart';
-import 'ui/discovery/discovery_pages.dart';
-import 'ui/player/candidate_resources.dart';
-import 'ui/player/player_page.dart';
-import 'ui/settings/bittorrent_settings.dart';
-import 'ui/settings/cache_settings.dart';
-import 'ui/settings/settings_page.dart';
-import 'ui/settings/storage_settings.dart';
-import 'ui/sources/sources_page.dart';
-import 'ui/tracking/subject_page.dart';
-import 'ui/tracking/tracking_page.dart';
+import '../core/network.dart';
+import '../features/acquisition/resource_metadata.dart';
+import '../domain/catalog.dart';
+import '../domain/play_candidate.dart';
+import '../features/acquisition/resources_controller.dart';
+import '../features/discovery/discovery_controller.dart';
+import '../features/downloads/downloads_controller.dart';
+import '../features/playback/playback.dart';
+import '../features/playback/playback_coordinator.dart';
+import '../features/playback/resume_controller.dart';
+import '../features/tracking/subject_controller.dart';
+import '../features/tracking/tracking_controller.dart';
+import '../integrations/transfer/pikpak.dart';
+import '../ui/acquisition/downloads_page.dart';
+import '../ui/acquisition/resources_page.dart';
+import '../ui/core/action_feedback.dart';
+import '../ui/core/app_chrome.dart';
+import '../ui/core/cached_image.dart';
+import '../ui/core/motion.dart';
+import '../ui/core/page_widgets.dart';
+import '../ui/core/subject_posters.dart';
+import '../ui/core/theme.dart';
+import '../ui/discovery/discovery_pages.dart';
+import '../ui/player/candidate_resources.dart';
+import '../ui/player/player_page.dart';
+import '../ui/settings/bittorrent_settings.dart';
+import '../ui/settings/cache_settings.dart';
+import '../ui/settings/settings_page.dart';
+import '../ui/settings/storage_settings.dart';
+import '../ui/sources/sources_page.dart';
+import '../ui/tracking/subject_page.dart';
+import '../ui/tracking/tracking_page.dart';
 
 class MelonApp extends StatefulWidget {
   const MelonApp({super.key, required this.service, required this.preferences});
@@ -562,7 +562,7 @@ class _MelonAppState extends State<MelonApp>
       builder: (context, child) => ready
           ? ContentCacheScope(
               cache: service.cache,
-              child: SubjectCoverScope(catalog: service.catalog, child: child!),
+              child: SubjectCoverScope(covers: service.catalog, child: child!),
             )
           : child!,
       scaffoldMessengerKey: messages,

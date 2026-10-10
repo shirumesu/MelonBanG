@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-import '../../data/network.dart';
-import '../../data/resource_metadata.dart';
+import '../../core/network.dart';
+import 'resource_metadata.dart';
 import '../../domain/catalog.dart';
 import '../../domain/sources.dart';
 import '../../domain/transfer.dart';

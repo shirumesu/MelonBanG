@@ -1,4 +1,4 @@
-import '../data/torrent_identity.dart';
+import 'torrent_identity.dart';
 import 'sources.dart';
 import 'transfer.dart';
 

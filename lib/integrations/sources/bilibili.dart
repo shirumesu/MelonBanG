@@ -1,8 +1,8 @@
 import 'package:html/parser.dart' as html;
 import 'package:xml/xml.dart';
 
-import '../../data/json.dart';
-import '../../data/network.dart';
+import '../../core/json.dart';
+import '../../core/network.dart';
 import '../../domain/sources.dart';
 
 /// Bilibili web API as a guest: official seasons and uploader videos, played

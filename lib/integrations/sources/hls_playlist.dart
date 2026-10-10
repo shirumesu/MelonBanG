@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import '../../data/network.dart';
+import '../../core/network.dart';
 
 /// Follows master playlists to a media playlist and rewrites every URI as
 /// absolute. With [filter], drops discontinuity blocks served from a foreign

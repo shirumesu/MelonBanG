@@ -4,12 +4,12 @@ import 'dart:io';
 
 import 'package:url_launcher/url_launcher.dart';
 
-import '../domain/catalog.dart';
-import 'json.dart';
-import 'network.dart';
-import 'credentials.dart';
-import 'service_configuration.dart';
-import 'store.dart';
+import '../../domain/catalog.dart';
+import '../../core/json.dart';
+import '../../core/network.dart';
+import '../../core/credentials.dart';
+import '../../core/service_configuration.dart';
+import '../../core/store.dart';
 
 class AccountRepository {
   AccountRepository(

@@ -1,6 +1,6 @@
-import '../../data/json.dart';
-import '../../data/network.dart';
-import '../../data/torrent_identity.dart';
+import '../../core/json.dart';
+import '../../core/network.dart';
+import '../../domain/torrent_identity.dart';
 import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
 import '../downloads/download_repository.dart';
