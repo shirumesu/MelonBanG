@@ -12,12 +12,30 @@ import '../../domain/transfer.dart';
 import '../../features/acquisition/online_candidates.dart';
 import '../../features/acquisition/resource_metadata.dart';
 import '../../features/acquisition/title_matching.dart';
+import '../../features/playback/play_selection.dart';
 import '../../features/playback/resource_search.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'resource_widgets.dart';
+
+/// The kind segment: cache tasks, online entries and torrent results.
+enum _Family {
+  all('全部'),
+  cached('本地'),
+  online('在线'),
+  torrent('BT');
+
+  const _Family(this.label);
+  final String label;
+
+  static _Family of(PlayCandidate candidate) => switch (candidate.target) {
+    DownloadTarget() => cached,
+    OnlineTarget() => online,
+    ReleaseTarget() => torrent,
+  };
+}
 
 /// The resource search shared by the resources page, the player's resource
 /// sheet and the source picker: a search form, pinned local filters and one
@@ -63,8 +81,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   final annotations = <String, ResourceTitleInfo>{};
   final entries = <String, Future<List<SourceEpisode>>>{};
 
-  /// 'all' or a [PlayKind] name.
-  String kind = 'all';
+  _Family kind = _Family.all;
   bool includeUnknown = false, searching = false;
   String? opening;
   PageStorageBucket? storage;
@@ -121,7 +138,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         resourceEpisodeKeyword(episode);
     Iterable<String> strings(Object? value) =>
         value is List ? value.whereType<String>() : const [];
-    kind = form['kind'] as String? ?? 'all';
+    kind = _Family.values.asNameMap()[form['kind']] ?? _Family.all;
     qualities.addAll(strings(form['qualities']));
     groups.addAll(strings(form['sourceGroups']));
     languages.addAll(strings(form['languages']));
@@ -138,7 +155,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     storage?.writeState(context, {
       'keyword': keyword.text,
       'episode': episodeQuery.text,
-      'kind': kind,
+      'kind': kind.name,
       'qualities': qualities.toList(),
       'sourceGroups': groups.toList(),
       'languages': languages.toList(),
@@ -198,7 +215,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     }
     includeUnknown = false;
     excludedProviders.clear();
-    kind = 'all';
+    kind = _Family.all;
   });
 
   void toggle(Set<String> set, String value, bool selected) =>
@@ -317,25 +334,19 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     }
   }
 
+  /// Cached annotations, renewed when site metadata adds release groups.
   ResourceTitleInfo annotate(PlayCandidate candidate) {
-    final (title, releaseGroups) = switch (candidate.target) {
-      ReleaseTarget(candidate: ReleaseCandidate(:final release)) => (
-        release.title,
-        release.releaseGroups,
-      ),
-      DownloadTarget(:final task) => (task.title, task.releaseGroups),
-      OnlineTarget() => (candidate.title, const <String>[]),
-    };
     final previous = annotations[candidate.id];
-    if (previous != null &&
-        previous.title == title &&
-        listEquals(previous.sourceGroups, releaseGroups)) {
+    final releaseGroups = switch (candidate.target) {
+      ReleaseTarget(candidate: ReleaseCandidate(:final release)) =>
+        release.releaseGroups,
+      DownloadTarget(:final task) => task.releaseGroups,
+      OnlineTarget() => const <String>[],
+    };
+    if (previous != null && listEquals(previous.sourceGroups, releaseGroups)) {
       return previous;
     }
-    return annotations[candidate.id] = describeResource(
-      title,
-      releaseGroups: releaseGroups,
-    );
+    return annotations[candidate.id] = describeCandidate(candidate);
   }
 
   List<String> notesOf(PlayCandidate candidate) => [
@@ -469,7 +480,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         candidate.target is DownloadTarget ||
         !excludedProviders.contains(candidate.provider);
     bool kindShown(PlayCandidate candidate) =>
-        kind == 'all' || candidate.kind.name == kind;
+        kind == _Family.all || _Family.of(candidate) == kind;
     final annotated = candidates
         .map((candidate) => (candidate, annotate(candidate)))
         .toList();
@@ -520,12 +531,17 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           enabled: (counts[value] ?? 0) > 0,
         );
     final kindCounts = {
-      for (final value in PlayKind.values)
-        value.name: matching.where((e) => e.$1.kind == value).length,
+      for (final value in _Family.values)
+        value: value == _Family.all
+            ? matching.length
+            : matching.where((e) => _Family.of(e.$1) == value).length,
     };
-    final recommended = episode != null && candidates.isNotEmpty
-        ? candidates.first.id
-        : null;
+    // Results are ranked, so the first shown confident match is the best of
+    // what the filters leave.
+    final recommended = visible.firstOrNull?.$1;
+    final recommendedId = recommended == null || recommended.possibleMatch
+        ? null
+        : recommended.id;
     final providersFailed =
         sources.isNotEmpty &&
         sources.every((e) => e.status == SearchStatus.error) &&
@@ -574,7 +590,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     final sourceRegistry = controller.sources;
     final failingSites = [
       if (state.terms != null &&
-          (kind == 'all' || kind == PlayKind.online.name))
+          (kind == _Family.all || kind == _Family.online))
         for (final rule in sourceRegistry.instancesOf(SourceKind.online))
           if (sourceRegistry.isEnabled(rule.id) &&
               (sourceRegistry.errors.containsKey(rule.id) ||
@@ -741,180 +757,182 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       color: background,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: pageGutter),
-        child: Row(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (final menu in <Widget>[
-                      MelonSegmentedControl<String>(
-                        key: const ValueKey('resource-filter-kind'),
-                        semanticLabel: '资源类型',
-                        options: {
-                          'all': '全部 · ${matching.length}',
-                          for (final value in PlayKind.values)
-                            if (value != PlayKind.pikpak ||
-                                kindCounts[value.name]! > 0 ||
-                                kind == value.name)
-                              value.name:
-                                  '${value.label} · ${kindCounts[value.name]}',
-                        },
-                        value: kind,
-                        onChanged: (value) => changeForm(() => kind = value),
-                      ),
-                      MelonFilterMenu<String>(
-                        key: const ValueKey('resource-filter-providers'),
-                        label: '资源站',
-                        icon: Icons.public_rounded,
-                        active: excludedProviders.isNotEmpty,
-                        summary: '$shownProviders / ${sources.length}',
-                        warning: providerWarning,
-                        tooltip: providerWarning
-                            ? '有资源站搜索失败，打开查看'
-                            : '显示或隐藏资源站的结果',
-                        sections: [
-                          MelonFilterSection([
-                            for (final provider in sources)
-                              MelonFilterOption(
-                                provider.sourceId,
-                                provider.sourceName,
-                                detail: resourceProviderStatus(provider),
-                                detailColor:
-                                    const [
-                                      SearchStatus.error,
-                                      SearchStatus.partial,
-                                    ].contains(provider.status)
-                                    ? scheme.tertiary
-                                    : null,
-                              ),
-                          ], title: sources.isEmpty ? '搜索后显示资源站' : null),
-                        ],
-                        selected: {
-                          for (final provider in sources)
-                            if (!excludedProviders.contains(provider.sourceId))
-                              provider.sourceId,
-                        },
-                        onToggle: (id, selected) => changeForm(
-                          () => selected
-                              ? excludedProviders.remove(id)
-                              : excludedProviders.add(id),
-                        ),
-                        actions: [
-                          if (excludedProviders.isNotEmpty)
-                            ('全部显示', () => changeForm(excludedProviders.clear)),
-                        ],
-                      ),
-                      MelonFilterMenu<String>(
-                        key: const ValueKey('resource-filter-quality'),
-                        label: '画质',
-                        icon: Icons.high_quality_outlined,
-                        summary: summary(qualities, resourceQualities),
-                        tooltip: '按标题标注的输出画质筛选',
-                        sections: [
-                          MelonFilterSection([
-                            for (final value in resourceQualities)
-                              counted(value, qualityCounts),
-                          ]),
-                        ],
-                        selected: qualities,
-                        onToggle: (value, on) => toggle(qualities, value, on),
-                        actions: [
-                          if (qualities.isNotEmpty)
-                            ('清除', () => changeForm(qualities.clear)),
-                        ],
-                      ),
-                      MelonFilterMenu<String>(
-                        key: const ValueKey('resource-filter-groups'),
-                        label: '字幕组',
-                        icon: Icons.groups_outlined,
-                        summary: summary(groups, groupNames),
-                        tooltip: '资源站标注的发布分组；标题中的联合署名单独展示',
-                        sections: [
-                          MelonFilterSection([
-                            for (final name in groupNames)
-                              counted(name, groupCounts),
-                          ], title: groupNames.isEmpty ? '暂无字幕组信息' : null),
-                        ],
-                        selected: groups,
-                        onToggle: (value, on) => toggle(groups, value, on),
-                        actions: [
-                          if (groups.isNotEmpty)
-                            ('清除', () => changeForm(groups.clear)),
-                        ],
-                      ),
-                      MelonFilterMenu<String>(
-                        key: const ValueKey('resource-filter-language'),
-                        label: '字幕',
-                        icon: Icons.subtitles_outlined,
-                        active:
-                            languages.isNotEmpty || subtitleForms.isNotEmpty,
-                        summary: summary(
-                          {...languages, ...subtitleForms},
-                          [...resourceLanguages, ...resourceSubtitleForms],
-                        ),
-                        tooltip: '同一组内满足任一项即可，例如勾选“简体”也包含简繁、简日双语',
-                        sections: [
-                          MelonFilterSection([
-                            for (final value in resourceLanguages)
-                              counted(value, languageCounts),
-                          ], title: '字幕语言'),
-                          MelonFilterSection([
-                            for (final value in resourceSubtitleForms)
-                              counted(value, formCounts),
-                          ], title: '字幕形式'),
-                        ],
-                        selected: {...languages, ...subtitleForms},
-                        onToggle: (value, on) => toggle(
-                          resourceLanguages.contains(value)
-                              ? languages
-                              : subtitleForms,
-                          value,
-                          on,
-                        ),
-                        actions: [
-                          if (languages.isNotEmpty || subtitleForms.isNotEmpty)
-                            (
-                              '清除',
-                              () => changeForm(() {
-                                languages.clear();
-                                subtitleForms.clear();
-                              }),
-                            ),
-                        ],
-                      ),
-                    ]) ...[menu, const SizedBox(width: Gap.sm)],
-                    Tooltip(
-                      message: '筛选时保留标题没有标明画质、字幕组或字幕的资源',
-                      child: FilterChip(
-                        label: const Text('含未标明'),
-                        selected: includeUnknown,
-                        backgroundColor: scheme.surfaceContainerHigh,
-                        showCheckmark: true,
-                        checkmarkColor: scheme.primary,
-                        onSelected: (value) =>
-                            changeForm(() => includeUnknown = value),
-                      ),
-                    ),
-                    if (filtered) ...[
-                      const SizedBox(width: Gap.xs),
-                      TextButton(
-                        onPressed: clearFilters,
-                        child: const Text('清除筛选'),
-                      ),
-                    ],
-                  ],
+            Row(
+              children: [
+                SizedBox(
+                  width: 4 * 96,
+                  child: MelonSegmentedControl<_Family>(
+                    key: const ValueKey('resource-filter-kind'),
+                    semanticLabel: '资源类型',
+                    options: {
+                      for (final value in _Family.values)
+                        value: '${value.label} · ${kindCounts[value]}',
+                    },
+                    value: kind,
+                    onChanged: (value) => changeForm(() => kind = value),
+                  ),
                 ),
-              ),
+                const Spacer(),
+                Text(
+                  filtered || kind != _Family.all
+                      ? '${visible.length} / ${candidates.length} 条'
+                      : '${candidates.length} 条',
+                  style: small?.copyWith(
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: Gap.md),
-            Text(
-              filtered || kind != 'all'
-                  ? '${visible.length} / ${candidates.length} 条'
-                  : '${candidates.length} 条',
-              style: small?.copyWith(
-                fontFeatures: const [FontFeature.tabularFigures()],
+            const SizedBox(height: Gap.sm),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final menu in <Widget>[
+                    MelonFilterMenu<String>(
+                      key: const ValueKey('resource-filter-providers'),
+                      label: '资源站',
+                      icon: Icons.public_rounded,
+                      active: excludedProviders.isNotEmpty,
+                      summary: '$shownProviders / ${sources.length}',
+                      warning: providerWarning,
+                      tooltip: providerWarning
+                          ? '有资源站搜索失败，打开查看'
+                          : '显示或隐藏资源站的结果',
+                      sections: [
+                        MelonFilterSection([
+                          for (final provider in sources)
+                            MelonFilterOption(
+                              provider.sourceId,
+                              provider.sourceName,
+                              detail: resourceProviderStatus(provider),
+                              detailColor:
+                                  const [
+                                    SearchStatus.error,
+                                    SearchStatus.partial,
+                                  ].contains(provider.status)
+                                  ? scheme.tertiary
+                                  : null,
+                            ),
+                        ], title: sources.isEmpty ? '搜索后显示资源站' : null),
+                      ],
+                      selected: {
+                        for (final provider in sources)
+                          if (!excludedProviders.contains(provider.sourceId))
+                            provider.sourceId,
+                      },
+                      onToggle: (id, selected) => changeForm(
+                        () => selected
+                            ? excludedProviders.remove(id)
+                            : excludedProviders.add(id),
+                      ),
+                      actions: [
+                        if (excludedProviders.isNotEmpty)
+                          ('全部显示', () => changeForm(excludedProviders.clear)),
+                      ],
+                    ),
+                    MelonFilterMenu<String>(
+                      key: const ValueKey('resource-filter-quality'),
+                      label: '画质',
+                      icon: Icons.high_quality_outlined,
+                      summary: summary(qualities, resourceQualities),
+                      tooltip: '按标题标注的输出画质筛选',
+                      sections: [
+                        MelonFilterSection([
+                          for (final value in resourceQualities)
+                            counted(value, qualityCounts),
+                        ]),
+                      ],
+                      selected: qualities,
+                      onToggle: (value, on) => toggle(qualities, value, on),
+                      actions: [
+                        if (qualities.isNotEmpty)
+                          ('清除', () => changeForm(qualities.clear)),
+                      ],
+                    ),
+                    MelonFilterMenu<String>(
+                      key: const ValueKey('resource-filter-groups'),
+                      label: '字幕组',
+                      icon: Icons.groups_outlined,
+                      summary: summary(groups, groupNames),
+                      tooltip: '资源站标注的发布分组；标题中的联合署名单独展示',
+                      sections: [
+                        MelonFilterSection([
+                          for (final name in groupNames)
+                            counted(name, groupCounts),
+                        ], title: groupNames.isEmpty ? '暂无字幕组信息' : null),
+                      ],
+                      selected: groups,
+                      onToggle: (value, on) => toggle(groups, value, on),
+                      actions: [
+                        if (groups.isNotEmpty)
+                          ('清除', () => changeForm(groups.clear)),
+                      ],
+                    ),
+                    MelonFilterMenu<String>(
+                      key: const ValueKey('resource-filter-language'),
+                      label: '字幕',
+                      icon: Icons.subtitles_outlined,
+                      active: languages.isNotEmpty || subtitleForms.isNotEmpty,
+                      summary: summary(
+                        {...languages, ...subtitleForms},
+                        [...resourceLanguages, ...resourceSubtitleForms],
+                      ),
+                      tooltip: '同一组内满足任一项即可，例如勾选“简体”也包含简繁、简日双语',
+                      sections: [
+                        MelonFilterSection([
+                          for (final value in resourceLanguages)
+                            counted(value, languageCounts),
+                        ], title: '字幕语言'),
+                        MelonFilterSection([
+                          for (final value in resourceSubtitleForms)
+                            counted(value, formCounts),
+                        ], title: '字幕形式'),
+                      ],
+                      selected: {...languages, ...subtitleForms},
+                      onToggle: (value, on) => toggle(
+                        resourceLanguages.contains(value)
+                            ? languages
+                            : subtitleForms,
+                        value,
+                        on,
+                      ),
+                      actions: [
+                        if (languages.isNotEmpty || subtitleForms.isNotEmpty)
+                          (
+                            '清除',
+                            () => changeForm(() {
+                              languages.clear();
+                              subtitleForms.clear();
+                            }),
+                          ),
+                      ],
+                    ),
+                  ]) ...[menu, const SizedBox(width: Gap.sm)],
+                  Tooltip(
+                    message: '筛选时保留标题没有标明画质、字幕组或字幕的资源',
+                    child: FilterChip(
+                      label: const Text('含未标明'),
+                      selected: includeUnknown,
+                      backgroundColor: scheme.surfaceContainerHigh,
+                      showCheckmark: true,
+                      checkmarkColor: scheme.primary,
+                      onSelected: (value) =>
+                          changeForm(() => includeUnknown = value),
+                    ),
+                  ),
+                  if (filtered) ...[
+                    const SizedBox(width: Gap.xs),
+                    TextButton(
+                      onPressed: clearFilters,
+                      child: const Text('清除筛选'),
+                    ),
+                  ],
+                ],
               ),
             ),
           ],
@@ -936,7 +954,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         ),
         SliverPersistentHeader(
           pinned: true,
-          delegate: _PinnedBar(height: 56, child: filterBar),
+          delegate: _PinnedBar(height: 104, child: filterBar),
         ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
@@ -1016,7 +1034,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                         action: allProvidersExcluded
                             ? () => changeForm(excludedProviders.clear)
                             : emptyKind
-                            ? () => changeForm(() => kind = 'all')
+                            ? () => changeForm(() => kind = _Family.all)
                             : candidates.isNotEmpty
                             ? clearFilters
                             : () {
@@ -1067,7 +1085,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                             }
                           }),
                           notes: notesOf(candidate),
-                          recommended: candidate.id == recommended,
+                          recommended: candidate.id == recommendedId,
                           playing: opening == candidate.id,
                           onPlay: playable(candidate) && opening == null
                               ? () => play(candidate, target)
