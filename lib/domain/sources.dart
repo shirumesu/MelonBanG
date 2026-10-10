@@ -1,5 +1,5 @@
 import '../core/cancellation.dart';
-import '../data/json.dart';
+import '../core/json.dart';
 
 /// Highest rule engine version this client can run. Rules with a higher
 /// `minEngine` are listed but never executed.

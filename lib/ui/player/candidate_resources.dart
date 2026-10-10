@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../domain/catalog.dart';
 import '../../domain/transfer.dart';
-import '../../data/network.dart';
+import '../../core/network.dart';
 import '../../features/playback/play_selection.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/sources.dart';

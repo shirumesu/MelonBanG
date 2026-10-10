@@ -1,7 +1,7 @@
 import 'package:pinyin/pinyin.dart';
 
 import '../../domain/catalog.dart';
-import '../../data/resource_title.dart';
+import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
 
 /// Simplified, width-folded title without punctuation, plus its season.

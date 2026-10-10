@@ -7,8 +7,8 @@ import 'package:pinyin/pinyin.dart' show ChineseHelper;
 import 'package:protobuf/protobuf.dart';
 import 'package:xml/xml.dart';
 
-import '../../data/json.dart';
-import '../../data/network.dart';
+import '../../core/json.dart';
+import '../../core/network.dart';
 import '../../domain/danmaku.dart';
 import 'matching.dart';
 

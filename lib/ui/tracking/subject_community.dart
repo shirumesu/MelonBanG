@@ -3,15 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../data/bangumi_private.dart';
-import '../../data/json.dart' show coverAddress;
+import '../../core/json.dart' show coverAddress;
 import '../../domain/catalog.dart';
 import '../core/account_avatar.dart';
 import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
-import '../../data/collection_edit.dart';
+import '../../domain/collection_edit.dart';
 import '../core/theme.dart';
 import 'collection_labels.dart';
 
@@ -24,7 +23,7 @@ class SubjectCommunity extends StatefulWidget {
     required this.canWrite,
     required this.onSaveComment,
   });
-  final BangumiPrivateClient client;
+  final SubjectCommunitySource client;
   final int subjectId;
 
   /// The signed-in user's collection, the source of the pinned own comment.
@@ -44,7 +43,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   final _commentFeedback = ActionFeedback();
   final _composer = TextEditingController();
   bool _editing = false, _confirmDelete = false;
-  late String _account = widget.client.account.userId;
+  late String _account = widget.client.userId;
   int _generation = 0;
   bool _requested = false;
 
@@ -52,9 +51,9 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   void didUpdateWidget(SubjectCommunity oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.subjectId != widget.subjectId ||
-        _account != widget.client.account.userId) {
+        _account != widget.client.userId) {
       _generation++;
-      _account = widget.client.account.userId;
+      _account = widget.client.userId;
       _pages.clear();
       _totals.clear();
       _requested = false;
@@ -183,7 +182,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   }
 
   bool _own(CommunityEntry entry) =>
-      segment == 'comments' && entry.userId == widget.client.account.userId;
+      segment == 'comments' && entry.userId == widget.client.userId;
 
   Future<void> _saveComment(String text) => _commentFeedback.run(() async {
     await widget.onSaveComment(text);
@@ -195,7 +194,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   Widget _mine(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
-    final profile = widget.client.account.profile;
+    final profile = widget.client.profile;
     final name = profile?.nickname ?? profile?.username ?? '我';
     final collection = widget.collection;
     final status = collection?.status;
@@ -509,7 +508,7 @@ class SubjectRelations extends StatefulWidget {
     required this.subjectId,
     required this.onOpenSubject,
   });
-  final BangumiPrivateClient client;
+  final SubjectCommunitySource client;
   final int subjectId;
   final ValueChanged<Subject> onOpenSubject;
 

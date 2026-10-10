@@ -1,4 +1,4 @@
-import '../../data/network.dart';
+import '../../core/network.dart';
 import '../../domain/sources.dart';
 import 'bilibili.dart';
 import 'maccms.dart';

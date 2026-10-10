@@ -1,10 +1,10 @@
 import 'dart:async';
 
-import '../domain/catalog.dart';
-import 'content_cache.dart';
-import 'json.dart';
-import 'network.dart';
-import 'store.dart';
+import '../../domain/catalog.dart';
+import '../../core/content_cache.dart';
+import '../../core/json.dart';
+import '../../core/network.dart';
+import '../../core/store.dart';
 
 /// The locally cached full or playback detail of a subject, without a request.
 Future<Json?> cachedSubjectDetail(AppStore store, int id) async {
@@ -14,7 +14,7 @@ Future<Json?> cachedSubjectDetail(AppStore store, int id) async {
   return cached == null ? null : object(object(cached['value'])['data']);
 }
 
-class CatalogRepository {
+class CatalogRepository implements SubjectCovers {
   CatalogRepository(
     this.api,
     this.store,
@@ -30,7 +30,10 @@ class CatalogRepository {
   final coverChanges = StreamController<int>.broadcast();
   final _covers = <int, String>{};
   final _coverRequests = <int, Future<void>>{};
+  @override
   String? coverFor(int id) => _covers[id];
+  @override
+  Stream<int> get coverUpdates => coverChanges.stream;
 
   void _rememberCover(Json value) {
     final id = number(value['subjectId'] ?? value['id']).toInt();
@@ -41,6 +44,7 @@ class CatalogRepository {
   }
 
   // Reuse local detail artwork without making a full-detail request per card.
+  @override
   Future<void> resolveCover(int id) {
     if (_closed || id <= 0 || _covers.containsKey(id)) return Future.value();
     return _coverRequests.putIfAbsent(id, () async {

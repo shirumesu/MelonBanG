@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-import '../../data/tracking.dart';
+import 'tracking_repository.dart';
 import '../../domain/catalog.dart';
 
 /// The subject detail page: the shown subject, its loading state and

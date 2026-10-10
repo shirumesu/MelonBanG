@@ -5,7 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../../data/content_cache.dart';
+import '../../core/content_cache.dart';
 
 class ContentCacheScope extends InheritedWidget {
   const ContentCacheScope({

@@ -6,8 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../data/bangumi_private.dart';
-import '../../data/collection_edit.dart';
+import '../../domain/collection_edit.dart';
 import '../../domain/catalog.dart';
 import '../../features/playback/playback_library.dart';
 import '../../features/playback/resume_controller.dart';
@@ -43,7 +42,7 @@ class SubjectPage extends StatelessWidget {
   final SubjectController subjects;
   final TrackingController personal;
   final ResumeController resume;
-  final BangumiPrivateClient community;
+  final SubjectCommunitySource community;
   final ValueChanged<Episode?> onFindResources;
   final ValueChanged<Episode> onPlayEpisode;
   final ValueChanged<Subject> onOpenSubject;
@@ -98,7 +97,7 @@ class _SubjectDetail extends StatefulWidget {
   final Subject? subject;
   final bool loading;
   final bool signedIn;
-  final BangumiPrivateClient community;
+  final SubjectCommunitySource community;
   final String? collectionSyncError;
   final Future<void> Function()? onRetryCollectionSync;
   final PlaybackResume? resume;
@@ -163,7 +162,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   CollectionStatus? get _status => _collection.status;
 
   String get _draftKey =>
-      CollectionDrafts.key(widget.community.account.userId, widget.subject?.id);
+      CollectionDrafts.key(widget.community.userId, widget.subject?.id);
 
   @override
   void didUpdateWidget(covariant _SubjectDetail oldWidget) {
@@ -323,7 +322,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
 
   Future<void> _openDrawer({bool focusComment = false}) async {
     final subjectId = widget.subject?.id;
-    final user = widget.community.account.userId;
+    final user = widget.community.userId;
     final key = _draftKey;
     final mutation = await showCollectionDrawer(
       context,
@@ -333,7 +332,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     );
     if (!mounted ||
         widget.subject?.id != subjectId ||
-        widget.community.account.userId != user) {
+        widget.community.userId != user) {
       return;
     }
     if (mutation == null || mutation.isEmpty) {
@@ -506,7 +505,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
 
   Widget _lower(Subject item) {
     final subjectId = item.id;
-    final user = widget.community.account.userId;
+    final user = widget.community.userId;
     final main = [?_charactersPanel(item), ?_staffPanel(item)];
     final side = [
       ?_infoPanel(item),

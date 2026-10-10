@@ -1,8 +1,8 @@
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
-import '../../data/storage_locations.dart';
-import '../../data/storage_usage.dart';
+import '../../core/storage_locations.dart';
+import '../../core/storage_usage.dart';
 import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
 

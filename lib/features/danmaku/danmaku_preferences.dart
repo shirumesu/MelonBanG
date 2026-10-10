@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../data/json.dart';
+import '../../core/json.dart';
 import '../../domain/danmaku.dart';
 
 class DanmakuFilter {

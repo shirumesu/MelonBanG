@@ -5,8 +5,8 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
-import '../../data/credentials.dart';
-import '../../data/json.dart';
+import '../../core/credentials.dart';
+import '../../core/json.dart';
 
 class PikPakException implements Exception {
   const PikPakException(this.message, {this.code = 0, this.status = 0});

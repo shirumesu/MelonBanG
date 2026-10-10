@@ -6,10 +6,10 @@ import 'dart:isolate';
 
 import 'package:http/http.dart' as http;
 
-import '../core/cancellation.dart';
+import 'cancellation.dart';
 import 'json.dart';
 
-export '../core/cancellation.dart';
+export 'cancellation.dart';
 
 Future<dynamic> decodeJsonBytes(List<int> bytes) async =>
     bytes.length < 256 * 1024

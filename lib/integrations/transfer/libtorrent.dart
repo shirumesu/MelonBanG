@@ -5,9 +5,9 @@ import 'dart:typed_data';
 import 'package:libtorrent_flutter/libtorrent_flutter.dart' as lt;
 import 'package:path/path.dart' as p;
 
-import '../../data/json.dart';
-import '../../data/store.dart';
-import '../../data/torrent_identity.dart';
+import '../../core/json.dart';
+import '../../core/store.dart';
+import '../../domain/torrent_identity.dart';
 import '../../domain/bittorrent_settings.dart';
 import '../../domain/transfer.dart';
 import 'records.dart';
