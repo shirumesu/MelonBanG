@@ -60,7 +60,6 @@ class CachedImage extends StatefulWidget {
 }
 
 class _CachedImageState extends State<CachedImage> {
-  static const _maxRetries = 10;
   ContentCache? _cache;
   StreamSubscription<String>? _available;
   Timer? _retry;
@@ -106,9 +105,9 @@ class _CachedImageState extends State<CachedImage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && url == widget.url) widget.onMissing?.call(url);
       });
-    } else if (_attempt < _maxRetries) {
+    } else {
       _retry = Timer(
-        Duration(seconds: math.min(60, 1 << (_attempt + 1))),
+        Duration(seconds: math.min(60, 1 << math.min(_attempt + 1, 6))),
         _reload,
       );
     }
@@ -168,7 +167,7 @@ class _CachedImage extends ImageProvider<_CachedImage> {
         blank = await _blank(bytes);
       } catch (_) {
         await cache.discard(url);
-        throw MissingImage(url);
+        rethrow;
       }
       if (blank) throw MissingImage(url);
       return await decode(await ui.ImmutableBuffer.fromUint8List(bytes));

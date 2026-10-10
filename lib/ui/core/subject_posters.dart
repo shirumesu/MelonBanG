@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -568,6 +569,8 @@ class SubjectCover extends StatefulWidget {
 class _SubjectCoverState extends State<SubjectCover> {
   SubjectCovers? _catalog;
   StreamSubscription<int>? _subscription;
+  Timer? _retry;
+  int _attempt = 0;
   final _unusable = <String>{};
 
   @override
@@ -586,7 +589,10 @@ class _SubjectCoverState extends State<SubjectCover> {
   @override
   void didUpdateWidget(SubjectCover oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.id != widget.id || oldWidget.url != widget.url) _resolve();
+    if (oldWidget.id != widget.id || oldWidget.url != widget.url) {
+      _attempt = 0;
+      _resolve();
+    }
   }
 
   // The item's own address comes first; the catalogue's latest cover for the
@@ -597,11 +603,31 @@ class _SubjectCoverState extends State<SubjectCover> {
   ].nonNulls.where((address) => !_unusable.contains(address)).firstOrNull;
 
   void _resolve() {
-    if (_address == null) unawaited(_catalog?.resolveCover(widget.id));
+    _retry?.cancel();
+    final catalog = _catalog;
+    final id = widget.id;
+    if (catalog == null || id <= 0 || _address != null) return;
+    void retry() {
+      if (!mounted || id != widget.id || _address != null) return;
+      _retry = Timer(
+        Duration(seconds: math.min(60, 1 << math.min(++_attempt, 6))),
+        _resolve,
+      );
+    }
+
+    // The placeholder remains visible while missing metadata or a failed
+    // catalogue request is retried, just like CachedImage's byte requests.
+    unawaited(
+      catalog.resolveCover(id).then(
+        (_) => retry(),
+        onError: (Object _) => retry(),
+      ),
+    );
   }
 
   @override
   void dispose() {
+    _retry?.cancel();
     _subscription?.cancel();
     super.dispose();
   }
