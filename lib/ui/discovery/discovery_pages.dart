@@ -4,7 +4,11 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
-import '../../data/json.dart';
+import '../../domain/catalog.dart';
+import '../../features/discovery/discovery_controller.dart';
+import '../../features/playback/playback_library.dart';
+import '../../features/playback/resume_controller.dart';
+import '../../features/tracking/tracking_controller.dart';
 import '../core/action_feedback.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
@@ -16,136 +20,138 @@ const _showcaseHeight = 328.0;
 class HomePage extends StatelessWidget {
   const HomePage({
     super.key,
-    required this.today,
-    required this.trending,
-    required this.trendingLoading,
-    required this.error,
+    required this.discovery,
+    required this.personal,
+    required this.resume,
     required this.onExplore,
     required this.feedback,
     required this.onCalendar,
     required this.onRefresh,
     required this.onOpenSubject,
     required this.onOpenTracking,
-    this.watching = const [],
-    this.resumable = const [],
-    this.onResume,
-    this.todayLoading = false,
-    this.todayError,
+    required this.onResume,
   });
-  final bool trendingLoading, todayLoading;
-  final List<Json> today, trending, watching, resumable;
-  final String? error, todayError;
+  final DiscoveryController discovery;
+  final TrackingController personal;
+  final ResumeController resume;
   final VoidCallback onExplore, onCalendar, onRefresh, onOpenTracking;
   final ActionFeedback feedback;
-  final ValueChanged<Json> onOpenSubject;
-  final ValueChanged<Json>? onResume;
+  final ValueChanged<Subject> onOpenSubject;
+  final ValueChanged<PlaybackResume> onResume;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final wide = constraints.maxWidth - 2 * pageGutter >= 860;
-      // The lower row fills the rest of the window so the timeline scrolls inside it.
-      final lowerHeight = math.max(
-        380.0,
-        constraints.maxHeight - Gap.lg - _showcaseHeight - Gap.xxl - Gap.xl,
-      );
-      final refresh = FeedbackButton(
-        feedback: feedback,
-        label: '刷新',
-        runningLabel: '刷新中…',
-        successLabel: '已更新',
-        icon: Icons.refresh,
-        onPressed: onRefresh,
-      );
-      final Widget showcase;
-      if (trendingLoading && trending.isEmpty) {
-        showcase = const SizedBox(
-          height: _showcaseHeight,
-          child: MelonPanel(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text('正在加载本季热度…'),
-                SizedBox(height: Gap.md),
-                SizedBox(width: 220, child: LinearProgressIndicator()),
-              ],
-            ),
-          ),
-        );
-      } else if (trending.isEmpty) {
-        showcase = EmptyState(
-          text: error == null ? '暂时没有热门番剧' : '暂时无法加载番剧',
-          detail: error,
-          action: onRefresh,
-        );
-      } else {
-        showcase = _TrendingShowcase(
-          key: const PageStorageKey('trending-showcase'),
-          items: trending,
-          wide: wide,
-          refresh: refresh,
-          onOpen: onOpenSubject,
-        );
-      }
-      final timeline = _TodayTimeline(
-        items: today,
-        loading: todayLoading,
-        error: todayError,
-        watchingIds: {for (final item in watching) item['subjectId']},
-        onOpen: onOpenSubject,
-        onCalendar: onCalendar,
-        onRetry: onRefresh,
-      );
-      final continuation = _ContinueSection(
-        watching: watching,
-        resumable: onResume == null ? const [] : resumable,
-        airingToday: {for (final item in today) item['subjectId']},
-        onResume: onResume,
-        onOpenSubject: onOpenSubject,
-        onExplore: onExplore,
-        onOpenTracking: onOpenTracking,
-      );
-      return ListView(
-        key: const PageStorageKey('page-scroll'),
-        padding: const EdgeInsets.fromLTRB(
-          pageGutter,
-          Gap.lg,
-          pageGutter,
-          Gap.xl,
-        ),
-        children: [
-          FeedbackIssue(feedback: feedback, onRetry: onRefresh),
-          if (!wide)
-            SectionTitle(
-              title: '本季热度',
-              icon: Icons.local_fire_department_outlined,
-              top: 0,
-              trailing: refresh,
-            ),
-          showcase,
-          const SizedBox(height: Gap.xxl),
-          if (wide)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: continuation),
-                const SizedBox(width: Gap.lg),
-                SizedBox(
-                  width: homeSideColumnWidth,
-                  height: lowerHeight,
-                  child: timeline,
-                ),
-              ],
-            )
-          else ...[
-            continuation,
-            const SizedBox(height: Gap.xxl),
-            SizedBox(height: 460, child: timeline),
-          ],
-        ],
-      );
-    },
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([discovery, personal, resume]),
+    builder: (context, _) => LayoutBuilder(builder: _layout),
   );
+
+  Widget _layout(BuildContext context, BoxConstraints constraints) {
+    final trending = discovery.trending, today = discovery.today;
+    final trendingLoading = discovery.trendingLoading;
+    final error = discovery.trendingError;
+    final watching = personal.watching;
+    final wide = constraints.maxWidth - 2 * pageGutter >= 860;
+    // The lower row fills the rest of the window so the timeline scrolls inside it.
+    final lowerHeight = math.max(
+      380.0,
+      constraints.maxHeight - Gap.lg - _showcaseHeight - Gap.xxl - Gap.xl,
+    );
+    final refresh = FeedbackButton(
+      feedback: feedback,
+      label: '刷新',
+      runningLabel: '刷新中…',
+      successLabel: '已更新',
+      icon: Icons.refresh,
+      onPressed: onRefresh,
+    );
+    final Widget showcase;
+    if (trendingLoading && trending.isEmpty) {
+      showcase = const SizedBox(
+        height: _showcaseHeight,
+        child: MelonPanel(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('正在加载本季热度…'),
+              SizedBox(height: Gap.md),
+              SizedBox(width: 220, child: LinearProgressIndicator()),
+            ],
+          ),
+        ),
+      );
+    } else if (trending.isEmpty) {
+      showcase = EmptyState(
+        text: error == null ? '暂时没有热门番剧' : '暂时无法加载番剧',
+        detail: error,
+        action: onRefresh,
+      );
+    } else {
+      showcase = _TrendingShowcase(
+        key: const PageStorageKey('trending-showcase'),
+        items: trending,
+        wide: wide,
+        refresh: refresh,
+        onOpen: onOpenSubject,
+      );
+    }
+    final timeline = _TodayTimeline(
+      items: today,
+      loading: discovery.todayLoading,
+      error: discovery.todayError,
+      watchingIds: {for (final item in watching) item.id},
+      onOpen: onOpenSubject,
+      onCalendar: onCalendar,
+      onRetry: onRefresh,
+    );
+    final continuation = _ContinueSection(
+      watching: watching,
+      resumable: resume.resumable,
+      airingToday: {for (final item in today) item.id},
+      onResume: onResume,
+      onOpenSubject: onOpenSubject,
+      onExplore: onExplore,
+      onOpenTracking: onOpenTracking,
+    );
+    return ListView(
+      key: const PageStorageKey('page-scroll'),
+      padding: const EdgeInsets.fromLTRB(
+        pageGutter,
+        Gap.lg,
+        pageGutter,
+        Gap.xl,
+      ),
+      children: [
+        FeedbackIssue(feedback: feedback, onRetry: onRefresh),
+        if (!wide)
+          SectionTitle(
+            title: '本季热度',
+            icon: Icons.local_fire_department_outlined,
+            top: 0,
+            trailing: refresh,
+          ),
+        showcase,
+        const SizedBox(height: Gap.xxl),
+        if (wide)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: continuation),
+              const SizedBox(width: Gap.lg),
+              SizedBox(
+                width: homeSideColumnWidth,
+                height: lowerHeight,
+                child: timeline,
+              ),
+            ],
+          )
+        else ...[
+          continuation,
+          const SizedBox(height: Gap.xxl),
+          SizedBox(height: 460, child: timeline),
+        ],
+      ],
+    );
+  }
 }
 
 class _TrendingShowcase extends StatefulWidget {
@@ -156,10 +162,10 @@ class _TrendingShowcase extends StatefulWidget {
     required this.refresh,
     required this.onOpen,
   });
-  final List<Json> items;
+  final List<Subject> items;
   final bool wide;
   final Widget refresh;
-  final ValueChanged<Json> onOpen;
+  final ValueChanged<Subject> onOpen;
 
   @override
   State<_TrendingShowcase> createState() => _TrendingShowcaseState();
@@ -224,25 +230,22 @@ class _Spotlight extends StatelessWidget {
     required this.onPrevious,
     required this.onNext,
   });
-  final Json item;
+  final Subject item;
   final int rank, count;
-  final ValueChanged<Json> onOpen;
+  final ValueChanged<Subject> onOpen;
   final VoidCallback onPrevious, onNext;
 
   @override
   Widget build(BuildContext context) {
-    final id = number(item['subjectId']).toInt();
-    final title = titleOf(item);
-    final original = '${item['name'] ?? ''}';
-    final summary = '${item['summary'] ?? ''}'.replaceAll(RegExp(r'\s+'), ' ');
-    final season = object(item['season'])['label'];
+    final id = item.id;
+    final title = item.title;
+    final original = item.name ?? '';
+    final summary = (item.summary ?? '').replaceAll(RegExp(r'\s+'), ' ');
     final tags = <String>[
-      if (season != null) '$season',
-      if (item['platform'] != null) '${item['platform']}',
-      if (item['episodeTotal'] != null) '全 ${item['episodeTotal']} 话',
-      ...(item['metaTags'] as List? ?? []).whereType<String>().where(
-        (tag) => tag != item['platform'] && tag != '日本',
-      ),
+      ?item.season?.label,
+      ?item.platform,
+      if (item.episodeTotal != null) '全 ${item.episodeTotal} 话',
+      ...item.metaTags.where((tag) => tag != item.platform && tag != '日本'),
     ].take(5);
     const white = Colors.white;
     final muted = white.withValues(alpha: .72);
@@ -256,7 +259,7 @@ class _Spotlight extends StatelessWidget {
             imageFilter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
             child: Transform.scale(
               scale: 1.4,
-              child: SubjectCover(url: item['coverUrl'], title: title, id: id),
+              child: SubjectCover(url: item.coverUrl, title: title, id: id),
             ),
           ),
           const DecoratedBox(
@@ -294,7 +297,7 @@ class _Spotlight extends StatelessWidget {
                           child: ClipRRect(
                             borderRadius: posterBorderRadius,
                             child: SubjectCover(
-                              url: item['coverUrl'],
+                              url: item.coverUrl,
                               title: title,
                               id: id,
                             ),
@@ -340,7 +343,7 @@ class _Spotlight extends StatelessWidget {
                               crossAxisAlignment: WrapCrossAlignment.center,
                               children: [
                                 Text(
-                                  '★ ${scoreLabel(item['score'])}',
+                                  '★ ${scoreLabel(item.score)}',
                                   style: const TextStyle(
                                     color: gold,
                                     fontSize: 17,
@@ -454,7 +457,7 @@ class _RankList extends StatelessWidget {
     required this.refresh,
     required this.onSelect,
   });
-  final List<Json> items;
+  final List<Subject> items;
   final int selected;
   final Widget refresh;
   final ValueChanged<int> onSelect;
@@ -512,7 +515,7 @@ class _RankList extends StatelessWidget {
                           ),
                           Expanded(
                             child: Text(
-                              titleOf(items[i]),
+                              items[i].title,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -525,7 +528,7 @@ class _RankList extends StatelessWidget {
                           ),
                           const SizedBox(width: Gap.sm),
                           Text(
-                            '★ ${scoreLabel(items[i]['score'])}',
+                            '★ ${scoreLabel(items[i].score)}',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
@@ -555,25 +558,24 @@ class _ContinueSection extends StatelessWidget {
     required this.onExplore,
     required this.onOpenTracking,
   });
-  final List<Json> watching, resumable;
-  final Set<Object?> airingToday;
-  final ValueChanged<Json>? onResume;
-  final ValueChanged<Json> onOpenSubject;
+  final List<Subject> watching;
+  final List<PlaybackResume> resumable;
+  final Set<int> airingToday;
+  final ValueChanged<PlaybackResume> onResume;
+  final ValueChanged<Subject> onOpenSubject;
   final VoidCallback onExplore, onOpenTracking;
 
   @override
   Widget build(BuildContext context) {
     final resume = resumable.take(4).toList();
-    final resumeIds = {for (final item in resume) item['subjectId']};
-    final rest = watching.where((e) => !resumeIds.contains(e['subjectId']));
+    final resumeIds = {for (final item in resume) item.subject.id};
+    final rest = watching.where((e) => !resumeIds.contains(e.id));
     // Shows airing today lead the watching list.
     final posters = [
-      ...rest.where((e) => airingToday.contains(e['subjectId'])),
-      ...rest.where((e) => !airingToday.contains(e['subjectId'])),
+      ...rest.where((e) => airingToday.contains(e.id)),
+      ...rest.where((e) => !airingToday.contains(e.id)),
     ];
-    final updated = watching
-        .where((e) => airingToday.contains(e['subjectId']))
-        .length;
+    final updated = watching.where((e) => airingToday.contains(e.id)).length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -599,15 +601,12 @@ class _ContinueSection extends StatelessWidget {
             ranked: false,
             itemCount: resume.length + posters.length,
             itemBuilder: (i) => i < resume.length
-                ? _ResumePoster(item: resume[i], onResume: onResume!)
+                ? _ResumePoster(item: resume[i], onResume: onResume)
                 : SubjectPoster(
                     item: posters[i - resume.length],
                     onOpen: onOpenSubject,
                     tracking: true,
-                    badge:
-                        airingToday.contains(
-                          posters[i - resume.length]['subjectId'],
-                        )
+                    badge: airingToday.contains(posters[i - resume.length].id)
                         ? '今日更新'
                         : null,
                   ),
@@ -619,8 +618,8 @@ class _ContinueSection extends StatelessWidget {
 
 class _ResumePoster extends StatefulWidget {
   const _ResumePoster({required this.item, required this.onResume});
-  final Json item;
-  final ValueChanged<Json> onResume;
+  final PlaybackResume item;
+  final ValueChanged<PlaybackResume> onResume;
 
   @override
   State<_ResumePoster> createState() => _ResumePosterState();
@@ -631,20 +630,20 @@ class _ResumePosterState extends State<_ResumePoster> {
 
   @override
   Widget build(BuildContext context) {
-    final item = widget.item;
-    final position = number(item['positionSeconds']);
-    final duration = number(item['durationSeconds']);
-    final episode = number(item['episodeSort']);
-    final episodeLabel = episode > 0
-        ? '第 ${episode == episode.roundToDouble() ? episode.toInt() : episode} 话'
-        : null;
+    final resume = widget.item;
+    final item = resume.subject;
+    final position = resume.position;
+    final duration = resume.duration;
+    final episodeLabel = resume.episodeSort == null
+        ? null
+        : '第 ${resume.episodeSort} 话';
     final remaining = ((duration - position) / 60).ceil();
     final scheme = Theme.of(context).colorScheme;
     final active = hovered || focused;
     return Semantics(
-      label: '${titleOf(item)}，继续${episodeLabel ?? '观看'}',
+      label: '${item.title}，继续${episodeLabel ?? '观看'}',
       child: InkWell(
-        onTap: () => widget.onResume(item),
+        onTap: () => widget.onResume(resume),
         onHover: (value) => setState(() => hovered = value),
         onFocusChange: (value) => setState(() => focused = value),
         overlayColor: const WidgetStatePropertyAll(Colors.transparent),
@@ -664,9 +663,9 @@ class _ResumePosterState extends State<_ResumePoster> {
                     fit: StackFit.expand,
                     children: [
                       SubjectCover(
-                        url: item['coverUrl'],
-                        title: titleOf(item),
-                        id: number(item['subjectId']).toInt(),
+                        url: item.coverUrl,
+                        title: item.title,
+                        id: item.id,
                       ),
                       DecoratedBox(
                         decoration: BoxDecoration(
@@ -727,7 +726,7 @@ class _ResumePosterState extends State<_ResumePoster> {
                         right: 10,
                         bottom: 14,
                         child: Text(
-                          titleOf(item),
+                          item.title,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -781,8 +780,7 @@ class _ResumePosterState extends State<_ResumePoster> {
   }
 }
 
-DateTime? _airingInstant(Json item) =>
-    DateTime.tryParse('${item['airingAt'] ?? ''}');
+DateTime? _airingInstant(Subject item) => item.airingAt;
 
 String _shanghaiClock(DateTime instant) {
   final time = instant.toUtc().add(const Duration(hours: 8));
@@ -799,11 +797,11 @@ class _TodayTimeline extends StatefulWidget {
     required this.onCalendar,
     required this.onRetry,
   });
-  final List<Json> items;
+  final List<Subject> items;
   final bool loading;
   final String? error;
-  final Set<Object?> watchingIds;
-  final ValueChanged<Json> onOpen;
+  final Set<int> watchingIds;
+  final ValueChanged<Subject> onOpen;
   final VoidCallback onCalendar, onRetry;
 
   @override
@@ -896,7 +894,7 @@ class _TodayTimelineState extends State<_TodayTimeline> {
             aired: aired[index],
             first: index == 0 && nowIndex != 0,
             last: index == items.length - 1 && nowIndex != items.length,
-            watching: widget.watchingIds.contains(items[index]['subjectId']),
+            watching: widget.watchingIds.contains(items[index].id),
             onOpen: widget.onOpen,
           );
         },
@@ -977,9 +975,9 @@ class _TimelineEntry extends StatelessWidget {
     required this.watching,
     required this.onOpen,
   });
-  final Json item;
+  final Subject item;
   final bool aired, first, last, watching;
-  final ValueChanged<Json> onOpen;
+  final ValueChanged<Subject> onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -988,9 +986,9 @@ class _TimelineEntry extends StatelessWidget {
     final line = aired
         ? scheme.primary.withValues(alpha: .55)
         : scheme.outlineVariant;
-    final episodes = item['episodeTotal'] == null
+    final episodes = item.episodeTotal == null
         ? null
-        : '全 ${item['episodeTotal']} 话';
+        : '全 ${item.episodeTotal} 话';
     return SizedBox(
       height: _TodayTimelineState.rowHeight,
       child: InkWell(
@@ -1036,9 +1034,9 @@ class _TimelineEntry extends StatelessWidget {
                   child: Opacity(
                     opacity: aired ? 1 : .75,
                     child: SubjectCover(
-                      url: item['coverUrl'],
-                      title: titleOf(item),
-                      id: number(item['subjectId']).toInt(),
+                      url: item.coverUrl,
+                      title: item.title,
+                      id: item.id,
                     ),
                   ),
                 ),
@@ -1050,7 +1048,7 @@ class _TimelineEntry extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      titleOf(item),
+                      item.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -1157,48 +1155,42 @@ class _NowMarker extends StatelessWidget {
 class SearchPage extends StatefulWidget {
   const SearchPage({
     super.key,
-    required this.query,
-    required this.results,
-    required this.busy,
-    required this.total,
-    required this.hasMore,
-    required this.onLoadMore,
+    required this.discovery,
     required this.onOpenSubject,
-    this.error,
-    this.onRetry,
   });
-  final String query;
-  final List<Json> results;
-  final bool busy;
-  final int total;
-  final bool hasMore;
-  final VoidCallback onLoadMore;
-  final String? error;
-  final VoidCallback? onRetry;
-  final ValueChanged<Json> onOpenSubject;
+  final DiscoveryController discovery;
+  final ValueChanged<Subject> onOpenSubject;
 
   @override
   State<SearchPage> createState() => _SearchPageState();
 }
 
 class _SearchPageState extends State<SearchPage> {
+  DiscoveryController get discovery => widget.discovery;
+  SearchResults get search => discovery.search;
+
   bool loadMoreIfNeeded(ScrollMetrics metrics) {
     if (metrics.axis == Axis.vertical &&
         metrics.extentAfter < 480 &&
-        widget.hasMore &&
-        !widget.busy &&
-        widget.error == null &&
-        widget.results.isNotEmpty) {
+        search.hasMore &&
+        !discovery.searching &&
+        search.error == null &&
+        search.items.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.onLoadMore();
+        if (mounted) discovery.loadMore();
       });
     }
     return false;
   }
 
   @override
-  Widget build(BuildContext context) {
-    final results = widget.results;
+  Widget build(BuildContext context) =>
+      ListenableBuilder(listenable: discovery, builder: _results);
+
+  Widget _results(BuildContext context, Widget? _) {
+    final results = search.items;
+    final busy = discovery.searching;
+    final error = search.error;
     return NotificationListener<ScrollMetricsNotification>(
       onNotification: (notification) => notification.depth == 0
           ? loadMoreIfNeeded(notification.metrics)
@@ -1210,17 +1202,17 @@ class _SearchPageState extends State<SearchPage> {
         child: PageScroll(
           children: [
             SectionTitle(
-              title: '“${widget.query}” 的搜索结果',
-              subtitle: results.isEmpty && widget.busy
+              title: '“${search.query}” 的搜索结果',
+              subtitle: results.isEmpty && busy
                   ? null
-                  : '${results.length}${widget.total > results.length ? ' / ${widget.total}' : ''} 部',
+                  : '${results.length}${search.total > results.length ? ' / ${search.total}' : ''} 部',
               icon: Icons.search,
               top: Gap.lg,
             ),
-            if (results.isEmpty && widget.busy)
+            if (results.isEmpty && busy)
               const PosterPlaceholders()
-            else if (results.isEmpty && widget.error != null)
-              EmptyState(text: widget.error!, action: widget.onRetry)
+            else if (results.isEmpty && error != null)
+              EmptyState(text: error, action: discovery.retrySearch)
             else if (results.isEmpty)
               const EmptyState(text: '没有找到匹配的番剧，换个名称或别名试试')
             else
@@ -1230,23 +1222,23 @@ class _SearchPageState extends State<SearchPage> {
                   items: results,
                 ),
               ),
-            if (results.isNotEmpty && widget.error != null)
+            if (results.isNotEmpty && error != null)
               EmptyState(
-                text: widget.error!,
-                action: widget.busy ? null : widget.onRetry,
+                text: error,
+                action: busy ? null : discovery.retrySearch,
               )
-            else if (results.isNotEmpty && widget.hasMore)
+            else if (results.isNotEmpty && search.hasMore)
               Padding(
                 padding: const EdgeInsets.only(top: Gap.xl),
                 child: Center(
-                  child: widget.busy
+                  child: busy
                       ? const SizedBox.square(
                           dimension: 22,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       // Short result lists do not scroll, so loading stays reachable.
                       : TextButton.icon(
-                          onPressed: widget.onLoadMore,
+                          onPressed: discovery.loadMore,
                           icon: const Icon(Icons.expand_more, size: 18),
                           label: const Text('加载更多'),
                         ),
@@ -1266,9 +1258,9 @@ class CalendarPage extends StatefulWidget {
     required this.onRetry,
     required this.onOpenSubject,
   });
-  final List<Json> calendar;
+  final List<ScheduleDay> calendar;
   final VoidCallback onRetry;
-  final ValueChanged<Json> onOpenSubject;
+  final ValueChanged<Subject> onOpenSubject;
   @override
   State<CalendarPage> createState() => _CalendarPageState();
 }
@@ -1305,9 +1297,9 @@ class _CalendarPageState extends State<CalendarPage> {
       for (var i = 0; i < 7; i++)
         today.add(Duration(days: i)).toIso8601String().substring(0, 10),
     ];
-    final days = {for (final day in widget.calendar) '${day['date']}': day};
+    final days = {for (final day in widget.calendar) day.date: day};
     final selectedDate = dates.contains(selected) ? selected! : dates.first;
-    final items = objects(days[selectedDate]?['items']);
+    final items = days[selectedDate]?.items ?? const <Subject>[];
     String weekday(String date) => [
       '周一',
       '周二',
@@ -1375,7 +1367,7 @@ class _CalendarPageState extends State<CalendarPage> {
                         ),
                       ),
                       Text(
-                        '${objects(days[dates[i]]?['items']).length} 部',
+                        '${days[dates[i]]?.items.length ?? 0} 部',
                         style: TextStyle(
                           color: selectedDate == dates[i]
                               ? Theme.of(context)
@@ -1427,14 +1419,14 @@ class BroadcastTimeline extends StatelessWidget {
     required this.items,
     required this.onOpen,
   });
-  final List<Json> items;
-  final ValueChanged<Json> onOpen;
+  final List<Subject> items;
+  final ValueChanged<Subject> onOpen;
   @override
   Widget build(BuildContext context) => Column(
     children: [
       for (var i = 0; i < items.length; i++)
         _BroadcastEntry(
-          key: ValueKey('${items[i]['subjectId']}:$i'),
+          key: ValueKey('${items[i].id}:$i'),
           item: items[i],
           onOpen: onOpen,
           first: i == 0,
@@ -1452,8 +1444,8 @@ class _BroadcastEntry extends StatefulWidget {
     required this.first,
     required this.last,
   });
-  final Json item;
-  final ValueChanged<Json> onOpen;
+  final Subject item;
+  final ValueChanged<Subject> onOpen;
   final bool first, last;
   @override
   State<_BroadcastEntry> createState() => _BroadcastEntryState();
@@ -1555,9 +1547,9 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(12),
                                 child: SubjectCover(
-                                  url: item['coverUrl'],
-                                  title: titleOf(item),
-                                  id: number(item['subjectId']).toInt(),
+                                  url: item.coverUrl,
+                                  title: item.title,
+                                  id: item.id,
                                 ),
                               ),
                             ),
@@ -1567,7 +1559,7 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    titleOf(item),
+                                    item.title,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
@@ -1577,9 +1569,9 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                                   ),
                                   const SizedBox(height: 7),
                                   Text(
-                                    item['episodeTotal'] == null
+                                    item.episodeTotal == null
                                         ? '今日放送'
-                                        : '放送 · 全 ${item['episodeTotal']} 话',
+                                        : '放送 · 全 ${item.episodeTotal} 话',
                                     style: Theme.of(context)
                                         .textTheme
                                         .bodySmall,
@@ -1606,7 +1598,7 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
     );
   }
 
-  String _time(Json item) {
+  String _time(Subject item) {
     final instant = _airingInstant(item);
     return instant == null ? '放送' : _shanghaiClock(instant);
   }

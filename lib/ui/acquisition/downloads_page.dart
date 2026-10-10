@@ -1,28 +1,27 @@
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../domain/transfer.dart';
+import '../../features/downloads/downloads_controller.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
+import 'download_dialogs.dart';
 import 'download_labels.dart';
 
 class DownloadsPage extends StatefulWidget {
   const DownloadsPage({
     super.key,
     required this.downloads,
-    required this.onAddMagnet,
-    required this.onAddTorrent,
     required this.onExplore,
-    required this.onTogglePause,
-    required this.onRemove,
-    required this.onStopSeeding,
     required this.onPlay,
+    required this.onError,
   });
-  final TransferSnapshot downloads;
-  final VoidCallback onAddMagnet, onAddTorrent, onExplore;
-  final ValueChanged<DownloadTask> onTogglePause, onRemove, onStopSeeding;
+  final DownloadsController downloads;
+  final VoidCallback onExplore;
   final void Function(String, String?) onPlay;
+  final ValueChanged<Object> onError;
   @override
   State<DownloadsPage> createState() => _DownloadsPageState();
 }
@@ -34,8 +33,18 @@ class _DownloadsPageState extends State<DownloadsPage> {
   StateSetter? _refreshFileDialog;
 
   @override
-  void didUpdateWidget(covariant DownloadsPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
+  void initState() {
+    super.initState();
+    widget.downloads.snapshot.addListener(_refreshFiles);
+  }
+
+  @override
+  void dispose() {
+    widget.downloads.snapshot.removeListener(_refreshFiles);
+    super.dispose();
+  }
+
+  void _refreshFiles() {
     if (_refreshFileDialog != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _refreshFileDialog?.call(() {});
@@ -43,9 +52,61 @@ class _DownloadsPageState extends State<DownloadsPage> {
     }
   }
 
+  Future<void> _perform(Future<void> Function() action) async {
+    try {
+      await action();
+    } catch (e) {
+      widget.onError(e);
+    }
+  }
+
+  Future<void> _addMagnet() async {
+    final uri = await showDialog<String>(
+      context: context,
+      builder: (_) => const AddMagnetDialog(),
+    );
+    if (uri != null && uri.trim().isNotEmpty) {
+      await _perform(() => widget.downloads.addMagnet(uri.trim()));
+    }
+  }
+
+  Future<void> _addTorrent() async {
+    final file = await openFile(
+      acceptedTypeGroups: [
+        const XTypeGroup(label: 'Torrent', extensions: ['torrent']),
+      ],
+    );
+    if (file != null) {
+      await _perform(
+        () async =>
+            widget.downloads.addTorrent(await file.readAsBytes(), file.name),
+      );
+    }
+  }
+
+  Future<void> _remove(DownloadTask task) async {
+    final remove = await showDialog<bool>(
+      context: context,
+      builder: (_) =>
+          RemoveDownloadDialog(title: task.title, cloud: task.cloud),
+    );
+    if (remove == true) await _perform(() => widget.downloads.remove(task.id));
+  }
+
+  void _toggle(DownloadTask task) =>
+      _perform(() => widget.downloads.toggle(task));
+
+  void _stopSeeding(DownloadTask task) =>
+      _perform(() => widget.downloads.stopSeeding(task.id));
+
   @override
-  Widget build(BuildContext context) {
-    final tasks = widget.downloads.tasks;
+  Widget build(BuildContext context) => ValueListenableBuilder(
+    valueListenable: widget.downloads.snapshot,
+    builder: (context, snapshot, _) => _page(context, snapshot),
+  );
+
+  Widget _page(BuildContext context, TransferSnapshot snapshot) {
+    final tasks = snapshot.tasks;
     final visible = tasks.where((t) {
       final category =
           filter == '全部' || (filter == '已缓存' ? t.complete : !t.complete);
@@ -71,12 +132,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               TextButton.icon(
-                onPressed: widget.onAddMagnet,
+                onPressed: _addMagnet,
                 icon: const Icon(Icons.add_link, size: 17),
                 label: const Text('磁力链接'),
               ),
               TextButton.icon(
-                onPressed: widget.onAddTorrent,
+                onPressed: _addTorrent,
                 icon: const Icon(Icons.file_open_outlined, size: 17),
                 label: const Text('种子文件'),
               ),
@@ -255,7 +316,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
               if (!complete)
                 IconButton(
                   tooltip: cloud ? '暂停 / 继续本机缓存' : '暂停 / 继续下载',
-                  onPressed: () => widget.onTogglePause(task),
+                  onPressed: () => _toggle(task),
                   icon: Icon(
                     canResume ? Icons.play_arrow_rounded : Icons.pause_rounded,
                   ),
@@ -343,8 +404,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     onPressed: stoppedByPolicy
                         ? null
                         : canStop
-                        ? () => widget.onStopSeeding(task)
-                        : () => widget.onTogglePause(task),
+                        ? () => _stopSeeding(task)
+                        : () => _toggle(task),
                     icon: Icon(
                       canStop
                           ? Icons.stop_circle_outlined
@@ -360,7 +421,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     ),
                   ),
                 TextButton.icon(
-                  onPressed: () => widget.onRemove(task),
+                  onPressed: () => _remove(task),
                   icon: const Icon(Icons.delete_outline, size: 17),
                   label: Text(cloud ? '移除本机任务与缓存' : '移除任务与缓存'),
                 ),
@@ -384,7 +445,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         builder: (context) => StatefulBuilder(
           builder: (context, refresh) {
             _refreshFileDialog = refresh;
-            final task = widget.downloads.task(id);
+            final task = widget.downloads.snapshot.value.task(id);
             final files = task?.files ?? const <DownloadFile>[];
             return AlertDialog(
               title: Text(task == null ? '任务已移除' : '任务文件'),

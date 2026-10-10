@@ -46,12 +46,12 @@ class _PlayerSettingsState extends State<PlayerSettings> {
   @override
   void initState() {
     super.initState();
-    _sessionId = playback.session?['id'] as String?;
+    _sessionId = playback.session?.id;
     playback.addListener(refresh);
   }
 
   void refresh() {
-    final sessionId = playback.session?['id'] as String?;
+    final sessionId = playback.session?.id;
     if (sessionId != _sessionId) {
       _sessionId = sessionId;
       _searchRequest++;
@@ -438,7 +438,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
     }
     if (danmaku.searchable(provider)) {
       final ticket = ++_searchRequest;
-      final sessionId = playback.session?['id'];
+      final sessionId = playback.session?.id;
       setState(() {
         manualSearching = true;
         manualSearched = false;
@@ -449,7 +449,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
         final result = await danmaku.search(provider, keyword);
         if (mounted &&
             ticket == _searchRequest &&
-            sessionId == playback.session?['id']) {
+            sessionId == playback.session?.id) {
           setState(() {
             matches = result;
             manualSearched = true;
@@ -470,7 +470,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
   }
 
   Future<void> loadLocalComments() async {
-    final sessionId = playback.session?['id'];
+    final sessionId = playback.session?.id;
     if (sessionId is! String) return;
     final ticket = ++_importRequest;
     final file = await openFile(
@@ -481,7 +481,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
     if (file == null ||
         !mounted ||
         ticket != _importRequest ||
-        sessionId != playback.session?['id']) {
+        sessionId != playback.session?.id) {
       return;
     }
     await perform(() => danmaku.importLocal(file.path));

@@ -16,15 +16,21 @@ import 'data/store.dart';
 import 'data/storage_locations.dart';
 import 'data/tracking.dart';
 import 'features/acquisition/release_search.dart';
+import 'features/acquisition/resources_controller.dart';
 import 'features/acquisition/source_registry.dart';
 import 'features/danmaku/danmaku_controller.dart';
 import 'features/danmaku/danmaku_preferences.dart';
 import 'features/danmaku/danmaku_repository.dart';
+import 'features/discovery/discovery_controller.dart';
 import 'features/downloads/download_repository.dart';
+import 'features/downloads/downloads_controller.dart';
 import 'features/playback/play_selection.dart';
 import 'features/playback/playback.dart';
 import 'features/playback/playback_coordinator.dart';
 import 'features/playback/playback_library.dart';
+import 'features/playback/resume_controller.dart';
+import 'features/tracking/subject_controller.dart';
+import 'features/tracking/tracking_controller.dart';
 import 'integrations/danmaku/bahamut.dart';
 import 'integrations/danmaku/bilibili.dart';
 import 'integrations/danmaku/dandanplay.dart';
@@ -66,7 +72,6 @@ class AppServices {
   late final DownloadRepository downloads;
   late final LibtorrentTransfer bt;
   late final PikPakTransfer pikpakTransfer;
-  late final PikPakClient pikpak;
   late final ReleaseSearch releases;
   late final DanmakuController danmaku;
   late final PlaybackLibrary library;
@@ -74,6 +79,13 @@ class AppServices {
   late final PlaySelectionRepository selection;
   late final Playback playback;
   late final PlaybackCoordinator coordinator;
+  late final DiscoveryController discovery;
+  late final TrackingController personal;
+  late final SubjectController subjects;
+  late final ResourcesController resources;
+  late final DownloadsController downloadList;
+  late final ResumeController resume;
+  late final SourceChoices choices;
   Future<void>? _starting;
   Future<void>? _closing;
   final _dispose = <Future<void> Function()>[];
@@ -119,7 +131,7 @@ class AppServices {
     _dispose.add(catalog.close);
     tracking = TrackingRepository(store, account, catalog);
     _dispose.add(tracking.close);
-    pikpak = PikPakClient(credentials!);
+    final pikpak = PikPakClient(credentials!);
     _dispose.add(() async => pikpak.close());
     await pikpak.initialize();
     final mediaDirectory =
@@ -160,6 +172,23 @@ class AppServices {
       downloads,
     );
     _dispose.add(coordinator.close);
+    discovery = DiscoveryController(catalog);
+    personal = TrackingController(account, tracking);
+    subjects = SubjectController(tracking);
+    resources = ResourcesController(releases, () => downloadsReady);
+    downloadList = DownloadsController(
+      downloads,
+      ready: () => downloadsReady,
+      stopSeeding: bt.stopSeeding,
+    );
+    _dispose.add(downloadList.close);
+    resume = ResumeController(library);
+    choices = SourceChoices(
+      selection: selection,
+      sources: sources,
+      enqueue: resources.enqueue,
+      defaultMethod: () => downloads.defaultMethod,
+    );
     await account.initialize();
     tracking.start();
     _restoringDownloads = downloads.initialize();

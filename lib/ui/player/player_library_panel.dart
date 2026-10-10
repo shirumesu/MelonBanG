@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../app_services.dart';
+import '../../domain/catalog.dart';
 import '../../domain/transfer.dart';
 import '../acquisition/download_labels.dart';
 import '../core/selection_controls.dart';
@@ -23,7 +23,7 @@ DownloadTask? playableTask(List<DownloadTask> tasks, int episodeId) => tasks
 class PlayerLibraryPanel extends StatefulWidget {
   const PlayerLibraryPanel({
     super.key,
-    required this.service,
+    required this.onToggleTask,
     required this.subjectId,
     required this.subject,
     required this.episodeId,
@@ -33,13 +33,13 @@ class PlayerLibraryPanel extends StatefulWidget {
     required this.onFindResources,
     required this.onPlayFile,
   });
-  final AppServices service;
+  final Future<void> Function(DownloadTask) onToggleTask;
   final int? subjectId, episodeId;
-  final Json? subject;
+  final Subject? subject;
   final String title;
   final TransferSnapshot downloads;
-  final ValueChanged<Json> onEpisode;
-  final ValueChanged<Json?> onFindResources;
+  final ValueChanged<Episode> onEpisode;
+  final ValueChanged<Episode?> onFindResources;
   final void Function(String id, String? fileId) onPlayFile;
   @override
   State<PlayerLibraryPanel> createState() => _PlayerLibraryPanelState();
@@ -52,14 +52,14 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
   List<DownloadTask> _tasks = [];
   String tab = 'episodes';
   String? error;
-  List<Json> episodes = [];
-  final episodesById = <Object?, Json>{};
+  List<Episode> episodes = [];
+  final episodesById = <int?, Episode>{};
 
   void indexEpisodes() {
-    episodes = objects(widget.subject?['episodes']);
+    episodes = widget.subject?.episodes ?? const [];
     episodesById.clear();
     for (final episode in episodes) {
-      episodesById[episode['episodeId']] = episode;
+      episodesById[episode.id] = episode;
     }
   }
 
@@ -104,7 +104,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
   void revealCurrent() => WidgetsBinding.instance.addPostFrameCallback((_) {
     if (!mounted || !episodeScroll.hasClients || tab == 'tasks') return;
     final index = episodes.indexWhere(
-      (episode) => episode['episodeId'] == widget.episodeId,
+      (episode) => episode.id == widget.episodeId,
     );
     if (index < 0) return;
     final position = episodeScroll.position;
@@ -118,11 +118,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
 
   Future<void> toggleTask(DownloadTask task) async {
     try {
-      if (_resumable(task)) {
-        await widget.service.downloads.resume(task.id);
-      } else {
-        await widget.service.downloads.pause(task.id);
-      }
+      await widget.onToggleTask(task);
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     }
@@ -157,7 +153,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                       Text(
                         widget.subject == null
                             ? widget.title
-                            : titleOf(widget.subject!),
+                            : widget.subject!.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleSmall
@@ -167,7 +163,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                       Text(
                         current == null
                             ? '正在播放'
-                            : '正在播放第 ${current['sort']} 话 · 共 ${episodes.length} 话',
+                            : '正在播放第 ${current.number} 话 · 共 ${episodes.length} 话',
                         style: small,
                       ),
                     ],
@@ -253,10 +249,10 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
     );
   }
 
-  Widget episodeRow(Json episode) {
+  Widget episodeRow(Episode episode) {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
-    final id = episode['episodeId'] as int;
+    final id = episode.id;
     final current = id == widget.episodeId;
     final related = tasksByEpisode[id] ?? const <DownloadTask>[];
     final complete = playableTask(related, id);
@@ -269,7 +265,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
         : task != null
         ? '${taskStatus(task)} · ${(task.progress * 100).round()}%'
         : '未缓存 · 点击查找资源';
-    final title = titleOf(episode);
+    final title = episode.title;
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: Material(
@@ -306,7 +302,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                           color: scheme.onPrimary,
                         )
                       : Text(
-                          '${episode['sort']}',
+                          episode.number,
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
@@ -323,7 +319,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        title == '未命名' ? '第 ${episode['sort']} 话' : title,
+                        title == '未命名' ? '第 ${episode.number} 话' : title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -397,7 +393,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                 ],
                 Expanded(
                   child: Text(
-                    episode == null ? task.title : '第 ${episode['sort']} 话',
+                    episode == null ? task.title : '第 ${episode.number} 话',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 12),
