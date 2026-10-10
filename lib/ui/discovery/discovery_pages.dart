@@ -1244,10 +1244,14 @@ class CalendarPage extends StatefulWidget {
   const CalendarPage({
     super.key,
     required this.calendar,
+    required this.loading,
+    required this.error,
     required this.onRetry,
     required this.onOpenSubject,
   });
   final List<ScheduleDay> calendar;
+  final bool loading;
+  final String? error;
   final VoidCallback onRetry;
   final ValueChanged<Subject> onOpenSubject;
   @override
@@ -1380,10 +1384,14 @@ class _CalendarPageState extends State<CalendarPage> {
                 title: '${weekday(selectedDate)}  $selectedDate',
                 icon: Icons.calendar_month_outlined,
               ),
-              if (items.isEmpty)
+              if (items.isEmpty && widget.loading) ...[
+                const LinearProgressIndicator(),
+                const EmptyState(text: '正在加载时间表…'),
+              ] else if (items.isEmpty)
                 EmptyState(
-                  text: widget.calendar.isEmpty ? '日历尚未加载' : '本日暂无新番放送',
-                  action: widget.calendar.isEmpty ? widget.onRetry : null,
+                  text: widget.error != null ? '暂时无法加载时间表' : '本日暂无新番放送',
+                  detail: widget.error,
+                  action: widget.error != null ? widget.onRetry : null,
                 )
               else
                 PageEntrance(

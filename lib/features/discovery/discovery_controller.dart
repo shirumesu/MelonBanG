@@ -34,6 +34,8 @@ class DiscoveryController extends ChangeNotifier {
   bool trendingLoading = true, todayLoading = true;
   String? trendingError, todayError;
   List<ScheduleDay> calendar = [];
+  bool calendarLoading = false;
+  String? calendarError;
   SearchResults search = const SearchResults();
   bool searching = false;
   int _searchTicket = 0;
@@ -88,12 +90,23 @@ class DiscoveryController extends ChangeNotifier {
   }
 
   Future<void> loadCalendar() async {
+    calendarLoading = true;
+    calendarError = null;
+    notifyListeners();
     void show(List<ScheduleDay> value) {
       calendar = value;
       notifyListeners();
     }
 
-    show(await catalog.calendar(onCached: show));
+    try {
+      show(await catalog.calendar(onCached: show));
+    } catch (e) {
+      calendarError = e.toString();
+      rethrow;
+    } finally {
+      calendarLoading = false;
+      notifyListeners();
+    }
   }
 
   /// Starts a new search for [query].

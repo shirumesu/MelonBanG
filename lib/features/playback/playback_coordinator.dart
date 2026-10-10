@@ -51,7 +51,7 @@ class PlaybackCoordinator extends ChangeNotifier {
   ) {
     playback.resolveNext = _prepareAutoplay;
     _subscriptions.add(
-      playback.player.stream.error.listen((reason) {
+      playback.errors.listen((reason) {
         if (_activeCandidate != null &&
             !playback.opening &&
             shell.showingPlayer) {

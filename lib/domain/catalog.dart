@@ -515,7 +515,7 @@ abstract interface class SubjectCommunitySource {
 abstract interface class SubjectCovers {
   String? coverFor(int id);
 
-  /// Looks up a locally known cover for [id].
+  /// Resolves the cover for [id] from cached or basic catalogue metadata.
   Future<void> resolveCover(int id);
 
   /// Ids whose cover became known.
