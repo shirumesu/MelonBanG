@@ -43,7 +43,8 @@ class CatalogRepository implements Catalog {
     coverChanges.add(id);
   }
 
-  // Reuse local detail artwork without making a full-detail request per card.
+  // Reuse local detail artwork, then request only basic metadata for missing
+  // covers instead of loading episodes, staff and other full-detail sections.
   @override
   Future<void> resolveCover(int id) {
     if (_closed || id <= 0 || _covers.containsKey(id)) return Future.value();
@@ -52,6 +53,14 @@ class CatalogRepository implements Catalog {
         final cached = await cachedSubjectDetail(store, id);
         if (!_closed && cached != null && !_covers.containsKey(id)) {
           _rememberCover(cached);
+        }
+        if (!_closed && !_covers.containsKey(id)) {
+          final response = await _cached(
+            'basic-detail:$id',
+            '/v1/subjects/$id?includeHtml=false&view=basic',
+            refresh: true,
+          );
+          _rememberCover(object(object(response)['data']));
         }
       } finally {
         _coverRequests.remove(id);
@@ -410,9 +419,8 @@ class CatalogRepository implements Catalog {
 
   Future<void> close() async {
     _closed = true;
-    await Future.wait(_coverRequests.values.toList());
     await Future.wait(
-      _requests.values.toList().map((request) async {
+      [..._coverRequests.values, ..._requests.values].map((request) async {
         try {
           await request;
         } catch (_) {

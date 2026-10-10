@@ -771,6 +771,8 @@ class _MelonAppState extends State<MelonApp>
       case 'calendar':
         return CalendarPage(
           calendar: discovery.calendar,
+          loading: discovery.calendarLoading,
+          error: discovery.calendarError,
           onOpenSubject: openSubject,
           onRetry: () => perform(discovery.loadCalendar),
         );

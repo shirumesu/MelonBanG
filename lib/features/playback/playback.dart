@@ -25,7 +25,7 @@ class Playback extends ChangeNotifier {
     unawaited(player.setRate(_savedRate));
     video = VideoController(player);
     _subscriptions.add(
-      player.stream.error.listen((value) {
+      errors.listen((value) {
         error ??= value;
         notifyListeners();
       }),
@@ -87,6 +87,11 @@ class Playback extends ChangeNotifier {
   final SharedPreferences preferences;
   final player = Player(
     configuration: const PlayerConfiguration(title: 'Melonbang', libass: true),
+  );
+  // media_kit forwards FFmpeg's TCP EOF log as an error, including at the
+  // end of an HTTP response. It does not mean playback failed.
+  Stream<String> get errors => player.stream.error.where(
+    (message) => message != 'tcp: ffurl_read returned 0xdfb9b0bb',
   );
   late final VideoController video;
   final _subscriptions = <StreamSubscription<dynamic>>[];

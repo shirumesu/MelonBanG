@@ -6,8 +6,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'network.dart';
 import 'store.dart';
 
-/// The address has no usable image: the host rejected it, the bytes cannot be
-/// decoded, or the artwork slot is blank. Retrying soon will not help.
+/// The image was removed or the artwork slot is blank.
+/// Retrying soon will not help.
 class MissingImage implements Exception {
   const MissingImage(this.url);
   final String url;
@@ -59,7 +59,6 @@ class ContentCache {
 
   /// Drops stored bytes that turned out to be unusable.
   Future<void> discard(String url) async {
-    _missing[url] = DateTime.now().add(_missingFor);
     await store.database.delete(
       'cached_images',
       where: 'url=?',
@@ -87,9 +86,7 @@ class ContentCache {
     try {
       bytes = await _download(url);
     } on ApiException catch (error) {
-      if (error.status == 408 || error.status == 429 || error.status >= 500) {
-        rethrow;
-      }
+      if (error.status != 404 && error.status != 410) rethrow;
       _missing[url] = DateTime.now().add(_missingFor);
       throw MissingImage(url);
     }
