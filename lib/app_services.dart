@@ -10,7 +10,6 @@ import 'data/account.dart';
 import 'data/catalog.dart';
 import 'data/content_cache.dart';
 import 'data/credentials.dart';
-import 'data/danmaku_repository.dart';
 import 'data/network.dart';
 import 'data/service_configuration.dart';
 import 'data/store.dart';
@@ -18,11 +17,18 @@ import 'data/storage_locations.dart';
 import 'data/tracking.dart';
 import 'features/acquisition/release_search.dart';
 import 'features/acquisition/source_registry.dart';
+import 'features/danmaku/danmaku_controller.dart';
+import 'features/danmaku/danmaku_preferences.dart';
+import 'features/danmaku/danmaku_repository.dart';
 import 'features/downloads/download_repository.dart';
 import 'features/playback/play_selection.dart';
 import 'features/playback/playback.dart';
 import 'features/playback/playback_coordinator.dart';
 import 'features/playback/playback_library.dart';
+import 'integrations/danmaku/bahamut.dart';
+import 'integrations/danmaku/bilibili.dart';
+import 'integrations/danmaku/dandanplay.dart';
+import 'integrations/danmaku/local.dart';
 import 'integrations/melon_api/source_rules.dart';
 import 'integrations/transfer/libtorrent.dart';
 import 'integrations/transfer/pikpak.dart';
@@ -62,7 +68,7 @@ class AppServices {
   late final PikPakTransfer pikpakTransfer;
   late final PikPakClient pikpak;
   late final ReleaseSearch releases;
-  late final DanmakuRepository danmaku;
+  late final DanmakuController danmaku;
   late final PlaybackLibrary library;
   late final SourceRegistry sources;
   late final PlaySelectionRepository selection;
@@ -124,10 +130,16 @@ class AppServices {
     _dispose.add(downloads.close);
     await downloads.loadPreferences();
     await bt.loadPreferences();
-    danmaku = DanmakuRepository(api, configuration: configuration);
-    library = PlaybackLibrary(store, downloads, danmaku, catalog);
-    _dispose.add(library.close);
+    library = PlaybackLibrary(store, downloads, catalog);
     final preferences = await SharedPreferences.getInstance();
+    danmaku = DanmakuController(
+      DanmakuRepository(store, catalog, [
+        DandanplayDanmaku(api, configuration),
+        BilibiliDanmaku(api),
+        BahamutDanmaku(api),
+      ], const LocalDanmaku()),
+      DanmakuPreferences(preferences),
+    );
     sources = SourceRegistry(api, preferences, SourceRulesClient(api));
     _dispose.add(() async => sources.dispose());
     await sources.initialize();
@@ -139,8 +151,7 @@ class AppServices {
       releases,
       sources,
     );
-    playback = Playback(library, store, downloads, preferences);
-    library.providerEnabled = playback.danmaku.sourceEnabled;
+    playback = Playback(library, downloads, danmaku, preferences);
     coordinator = PlaybackCoordinator(
       playback,
       selection,

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/selection_controls.dart';
-import '../../features/playback/playback_preferences.dart';
+import '../../features/danmaku/danmaku_preferences.dart';
 
 class DanmakuPreferencesEditor extends StatefulWidget {
   const DanmakuPreferencesEditor({

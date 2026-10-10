@@ -1,14 +1,10 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import 'package:media_kit/media_kit.dart';
 
-import '../../app_services.dart';
-import '../../data/danmaku_repository.dart';
-import '../../features/playback/playback_library.dart';
+import '../../domain/danmaku.dart';
+import '../../features/danmaku/danmaku_controller.dart';
 import '../core/theme.dart';
 import '../../features/playback/playback.dart';
 import 'danmaku_preferences_editor.dart';
@@ -18,19 +14,15 @@ class PlayerSettings extends StatefulWidget {
   const PlayerSettings({
     super.key,
     required this.playback,
-    required this.service,
     required this.menu,
     required this.onClose,
     required this.onError,
-    required this.onPresentationChanged,
     this.closeFocusNode,
   });
   final Playback playback;
-  final AppServices service;
   final PlayerMenu menu;
   final VoidCallback onClose;
   final ValueChanged<Object> onError;
-  final VoidCallback onPresentationChanged;
   final FocusNode? closeFocusNode;
   @override
   State<PlayerSettings> createState() => _PlayerSettingsState();
@@ -42,13 +34,14 @@ class _PlayerSettingsState extends State<PlayerSettings> {
   bool loading = false;
   bool manualSearching = false, manualSearched = false;
   String? manualError, loadError;
-  List<Json> matches = [];
+  List<DanmakuCandidate> matches = [];
   String? _sessionId;
   int _searchRequest = 0;
   int _loadRequest = 0;
   int _importRequest = 0;
   bool get busy => loading || manualSearching;
   Playback get playback => widget.playback;
+  DanmakuController get danmaku => playback.danmaku;
   Player get player => playback.player;
   @override
   void initState() {
@@ -69,11 +62,6 @@ class _PlayerSettingsState extends State<PlayerSettings> {
       manualError = loadError = null;
     }
     if (mounted) setState(() {});
-  }
-
-  void changePresentation(VoidCallback change) {
-    setState(change);
-    widget.onPresentationChanged();
   }
 
   @override
@@ -242,7 +230,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
 
   List<Widget> danmakuSettings() => [
     DanmakuPreferencesEditor(
-      preferences: playback.danmaku,
+      preferences: danmaku.preferences,
       filters: false,
       restore: false,
     ),
@@ -253,7 +241,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
       onPressed: busy
           ? null
           : () => loadDanmaku(
-              () => widget.service.library.autoMatch(
+              () => danmaku.autoMatch(
                 player.state.duration.inMilliseconds / 1000,
               ),
             ),
@@ -269,55 +257,46 @@ class _PlayerSettingsState extends State<PlayerSettings> {
           style: TextStyle(color: Theme.of(context).colorScheme.error),
         ),
       ),
-    for (final source in objects(playback.session?['danmakuSources']))
+    for (final source
+        in playback.session == null
+            ? const <DanmakuSourceState>[]
+            : danmaku.sources)
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: Text('${source['label']}'),
+            title: Text(source.label),
             subtitle: Text(
-              '${source['count']} 条 · ${switch (source['status']) {
-                'idle' => '等待匹配',
-                'loading' => '匹配中',
-                'ready' => '已加载',
-                'unmatched' => source['statusMessage'] ?? '未匹配',
-                'error' => '加载失败',
-                _ => '',
+              '${source.count} 条 · ${switch (source.status) {
+                DanmakuStatus.idle => '等待匹配',
+                DanmakuStatus.loading => '匹配中',
+                DanmakuStatus.ready => '已加载',
+                DanmakuStatus.unmatched => source.message ?? '未匹配',
+                DanmakuStatus.error => '加载失败',
               }}',
             ),
-            value: source['enabled'] == true,
+            value: source.enabled,
             onChanged: busy
                 ? null
-                : (value) {
-                    playback.danmaku.setProvider('${source['id']}', value);
-                    loadDanmaku(
-                      () async => widget.service.library.enable(
-                        '${source['id']}',
-                        value,
-                      ),
-                    );
-                  },
+                : (value) =>
+                      loadDanmaku(() async => danmaku.enable(source.id, value)),
           ),
-          sourceOffset('${source['id']}'),
-          for (final match in objects(source['candidates']))
+          sourceOffset(source.id),
+          for (final match in source.candidates)
             ListTile(
               dense: true,
-              title: Text('${match['animeTitle'] ?? '候选番剧'}'),
-              subtitle: Text(
-                '${match['episodeTitle'] ?? match['episodeNumber'] ?? ''}',
-              ),
+              title: Text(match.title),
+              subtitle: Text(match.episode),
               onTap: busy
                   ? null
                   : () => loadDanmaku(
-                      () => widget.service.library.selectEpisode(
-                        int.parse('${match['episodeId']}'),
-                      ),
+                      () => danmaku.load(source.id, match.locator),
                     ),
             ),
-          if (source['errorMessage'] != null)
+          if (source.error case final error?)
             Text(
-              '${source['errorMessage']}',
+              error,
               style: const TextStyle(fontSize: 11, color: Colors.orange),
             ),
         ],
@@ -346,7 +325,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
     TextField(
       controller: query,
       decoration: InputDecoration(
-        hintText: provider == 'dandanplay' ? '番剧名称' : '剧集网址或编号',
+        hintText: danmaku.searchable(provider) ? '番剧名称' : '剧集网址或编号',
       ),
       onSubmitted: (_) => manualDanmaku(),
       onChanged: (_) => setState(() {
@@ -362,7 +341,7 @@ class _PlayerSettingsState extends State<PlayerSettings> {
       child: Text(
         manualSearching
             ? '正在搜索…'
-            : provider == 'dandanplay'
+            : danmaku.searchable(provider)
             ? '搜索剧集'
             : '加载弹幕',
       ),
@@ -384,51 +363,45 @@ class _PlayerSettingsState extends State<PlayerSettings> {
     for (final match in matches)
       ListTile(
         dense: true,
-        title: Text('${match['animeTitle']}'),
-        subtitle: Text('${match['episodeTitle']}'),
+        title: Text(match.title),
+        subtitle: Text(match.episode),
         onTap: busy
             ? null
-            : () => loadDanmaku(
-                () => widget.service.library.selectEpisode(
-                  match['episodeId'] as int,
-                ),
-              ),
+            : () => loadDanmaku(() => danmaku.load(provider, match.locator)),
       ),
     const SizedBox(height: 12),
-    Text('已加载 ${playback.comments.length} 条弹幕'),
+    Text('已加载 ${danmaku.comments.length} 条弹幕'),
     TextButton(onPressed: loadLocalComments, child: const Text('导入弹幕 JSON')),
-    DanmakuPreferencesEditor(preferences: playback.danmaku, display: false),
+    DanmakuPreferencesEditor(preferences: danmaku.preferences, display: false),
     Align(
       alignment: Alignment.centerRight,
       child: TextButton(
-        onPressed: playback.danmaku.resetDisplay,
+        onPressed: danmaku.preferences.resetDisplay,
         child: const Text('恢复默认'),
       ),
     ),
   ];
   Widget sourceOffset(String provider) {
-    final current = playback.danmakuOffsets[provider] ?? 0;
+    final current = danmaku.offsets[provider] ?? 0;
     return Wrap(
       alignment: WrapAlignment.center,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         for (final delta in [-5.0, -.5])
           TextButton(
-            onPressed: () => perform(
-              () => playback.offsetDanmaku(provider, current + delta),
-            ),
+            onPressed: () =>
+                perform(() => danmaku.setOffset(provider, current + delta)),
             child: Text('${delta}s'),
           ),
         Text('${current > 0 ? '+' : ''}${current.toStringAsFixed(1)}s'),
         for (final delta in [.5, 5.0])
           TextButton(
-            onPressed: () => perform(
-              () => playback.offsetDanmaku(provider, current + delta),
-            ),
+            onPressed: () =>
+                perform(() => danmaku.setOffset(provider, current + delta)),
             child: Text('+${delta}s'),
           ),
         TextButton(
-          onPressed: () => perform(() => playback.offsetDanmaku(provider, 0)),
+          onPressed: () => perform(() => danmaku.setOffset(provider, 0)),
           child: const Text('重置'),
         ),
       ],
@@ -438,21 +411,12 @@ class _PlayerSettingsState extends State<PlayerSettings> {
   Future<void> loadDanmaku(Future<void> Function() load) async {
     if (busy) return;
     final ticket = ++_loadRequest;
-    final sessionId = playback.session?['id'];
     setState(() {
       loading = true;
       loadError = null;
     });
     try {
       await load();
-      if (!mounted ||
-          ticket != _loadRequest ||
-          sessionId != playback.session?['id']) {
-        return;
-      }
-      if (widget.service.library.current case final Json next) {
-        playback.accept(next);
-      }
     } catch (error) {
       if (mounted && ticket == _loadRequest) {
         setState(() => loadError = '弹幕加载失败，请重试：$error');
@@ -468,11 +432,11 @@ class _PlayerSettingsState extends State<PlayerSettings> {
     if (keyword.isEmpty) {
       setState(
         () => manualError =
-            '请先输入${provider == 'dandanplay' ? '番剧名称' : '剧集网址或编号'}。',
+            '请先输入${danmaku.searchable(provider) ? '番剧名称' : '剧集网址或编号'}。',
       );
       return;
     }
-    if (provider == 'dandanplay') {
+    if (danmaku.searchable(provider)) {
       final ticket = ++_searchRequest;
       final sessionId = playback.session?['id'];
       setState(() {
@@ -482,12 +446,12 @@ class _PlayerSettingsState extends State<PlayerSettings> {
         matches = [];
       });
       try {
-        final result = await widget.service.danmaku.search(keyword);
+        final result = await danmaku.search(provider, keyword);
         if (mounted &&
             ticket == _searchRequest &&
             sessionId == playback.session?['id']) {
           setState(() {
-            matches = objects(result);
+            matches = result;
             manualSearched = true;
           });
         }
@@ -501,15 +465,12 @@ class _PlayerSettingsState extends State<PlayerSettings> {
         }
       }
     } else {
-      await loadDanmaku(
-        () => widget.service.library.loadSource(provider, query.text.trim()),
-      );
+      await loadDanmaku(() => danmaku.load(provider, keyword));
     }
   }
 
   Future<void> loadLocalComments() async {
-    final session = playback.session;
-    final sessionId = session?['id'];
+    final sessionId = playback.session?['id'];
     if (sessionId is! String) return;
     final ticket = ++_importRequest;
     final file = await openFile(
@@ -517,36 +478,12 @@ class _PlayerSettingsState extends State<PlayerSettings> {
         const XTypeGroup(label: 'Danmaku JSON', extensions: ['json']),
       ],
     );
-    if (file != null) {
-      await perform(() async {
-        final content = await File(file.path).readAsString();
-        if (!mounted ||
-            ticket != _importRequest ||
-            sessionId != playback.session?['id']) {
-          return;
-        }
-        final decoded = jsonDecode(content);
-        if (decoded is! List) {
-          throw const FormatException('弹幕文件应为数组，包含 timeSeconds、text 和 mode。');
-        }
-        final comments = objects(decoded)
-            .where((item) => item['text'] is String)
-            .map((item) => {...item, 'mode': item['mode'] ?? 'scroll'})
-            .toList();
-        PlaybackLibrary? library;
-        try {
-          library = widget.service.library;
-        } catch (_) {
-          // Standalone local playback can precede application service startup.
-        }
-        if (library?.importComments(sessionId, comments) == true) {
-          playback.accept(library!.current!);
-        } else if (session?['standalone'] == true) {
-          changePresentation(
-            () => playback.comments = normalizeComments(comments),
-          );
-        }
-      });
+    if (file == null ||
+        !mounted ||
+        ticket != _importRequest ||
+        sessionId != playback.session?['id']) {
+      return;
     }
+    await perform(() => danmaku.importLocal(file.path));
   }
 }

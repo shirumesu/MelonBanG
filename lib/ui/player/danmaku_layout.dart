@@ -1,14 +1,14 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
-import '../../app_services.dart';
+import '../../domain/danmaku.dart';
 
-int firstVisibleComment(List<Json> comments, double after) {
+int firstVisibleComment(List<DanmakuComment> comments, double after) {
   var low = 0;
   var high = comments.length;
   while (low < high) {
     final middle = (low + high) ~/ 2;
-    if (number(comments[middle]['timeSeconds']) < after) {
+    if (comments[middle].time < after) {
       low = middle + 1;
     } else {
       high = middle;
@@ -20,12 +20,12 @@ int firstVisibleComment(List<Json> comments, double after) {
 class PlacedDanmaku {
   PlacedDanmaku(this.item, this.extent, this.y);
 
-  final Json item;
+  final DanmakuComment item;
   final Size extent;
   final double y;
-  double get start => number(item['timeSeconds']);
+  double get start => item.time;
   double get end => start + DanmakuLayout.lifetime;
-  bool get scrolling => (item['mode'] ?? 'scroll') == 'scroll';
+  bool get scrolling => item.mode == DanmakuMode.scroll;
 
   Rect boundsAt(double time, double viewportWidth) => Rect.fromLTWH(
     scrolling
@@ -58,13 +58,13 @@ class DanmakuLayout {
   }
 
   List<PlacedDanmaku> update({
-    required List<Json> comments,
+    required List<DanmakuComment> comments,
     required double time,
     required Size viewport,
     required double fontSize,
     required double area,
     int density = 1,
-    required Size Function(Json) measure,
+    required Size Function(DanmakuComment) measure,
   }) {
     final configuration = (comments, viewport, fontSize, area, density);
     if (_configuration != configuration ||
@@ -83,21 +83,18 @@ class DanmakuLayout {
     final cap = const [30, 60, 100, 0][density.clamp(0, 3)];
     while (_next < comments.length) {
       final item = comments[_next];
-      final start = number(item['timeSeconds']);
+      final start = item.time;
       if (start > time) break;
       _next++;
       _active.removeWhere((entry) => entry.end <= start);
-      if ('${item['text'] ?? ''}'.isEmpty ||
-          (cap > 0 && _active.length >= cap)) {
-        continue;
-      }
+      if (cap > 0 && _active.length >= cap) continue;
       final extent = measure(item);
       final step = math.max(fontSize, extent.height) + verticalGap;
       final laneCount = math.max(1, ((band / step) * laneRatio).ceil());
       for (var lane = 0; lane < laneCount; lane++) {
         final offset = lane * step;
         if (offset + extent.height > band) break;
-        final y = item['mode'] == 'bottom'
+        final y = item.mode == DanmakuMode.bottom
             ? bottom - extent.height - offset
             : top + offset;
         final candidate = PlacedDanmaku(item, extent, y);

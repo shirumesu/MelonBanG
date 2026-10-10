@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
-import '../../app_services.dart';
+import '../../domain/danmaku.dart';
 import 'danmaku_clock.dart';
 import 'danmaku_layout.dart';
 import '../../features/playback/playback.dart';
-
-export 'danmaku_layout.dart' show firstVisibleComment;
 
 class DanmakuLayer extends StatefulWidget {
   const DanmakuLayer({super.key, required this.playback});
@@ -91,23 +89,24 @@ class DanmakuPainter extends CustomPainter {
   final DanmakuLayout layout;
   @override
   void paint(Canvas canvas, Size size) {
-    if (!playback.danmakuEnabled || size.isEmpty) {
+    final preferences = playback.danmaku.preferences;
+    if (!preferences.enabled || size.isEmpty) {
       layout.clear();
       textCache.clear();
       return;
     }
     textCache.beginFrame();
     final visible = layout.update(
-      comments: playback.visibleComments,
+      comments: playback.danmaku.visible,
       time: clock.value,
       viewport: size,
-      fontSize: playback.danmakuSize,
-      area: playback.danmakuArea,
-      density: playback.danmaku.density,
+      fontSize: preferences.size,
+      area: preferences.area,
+      density: preferences.density,
       measure: (item) => _text(item).size,
     );
     for (final entry in visible) {
-      if (playback.danmaku.stroke) {
+      if (preferences.stroke) {
         _text(
           entry.item,
           outline: true,
@@ -119,17 +118,12 @@ class DanmakuPainter extends CustomPainter {
     textCache.endFrame();
   }
 
-  TextPainter _text(Json item, {bool outline = false}) {
-    final colorValue =
-        int.tryParse(
-          '${item['color'] ?? '#ffffff'}'.replaceFirst('#', ''),
-          radix: 16,
-        ) ??
-        0xffffff;
+  TextPainter _text(DanmakuComment item, {bool outline = false}) {
+    final preferences = playback.danmaku.preferences;
     return textCache.obtain(
-      '${item['text'] ?? ''}',
-      Color(0xff000000 | colorValue).withValues(alpha: playback.danmakuOpacity),
-      playback.danmakuSize,
+      item.text,
+      Color(0xff000000 | item.color).withValues(alpha: preferences.opacity),
+      preferences.size,
       outline: outline,
     );
   }
