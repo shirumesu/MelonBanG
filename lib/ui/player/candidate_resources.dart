@@ -5,8 +5,11 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app_services.dart';
 import '../../data/cache_method.dart';
-import '../../data/play_candidates.dart';
 import '../../data/network.dart';
+import '../../data/play_selection.dart';
+import '../../domain/play_candidate.dart';
+import '../../domain/sources.dart';
+import '../../features/acquisition/online_candidates.dart';
 import '../acquisition/resource_widgets.dart';
 import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
@@ -127,18 +130,17 @@ class _CandidateResourcesState extends State<CandidateResources> {
     setState(() => opening = candidate.id);
     var chosen = candidate;
     await feedback.run(() async {
-      final ref = object(candidate.ref['ref']);
-      if (ref['selectEpisode'] == true) {
-        final entries = await widget.service.online.episodes(
+      if (candidate.target case OnlineTarget(:final chooseFrom?)) {
+        final entries = await widget.service.sources.episodes(
           candidate.provider,
-          object(ref['subject']),
+          chooseFrom,
           cancel: cancellation,
         );
         if (!mounted || ticket != request) return null;
         if (entries.isEmpty) throw StateError('此视频没有可播放的分 P');
         final entry = entries.length == 1
             ? entries.single
-            : await showDialog<Json>(
+            : await showDialog<SourceEpisode>(
                 context: context,
                 builder: (context) => AlertDialog(
                   title: const Text('选择分 P'),
@@ -148,8 +150,8 @@ class _CandidateResourcesState extends State<CandidateResources> {
                     child: ListView.builder(
                       itemCount: entries.length,
                       itemBuilder: (context, index) => ListTile(
-                        title: Text('${entries[index]['label']}'),
-                        subtitle: Text('${entries[index]['description']}'),
+                        title: Text(entries[index].label),
+                        subtitle: Text(entries[index].description ?? ''),
                         onTap: () => Navigator.pop(context, entries[index]),
                       ),
                     ),
@@ -163,13 +165,7 @@ class _CandidateResourcesState extends State<CandidateResources> {
                 ),
               );
         if (entry == null || !mounted || ticket != request) return null;
-        chosen = PlayCandidate.online({
-          ...candidate.ref,
-          'title': '${object(ref['subject'])['title']} · ${entry['label']}',
-          'line': entry['line'],
-          'ref': entry['ref'],
-          'candidateId': '${candidate.id}:${object(entry['ref'])['cid']}',
-        }, candidate.order);
+        chosen = onlinePartCandidate(candidate, chooseFrom, entry);
       }
       if (chosen.possibleMatch) {
         final confirmed = await showDialog<bool>(
@@ -205,14 +201,15 @@ class _CandidateResourcesState extends State<CandidateResources> {
     }
   }
 
-  Future<void> download(PlayCandidate candidate, CacheMethod method) async {
+  Future<void> download(
+    PlayCandidate candidate,
+    ReleaseCandidate release,
+    CacheMethod method,
+  ) async {
     final key = '${candidate.id}:${method.name}';
     setState(() => phases[key] = ResourceDownloadPhase.adding);
     try {
-      await widget.service.sources.enqueue(
-        '${candidate.ref['candidateId']}',
-        method: method,
-      );
+      await widget.service.releases.enqueue(release, method: method);
       if (mounted) setState(() => phases[key] = ResourceDownloadPhase.added);
     } catch (e) {
       if (mounted) {
@@ -233,7 +230,7 @@ class _CandidateResourcesState extends State<CandidateResources> {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: widget.service.online,
+    listenable: widget.service.sources,
     builder: (context, _) => content(context),
   );
 
@@ -290,20 +287,20 @@ class _CandidateResourcesState extends State<CandidateResources> {
                 onRetry: () => failedPlay == null ? load() : play(failedPlay!),
               ),
               if (selected == PlayKind.online)
-                for (final rule in widget.service.online.rules)
-                  if (widget.service.online.isEnabled('${rule['id']}') &&
-                      (widget.service.online.errors.containsKey(
-                            '${rule['id']}',
-                          ) ||
-                          widget.service.online.status('${rule['id']}') ==
-                              'update'))
+                for (final rule in widget.service.sources.instancesOf(
+                  SourceKind.online,
+                ))
+                  if (widget.service.sources.isEnabled(rule.id) &&
+                      (widget.service.sources.errors.containsKey(rule.id) ||
+                          widget.service.sources.status(rule.id) ==
+                              SourceHealth.update))
                     Row(
                       children: [
                         const Icon(Icons.error_outline, size: 18, color: coral),
                         const SizedBox(width: Gap.sm),
                         Expanded(
                           child: Text(
-                            '${rule['name']}：${widget.service.online.errors['${rule['id']}'] ?? '需要更新应用'}',
+                            '${rule.name}：${widget.service.sources.errors[rule.id] ?? '需要更新应用'}',
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(fontSize: 12, color: scheme.error),
@@ -312,7 +309,8 @@ class _CandidateResourcesState extends State<CandidateResources> {
                         TextButton(
                           onPressed: () => launchUrl(
                             Uri.parse(
-                              '${rule['website'] ?? widget.service.online.currentDomain('${rule['id']}')}',
+                              rule.website ??
+                                  widget.service.sources.currentDomain(rule.id),
                             ),
                             mode: LaunchMode.externalApplication,
                           ),
@@ -339,26 +337,30 @@ class _CandidateResourcesState extends State<CandidateResources> {
                     final metadata = <String>[
                       candidate.sourceLabel,
                       if (candidate.kind == PlayKind.online)
-                        switch (widget.service.online.status(
+                        switch (widget.service.sources.status(
                           candidate.provider,
                         )) {
-                          'ready' => '正常',
-                          'partial' => '部分失败',
-                          'error' => '失效',
-                          'verification' => '需要验证',
+                          SourceHealth.ready => '正常',
+                          SourceHealth.partial => '部分失败',
+                          SourceHealth.error => '失效',
+                          SourceHealth.verification => '需要验证',
                           _ => '未检查',
                         },
                       if (candidate.quality != null) candidate.quality!,
-                      if (candidate.ref['description'] != null)
-                        '${candidate.ref['description']}',
+                      if (candidate.target case OnlineTarget(
+                        :final description?,
+                      ))
+                        description,
                       ...candidate.languages,
                       if (candidate.possibleMatch) '可能匹配',
                       if (candidate.health < 0) '近期播放失败',
                       if (!candidate.instant) '边下边播',
-                      if (candidate.ref['sizeLabel'] != null)
-                        '${candidate.ref['sizeLabel']}',
-                      if (candidate.ref['publishedAt'] != null)
-                        '${candidate.ref['publishedAt']}',
+                      if (candidate.target case ReleaseTarget(
+                        candidate: ReleaseCandidate(:final release),
+                      )) ...[
+                        ?release.sizeLabel,
+                        ?release.publishedAt,
+                      ],
                     ];
                     return Padding(
                       padding: const EdgeInsets.only(bottom: Gap.sm),
@@ -396,8 +398,9 @@ class _CandidateResourcesState extends State<CandidateResources> {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (candidate.kind == PlayKind.bt &&
-                                  !candidate.instant)
+                              if (candidate.target case ReleaseTarget(
+                                candidate: final release,
+                              ))
                                 ResourceDownloadButton(
                                   showLabel: true,
                                   defaultMethod:
@@ -410,10 +413,12 @@ class _CandidateResourcesState extends State<CandidateResources> {
                                       ResourceDownloadPhase.idle,
                                   onPressed: () => download(
                                     candidate,
+                                    release,
                                     widget.service.downloads.defaultMethod,
                                   ),
                                   onAlternative: () => download(
                                     candidate,
+                                    release,
                                     widget
                                         .service
                                         .downloads

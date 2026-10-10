@@ -9,7 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../data/bangumi_private.dart';
 import '../../data/collection_edit.dart';
 import '../../data/json.dart';
-import '../../data/play_candidates.dart' show isMainEpisode;
+import '../../data/play_selection.dart' show isMainEpisode;
 import '../core/action_feedback.dart';
 import '../core/cached_image.dart';
 import '../core/motion.dart';

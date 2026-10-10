@@ -1,7 +1,5 @@
 import 'package:pinyin/pinyin.dart';
 
-import 'json.dart';
-
 /// Read-only release annotations. These never establish episode/file identity.
 class ResourceTitleInfo {
   const ResourceTitleInfo({
@@ -64,18 +62,17 @@ final _technical = RegExp(
   caseSensitive: false,
 );
 
-ResourceTitleInfo describeResource(Json candidate) {
-  final title = '${candidate['title'] ?? '未命名资源'}'.trim();
+ResourceTitleInfo describeResource(
+  String original, {
+  Iterable<String> releaseGroups = const [],
+}) {
+  final title = original.trim();
   final normalized = ChineseHelper.convertToSimplifiedChinese(title);
-  final sourceGroups =
-      (candidate['releaseGroups'] is List
-              ? candidate['releaseGroups'] as List
-              : const [])
-          .whereType<String>()
-          .map((value) => value.trim())
-          .where((value) => value.isNotEmpty)
-          .toSet()
-          .toList();
+  final sourceGroups = releaseGroups
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty)
+      .toSet()
+      .toList();
   final labels = <String>[], notes = <String>[];
   final outputText = normalized.replaceAll(_sourceQuality, '');
   final qualities = <String>{

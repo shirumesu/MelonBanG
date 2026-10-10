@@ -1,34 +1,26 @@
 import 'package:html/parser.dart' as html;
 import 'package:xml/xml.dart';
 
-import '../json.dart';
-import '../network.dart';
-import 'engine.dart';
+import '../../data/json.dart';
+import '../../data/network.dart';
+import '../../domain/sources.dart';
 
-const bilibiliSourceRule = <String, dynamic>{
-  'id': 'bilibili-video',
-  'name': 'Bilibili（外接）',
-  'engine': 'bilibili-web',
-  'baseUrls': ['https://api.bilibili.com'],
-  'website': 'https://www.bilibili.com',
-  'manualOnly': true,
-  'description': '访客播放，按实际可用画质打开。投稿需确认内容和分 P；会员与地区限制由 B 站决定。',
-};
-
-class BilibiliSource implements OnlineSource {
-  BilibiliSource(this.api, this.rule);
+/// Bilibili web API as a guest: official seasons and uploader videos, played
+/// through a generated DASH manifest of the best available AVC/AAC tracks.
+class BilibiliEngine implements OnlineSourceEngine {
+  BilibiliEngine(this.api, this.instance);
   final ApiClient api;
-  final Json rule;
-  String? _cookie;
-  String get id => rule['id'] as String;
   @override
-  String get currentBase => (rule['baseUrls'] as List).first as String;
+  final SourceInstance instance;
+  String? _cookie;
+  @override
+  String get currentBase => instance.baseUrls.first;
   @override
   Uri? lastRequest;
   @override
   int? lastStatus;
   Map<String, String> get mediaHeaders => {
-    'Referer': '${rule['website']}/',
+    'Referer': '${instance.website}/',
     'User-Agent': 'Mozilla/5.0',
   };
 
@@ -49,7 +41,7 @@ class BilibiliSource implements OnlineSource {
     lastStatus = response.statusCode;
     final value = object(await decodeJsonBytes(response.bodyBytes));
     if (value['code'] == -352 || value['code'] == -412) {
-      throw SourceVerificationRequired('${rule['website']}');
+      throw SourceVerificationRequired('${instance.website}');
     }
     if (value['code'] != 0) {
       throw StateError('Bilibili：${value['message']}（${value['code']}）');
@@ -64,127 +56,124 @@ class BilibiliSource implements OnlineSource {
     _cookie = 'buvid3=${data['b_3']}; buvid4=${data['b_4']}';
   }
 
-  Json season(Json row) => {
-    'id': 'ss${row['season_id']}',
-    'seasonId': row['season_id'],
-    'title': html.parseFragment(row['title'] as String).text!,
-    'line': '官方番剧',
-    if (row['pubtime'] case final int timestamp)
-      'year': DateTime.fromMillisecondsSinceEpoch(timestamp * 1000).year,
-  };
+  SourceSubject season(Json row) => SourceSubject(
+    id: 'ss${row['season_id']}',
+    title: html.parseFragment(row['title'] as String).text!,
+    line: '官方番剧',
+    year: switch (row['pubtime']) {
+      final int timestamp => DateTime.fromMillisecondsSinceEpoch(
+        timestamp * 1000,
+      ).year,
+      _ => null,
+    },
+    data: {'seasonId': row['season_id']},
+  );
 
-  Json video(Json row) => {
-    'id': row['bvid'],
-    'title': html.parseFragment(row['title'] as String).text!,
-    'line': '投稿 · ${row['author'] ?? object(row['owner'])['name']}',
-    'description':
-        '${row['author'] ?? object(row['owner'])['name']} · ${row['duration']}',
-    'selectEpisode': true,
-  };
-
-  @override
-  Future<List<Json>> searchSubjects(
-    Iterable<String> names, {
-    RequestCancellation? cancel,
-  }) async {
-    await guest(cancel);
-    final rows = <String, Json>{};
-    for (final name in names) {
-      final locator = RegExp(r'BV[0-9A-Za-z]{10}|(?:ss|ep)\d+')
-          .firstMatch(name)?[0];
-      if (locator != null) {
-        if (locator.startsWith('BV')) {
-          final data = await request('/x/web-interface/view', {
-            'bvid': locator,
-          }, cancel: cancel);
-          rows[locator] = video(object(data['data']));
-        } else {
-          final data = await request('/pgc/view/web/season', {
-            locator.startsWith('ss') ? 'season_id' : 'ep_id': locator.substring(
-              2,
-            ),
-          }, cancel: cancel);
-          final item = season(object(data['result']));
-          rows[item['id'] as String] = item;
-        }
-        continue;
-      }
-      final results = await Future.wait([
-        for (final type in ['media_bangumi', 'video'])
-          request('/x/web-interface/search/type', {
-            'search_type': type,
-            'keyword': name,
-            'page': '1',
-          }, cancel: cancel),
-      ]);
-      for (final row in objects(object(results[0]['data'])['result'])) {
-        final item = season(row);
-        rows[item['id'] as String] = item;
-      }
-      for (final row in objects(object(results[1]['data'])['result'])) {
-        final item = video(row);
-        rows[item['id'] as String] = item;
-      }
-    }
-    return rows.values.toList();
+  SourceSubject video(Json row) {
+    final author = row['author'] ?? object(row['owner'])['name'];
+    return SourceSubject(
+      id: row['bvid'] as String,
+      title: html.parseFragment(row['title'] as String).text!,
+      line: '投稿 · $author',
+      description: '$author · ${row['duration']}',
+      choosePart: true,
+    );
   }
 
   @override
-  Future<List<Json>> episodes(
-    Json subject, {
+  Future<List<SourceSubject>> searchSubjects(
+    String name, {
     RequestCancellation? cancel,
   }) async {
     await guest(cancel);
-    if (subject['selectEpisode'] == true) {
-      final value = await request('/x/web-interface/view', {
-        'bvid': subject['id'] as String,
+    final locator = RegExp(r'BV[0-9A-Za-z]{10}|(?:ss|ep)\d+')
+        .firstMatch(name)?[0];
+    if (locator != null) {
+      if (locator.startsWith('BV')) {
+        final data = await request('/x/web-interface/view', {
+          'bvid': locator,
+        }, cancel: cancel);
+        return [video(object(data['data']))];
+      }
+      final data = await request('/pgc/view/web/season', {
+        locator.startsWith('ss') ? 'season_id' : 'ep_id': locator.substring(2),
       }, cancel: cancel);
-      final data = object(value['data']);
-      return [
-        for (final page in objects(data['pages']))
-          {
-            'label': 'P${page['page']} · ${page['part']}',
-            'description': '${page['duration']} 秒',
-            'line': '投稿 · ${object(data['owner'])['name']}',
-            'ref': {
-              'sourceId': id,
-              'bvid': data['bvid'],
-              'cid': page['cid'],
-              'page': page['page'],
-              'line': '投稿 · ${object(data['owner'])['name']}',
-              'url':
-                  '${rule['website']}/video/${data['bvid']}?p=${page['page']}',
-            },
-          },
-      ];
+      return [season(object(data['result']))];
     }
-    final value = await request('/pgc/view/web/season', {
-      'season_id': '${subject['seasonId']}',
-    }, cancel: cancel);
+    final results = await Future.wait([
+      for (final type in ['media_bangumi', 'video'])
+        request('/x/web-interface/search/type', {
+          'search_type': type,
+          'keyword': name,
+          'page': '1',
+        }, cancel: cancel),
+    ]);
     return [
-      for (final episode in objects(object(value['result'])['episodes']))
-        {
-          'label':
-              '第${episode['title']}话 · ${episode['long_title']}${episode['badge'] == '' ? '' : ' · ${episode['badge']}'}',
-          'line': '官方番剧',
-          'ref': {
-            'sourceId': id,
-            'epId': episode['id'],
-            'line': '官方番剧',
-            'url': '${rule['website']}/bangumi/play/ep${episode['id']}',
-          },
-        },
+      for (final row in objects(object(results[0]['data'])['result']))
+        season(row),
+      for (final row in objects(object(results[1]['data'])['result']))
+        video(row),
     ];
   }
 
   @override
-  Future<Json> resolve(Json ref, {RequestCancellation? cancel}) async {
+  Future<List<SourceEpisode>> episodes(
+    SourceSubject subject, {
+    RequestCancellation? cancel,
+  }) async {
+    await guest(cancel);
+    if (subject.choosePart) {
+      final value = await request('/x/web-interface/view', {
+        'bvid': subject.id,
+      }, cancel: cancel);
+      final data = object(value['data']);
+      final line = '投稿 · ${object(data['owner'])['name']}';
+      return [
+        for (final page in objects(data['pages']))
+          SourceEpisode(
+            label: 'P${page['page']} · ${page['part']}',
+            description: '${page['duration']} 秒',
+            line: line,
+            ref: StreamRef(instance.id, {
+              'bvid': data['bvid'],
+              'cid': page['cid'],
+              'page': page['page'],
+              'line': line,
+              'url':
+                  '${instance.website}/video/${data['bvid']}?p=${page['page']}',
+            }),
+          ),
+      ];
+    }
+    final value = await request('/pgc/view/web/season', {
+      'season_id': '${subject.data['seasonId']}',
+    }, cancel: cancel);
+    return [
+      for (final episode in objects(object(value['result'])['episodes']))
+        SourceEpisode(
+          label:
+              '第${episode['title']}话 · ${episode['long_title']}${episode['badge'] == '' ? '' : ' · ${episode['badge']}'}',
+          line: '官方番剧',
+          ref: StreamRef(instance.id, {
+            'epId': episode['id'],
+            'line': '官方番剧',
+            'url': '${instance.website}/bangumi/play/ep${episode['id']}',
+          }),
+        ),
+    ];
+  }
+
+  @override
+  Future<ResolvedStream> resolve(
+    StreamRef ref, {
+    RequestCancellation? cancel,
+  }) async {
     await guest(cancel);
     final Json info;
     final String locator;
-    if (ref['epId'] != null) {
+    if (ref.data['epId'] != null) {
       final value = await request('/pgc/player/web/v2/playurl', {
-        'ep_id': '${ref['epId']}',
+        'ep_id': '${ref.data['epId']}',
         'fnval': '4048',
         'qn': '80',
         'fourk': '1',
@@ -194,17 +183,17 @@ class BilibiliSource implements OnlineSource {
         throw StateError('Bilibili 此集仅提供试看或受会员、地区限制，无法播放完整正片');
       }
       info = object(result['video_info']);
-      locator = 'ep${ref['epId']}';
+      locator = 'ep${ref.data['epId']}';
     } else {
       final value = await request('/x/player/playurl', {
-        'bvid': ref['bvid'] as String,
-        'cid': '${ref['cid']}',
+        'bvid': ref.data['bvid'] as String,
+        'cid': '${ref.data['cid']}',
         'fnval': '4048',
         'qn': '80',
         'fourk': '1',
       }, cancel: cancel);
       info = object(value['data']);
-      locator = '${ref['bvid']}?p=${ref['page']}';
+      locator = '${ref.data['bvid']}?p=${ref.data['page']}';
     }
     final dash = object(info['dash']);
     final videos =
@@ -225,16 +214,17 @@ class BilibiliSource implements OnlineSource {
       throw StateError('Bilibili 没有返回可播放的完整视频和音轨');
     }
     final selected = videos.first;
-    return {
-      'url': selected['baseUrl'],
-      'playlist': manifest(dash, selected, audios.first),
-      'kind': 'dash',
-      'headers': mediaHeaders,
-      'provider': id,
-      'line': ref['line'],
-      'quality': '${selected['height']}p',
-      'danmaku': {'provider': 'bilibili', 'locator': locator},
-    };
+    return ResolvedStream(
+      url: selected['baseUrl'] as String,
+      playlist: manifest(dash, selected, audios.first),
+      format: StreamFormat.dash,
+      headers: mediaHeaders,
+      sourceId: instance.id,
+      line: ref.data['line'] as String?,
+      quality: '${selected['height']}p',
+      danmakuProvider: 'bilibili',
+      danmakuLocator: locator,
+    );
   }
 
   String manifest(Json dash, Json video, Json audio) {

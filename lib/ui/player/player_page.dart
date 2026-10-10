@@ -8,7 +8,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../app_services.dart';
-import '../../data/play_candidates.dart';
+import '../../domain/play_candidate.dart';
 import '../core/motion.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';

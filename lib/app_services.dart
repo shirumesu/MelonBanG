@@ -13,16 +13,17 @@ import 'data/credentials.dart';
 import 'data/danmaku_repository.dart';
 import 'data/downloads.dart';
 import 'data/network.dart';
-import 'data/online_sources/repository.dart';
 import 'data/play_selection.dart';
 import 'data/playback_library.dart';
 import 'data/pikpak.dart';
 import 'data/pikpak_downloads.dart';
 import 'data/service_configuration.dart';
-import 'data/sources.dart';
 import 'data/store.dart';
 import 'data/storage_locations.dart';
 import 'data/tracking.dart';
+import 'features/acquisition/release_search.dart';
+import 'features/acquisition/source_registry.dart';
+import 'integrations/melon_api/source_rules.dart';
 export 'data/json.dart';
 
 /// Application-owned Dart services. No subprocess, IPC, or legacy runtime.
@@ -61,10 +62,10 @@ class AppServices {
   late final TrackingRepository tracking;
   late final DownloadRepository downloads;
   late final PikPakClient pikpak;
-  late final SourceRepository sources;
+  late final ReleaseSearch releases;
   late final DanmakuRepository danmaku;
   late final PlaybackLibrary library;
-  late final OnlineSourceRepository online;
+  late final SourceRegistry sources;
   late final PlaySelectionRepository selection;
   Future<void>? _starting;
   Future<void>? _closing;
@@ -124,20 +125,23 @@ class AppServices {
     _downloadsCreated = true;
     _dispose.add(downloads.close);
     await downloads.loadPreferences();
-    sources = SourceRepository(api, downloads);
     danmaku = DanmakuRepository(api, configuration: configuration);
     library = PlaybackLibrary(store, downloads, danmaku, catalog);
     _dispose.add(library.close);
-    online = OnlineSourceRepository(api, await SharedPreferences.getInstance());
-    _dispose.add(() async => online.dispose());
-    await online.initialize();
-    sources.providerEnabled = online.isEnabled;
+    sources = SourceRegistry(
+      api,
+      await SharedPreferences.getInstance(),
+      SourceRulesClient(api),
+    );
+    _dispose.add(() async => sources.dispose());
+    await sources.initialize();
+    releases = ReleaseSearch(api, sources, downloads);
     selection = PlaySelectionRepository(
       store,
       library,
       downloads,
+      releases,
       sources,
-      online,
     );
     await account.initialize();
     tracking.start();

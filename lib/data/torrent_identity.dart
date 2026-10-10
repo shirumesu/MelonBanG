@@ -27,6 +27,30 @@ String magnetInfoHash(Uri uri) {
   throw const FormatException('磁力链接缺少有效的 BT info hash');
 }
 
+/// Deduplication key of a search result: infohash when the locator carries
+/// one, otherwise the original locator.
+String torrentIdentity(String locator) {
+  final uri = Uri.parse(locator);
+  if (uri.scheme == 'magnet') {
+    try {
+      return magnetInfoHash(uri);
+    } on FormatException {
+      /* Keep unusual locators distinct. */
+    }
+  }
+  final filename = uri.pathSegments.lastOrNull ?? '';
+  if (filename.endsWith('.torrent')) {
+    final hash = filename.substring(0, filename.length - 8).toLowerCase();
+    if (hash.length == 40 &&
+        hash.codeUnits.every(
+          (c) => c >= 48 && c <= 57 || c >= 97 && c <= 102,
+        )) {
+      return hash;
+    }
+  }
+  return uri.toString();
+}
+
 /// Hash the original encoded info dictionary; trackers and comments do not
 /// change torrent identity, and decoding/re-encoding may change its byte order.
 String torrentInfoHash(Uint8List bytes) {

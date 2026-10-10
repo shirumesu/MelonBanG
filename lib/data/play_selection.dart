@@ -1,15 +1,17 @@
 import 'dart:io';
 
+import '../domain/play_candidate.dart';
+import '../domain/sources.dart';
+import '../features/acquisition/online_candidates.dart';
+import '../features/acquisition/release_search.dart';
+import '../features/acquisition/source_registry.dart';
 import 'cache_method.dart';
 import 'downloads.dart';
 import 'json.dart';
 import 'network.dart';
-import 'online_sources/repository.dart';
-import 'play_candidates.dart';
 import 'playback_library.dart';
 import 'resource_metadata.dart';
 import 'resource_title.dart';
-import 'sources.dart';
 import 'store.dart';
 
 class PlaySelectionRepository {
@@ -17,14 +19,14 @@ class PlaySelectionRepository {
     this.store,
     this.library,
     this.downloads,
-    this.sources,
-    this.online,
+    this.releases,
+    this.registry,
   );
   final AppStore store;
   final PlaybackLibrary library;
   final DownloadRepository downloads;
-  final SourceRepository sources;
-  final OnlineSourceRepository online;
+  final ReleaseSearch releases;
+  final SourceRegistry registry;
   final continuity = <int, String>{};
   final _failures = <String, int>{};
 
@@ -73,14 +75,18 @@ class PlaySelectionRepository {
         );
         if (media['incomplete'] == true &&
             task['provider'] == 'pikpak' &&
-            !online.isEnabled('pikpak')) {
+            !registry.isEnabled('pikpak')) {
           continue;
         }
         if (media['incomplete'] != true &&
             !await File('${media['path']}').exists()) {
           continue;
         }
-        final info = describeResource(task);
+        final info = describeResource(
+          '${task['title'] ?? '未命名资源'}',
+          releaseGroups: (task['releaseGroups'] as List? ?? const [])
+              .whereType<String>(),
+        );
         add([
           PlayCandidate(
             kind: media['incomplete'] != true
@@ -94,7 +100,11 @@ class PlaySelectionRepository {
             line: info.sourceGroups.join(' & '),
             quality: info.quality,
             languages: info.languages,
-            ref: {...task, 'downloadId': task['id'], 'fileId': media['id']},
+            target: DownloadTarget(
+              '${task['id']}',
+              media['id'] as String?,
+              task,
+            ),
             instant: true,
             existing: true,
           ),
@@ -107,24 +117,22 @@ class PlaySelectionRepository {
       return ranked();
     }
     final onlineRequest = includeOnline
-        ? online
-              .candidates(
-                subject,
-                episode,
-                cancel: cancel,
-                firstReady: forPlayback && !useContinuity,
-                includeManual: !forPlayback && !instantOnly,
-              )
-              .then(
-                (rows) => add([
-                  for (var i = 0; i < rows.length; i++)
-                    PlayCandidate.online(rows[i], i),
-                ]),
-              )
+        ? onlineCandidates(
+            registry,
+            subject,
+            episode,
+            cancel: cancel,
+            firstReady: forPlayback && !useContinuity,
+            includeManual: !forPlayback && !instantOnly,
+          ).then(add)
         : Future<void>.value();
+    void addReleases(ReleaseSearchResult result) => add([
+      for (final (index, candidate) in result.candidates.indexed)
+        releaseCandidate(candidate, index),
+    ]);
     final sourceRequest = instantOnly
         ? Future<void>.value()
-        : sources
+        : releases
               .search(
                 subjectId,
                 titleOf(subject),
@@ -135,21 +143,9 @@ class PlaySelectionRepository {
                 cancel: cancel,
                 includeMetadata: !forPlayback,
                 isCurrent: () => cancel?.isCancelled != true,
-                onUpdate: (result) => add([
-                  for (final (index, row) in objects(
-                    result['candidates'],
-                  ).indexed)
-                    PlayCandidate.release(row, index),
-                ]),
+                onUpdate: addReleases,
               )
-              .then(
-                (result) => add([
-                  for (final (index, row) in objects(
-                    result['candidates'],
-                  ).indexed)
-                    PlayCandidate.release(row, index),
-                ]),
-              );
+              .then(addReleases);
     if (forPlayback && onlineFirst) {
       // Search in parallel, but do not delay ready online playback for metadata.
       sourceRequest.ignore();
@@ -171,27 +167,32 @@ class PlaySelectionRepository {
     RequestCancellation? cancel,
   }) async {
     cancel?.throwIfCancelled();
-    if (candidate.kind == PlayKind.online) {
-      return library.online(
-        await online.resolve(candidate.ref, cancel: cancel),
-        subjectId: subjectId,
-        episodeId: episodeId,
-        provider: candidate.provider,
-        line: candidate.line,
-        ref: candidate.ref,
-        title: candidate.title,
-      );
+    final ReleaseCandidate release;
+    switch (candidate.target) {
+      case OnlineTarget(:final ref?):
+        final resolved = await registry.resolve(ref, cancel: cancel);
+        return library.online(
+          resolved.toSession(),
+          subjectId: subjectId,
+          episodeId: episodeId,
+          provider: candidate.provider,
+          line: candidate.line,
+          title: candidate.title,
+        );
+      case OnlineTarget():
+        throw StateError('请先选择分 P');
+      case DownloadTarget(:final downloadId, :final fileId):
+        return library.fromDownload(
+          downloadId,
+          fileId: fileId,
+          subjectId: subjectId,
+          episodeId: episodeId,
+        );
+      case ReleaseTarget(candidate: final found):
+        release = found;
     }
-    if (candidate.ref['downloadId'] case final String id) {
-      return library.fromDownload(
-        id,
-        fileId: candidate.ref['fileId'] as String?,
-        subjectId: subjectId,
-        episodeId: episodeId,
-      );
-    }
-    final task = await sources.enqueue(
-      '${candidate.ref['candidateId']}',
+    final task = await releases.enqueue(
+      release,
       method: candidate.kind == PlayKind.pikpak
           ? CacheMethod.pikpak
           : CacheMethod.bt,
@@ -224,4 +225,95 @@ class PlaySelectionRepository {
     _failures[candidate.id] = (_failures[candidate.id] ?? 0) + 1;
     candidate.health = -_failures[candidate.id]!;
   }
+}
+
+PlayCandidate releaseCandidate(ReleaseCandidate candidate, int order) {
+  final release = candidate.release;
+  final info = describeResource(
+    release.title,
+    releaseGroups: release.releaseGroups,
+  );
+  return PlayCandidate(
+    kind: PlayKind.bt,
+    provider: candidate.sourceId,
+    providerLabel: candidate.sourceName,
+    title: info.title,
+    line: info.sourceGroups.join(' & '),
+    quality: info.quality,
+    languages: info.languages,
+    target: ReleaseTarget(candidate),
+    instant: false,
+    order: order,
+  );
+}
+
+bool isMainEpisode(Json episode) =>
+    episode['type'] == null ||
+    episode['type'] == 0 ||
+    episode['type'] == 'main';
+
+bool subjectIsAiring(Json subject, {DateTime? now}) {
+  final today = now ?? DateTime.now();
+  for (final episode in objects(subject['episodes'])) {
+    if (!isMainEpisode(episode)) continue;
+    final date = DateTime.tryParse(
+      '${episode['airdate'] ?? episode['airDate'] ?? ''}',
+    );
+    if (date != null &&
+        date.isAfter(today.subtract(const Duration(days: 90)))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+List<PlayCandidate> rankPlayCandidates(
+  Iterable<PlayCandidate> candidates, {
+  required bool onlineFirst,
+  String? continuity,
+  String language = 'auto',
+}) {
+  int tier(PlayCandidate c) => c.kind == PlayKind.local
+      ? 0
+      : switch (c.kind) {
+          PlayKind.online => onlineFirst ? 1 : 2,
+          PlayKind.bt => onlineFirst ? 2 : 1,
+          PlayKind.pikpak => 3,
+          PlayKind.local => 0,
+        };
+  int languageMatch(PlayCandidate c) =>
+      c.languages.contains(switch (language) {
+        'simplified' || 'chs' => '简体',
+        'traditional' || 'cht' => '繁体',
+        'japanese' || 'ja' => '日文',
+        _ => '',
+      })
+      ? 1
+      : 0;
+  int quality(PlayCandidate c) => switch (c.quality) {
+    '4K' || '2160p' => 3,
+    '1080p' => 2,
+    '720p' => 1,
+    _ => 0,
+  };
+  final result = candidates.toList();
+  result.sort((a, b) {
+    for (final comparison in [
+      tier(a).compareTo(tier(b)),
+      (b.continuityKey == continuity ? 1 : 0).compareTo(
+        a.continuityKey == continuity ? 1 : 0,
+      ),
+      languageMatch(b).compareTo(languageMatch(a)),
+      quality(b).compareTo(quality(a)),
+      b.health.compareTo(a.health),
+      a.order.compareTo(b.order),
+      a.provider.compareTo(b.provider),
+      a.title.compareTo(b.title),
+      a.id.compareTo(b.id),
+    ]) {
+      if (comparison != 0) return comparison;
+    }
+    return 0;
+  });
+  return result;
 }

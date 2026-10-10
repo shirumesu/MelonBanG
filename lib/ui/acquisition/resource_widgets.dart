@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/cache_method.dart';
-import '../../data/json.dart';
 import '../../data/resource_title.dart';
+import '../../domain/sources.dart';
 import '../core/motion.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
@@ -252,20 +252,17 @@ class ResourceDownloadButton extends StatelessWidget {
   }
 }
 
-String resourceProviderKey(Json provider) =>
-    '${provider['providerId'] ?? provider['providerName'] ?? ''}';
-
 /// Per-site status line: "动漫花园 12 条 · 蜜柑计划 搜索中 2/5".
-String resourceProviderStatus(Json provider) => switch (provider['status']) {
-  'loading' => '搜索中 ${provider['completed']}/${provider['total']}',
-  'error' => '搜索失败',
-  'partial' => '${provider['resultCount'] ?? 0} 条 · 部分名称失败',
-  _ => '${provider['resultCount'] ?? 0} 条',
+String resourceProviderStatus(SourceProgress source) => switch (source.status) {
+  SearchStatus.loading => '搜索中 ${source.completed}/${source.total}',
+  SearchStatus.error => '搜索失败',
+  SearchStatus.partial => '${source.resultCount} 条 · 部分名称失败',
+  SearchStatus.ready => '${source.resultCount} 条',
 };
 
 class ResourceSearchStatus extends StatelessWidget {
   const ResourceSearchStatus({super.key, required this.providers});
-  final List<Json> providers;
+  final List<SourceProgress> providers;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -275,13 +272,13 @@ class ResourceSearchStatus extends StatelessWidget {
       const SizedBox(height: Gap.sm),
       Text(
         [
-          providers.every((e) => number(e['resultCount']) == 0)
+          providers.every((e) => e.resultCount == 0)
               ? '正在查找资源，结果会陆续显示'
-              : providers.any((e) => e['status'] == 'loading')
+              : providers.any((e) => e.status == SearchStatus.loading)
               ? '已找到的资源可直接下载，其余结果陆续加入'
               : '正在补充字幕组信息，资源已可下载',
           for (final provider in providers)
-            '${provider['providerName']} ${resourceProviderStatus(provider)}',
+            '${provider.sourceName} ${resourceProviderStatus(provider)}',
         ].join(' · '),
         style: Theme.of(context).textTheme.bodySmall,
       ),
@@ -309,26 +306,10 @@ class ResourceArrival extends StatelessWidget {
   );
 }
 
-String resourceDetails(Json candidate) {
-  final groups = (candidate['releaseGroups'] as List? ?? []).join(' & ');
-  final size = resourceSizeLabel(candidate);
-  final published = '${candidate['publishedAt'] ?? ''}';
-  final date = DateTime.tryParse(published);
-  final publishedLabel = date == null
-      ? published
-      : '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-  return [
-    candidate['providerName'],
-    if (groups.isNotEmpty) groups,
-    size,
-    publishedLabel,
-  ].where((e) => e != null && '$e'.isNotEmpty).join(' · ');
-}
-
-String resourceSizeLabel(Json candidate) {
-  final provided = '${candidate['sizeLabel'] ?? ''}'.trim();
+String resourceSizeLabel(TorrentRelease release) {
+  final provided = (release.sizeLabel ?? '').trim();
   if (provided.isNotEmpty) return provided;
-  final bytes = number(candidate['sizeBytes']);
+  final bytes = release.sizeBytes ?? 0;
   if (bytes <= 1) return '大小未知';
   if (bytes >= 1073741824) {
     return '${(bytes / 1073741824).toStringAsFixed(1)} GiB';
@@ -337,8 +318,8 @@ String resourceSizeLabel(Json candidate) {
   return '${(bytes / 1024).toStringAsFixed(1)} KiB';
 }
 
-String resourceDateLabel(Json candidate) {
-  final raw = '${candidate['publishedAt'] ?? ''}';
+String resourceDateLabel(TorrentRelease release) {
+  final raw = release.publishedAt ?? '';
   var date = DateTime.tryParse(raw);
   if (date == null && raw.isNotEmpty) {
     try {
@@ -371,7 +352,7 @@ class ResourceResultRow extends StatelessWidget {
     this.onAlternative,
     this.alternativePhase = ResourceDownloadPhase.idle,
   });
-  final Json candidate;
+  final ReleaseCandidate candidate;
   final ResourceTitleInfo info;
   final bool expanded;
   final VoidCallback onExpand, onDownload;
@@ -389,9 +370,9 @@ class ResourceResultRow extends StatelessWidget {
       final group = info.sourceGroups.isEmpty
           ? '待确认'
           : info.sourceGroups.join(' & ');
-      final size = resourceSizeLabel(candidate);
-      final date = resourceDateLabel(candidate);
-      final source = '${candidate['providerName'] ?? ''}';
+      final size = resourceSizeLabel(candidate.release);
+      final date = resourceDateLabel(candidate.release);
+      final source = candidate.sourceName;
       final small = Theme.of(context).textTheme.bodySmall;
       final episodeLabel = info.episodeLabel;
       final episodeNote = '$episodeLabel（标题）';
@@ -414,7 +395,7 @@ class ResourceResultRow extends StatelessWidget {
             ),
           );
       return InkWell(
-        key: ValueKey('resource-original:${candidate['candidateId']}'),
+        key: ValueKey('resource-original:${candidate.candidateId}'),
         onTap: onExpand,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -514,7 +495,7 @@ class ResourceResultRow extends StatelessWidget {
                                     info.title,
                                     style: const TextStyle(fontSize: 12),
                                   ),
-                                  if (candidate['detailUrl'] != null)
+                                  if (candidate.release.detailUrl != null)
                                     TextButton.icon(
                                       style: TextButton.styleFrom(
                                         padding: EdgeInsets.zero,
@@ -609,7 +590,7 @@ class ResourceResultRow extends StatelessWidget {
 
   Future<void> _openSource(BuildContext context) async {
     try {
-      final uri = Uri.parse('${candidate['detailUrl']}');
+      final uri = Uri.parse(candidate.release.detailUrl!);
       if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
     } catch (_) {}
     if (context.mounted) {
@@ -617,14 +598,4 @@ class ResourceResultRow extends StatelessWidget {
           .showSnackBar(const SnackBar(content: Text('无法打开原始发布链接。')));
     }
   }
-}
-
-bool matchesResource(Json candidate, String title, String group) {
-  final release = '${candidate['title']}'.toLowerCase();
-  final groups = (candidate['releaseGroups'] as List? ?? [])
-      .join(' ')
-      .toLowerCase();
-  return release.contains(title.trim().toLowerCase()) &&
-      (groups.contains(group.trim().toLowerCase()) ||
-          release.contains(group.trim().toLowerCase()));
 }
