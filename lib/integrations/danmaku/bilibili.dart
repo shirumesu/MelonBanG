@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:pinyin/pinyin.dart' show ChineseHelper;
 import 'package:protobuf/protobuf.dart';
 import 'package:xml/xml.dart';
@@ -124,7 +124,7 @@ class BilibiliDanmaku implements DanmakuMatcher {
       final bytes = xml.bodyBytes;
       final deflated =
           xml.headers['content-encoding']?.toLowerCase() == 'deflate';
-      comments.addAll(await Isolate.run(() => _decodeXml(bytes, deflated)));
+      comments.addAll(await compute(_decodeXml, (bytes, deflated)));
     } catch (_) {
       /* Segmented comments can remain available independently. */
     }
@@ -143,7 +143,7 @@ class BilibiliDanmaku implements DanmakuMatcher {
               headers: _headers,
             );
             final bytes = response.bodyBytes;
-            comments.addAll(await Isolate.run(() => _parseSegment(bytes)));
+            comments.addAll(await compute(_parseSegment, bytes));
           } catch (e) {
             failure = e;
           }
@@ -153,7 +153,7 @@ class BilibiliDanmaku implements DanmakuMatcher {
     if (comments.isEmpty && failure != null) {
       throw StateError('Bilibili 弹幕获取失败：$failure');
     }
-    return Isolate.run(() => sortedComments(comments));
+    return compute(sortedComments, comments);
   }
 }
 
@@ -163,7 +163,8 @@ void _check(Json value) {
   }
 }
 
-List<DanmakuComment?> _decodeXml(List<int> bytes, bool deflated) {
+List<DanmakuComment?> _decodeXml((List<int>, bool) payload) {
+  var (bytes, deflated) = payload;
   if (deflated) {
     try {
       bytes = zlib.decode(bytes);
