@@ -3,9 +3,9 @@ import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'app.dart';
-import 'app_services.dart';
-import 'data/service_configuration.dart';
+import 'app/app.dart';
+import 'app/app_services.dart';
+import 'core/service_configuration.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

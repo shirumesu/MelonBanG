@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import '../../data/json.dart';
+import '../../core/json.dart';
 import '../../domain/danmaku.dart';
 
 /// A JSON array of `{timeSeconds, text, mode?, color?}` objects; the locator

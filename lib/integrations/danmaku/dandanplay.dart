@@ -5,9 +5,9 @@ import 'dart:isolate';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
-import '../../data/json.dart';
-import '../../data/network.dart';
-import '../../data/service_configuration.dart';
+import '../../core/json.dart';
+import '../../core/network.dart';
+import '../../core/service_configuration.dart';
 import '../../domain/danmaku.dart';
 import 'matching.dart';
 

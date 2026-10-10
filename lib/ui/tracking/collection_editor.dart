@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../../data/collection_edit.dart';
+import '../../domain/collection_edit.dart';
 import '../../domain/catalog.dart';
 import '../core/motion.dart';
 import '../core/selection_controls.dart';

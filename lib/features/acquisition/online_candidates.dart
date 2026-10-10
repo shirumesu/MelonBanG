@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import '../../domain/catalog.dart';
-import '../../data/network.dart';
-import '../../data/resource_metadata.dart';
-import '../../data/resource_title.dart';
+import '../../core/network.dart';
+import 'resource_metadata.dart';
+import '../../domain/resource_title.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/sources.dart';
 import 'source_registry.dart';

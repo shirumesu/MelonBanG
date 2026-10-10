@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 
-import '../../data/network.dart';
-import '../../data/tracking.dart';
+import '../../core/network.dart';
+import '../tracking/tracking_repository.dart';
 import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/playback_session.dart';

@@ -4,8 +4,8 @@ import 'dart:isolate';
 import 'package:html/parser.dart' as html;
 import 'package:pinyin/pinyin.dart' show ChineseHelper;
 
-import '../../data/json.dart';
-import '../../data/network.dart';
+import '../../core/json.dart';
+import '../../core/network.dart';
 import '../../domain/danmaku.dart';
 import 'matching.dart';
 

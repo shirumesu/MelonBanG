@@ -1,4 +1,4 @@
-import '../data/json.dart';
+import '../core/json.dart';
 import 'transfer.dart';
 
 /// Persistent download policy; independent of the streaming engine's cache knobs.

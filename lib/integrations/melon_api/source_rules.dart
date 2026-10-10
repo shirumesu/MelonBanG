@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import '../../data/json.dart';
-import '../../data/network.dart';
+import '../../core/json.dart';
+import '../../core/network.dart';
 import '../../domain/sources.dart';
 
 const melonApiOrigin = 'https://melonapi.konataizumi.com';

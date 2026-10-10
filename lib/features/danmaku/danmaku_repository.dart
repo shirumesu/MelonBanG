@@ -1,9 +1,9 @@
 import 'package:path/path.dart' as p;
 
-import '../../data/catalog.dart';
-import '../../data/json.dart';
-import '../../data/resource_metadata.dart';
-import '../../data/store.dart';
+import '../../integrations/melon_api/catalog.dart';
+import '../../core/json.dart';
+import '../acquisition/resource_metadata.dart';
+import '../../core/store.dart';
 import '../../domain/catalog.dart';
 import '../../domain/danmaku.dart';
 

@@ -1,13 +1,13 @@
 import 'dart:async';
 
-import '../domain/catalog.dart';
-import 'account.dart';
-import 'bangumi_private.dart';
-import 'catalog.dart';
-import 'collection_edit.dart';
-import 'json.dart';
-import 'network.dart';
-import 'store.dart';
+import '../../domain/catalog.dart';
+import '../../integrations/bangumi/account.dart';
+import '../../integrations/bangumi/community.dart';
+import '../../integrations/melon_api/catalog.dart';
+import '../../domain/collection_edit.dart';
+import '../../core/json.dart';
+import '../../core/network.dart';
+import '../../core/store.dart';
 
 class _SyncStatus {
   String? error;

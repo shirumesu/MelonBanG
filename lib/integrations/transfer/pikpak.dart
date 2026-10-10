@@ -6,9 +6,9 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
-import '../../data/json.dart';
-import '../../data/store.dart';
-import '../../data/torrent_identity.dart';
+import '../../core/json.dart';
+import '../../core/store.dart';
+import '../../domain/torrent_identity.dart';
 import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
 import 'pikpak_client.dart';

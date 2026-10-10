@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:html/parser.dart' as html;
 import 'package:xml/xml.dart';
 
-import '../../data/json.dart';
-import '../../data/network.dart';
+import '../../core/json.dart';
+import '../../core/network.dart';
 import '../../domain/sources.dart';
 
 /// Torrent index sites read through RSS search feeds. An optional `metadata`

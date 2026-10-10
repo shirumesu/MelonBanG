@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../domain/transfer.dart';
-import '../../data/resource_title.dart';
+import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
 import '../core/motion.dart';
 import '../core/selection_controls.dart';

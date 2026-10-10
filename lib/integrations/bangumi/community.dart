@@ -1,11 +1,16 @@
-import '../domain/catalog.dart';
+import '../../domain/catalog.dart';
 import 'account.dart';
-import 'json.dart';
-import 'network.dart';
+import '../../core/json.dart';
+import '../../core/network.dart';
 
-class BangumiPrivateClient {
+class BangumiPrivateClient implements SubjectCommunitySource {
   BangumiPrivateClient(this.account);
   final AccountRepository account;
+
+  @override
+  String get userId => account.userId;
+  @override
+  AccountProfile? get profile => account.profile;
   final _rows = <String, ({DateTime savedAt, List<Json> rows, int total})>{};
 
   Future<dynamic> _request(String path) async {
@@ -37,7 +42,7 @@ class BangumiPrivateClient {
     }
   }
 
-  /// One page of `comments`, `reviews` or `topics`.
+  @override
   Future<CommunityPage> page(
     int subjectId,
     String segment, {
@@ -114,6 +119,7 @@ class BangumiPrivateClient {
     return (rows: data, total: total);
   }
 
+  @override
   Future<List<Subject>> relations(int subjectId, {bool refresh = false}) async {
     final values = <Json>[];
     try {

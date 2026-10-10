@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:html/dom.dart' show Element;
 import 'package:html/parser.dart' as html;
 
-import '../../data/json.dart';
-import '../../data/network.dart';
+import '../../core/json.dart';
+import '../../core/network.dart';
 import '../../domain/sources.dart';
 
 List<dynamic> array(dynamic value) => value is List ? value : [];

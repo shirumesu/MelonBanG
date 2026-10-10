@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../../domain/catalog.dart';
 import '../../domain/transfer.dart';
-import '../../data/resource_metadata.dart';
-import '../../data/resource_title.dart';
+import '../../features/acquisition/resource_metadata.dart';
+import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
 import '../../features/acquisition/resources_controller.dart';
 import '../core/page_widgets.dart';

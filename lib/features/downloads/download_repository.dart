@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import '../../data/store.dart';
+import '../../core/store.dart';
 import '../../domain/transfer.dart';
 
 /// Download tasks across transfers: adds go to the chosen [CacheMethod],

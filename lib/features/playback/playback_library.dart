@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../../data/catalog.dart';
-import '../../data/json.dart';
-import '../../data/store.dart';
+import '../../integrations/melon_api/catalog.dart';
+import '../../core/json.dart';
+import '../../core/store.dart';
 import '../../domain/catalog.dart';
 import '../../domain/playback_session.dart';
 import '../../domain/sources.dart';

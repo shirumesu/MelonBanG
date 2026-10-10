@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-import '../../data/account.dart';
-import '../../data/tracking.dart';
+import '../../integrations/bangumi/account.dart';
+import 'tracking_repository.dart';
 import '../../domain/catalog.dart';
 
 /// The Bangumi account, its collection and sync state.
