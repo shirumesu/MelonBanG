@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../../data/cache_method.dart';
+import '../../domain/transfer.dart';
 import '../../data/json.dart';
 import '../../data/resource_metadata.dart';
 import '../../data/resource_title.dart';

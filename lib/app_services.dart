@@ -11,19 +11,22 @@ import 'data/catalog.dart';
 import 'data/content_cache.dart';
 import 'data/credentials.dart';
 import 'data/danmaku_repository.dart';
-import 'data/downloads.dart';
 import 'data/network.dart';
-import 'data/play_selection.dart';
-import 'data/playback_library.dart';
-import 'data/pikpak.dart';
-import 'data/pikpak_downloads.dart';
 import 'data/service_configuration.dart';
 import 'data/store.dart';
 import 'data/storage_locations.dart';
 import 'data/tracking.dart';
 import 'features/acquisition/release_search.dart';
 import 'features/acquisition/source_registry.dart';
+import 'features/downloads/download_repository.dart';
+import 'features/playback/play_selection.dart';
+import 'features/playback/playback.dart';
+import 'features/playback/playback_coordinator.dart';
+import 'features/playback/playback_library.dart';
 import 'integrations/melon_api/source_rules.dart';
+import 'integrations/transfer/libtorrent.dart';
+import 'integrations/transfer/pikpak.dart';
+import 'integrations/transfer/pikpak_client.dart';
 export 'data/json.dart';
 
 /// Application-owned Dart services. No subprocess, IPC, or legacy runtime.
@@ -49,24 +52,22 @@ class AppServices {
     await _restoringDownloads;
   }
 
-  bool _downloadsCreated = false;
-
-  void releasePlaybackStreams(int? keep) {
-    if (_downloadsCreated) downloads.releaseStreamsExcept(keep);
-  }
-
   late final AppStore store;
   late final AccountRepository account;
   late final CatalogRepository catalog;
   late final ContentCache cache;
   late final TrackingRepository tracking;
   late final DownloadRepository downloads;
+  late final LibtorrentTransfer bt;
+  late final PikPakTransfer pikpakTransfer;
   late final PikPakClient pikpak;
   late final ReleaseSearch releases;
   late final DanmakuRepository danmaku;
   late final PlaybackLibrary library;
   late final SourceRegistry sources;
   late final PlaySelectionRepository selection;
+  late final Playback playback;
+  late final PlaybackCoordinator coordinator;
   Future<void>? _starting;
   Future<void>? _closing;
   final _dispose = <Future<void> Function()>[];
@@ -117,22 +118,17 @@ class AppServices {
     await pikpak.initialize();
     final mediaDirectory =
         storage?.media ?? p.join(dataDirectory!, 'downloads');
-    downloads = DownloadRepository(
-      store,
-      mediaDirectory,
-      pikpak: PikPakDownloadRepository(store, mediaDirectory, pikpak),
-    );
-    _downloadsCreated = true;
+    bt = LibtorrentTransfer(store, mediaDirectory);
+    pikpakTransfer = PikPakTransfer(store, mediaDirectory, pikpak);
+    downloads = DownloadRepository(store, [bt, pikpakTransfer]);
     _dispose.add(downloads.close);
     await downloads.loadPreferences();
+    await bt.loadPreferences();
     danmaku = DanmakuRepository(api, configuration: configuration);
     library = PlaybackLibrary(store, downloads, danmaku, catalog);
     _dispose.add(library.close);
-    sources = SourceRegistry(
-      api,
-      await SharedPreferences.getInstance(),
-      SourceRulesClient(api),
-    );
+    final preferences = await SharedPreferences.getInstance();
+    sources = SourceRegistry(api, preferences, SourceRulesClient(api));
     _dispose.add(() async => sources.dispose());
     await sources.initialize();
     releases = ReleaseSearch(api, sources, downloads);
@@ -143,6 +139,16 @@ class AppServices {
       releases,
       sources,
     );
+    playback = Playback(library, store, downloads, preferences);
+    library.providerEnabled = playback.danmaku.sourceEnabled;
+    coordinator = PlaybackCoordinator(
+      playback,
+      selection,
+      library,
+      tracking,
+      downloads,
+    );
+    _dispose.add(coordinator.close);
     await account.initialize();
     tracking.start();
     _restoringDownloads = downloads.initialize();

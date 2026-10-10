@@ -5,27 +5,28 @@ import 'dart:typed_data';
 import 'package:libtorrent_flutter/libtorrent_flutter.dart' as lt;
 import 'package:path/path.dart' as p;
 
-import 'json.dart';
-import 'cache_method.dart';
-import 'bittorrent_settings.dart';
-import 'pikpak_downloads.dart';
-import 'store.dart';
-import 'torrent_identity.dart';
+import '../../data/json.dart';
+import '../../data/store.dart';
+import '../../data/torrent_identity.dart';
+import '../../domain/bittorrent_settings.dart';
+import '../../domain/transfer.dart';
+import 'records.dart';
 
-class DownloadRepository {
-  DownloadRepository(this.store, String directory, {this.pikpak})
+/// BT through libtorrent: queueing, seeding policy and streaming of
+/// incomplete files.
+class LibtorrentTransfer implements Transfer {
+  LibtorrentTransfer(this.store, String directory)
     : directory = p.normalize(p.absolute(directory));
   final AppStore store;
   final String directory;
-  final PikPakDownloadRepository? pikpak;
-  CacheMethod defaultMethod = CacheMethod.bt;
-  StreamSubscription<Json>? _cloudSubscription;
-  Json? _cloudSnapshot;
-  final changes = StreamController<Json>.broadcast();
+  @override
+  CacheMethod get method => CacheMethod.bt;
+  final _changes = StreamController<void>.broadcast();
+  @override
+  Stream<void> get changes => _changes.stream;
   final _tasks = <String, Json>{};
   final _handles = <String, int>{};
   final _files = <String, List<Json>>{};
-  List<Json>? _snapshotFiles;
   final _adding = <String, Future<Json>>{};
   final _removing = <String, Future<void>>{};
   StreamSubscription<dynamic>? _subscription;
@@ -48,17 +49,6 @@ class DownloadRepository {
   final _clock = Stopwatch()..start();
   int _lastTick = 0, _lastSaved = 0;
 
-  Future<void> saveCacheMethod(CacheMethod method) async {
-    await ready;
-    _requireOpen();
-    await store.put('settings', 'cache', {'method': method.name});
-    defaultMethod = method;
-    _emit();
-  }
-
-  PikPakDownloadRepository get _cloud =>
-      pikpak ?? (throw StateError('PikPak 尚未配置，请在设置中登录'));
-
   Future<void> saveSettings(BitTorrentSettings value) async {
     await ready;
     _requireOpen();
@@ -67,7 +57,7 @@ class DownloadRepository {
     settings = value;
     if (_initializing != null) {
       await _initializing;
-      lt.LibtorrentFlutter.instance.configureSession(settings.engineConfig);
+      lt.LibtorrentFlutter.instance.configureSession(_engineConfig(settings));
       _schedule();
     }
     for (final task in _tasks.values) {
@@ -76,15 +66,13 @@ class DownloadRepository {
     _emit();
   }
 
+  @override
   Future<void> initialize() => _restoring ??= _restore();
 
   Future<void> loadPreferences() => _loadingPreferences ??= _loadPreferences();
 
   Future<void> _loadPreferences() async {
     _requireOpen();
-    defaultMethod = CacheMethod.fromStored(
-      (await store.get('settings', 'cache'))?['method'],
-    );
     settings = BitTorrentSettings.fromStoredJson(
       await store.get('settings', 'bittorrent') ?? {},
     );
@@ -94,20 +82,12 @@ class DownloadRepository {
   Future<void> _restore() async {
     _requireOpen();
     await loadPreferences();
-    if (pikpak != null) {
-      _cloudSubscription = pikpak!.changes.stream.listen((snapshot) {
-        _cloudSnapshot = snapshot;
-        _snapshotFiles = null;
-        _emit();
-      });
-      await pikpak!.initialize();
-    }
     final restored = await store.list('downloads');
     restored.sort(
       (a, b) => number(a['createdAt']).compareTo(number(b['createdAt'])),
     );
     for (final task in restored) {
-      task['coverUrl'] ??= await _cachedCover(task['subjectId'] as int?);
+      task['coverUrl'] ??= await cachedCover(store, task['subjectId'] as int?);
       task['manualPaused'] ??= task['status'] == 'paused';
       if (!settings.resumeOnStartup) task['manualPaused'] = true;
       task['peerCount'] = 0;
@@ -123,7 +103,6 @@ class DownloadRepository {
       task['downloadSpeedBytesPerSecond'] = 0;
       task['uploadSpeedBytesPerSecond'] = 0;
       _files['${task['id']}'] = objects(task['files']);
-      _snapshotFiles = null;
       try {
         task['fingerprint'] = task['kind'] == 'magnet'
             ? magnetInfoHash(Uri.parse('${task['input']}'))
@@ -148,15 +127,6 @@ class DownloadRepository {
     _emit();
   }
 
-  Future<String?> _cachedCover(int? subjectId) async {
-    if (subjectId == null) return null;
-    final cached =
-        await store.get('catalog', 'detail:$subjectId') ??
-        await store.get('catalog', 'playback-detail:$subjectId');
-    final cover = object(object(cached?['value'])['data'])['coverUrl'];
-    return cover is String && cover.isNotEmpty ? cover : null;
-  }
-
   Future<void> _engine() => _initializing ??= () async {
     await Directory(directory).create(recursive: true);
     await Directory(p.join(directory, 'metadata')).create(recursive: true);
@@ -164,7 +134,7 @@ class DownloadRepository {
       defaultSavePath: directory,
       fetchTrackers: false,
     );
-    lt.LibtorrentFlutter.instance.configureSession(settings.engineConfig);
+    lt.LibtorrentFlutter.instance.configureSession(_engineConfig(settings));
     _lastTick = _clock.elapsedMilliseconds;
     _subscription = lt.LibtorrentFlutter.instance.torrentUpdates.listen(
       _update,
@@ -242,7 +212,6 @@ class DownloadRepository {
               now - (_fileReadAt[id] ?? 0) >= 3000);
       if (info.hasMetadata && refreshFiles) {
         _fileReadAt[id] = now;
-        _snapshotFiles = null;
         _files[id] = lt.LibtorrentFlutter.instance
             .getFiles(entry.value)
             .map(
@@ -317,8 +286,12 @@ class DownloadRepository {
       } else if (task['manualPaused'] == true) {
         task['status'] = 'paused';
       } else if (task['complete'] == true) {
-        final reason = settings.stopReason(task);
-        task['seedStopReason'] = reason;
+        final reason = settings.stopReason(
+          number(task['totalBytes']).toInt(),
+          number(task['uploadedBytes']).toInt(),
+          number(task['seedSeconds']),
+        );
+        task['seedStopReason'] = reason?.name;
         if (reason != null) {
           task['status'] = 'completed';
         } else {
@@ -388,91 +361,66 @@ class DownloadRepository {
     }
   }
 
-  Json snapshot() {
-    final cloud = _cloudSnapshot ?? pikpak?.snapshot();
-    return {
-      'tasks': [
-        ..._tasks.values.map((t) => {...t, 'provider': 'bt'}),
-        ...objects(cloud?['tasks']),
-      ],
-      'files': _snapshotFiles ??= [
-        ..._files.values.expand((v) => v),
-        ...objects(cloud?['files']),
-      ],
-    };
-  }
+  @override
+  List<DownloadTask> tasks() => [
+    for (final task in _tasks.values)
+      downloadTask({
+        ...task,
+        'files': _files[task['id']] ?? const <Json>[],
+      }, CacheMethod.bt),
+  ];
 
-  Future<Json> addMagnet(
-    String input, {
+  @override
+  Future<DownloadTask> addMagnet(
+    Uri magnet, {
+    String? title,
     int? subjectId,
     int? episodeId,
     String? coverUrl,
-    CacheMethod? method,
     List<String> releaseGroups = const [],
   }) async {
     await ready;
     if (_closed) throw StateError('下载器已关闭');
-    final uri = Uri.tryParse(input.trim());
-    if (uri?.scheme != 'magnet') {
-      throw const FormatException('磁力链接缺少有效的 BT info hash');
-    }
-    if ((method ?? defaultMethod) == CacheMethod.pikpak) {
-      return _cloud.addMagnet(
-        uri.toString(),
-        subjectId: subjectId,
-        episodeId: episodeId,
-        coverUrl: coverUrl ?? await _cachedCover(subjectId),
+    return downloadTask(
+      await _add(
+        'magnet',
+        magnet.toString(),
+        magnetInfoHash(magnet),
+        title ?? magnet.queryParameters['dn'] ?? '正在获取种子信息',
+        subjectId,
+        episodeId,
+        coverUrl: coverUrl,
         releaseGroups: releaseGroups,
-      );
-    }
-    return _add(
-      'magnet',
-      uri.toString(),
-      magnetInfoHash(uri!),
-      uri.queryParameters['dn'] ?? '正在获取种子信息',
-      subjectId,
-      episodeId,
-      coverUrl: coverUrl,
-      releaseGroups: releaseGroups,
+      ),
+      CacheMethod.bt,
     );
   }
 
-  Future<Json> addTorrent(
+  @override
+  Future<DownloadTask> addTorrent(
     Uint8List bytes,
     String name, {
     int? subjectId,
     int? episodeId,
     String? coverUrl,
-    CacheMethod? method,
     List<String> releaseGroups = const [],
   }) async {
     await ready;
     if (_closed) throw StateError('下载器已关闭');
-    if (bytes.isEmpty) throw const FormatException('种子文件为空');
     final fingerprint = torrentInfoHash(bytes);
-    if ((method ?? defaultMethod) == CacheMethod.pikpak) {
-      return _cloud.addMagnet(
-        Uri(
-          scheme: 'magnet',
-          queryParameters: {'xt': 'urn:btih:$fingerprint', 'dn': name},
-        ).toString(),
-        title: name,
-        subjectId: subjectId,
-        episodeId: episodeId,
-        coverUrl: coverUrl ?? await _cachedCover(subjectId),
+    return downloadTask(
+      await _add(
+        'torrent',
+        p.join(directory, 'metadata', '$fingerprint.torrent'),
+        fingerprint,
+        name,
+        subjectId,
+        episodeId,
+        metadataBytes: bytes,
+        coverUrl: coverUrl,
         releaseGroups: releaseGroups,
-      );
-    }
-    return _add(
-      'torrent',
-      p.join(directory, 'metadata', '$fingerprint.torrent'),
-      fingerprint,
-      name,
-      subjectId,
-      episodeId,
-      metadataBytes: bytes,
-      coverUrl: coverUrl,
-      releaseGroups: releaseGroups,
+      ),
+      CacheMethod.bt,
     );
   }
 
@@ -531,7 +479,7 @@ class DownloadRepository {
       }
       return existing;
     }
-    final resolvedCover = coverUrl ?? await _cachedCover(subjectId);
+    final resolvedCover = coverUrl ?? await cachedCover(store, subjectId);
     if (_closed) throw StateError('下载器已关闭');
     await _engine();
     if (_closed) throw StateError('下载器已关闭');
@@ -583,10 +531,10 @@ class DownloadRepository {
     _emit();
   }
 
+  @override
   Future<void> pause(String id) async {
     await ready;
     _requireOpen();
-    if (pikpak?.contains(id) == true) return pikpak!.pause(id);
     final task = _tasks[id];
     if (task == null) throw StateError('下载任务不存在');
     task['manualPaused'] = true;
@@ -595,10 +543,10 @@ class DownloadRepository {
     _emit();
   }
 
+  @override
   Future<void> resume(String id) async {
     await ready;
     _requireOpen();
-    if (pikpak?.contains(id) == true) return pikpak!.resume(id);
     final task = _tasks[id];
     if (task == null) throw StateError('下载任务不存在');
     await _engine();
@@ -611,10 +559,10 @@ class DownloadRepository {
     _emit();
   }
 
+  @override
   Future<void> remove(String id) async {
     await ready;
     _requireOpen();
-    if (pikpak?.contains(id) == true) return pikpak!.remove(id);
     final task = _tasks[id];
     if (task == null) return Future.value();
     final fingerprint = '${task['fingerprint']}';
@@ -639,7 +587,6 @@ class DownloadRepository {
       lt.LibtorrentFlutter.instance.removeTorrent(handle, deleteFiles: true);
     }
     _files.remove(id);
-    _snapshotFiles = null;
     _running.remove(id);
     _verifying.remove(id);
     _checkingFiles.remove(id);
@@ -661,11 +608,11 @@ class DownloadRepository {
     if (_closed) throw StateError('下载器已关闭');
   }
 
-  bool contains(String id) =>
-      _tasks.containsKey(id) || pikpak?.contains(id) == true;
+  @override
+  bool contains(String id) => _tasks.containsKey(id);
 
-  Json media(String id, {String? fileId}) {
-    if (pikpak?.contains(id) == true) return pikpak!.media(id, fileId: fileId);
+  @override
+  TransferMedia media(String id, {String? fileId}) {
     final task = _tasks[id];
     if (task == null) throw StateError('下载任务不存在');
     final videos = (_files[id] ?? [])
@@ -686,59 +633,31 @@ class DownloadRepository {
     if (files.isEmpty) throw StateError('尚未获取到视频文件');
     if (task['status'] == 'checking') throw StateError('正在校验文件，请稍后播放');
     if (task['status'] == 'failed') throw StateError('下载任务异常，请先重试');
-    final file = files.first;
-    return {
-      ...file,
-      'incomplete': number(file['progress']) < 1,
-      'subjectId': task['subjectId'],
-      'episodeId': videos.length == 1 ? task['episodeId'] : null,
-    };
+    final file = downloadFile(files.first);
+    return TransferMedia(
+      file: file,
+      incomplete: file.progress < 1,
+      subjectId: task['subjectId'] as int?,
+      episodeId: videos.length == 1 ? task['episodeId'] as int? : null,
+    );
   }
 
-  List<Json> tasksForSubject(int subjectId) => [
-    for (final task in _tasks.values)
-      if (task['subjectId'] == subjectId) {...task, 'provider': 'bt'},
-    for (final task in objects(
-      (_cloudSnapshot ?? pikpak?.snapshot())?['tasks'],
-    ))
-      if (task['subjectId'] == subjectId) task,
-  ];
-
-  Json episodeMedia(int subjectId, int episodeId) {
-    final tasks =
-        tasksForSubject(subjectId)
-            .where((t) => t['episodeId'] == episodeId)
-            .toList()
-          ..sort(
-            (a, b) => number(b['progress']).compareTo(number(a['progress'])),
-          );
-    for (final task in tasks) {
-      try {
-        return media('${task['id']}');
-      } on StateError {
-        continue;
-      }
-    }
-    throw StateError('该章节尚无可播放下载，请选择资源或具体视频文件');
-  }
-
-  Future<Json> openMedia(String id, {String? fileId}) async {
+  @override
+  Future<TransferMedia> openMedia(String id, {String? fileId}) async {
     await ready;
-    if (pikpak?.contains(id) == true) {
-      return pikpak!.openMedia(id, fileId: fileId);
-    }
     final selected = media(id, fileId: fileId);
-    if (selected['incomplete'] != true) return selected;
+    if (!selected.incomplete) return selected;
     await resume(id);
     final stream = lt.LibtorrentFlutter.instance.startStream(
       _handles[id]!,
-      fileIndex: int.parse('${selected['id']}'),
+      fileIndex: int.parse(selected.file.id),
     );
     _streams[stream.id] = id;
     _schedule();
-    return {...selected, 'streamId': stream.id, 'streamUrl': stream.url};
+    return selected.streaming(stream.url, id: stream.id);
   }
 
+  @override
   void releaseStreamsExcept(int? keep) {
     for (final id in _streams.keys.toList()) {
       if (id == keep) continue;
@@ -749,7 +668,7 @@ class DownloadRepository {
   }
 
   void _emit() {
-    if (!_closed) changes.add(snapshot());
+    if (!_closed) _changes.add(null);
   }
 
   Future<void> _persist(String id, Json task) {
@@ -795,6 +714,7 @@ class DownloadRepository {
     }
   }
 
+  @override
   Future<void> close() => _closing ??= _close();
   Future<void> _close() async {
     _closed = true;
@@ -804,8 +724,6 @@ class DownloadRepository {
     } catch (_) {
       // Dispose any engine created before recovery failed.
     }
-    await _cloudSubscription?.cancel();
-    await pikpak?.close();
     await Future.wait(
       _adding.values.toList().map((operation) async {
         try {
@@ -839,7 +757,18 @@ class DownloadRepository {
         _handles.clear();
         await lt.LibtorrentFlutter.instance.dispose();
       }
-      await changes.close();
+      await _changes.close();
     }
   }
 }
+
+lt.BtConfig _engineConfig(BitTorrentSettings settings) => lt.BtConfig(
+  downloadRateLimit: settings.downloadKiB,
+  uploadRateLimit: settings.uploadKiB,
+  connectionsLimit: settings.connectionsPerTask,
+  peersListenPort: settings.listenPort,
+  disableDht: !settings.dht,
+  disableUpnp: !settings.upnp,
+  enableIpv6: settings.ipv6,
+  forceEncrypt: settings.forceEncryption,
+);
