@@ -13,7 +13,9 @@ import 'ui/acquisition/download_dialogs.dart';
 import 'ui/acquisition/downloads_page.dart';
 import 'ui/acquisition/resources_page.dart';
 import 'data/resource_metadata.dart';
-import 'data/play_candidates.dart';
+import 'data/play_selection.dart';
+import 'domain/play_candidate.dart';
+import 'domain/sources.dart';
 import 'data/network.dart';
 import 'ui/core/action_feedback.dart';
 import 'ui/core/app_chrome.dart';
@@ -102,9 +104,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       today = [],
       calendar = [],
       collection = [],
-      results = [],
-      candidates = [],
-      providers = [];
+      results = [];
+  ReleaseSearchResult releases = const ReleaseSearchResult();
   final downloadState = ValueNotifier<Json>({});
   final downloadCount = ValueNotifier<int>(0);
   Json get downloads => downloadState.value;
@@ -202,7 +203,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       );
       acceptDownloads(widget.service.downloads.snapshot());
       widget.service.library.providerEnabled = playback.danmaku.sourceEnabled;
-      widget.service.online.addListener(sourcesChanged);
+      widget.service.sources.addListener(sourcesChanged);
       widget.service.downloadsAvailable.addListener(sourcesChanged);
       subscriptions.add(
         playback.player.stream.error.listen((reason) {
@@ -334,8 +335,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     resourceQuery: resourceSearch.text,
     query: search.text,
     results: results,
-    candidates: candidates,
-    providers: providers,
+    releases: releases,
     searchError: searchError,
     resultQuery: resultQuery,
     resultOffset: resultOffset,
@@ -400,8 +400,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       resourceSearch.text = previous.resourceQuery;
       search.text = previous.query;
       results = previous.results;
-      candidates = previous.candidates;
-      providers = previous.providers;
+      releases = previous.releases;
       searchError = previous.searchError;
       resultQuery = previous.resultQuery;
       resultOffset = previous.resultOffset;
@@ -1200,8 +1199,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     nextNavigation();
     setState(() {
       route = 'resources';
-      candidates = [];
-      providers = [];
+      releases = const ReleaseSearchResult();
     });
     await searchResources(episodeKeyword: episodeKeyword);
   }
@@ -1224,40 +1222,29 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       busy = true;
       resourceQueryNames = searchNames;
       resourceQueryEpisode = episodeKeyword;
-      candidates = [];
-      providers = [];
+      releases = const ReleaseSearchResult();
     });
     await perform(() async {
-      final data = object(
-        await widget.service.sources.search(
-          subjectId,
-          keyword,
-          cancel: cancellation,
-          episodeId: episodeId,
-          alternativeNames: searchNames,
-          episodeKeyword: episodeKeyword,
-          coverUrl: subject!['coverUrl'] as String?,
-          isCurrent: () =>
-              mounted &&
+      final data = await widget.service.releases.search(
+        subjectId,
+        keyword,
+        cancel: cancellation,
+        episodeId: episodeId,
+        alternativeNames: searchNames,
+        episodeKeyword: episodeKeyword,
+        coverUrl: subject!['coverUrl'] as String?,
+        isCurrent: () =>
+            mounted && ticket == _resourceRequest && navigation == _navigation,
+        onUpdate: (data) {
+          if (mounted &&
               ticket == _resourceRequest &&
-              navigation == _navigation,
-          onUpdate: (data) {
-            if (mounted &&
-                ticket == _resourceRequest &&
-                navigation == _navigation) {
-              setState(() {
-                candidates = objects(data['candidates']);
-                providers = objects(data['providers']);
-              });
-            }
-          },
-        ),
+              navigation == _navigation) {
+            setState(() => releases = data);
+          }
+        },
       );
       if (mounted && ticket == _resourceRequest && navigation == _navigation) {
-        setState(() {
-          candidates = objects(data['candidates']);
-          providers = objects(data['providers']);
-        });
+        setState(() => releases = data);
       }
     });
     if (mounted && ticket == _resourceRequest && navigation == _navigation) {
@@ -1376,7 +1363,9 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       unawaited(loadCalendar());
     }
     if (ready && target == 'sources') {
-      unawaited(widget.service.online.refreshRules().catchError((Object _) {}));
+      unawaited(
+        widget.service.sources.refreshRules().catchError((Object _) {}),
+      );
     }
   }
 
@@ -1465,7 +1454,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
     if (ready) {
-      widget.service.online.removeListener(sourcesChanged);
+      widget.service.sources.removeListener(sourcesChanged);
       widget.service.downloadsAvailable.removeListener(sourcesChanged);
     }
     unawaited(
@@ -1568,7 +1557,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                                   route: route,
                                   selectedRoute: selectedSection,
                                   sourcesWarning:
-                                      ready && widget.service.online.warning,
+                                      ready && widget.service.sources.warning,
                                   nickname: '${account?['nickname'] ?? '尚未登录'}',
                                   username: account?['username'] as String?,
                                   avatarUrl: account?['avatarUrl'] as String?,
@@ -1824,23 +1813,19 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           subject: subject,
           resourceSearch: resourceSearch,
           resourceEpisode: resourceEpisode,
-          providers: providers,
-          candidates: candidates,
+          releases: releases,
           busy: busy,
           key: ValueKey('resources:${subject?["subjectId"]}:$resourceEpisode'),
           onSearch: (names, episode) =>
               searchResources(names: names, episodeKeyword: episode),
           onDownload: (candidate) async {
             await widget.service.downloadsReady;
-            await widget.service.sources.enqueue('${candidate['candidateId']}');
+            await widget.service.releases.enqueue(candidate);
           },
           defaultMethod: widget.service.downloads.defaultMethod,
           onDownloadWithMethod: (candidate, method) async {
             await widget.service.downloadsReady;
-            await widget.service.sources.enqueue(
-              '${candidate['candidateId']}',
-              method: method,
-            );
+            await widget.service.releases.enqueue(candidate, method: method);
           },
         );
       case 'downloads':
@@ -1875,12 +1860,13 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         );
       case 'sources':
         return SourcesPage(
-          repository: widget.service.online,
-          sources: widget.service.sources,
+          registry: widget.service.sources,
           pikpak: widget.service.pikpak,
-          onPlay: (source) async {
+          onPlay: (stream) async {
             _activeCandidate = null;
-            await startPlayback(() => widget.service.library.online(source));
+            await startPlayback(
+              () => widget.service.library.online(stream.toSession()),
+            );
           },
         );
       case 'settings':
@@ -2029,8 +2015,7 @@ class _PageLocation {
     required this.resourceQuery,
     required this.query,
     required this.results,
-    required this.candidates,
-    required this.providers,
+    required this.releases,
     required this.searchError,
     required this.resultQuery,
     required this.resultOffset,
@@ -2049,7 +2034,8 @@ class _PageLocation {
   final String resourceQueryEpisode;
   final Json? subject;
   final int? resourceEpisode;
-  final List<Json> results, candidates, providers;
+  final List<Json> results;
+  final ReleaseSearchResult releases;
   final String? searchError;
 }
 

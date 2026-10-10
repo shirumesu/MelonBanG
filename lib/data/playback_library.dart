@@ -77,7 +77,6 @@ class PlaybackLibrary {
     int? episodeId,
     String? provider,
     String? line,
-    Json? ref,
     String? title,
   }) async {
     final session = <String, dynamic>{
@@ -92,7 +91,6 @@ class PlaybackLibrary {
       'episodeId': episodeId,
       'provider': provider,
       'line': line,
-      'onlineRef': ref,
       'remoteSource': true,
       'standalone': subjectId == null || episodeId == null,
       'danmaku': <Json>[],

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app_services.dart';
-import '../../data/play_candidates.dart';
+import '../../domain/play_candidate.dart';
 import '../core/theme.dart';
 import 'candidate_resources.dart';
 import 'playback.dart';
