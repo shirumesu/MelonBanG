@@ -11,17 +11,17 @@ import '../core/network.dart';
 import '../features/acquisition/resource_metadata.dart';
 import '../domain/catalog.dart';
 import '../domain/play_candidate.dart';
-import '../features/acquisition/resources_controller.dart';
 import '../features/discovery/discovery_controller.dart';
 import '../features/downloads/downloads_controller.dart';
 import '../features/playback/playback.dart';
 import '../features/playback/playback_coordinator.dart';
+import '../features/playback/resource_search.dart';
 import '../features/playback/resume_controller.dart';
 import '../features/tracking/subject_controller.dart';
 import '../features/tracking/tracking_controller.dart';
 import '../integrations/transfer/pikpak.dart';
 import '../ui/acquisition/downloads_page.dart';
-import '../ui/acquisition/resources_page.dart';
+import '../ui/acquisition/resource_search_view.dart';
 import '../ui/core/action_feedback.dart';
 import '../ui/core/app_chrome.dart';
 import '../ui/core/cached_image.dart';
@@ -30,7 +30,6 @@ import '../ui/core/page_widgets.dart';
 import '../ui/core/subject_posters.dart';
 import '../ui/core/theme.dart';
 import '../ui/discovery/discovery_pages.dart';
-import '../ui/player/candidate_resources.dart';
 import '../ui/player/player_page.dart';
 import '../ui/settings/bittorrent_settings.dart';
 import '../ui/settings/cache_settings.dart';
@@ -57,7 +56,6 @@ class _MelonAppState extends State<MelonApp>
   final navigation = GlobalKey<NavigatorState>();
   final playerPageKey = GlobalKey();
   final search = TextEditingController();
-  final resourceSearch = TextEditingController();
   final searchFocus = FocusNode(debugLabel: 'Catalogue search');
   final pageStorage = PageStorageBucket();
   final List<_PageLocation> history = [];
@@ -86,7 +84,7 @@ class _MelonAppState extends State<MelonApp>
   DiscoveryController get discovery => service.discovery;
   TrackingController get personal => service.personal;
   SubjectController get subjects => service.subjects;
-  ResourcesController get resources => service.resources;
+  ResourceSearchController get resources => service.resources;
   DownloadsController get downloads => service.downloadList;
   ResumeController get resume => service.resume;
 
@@ -174,7 +172,6 @@ class _MelonAppState extends State<MelonApp>
     accountId: personal.userId,
     section: selectedSection,
     subject: subjects.subject,
-    resourceQuery: resourceSearch.text,
     query: search.text,
     search: discovery.search,
     resources: resources.state,
@@ -220,7 +217,6 @@ class _MelonAppState extends State<MelonApp>
     setState(() {
       route = previous.route;
       selectedSection = previous.section;
-      resourceSearch.text = previous.resourceQuery;
       search.text = previous.query;
     });
     subjects.show(subject);
@@ -237,22 +233,14 @@ class _MelonAppState extends State<MelonApp>
         (previous.pending || switched)) {
       unawaited(openSubject(subject));
     } else if (route == 'resources' && previous.pending) {
-      unawaited(
-        perform(
-          () => resources.search(
-            resourceSearch.text,
-            names: previous.resources.names,
-            episodeKeyword: previous.resources.episodeKeyword,
-          ),
-        ),
-      );
+      unawaited(perform(() => resources.search(previous.resources.terms!)));
     }
   }
 
   String get pageIdentity => switch (route) {
     'subject' => 'subject:${subjects.id}',
     'resources' =>
-      'resources:${resources.state.subject?.id}:${resources.state.episodeId}',
+      'resources:${resources.state.subject?.id}:${resources.state.episode?.id}',
     'search' => 'search:${discovery.search.query}',
     _ => route,
   };
@@ -321,81 +309,91 @@ class _MelonAppState extends State<MelonApp>
   }
 
   @override
-  Future<void> openResources(Subject subject, Episode episode) =>
+  Future<void> openResources(Subject subject, Episode episode) async =>
       findResources(subject, episode: episode);
 
   @override
   Future<PlayCandidate?> chooseCandidate(Subject item, Episode episode) async {
     final target = navigation.currentState?.overlay?.context;
     if (target == null) return null;
-    return showDialog<PlayCandidate>(
-      context: target,
-      builder: (context) => Dialog(
-        child: SizedBox(
-          width: 900,
-          height: 580,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  Gap.lg,
-                  Gap.sm,
-                  Gap.sm,
-                  Gap.sm,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '选择资源 · 第 ${episode.number} 话',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
+    final search = service.newResourceSearch()..open(item, episode: episode);
+    try {
+      return await showDialog<PlayCandidate>(
+        context: target,
+        builder: (context) => Dialog(
+          clipBehavior: Clip.antiAlias,
+          child: SizedBox(
+            width: 960,
+            height: 620,
+            child: PageStorage(
+              bucket: pageStorage,
+              child: KeyedSubtree(
+                key: const PageStorageKey('resource-dialog'),
+                child: ResourceSearchView(
+                  search: search,
+                  onPlay: (candidate, _) async =>
+                      Navigator.pop(context, candidate),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        openResourcePage(search);
+                      },
+                      child: const Text('在页面中打开'),
                     ),
                     IconButton(
+                      tooltip: '关闭',
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.close),
                     ),
                   ],
                 ),
               ),
-              Expanded(
-                child: CandidateResources(
-                  choices: service.choices,
-                  playback: playback,
-                  subject: item,
-                  episode: episode,
-                  onPlay: (candidate) async =>
-                      Navigator.pop(context, candidate),
-                  onFindResources: () {
-                    Navigator.pop(context);
-                    unawaited(findResources(item, episode: episode));
-                  },
-                ),
-              ),
-            ],
+            ),
           ),
         ),
-      ),
-    );
+      );
+    } finally {
+      // The closing dialog still listens until its route is gone.
+      search.cancel();
+    }
   }
 
-  Future<void> findResources(Subject? subject, {Episode? episode}) async {
+  /// Opens the resources page for [subject], or one of its chapters, seeded
+  /// with the catalogue title and chapter number; the page then searches.
+  void findResources(Subject? subject, {Episode? episode}) {
     leavePlayer();
     if (route != 'resources') rememberLocation();
-    final episodeKeyword = resourceEpisodeKeyword(episode);
-    final formId = ResourcesPage.formStorageId(subject?.id, episode?.id);
+    final formId = ResourceSearchView.formStorageId(subject?.id, episode?.id);
     final savedForm = pageStorage.readState(context, identifier: formId);
     pageStorage.writeState(context, {
       ...?savedForm as Map?,
-      'episode': episodeKeyword,
+      'keyword': subject?.title ?? '未命名',
+      'episode': resourceEpisodeKeyword(episode),
     }, identifier: formId);
-    resourceSearch.text = subject?.title ?? '未命名';
     nextNavigation();
-    resources.open(subject, episodeId: episode?.id);
+    resources.open(subject, episode: episode);
     setState(() => route = 'resources');
-    await perform(
-      () =>
-          resources.search(resourceSearch.text, episodeKeyword: episodeKeyword),
+  }
+
+  /// Continues [search] from the resource sheet or picker on the page.
+  void openResourcePage(ResourceSearchController search) {
+    final state = search.state;
+    final pending = search.busy;
+    leavePlayer();
+    if (route != 'resources') rememberLocation();
+    nextNavigation();
+    resources.restore(state);
+    setState(() => route = 'resources');
+    if (pending) unawaited(perform(() => resources.search(state.terms!)));
+  }
+
+  /// Plays a cached file that has no chapter to associate.
+  Future<void> playCachedFile(PlayCandidate candidate) {
+    final DownloadTarget(:downloadId, :fileId) =
+        candidate.target as DownloadTarget;
+    return coordinator.play(
+      () => service.library.fromDownload(downloadId, fileId: fileId),
     );
   }
 
@@ -546,7 +544,6 @@ class _MelonAppState extends State<MelonApp>
     syncFeedback.dispose();
     search.dispose();
     searchFocus.dispose();
-    resourceSearch.dispose();
     windowManager.removeListener(this);
     super.dispose();
   }
@@ -629,15 +626,15 @@ class _MelonAppState extends State<MelonApp>
                               if (busy && !fullScreen)
                                 const LinearProgressIndicator(minHeight: 2),
                               Expanded(
-                                child: route == 'player'
-                                    ? player()
-                                    : PageStorage(
-                                        bucket: pageStorage,
-                                        child: PageEntrance(
+                                child: PageStorage(
+                                  bucket: pageStorage,
+                                  child: route == 'player'
+                                      ? player()
+                                      : PageEntrance(
                                           key: PageStorageKey(pageIdentity),
                                           child: page(),
                                         ),
-                                      ),
+                                ),
                               ),
                             ],
                           ),
@@ -681,7 +678,7 @@ class _MelonAppState extends State<MelonApp>
   Widget player() => PlayerPage(
     key: playerPageKey,
     playback: playback,
-    choices: service.choices,
+    newResourceSearch: service.newResourceSearch,
     onError: showError,
     onBack: goBack,
     fullScreen: fullScreen,
@@ -699,14 +696,14 @@ class _MelonAppState extends State<MelonApp>
     onRetryPreparing: coordinator.retryPreparing,
     onChoosePreparing: coordinator.choosePreparing,
     onEpisode: coordinator.playEpisode,
-    onPlayCandidate: (candidate, episode) =>
-        coordinator.playCandidate(candidate, coordinator.subject!, episode),
+    onPlayCandidate: (candidate, episode) => episode == null
+        ? playCachedFile(candidate)
+        : coordinator.playCandidate(candidate, coordinator.subject!, episode),
     onFindAllResources: (episode) {
       final current = coordinator.subject;
-      if (current != null) {
-        unawaited(findResources(current, episode: episode));
-      }
+      if (current != null) findResources(current, episode: episode);
     },
+    onOpenResources: openResourcePage,
   );
 
   void setDark(bool value) {
@@ -800,7 +797,7 @@ class _MelonAppState extends State<MelonApp>
           onFindResources: (episode) {
             final item = subjects.subject;
             if (episode == null) {
-              unawaited(findResources(item));
+              findResources(item);
             } else if (item != null) {
               unawaited(coordinator.chooseSource(item, episode));
             }
@@ -819,13 +816,19 @@ class _MelonAppState extends State<MelonApp>
           onError: showError,
         );
       case 'resources':
-        return ResourcesPage(
+        final subject = resources.state.subject;
+        return ResourceSearchView(
           key: ValueKey(
-            'resources:${resources.state.subject?.id}:${resources.state.episodeId}',
+            'resources:${subject?.id}:${resources.state.episode?.id}',
           ),
-          resources: resources,
-          resourceSearch: resourceSearch,
-          defaultMethod: downloads.defaultMethod,
+          search: resources,
+          onPlay: (candidate, episode) => episode == null
+              ? playCachedFile(candidate)
+              : coordinator.prepare(
+                  subject!,
+                  episode,
+                  () => coordinator.playCandidate(candidate, subject, episode),
+                ),
         );
       case 'downloads':
         return downloadsSection(
@@ -919,16 +922,15 @@ class _PageLocation {
     required this.accountId,
     required this.section,
     required this.subject,
-    required this.resourceQuery,
     required this.query,
     required this.search,
     required this.resources,
     required this.pending,
   });
-  final String route, accountId, section, resourceQuery, query;
+  final String route, accountId, section, query;
   final Subject? subject;
   final SearchResults search;
-  final ResourcesState resources;
+  final ResourceSearchState resources;
 
   /// Still loading when left; loaded again on return.
   final bool pending;

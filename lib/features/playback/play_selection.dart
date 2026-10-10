@@ -15,21 +15,6 @@ import '../acquisition/source_registry.dart';
 import '../downloads/download_repository.dart';
 import 'playback_library.dart';
 
-/// What a source picker needs: ranked candidates, online parts and
-/// enqueueing of torrent results.
-class SourceChoices {
-  const SourceChoices({
-    required this.selection,
-    required this.sources,
-    required this.enqueue,
-    required this.defaultMethod,
-  });
-  final PlaySelectionRepository selection;
-  final SourceRegistry sources;
-  final Future<void> Function(ReleaseCandidate, {CacheMethod? method}) enqueue;
-  final CacheMethod Function() defaultMethod;
-}
-
 class PlaySelectionRepository {
   PlaySelectionRepository(
     this.store,
@@ -46,9 +31,14 @@ class PlaySelectionRepository {
   final continuity = <int, String>{};
   final _failures = <String, int>{};
 
+  /// Cached files, online entries and torrents for [episode], or for the
+  /// whole subject without one, ranked for playback. [terms] default to the
+  /// catalogue names and the chapter number; [onProgress] reports each online
+  /// and torrent source's search state.
   Future<List<PlayCandidate>> candidates(
     Subject subject,
-    Episode episode, {
+    Episode? episode, {
+    ResourceTerms? terms,
     bool instantOnly = false,
     bool includeOnline = true,
     bool onlineFirst = false,
@@ -56,11 +46,13 @@ class PlaySelectionRepository {
     String language = 'auto',
     bool useContinuity = false,
     void Function(List<PlayCandidate>)? onUpdate,
+    void Function(SourceProgress)? onProgress,
     RequestCancellation? cancel,
   }) async {
     cancel?.throwIfCancelled();
     final subjectId = subject.id;
-    final episodeId = episode.id;
+    final episodeId = episode?.id;
+    final search = terms ?? ResourceTerms.of(subject, episode);
     final found = <String, PlayCandidate>{};
     List<PlayCandidate> ranked() => rankPlayCandidates(
       found.values,
@@ -77,10 +69,12 @@ class PlaySelectionRepository {
       onUpdate?.call(ranked());
     }
 
-    final binding = await store.get('episode_files', '$subjectId:$episodeId');
+    final binding = episodeId == null
+        ? null
+        : await store.get('episode_files', '$subjectId:$episodeId');
     for (final task in downloads.snapshot().forSubject(subjectId)) {
       final bound = binding?['downloadId'] == task.id;
-      if (!bound && task.episodeId != episodeId) continue;
+      if (episodeId != null && !bound && task.episodeId != episodeId) continue;
       try {
         final media = downloads.media(
           task.id,
@@ -126,24 +120,30 @@ class PlaySelectionRepository {
             registry,
             subject,
             episode,
+            names: search.searchNames,
+            onProgress: onProgress,
             cancel: cancel,
             firstReady: forPlayback && !useContinuity,
             includeManual: !forPlayback && !instantOnly,
           ).then(add)
         : Future<void>.value();
-    void addReleases(ReleaseSearchResult result) => add([
-      for (final (index, candidate) in result.candidates.indexed)
-        releaseCandidate(candidate, index),
-    ]);
+    void addReleases(ReleaseSearchResult result) {
+      if (onProgress != null) result.sources.forEach(onProgress);
+      add([
+        for (final (index, candidate) in result.candidates.indexed)
+          releaseCandidate(candidate, index),
+      ]);
+    }
+
     final sourceRequest = instantOnly
         ? Future<void>.value()
         : releases
               .search(
                 subjectId,
-                subject.title,
-                alternativeNames: resourceNames(subject),
+                search.keyword,
+                alternativeNames: search.names,
                 episodeId: episodeId,
-                episodeKeyword: resourceEpisodeKeyword(episode),
+                episodeKeyword: search.episodeKeyword,
                 coverUrl: subject.coverUrl,
                 cancel: cancel,
                 includeMetadata: !forPlayback,

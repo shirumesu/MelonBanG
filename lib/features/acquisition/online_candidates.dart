@@ -9,7 +9,9 @@ import '../../domain/sources.dart';
 import 'source_registry.dart';
 import 'title_matching.dart';
 
-/// Searches every usable online source for one Bangumi chapter.
+/// Searches every usable online source for one Bangumi chapter, or with no
+/// [episode] lists each matching site subject whose entry is chosen later.
+/// [onProgress] reports each source's state as its search starts and ends.
 ///
 /// With [firstReady], returns as soon as one confident match exists and falls
 /// back to a full search when none does. Manual-only sources (uploads that
@@ -17,12 +19,14 @@ import 'title_matching.dart';
 Future<List<PlayCandidate>> onlineCandidates(
   SourceRegistry registry,
   Subject subject,
-  Episode episode, {
+  Episode? episode, {
+  List<String>? names,
+  void Function(SourceProgress)? onProgress,
   RequestCancellation? cancel,
   bool firstReady = false,
   bool includeManual = true,
 }) async {
-  final names = resourceNames(subject);
+  final searchNames = names ?? resourceNames(subject);
   final result = <PlayCandidate>[];
   final operation = RequestCancellation();
   final stop = cancel?.listen(operation.cancel);
@@ -35,31 +39,40 @@ Future<List<PlayCandidate>> onlineCandidates(
         .map((rule) async {
           final id = rule.id;
           final manual = rule.manualOnly;
+          var progress = SourceProgress(
+            sourceId: id,
+            sourceName: rule.name,
+            total: 1,
+          );
+          onProgress?.call(progress);
+          int found() => result.where((e) => e.provider == id).length;
           try {
             final matches = await registry.searchSubjects(
               id,
-              names,
+              searchNames,
               cancel: operation,
               enough: manual
                   ? (rows) => rows.isNotEmpty
                   : firstReady
                   ? (rows) => rows.any(
-                      (site) => sourceMatchScore(subject, site, names) >= .84,
+                      (site) =>
+                          sourceMatchScore(subject, site, searchNames) >= .84,
                     )
                   : null,
             );
             for (final site in matches) {
-              final score = sourceMatchScore(subject, site, names);
+              final score = sourceMatchScore(subject, site, searchNames);
               if (!manual && score < .55) continue;
-              if (site.choosePart) {
+              if (episode == null || site.choosePart) {
+                final label = site.choosePart ? '选择分 P' : '选择集数';
                 result.add(
                   _candidate(
                     rule,
                     site,
-                    label: '选择分 P',
+                    label: label,
                     line: site.line ?? '',
                     target: OnlineTarget(
-                      candidateId: '$id:${site.id}:${site.line}:选择分 P',
+                      candidateId: '$id:${site.id}:${site.line}:$label',
                       chooseFrom: site,
                       description: site.description,
                     ),
@@ -93,9 +106,22 @@ Future<List<PlayCandidate>> onlineCandidates(
             if (firstReady && !ready.isCompleted && result.any(confident)) {
               ready.complete(List.of(result));
             }
-          } catch (_) {
-            /* Failed sources keep their health while others remain usable. */
+            progress = progress.copyWith(
+              completed: 1,
+              resultCount: found(),
+              status: SearchStatus.ready,
+            );
+          } catch (error) {
+            // Failed sources keep their health while others remain usable.
+            progress = progress.copyWith(
+              completed: 1,
+              failed: 1,
+              resultCount: found(),
+              status: found() == 0 ? SearchStatus.error : SearchStatus.partial,
+              message: '$error',
+            );
           }
+          onProgress?.call(progress);
         }),
   ).then((_) => List.of(result));
   try {
@@ -106,6 +132,8 @@ Future<List<PlayCandidate>> onlineCandidates(
         registry,
         subject,
         episode,
+        names: names,
+        onProgress: onProgress,
         cancel: cancel,
         includeManual: includeManual,
       );
@@ -117,7 +145,7 @@ Future<List<PlayCandidate>> onlineCandidates(
   }
 }
 
-/// The candidate for one chosen part of an upload.
+/// The candidate for one chosen entry of an upload or site subject.
 PlayCandidate onlinePartCandidate(
   PlayCandidate parent,
   SourceSubject upload,
@@ -130,7 +158,7 @@ PlayCandidate onlinePartCandidate(
   line: part.line,
   languages: parent.languages,
   target: OnlineTarget(
-    candidateId: '${parent.id}:${part.ref.data['cid']}',
+    candidateId: '${parent.id}:${part.line}:${part.label}',
     ref: part.ref,
     description: upload.description,
   ),

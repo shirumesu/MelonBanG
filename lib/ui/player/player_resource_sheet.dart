@@ -3,32 +3,33 @@ import 'package:flutter/services.dart';
 
 import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
-import '../../features/playback/play_selection.dart';
+import '../../features/playback/resource_search.dart';
+import '../acquisition/resource_search_view.dart';
 import '../core/theme.dart';
-import 'candidate_resources.dart';
 import '../../features/playback/playback.dart';
 
 class PlayerResourceSheet extends StatefulWidget {
   const PlayerResourceSheet({
     super.key,
-    required this.choices,
+    required this.newSearch,
     required this.playback,
     required this.subject,
     required this.episodeId,
     required this.visible,
     required this.onClose,
-    this.onPlayCandidate,
-    this.onFindAllResources,
+    required this.onPlay,
+    this.onOpenPage,
   });
-  final SourceChoices choices;
+  final ResourceSearchController Function() newSearch;
   final Playback playback;
   final Subject subject;
   final int? episodeId;
   final bool visible;
   final VoidCallback onClose;
-  final Future<void> Function(PlayCandidate candidate, Episode episode)?
-  onPlayCandidate;
-  final ValueChanged<Episode?>? onFindAllResources;
+  final Future<void> Function(PlayCandidate candidate, Episode? episode) onPlay;
+
+  /// Continues this search on the resources page.
+  final void Function(ResourceSearchController search)? onOpenPage;
   @override
   State<PlayerResourceSheet> createState() => _PlayerResourceSheetState();
 }
@@ -36,11 +37,28 @@ class PlayerResourceSheet extends StatefulWidget {
 class _PlayerResourceSheetState extends State<PlayerResourceSheet> {
   final focus = FocusScopeNode();
   bool initialized = false;
+  ResourceSearchController? search;
   Episode? get episode => widget.subject.episodes
       .where(
         (e) => e.id == (widget.episodeId ?? widget.playback.session?.episodeId),
       )
       .firstOrNull;
+
+  /// The search for the shown chapter; a new chapter starts a new one so the
+  /// previous view never observes the change.
+  ResourceSearchController searchFor(Episode? episode) {
+    final current = search;
+    if (current != null &&
+        current.state.subject?.id == widget.subject.id &&
+        current.state.episode?.id == episode?.id) {
+      return current;
+    }
+    if (current != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => current.dispose());
+    }
+    return search = widget.newSearch()..open(widget.subject, episode: episode);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -61,6 +79,7 @@ class _PlayerResourceSheetState extends State<PlayerResourceSheet> {
   @override
   void dispose() {
     focus.dispose();
+    search?.dispose();
     super.dispose();
   }
 
@@ -80,54 +99,35 @@ class _PlayerResourceSheetState extends State<PlayerResourceSheet> {
       elevation: 12,
       borderRadius: panelBorderRadius,
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(pageGutter, 8, 12, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    episode == null ? '选择资源' : '选择资源 · 第 ${episode!.number} 话',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                ),
-                IconButton(
-                  tooltip: '关闭资源窗口',
-                  onPressed: widget.onClose,
-                  icon: const Icon(Icons.close),
-                ),
-              ],
+      child: !initialized ? const SizedBox.shrink() : view(episode),
+    ),
+  );
+
+  Widget view(Episode? episode) {
+    final search = searchFor(episode);
+    return KeyedSubtree(
+      key: const PageStorageKey('player-resources'),
+      child: ResourceSearchView(
+        key: ValueKey('resources:${widget.subject.id}:${episode?.id}'),
+        search: search,
+        active: widget.visible,
+        onPlay: (candidate, target) async {
+          await widget.onPlay(candidate, target);
+          if (mounted) widget.onClose();
+        },
+        actions: [
+          if (widget.onOpenPage != null)
+            TextButton(
+              onPressed: () => widget.onOpenPage!(search),
+              child: const Text('在页面中打开'),
             ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: !initialized
-                ? const SizedBox.shrink()
-                : episode == null
-                ? Center(
-                    child: TextButton(
-                      onPressed: () => widget.onFindAllResources?.call(episode),
-                      child: const Text('查找本作资源'),
-                    ),
-                  )
-                : CandidateResources(
-                    active: widget.visible,
-                    choices: widget.choices,
-                    playback: widget.playback,
-                    subject: widget.subject,
-                    episode: episode!,
-                    onFindResources: () =>
-                        widget.onFindAllResources?.call(episode),
-                    onPlay: (candidate) async {
-                      await widget.onPlayCandidate?.call(candidate, episode!);
-                      if (mounted) widget.onClose();
-                    },
-                  ),
+          IconButton(
+            tooltip: '关闭资源窗口',
+            onPressed: widget.onClose,
+            icon: const Icon(Icons.close),
           ),
         ],
       ),
-    ),
-  );
+    );
+  }
 }

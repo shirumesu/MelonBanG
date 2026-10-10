@@ -3,10 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../domain/play_candidate.dart';
 import '../../domain/transfer.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
 import '../core/motion.dart';
+import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
 
@@ -275,8 +277,8 @@ class ResourceSearchStatus extends StatelessWidget {
           providers.every((e) => e.resultCount == 0)
               ? '正在查找资源，结果会陆续显示'
               : providers.any((e) => e.status == SearchStatus.loading)
-              ? '已找到的资源可直接下载，其余结果陆续加入'
-              : '正在补充字幕组信息，资源已可下载',
+              ? '已找到的资源可以使用，其余结果陆续加入'
+              : '正在补充字幕组信息，资源已可使用',
           for (final provider in providers)
             '${provider.sourceName} ${resourceProviderStatus(provider)}',
         ].join(' · '),
@@ -309,7 +311,10 @@ class ResourceArrival extends StatelessWidget {
 String resourceSizeLabel(TorrentRelease release) {
   final provided = (release.sizeLabel ?? '').trim();
   if (provided.isNotEmpty) return provided;
-  final bytes = release.sizeBytes ?? 0;
+  return resourceBytesLabel(release.sizeBytes ?? 0);
+}
+
+String resourceBytesLabel(int bytes) {
   if (bytes <= 1) return '大小未知';
   if (bytes >= 1073741824) {
     return '${(bytes / 1073741824).toStringAsFixed(1)} GiB';
@@ -337,6 +342,11 @@ const resourceTableWidth = 760.0;
 const resourceGroupColumnWidth = 120.0;
 const resourceSizeColumnWidth = 76.0;
 const resourceDateColumnWidth = 84.0;
+const resourcePlayWidth = 40.0;
+
+/// Width of the action columns: download (torrents) and play.
+double resourceActionsWidth({required bool wide}) =>
+    resourceDownloadWidth(labelled: wide, split: true) + resourcePlayWidth;
 
 class ResourceResultRow extends StatelessWidget {
   const ResourceResultRow({
@@ -345,39 +355,69 @@ class ResourceResultRow extends StatelessWidget {
     required this.info,
     required this.expanded,
     required this.onExpand,
-    required this.phase,
-    required this.onDownload,
+    this.notes = const [],
+    this.recommended = false,
+    this.download,
+    this.onPlay,
+    this.playing = false,
     this.error,
-    this.defaultMethod = CacheMethod.bt,
-    this.onAlternative,
-    this.alternativePhase = ResourceDownloadPhase.idle,
+    this.details,
   });
-  final ReleaseCandidate candidate;
+  final PlayCandidate candidate;
   final ResourceTitleInfo info;
-  final bool expanded;
-  final VoidCallback onExpand, onDownload;
-  final ResourceDownloadPhase phase;
+  final bool expanded, recommended, playing;
+  final VoidCallback onExpand;
+
+  /// Annotations beside the title's, such as match certainty or health.
+  final List<String> notes;
+
+  /// The download button of a torrent, given whether the row is wide.
+  final Widget Function(bool wide)? download;
+
+  /// Null when the row cannot be played from here.
+  final VoidCallback? onPlay;
   final String? error;
-  final CacheMethod defaultMethod;
-  final VoidCallback? onAlternative;
-  final ResourceDownloadPhase alternativePhase;
+
+  /// Shown below the original title when expanded, e.g. entries to choose.
+  final Widget? details;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final wide = constraints.maxWidth >= resourceTableWidth;
       final scheme = Theme.of(context).colorScheme;
-      final group = info.sourceGroups.isEmpty
-          ? '待确认'
-          : info.sourceGroups.join(' & ');
-      final size = resourceSizeLabel(candidate.release);
-      final date = resourceDateLabel(candidate.release);
-      final source = candidate.sourceName;
+      final groups = info.sourceGroups.join(' & ');
+      final (group, size, date) = switch (candidate.target) {
+        ReleaseTarget(candidate: ReleaseCandidate(:final release)) => (
+          groups.isEmpty ? '待确认' : groups,
+          resourceSizeLabel(release),
+          resourceDateLabel(release),
+        ),
+        DownloadTarget(:final task) => (
+          groups.isEmpty ? '—' : groups,
+          resourceBytesLabel(task.totalBytes),
+          '—',
+        ),
+        OnlineTarget() => (
+          candidate.line.isEmpty ? '—' : candidate.line,
+          '在线播放',
+          '—',
+        ),
+      };
+      final source = candidate.providerLabel ?? candidate.provider;
+      final detailUrl = switch (candidate.target) {
+        ReleaseTarget(candidate: ReleaseCandidate(:final release)) =>
+          release.detailUrl,
+        _ => null,
+      };
       final small = Theme.of(context).textTheme.bodySmall;
       final episodeLabel = info.episodeLabel;
       final episodeNote = '$episodeLabel（标题）';
       final labels = info.labels.where((label) => label != episodeNote);
-      final notes = info.notes.where((note) => note != episodeNote).toList();
+      final notes = [
+        ...info.notes.where((note) => note != episodeNote),
+        ...this.notes,
+      ];
       Widget tag(String text, {Color? background, Color? foreground}) =>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -395,7 +435,7 @@ class ResourceResultRow extends StatelessWidget {
             ),
           );
       return InkWell(
-        key: ValueKey('resource-original:${candidate.candidateId}'),
+        key: ValueKey('resource-original:${candidate.id}'),
         onTap: onExpand,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -411,7 +451,7 @@ class ResourceResultRow extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.only(top: 1, right: 2),
                           child: Tooltip(
-                            message: expanded ? '收起原名' : '展开完整原名',
+                            message: expanded ? '收起' : '展开完整原名',
                             child: AnimatedRotation(
                               turns: expanded ? .25 : 0,
                               duration: motionDuration(context, 150),
@@ -434,6 +474,11 @@ class ResourceResultRow extends StatelessWidget {
                             ),
                           ),
                         ),
+                        if (recommended)
+                          const Padding(
+                            padding: EdgeInsets.only(left: Gap.sm),
+                            child: MelonBadge('推荐'),
+                          ),
                       ],
                     ),
                     const SizedBox(height: 5),
@@ -444,6 +489,10 @@ class ResourceResultRow extends StatelessWidget {
                         runSpacing: 4,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
+                          tag(
+                            candidate.kind.label,
+                            background: scheme.secondaryContainer,
+                          ),
                           if (episodeLabel != null)
                             tag(
                               episodeLabel,
@@ -495,18 +544,20 @@ class ResourceResultRow extends StatelessWidget {
                                     info.title,
                                     style: const TextStyle(fontSize: 12),
                                   ),
-                                  if (candidate.release.detailUrl != null)
+                                  if (detailUrl != null)
                                     TextButton.icon(
                                       style: TextButton.styleFrom(
                                         padding: EdgeInsets.zero,
                                       ),
-                                      onPressed: () => _openSource(context),
+                                      onPressed: () =>
+                                          _openSource(context, detailUrl),
                                       icon: const Icon(
                                         Icons.open_in_new,
                                         size: 13,
                                       ),
                                       label: const Text('查看原始发布'),
                                     ),
+                                  ?details,
                                 ],
                               ),
                             )
@@ -516,7 +567,7 @@ class ResourceResultRow extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(left: 18, top: 4),
                         child: Text(
-                          '添加失败：$error',
+                          error!,
                           style: small?.copyWith(color: scheme.error),
                         ),
                       ),
@@ -564,22 +615,28 @@ class ResourceResultRow extends StatelessWidget {
               ],
               const SizedBox(width: Gap.sm),
               SizedBox(
-                width: resourceDownloadWidth(
-                  labelled: wide,
-                  split: onAlternative != null,
-                ),
+                width: resourceDownloadWidth(labelled: wide, split: true),
                 child: Align(
                   alignment: Alignment.centerRight,
-                  child: ResourceDownloadButton(
-                    phase: phase,
-                    error: error,
-                    showLabel: wide,
-                    onPressed: onDownload,
-                    defaultMethod: defaultMethod,
-                    onAlternative: onAlternative,
-                    alternativePhase: alternativePhase,
-                  ),
+                  child: download?.call(wide),
                 ),
+              ),
+              SizedBox(
+                width: resourcePlayWidth,
+                child: playing
+                    ? const Center(
+                        child: SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : onPlay == null
+                    ? null
+                    : IconButton(
+                        tooltip: '播放',
+                        onPressed: onPlay,
+                        icon: const Icon(Icons.play_arrow_rounded),
+                      ),
               ),
             ],
           ),
@@ -588,9 +645,9 @@ class ResourceResultRow extends StatelessWidget {
     },
   );
 
-  Future<void> _openSource(BuildContext context) async {
+  Future<void> _openSource(BuildContext context, String url) async {
     try {
-      final uri = Uri.parse(candidate.release.detailUrl!);
+      final uri = Uri.parse(url);
       if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
     } catch (_) {}
     if (context.mounted) {
