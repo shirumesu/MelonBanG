@@ -11,7 +11,7 @@ import '../../core/credentials.dart';
 import '../../core/service_configuration.dart';
 import '../../core/store.dart';
 
-class AccountRepository {
+class AccountRepository implements Account {
   AccountRepository(
     this.api,
     this.credentials, {
@@ -33,9 +33,12 @@ class AccountRepository {
   Json? _bundle;
   Json? _profile;
   Json? get session => _bundle == null ? _profile : object(_bundle!['user']);
+  @override
   AccountProfile? get profile =>
       session == null ? null : AccountProfile.fromJson(session!);
+  @override
   bool get needsAuthorization => _restoreNeedsAuthorization;
+  @override
   String get userId => '${session?['userId'] ?? 'local'}';
   HttpServer? _callback;
   Completer<String>? _authorization;
@@ -89,6 +92,7 @@ class AccountRepository {
     };
   }
 
+  @override
   Future<Json> signIn() async {
     final generation = ++_signInGeneration;
     await _cancelPendingSignIn();
@@ -258,6 +262,7 @@ class AccountRepository {
     return '${token['access_token']}';
   }
 
+  @override
   Future<dynamic> request(
     String path, {
     String method = 'GET',
@@ -296,6 +301,7 @@ class AccountRepository {
     }
   }
 
+  @override
   Future<void> cancelSignIn() async {
     _signInGeneration++;
     await _cancelPendingSignIn();
@@ -312,6 +318,7 @@ class AccountRepository {
     await callback?.close(force: true);
   }
 
+  @override
   Future<void> signOut() async {
     await cancelSignIn();
     _bundle = null;

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../integrations/bangumi/account.dart';
+import '../integrations/bangumi/community.dart';
 import '../integrations/melon_api/catalog.dart';
 import '../core/content_cache.dart';
 import '../core/credentials.dart';
@@ -36,6 +37,7 @@ import '../integrations/danmaku/bilibili.dart';
 import '../integrations/danmaku/dandanplay.dart';
 import '../integrations/danmaku/local.dart';
 import '../integrations/melon_api/source_rules.dart';
+import '../integrations/sources/engines.dart';
 import '../integrations/transfer/libtorrent.dart';
 import '../integrations/transfer/pikpak.dart';
 import '../integrations/transfer/pikpak_client.dart';
@@ -69,6 +71,7 @@ class AppServices {
   late final CatalogRepository catalog;
   late final ContentCache cache;
   late final TrackingRepository tracking;
+  late final BangumiPrivateClient community;
   late final DownloadRepository downloads;
   late final LibtorrentTransfer bt;
   late final PikPakTransfer pikpakTransfer;
@@ -130,6 +133,7 @@ class AppServices {
     catalog = CatalogRepository(api, store, cache);
     _dispose.add(catalog.close);
     tracking = TrackingRepository(store, account, catalog);
+    community = BangumiPrivateClient(account);
     _dispose.add(tracking.close);
     final pikpak = PikPakClient(credentials!);
     _dispose.add(() async => pikpak.close());
@@ -152,7 +156,12 @@ class AppServices {
       ], const LocalDanmaku()),
       DanmakuPreferences(preferences),
     );
-    sources = SourceRegistry(api, preferences, SourceRulesClient(api));
+    sources = SourceRegistry(
+      api,
+      preferences,
+      SourceRulesClient(api),
+      sourceEngines(api),
+    );
     _dispose.add(() async => sources.dispose());
     await sources.initialize();
     releases = ReleaseSearch(api, sources, downloads);

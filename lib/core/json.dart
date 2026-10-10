@@ -1,8 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
 
-import '../domain/catalog.dart';
-
 typedef Json = Map<String, dynamic>;
 Json object(dynamic value) =>
     value is Map ? Map<String, dynamic>.from(value) : {};
@@ -18,21 +16,6 @@ String titleOf(Json value) =>
 String newId() => base64Url
     .encode(List.generate(18, (_) => Random.secure().nextInt(256)))
     .replaceAll('=', '');
-
-Json collectionMutationFields(Json mutation) => mutation['fields'] is Map
-    ? object(mutation['fields'])
-    : {
-        if (mutation['status'] != null)
-          'type': CollectionStatus.parse('${mutation['status']}').remoteValue,
-        if (mutation['score'] != null) 'rate': mutation['score'],
-      };
-
-const collectionFieldNames = {
-  'type': 'status',
-  'rate': 'userScore',
-  'tags': 'collectionTags',
-  'comment': 'comment',
-};
 
 final _bangumiCover = RegExp(
   r'^https?://lain\.bgm\.tv/(?:r/\d+/)?pic/cover/[a-z]/(.+)$',
