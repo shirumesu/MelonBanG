@@ -213,13 +213,19 @@ class PlaybackCoordinator extends ChangeNotifier {
     }
   }
 
-  /// Continues a recently watched episode.
-  Future<void> resume(int subjectId, int episodeId) async {
-    final request = _nextSelection();
-    final detail = await tracking.subject(subjectId, forPlayback: true);
-    if (_closed || request != _selectionRequest) return;
+  /// Continues a recently watched episode, entering the player while its
+  /// sources are searched. [item] is loaded first when it has no episodes.
+  Future<void> resume(Subject item, int episodeId) async {
+    var detail = item;
+    if (detail.episode(episodeId) == null) {
+      final request = _nextSelection();
+      detail = await tracking.subject(item.id, forPlayback: true);
+      if (_closed || request != _selectionRequest) return;
+    }
     final episode = detail.episode(episodeId);
-    if (episode != null) await selectEpisode(detail, episode);
+    if (episode != null) {
+      await prepare(detail, episode, () => selectEpisode(detail, episode));
+    }
   }
 
   Future<List<PlayCandidate>> _candidates(
@@ -551,7 +557,7 @@ class PlaybackCoordinator extends ChangeNotifier {
       }
       if (!_closed && request == _selectionRequest) {
         await playback.player.pause();
-        playback.showNotice('暂无可立即播放的其他资源，请打开“资源”或改用 BT');
+        playback.showNotice('没有其他能直接播放的资源，请手动选择');
         playback.showResourceFailure(episode);
         shell.showError(reason);
         if (!shell.showingPlayer) await chooseSource(item, episode);

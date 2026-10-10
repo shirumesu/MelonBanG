@@ -286,7 +286,7 @@ class _MelonAppState extends State<MelonApp>
 
   Future<void> openSubject(Subject item) async {
     if (item.id <= 0) {
-      showError('该日程尚未关联番剧条目。');
+      showError('这部番暂时没有详情');
       return;
     }
     leavePlayer();
@@ -659,7 +659,7 @@ class _MelonAppState extends State<MelonApp>
         route: route,
         selectedRoute: selectedSection,
         sourcesWarning: ready && service.sources.warning,
-        nickname: account?.nickname ?? '尚未登录',
+        nickname: account?.nickname ?? '未登录',
         username: account?.username,
         avatarUrl: account?.avatarUrl,
         watchingCount: ready ? personal.watching.length : 0,
@@ -699,10 +699,6 @@ class _MelonAppState extends State<MelonApp>
     onPlayCandidate: (candidate, episode) => episode == null
         ? playCachedFile(candidate)
         : coordinator.playCandidate(candidate, coordinator.subject!, episode),
-    onFindAllResources: (episode) {
-      final current = coordinator.subject;
-      if (current != null) findResources(current, episode: episode);
-    },
     onOpenResources: openResourcePage,
   );
 
@@ -762,9 +758,8 @@ class _MelonAppState extends State<MelonApp>
           personal: personal,
           resume: resume,
           onOpenTracking: () => navigate('tracking'),
-          onResume: (item) => perform(
-            () => coordinator.resume(item.subject.id, item.episodeId),
-          ),
+          onResume: (item) =>
+              perform(() => coordinator.resume(item.subject, item.episodeId)),
           onExplore: focusSearch,
           feedback: homeFeedback,
           onCalendar: () => navigate('calendar'),

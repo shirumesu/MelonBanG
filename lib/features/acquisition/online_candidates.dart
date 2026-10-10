@@ -69,7 +69,6 @@ Future<List<PlayCandidate>> onlineCandidates(
                   _candidate(
                     rule,
                     site,
-                    label: label,
                     line: site.line ?? '',
                     target: OnlineTarget(
                       candidateId: '$id:${site.id}:${site.line}:$label',
@@ -170,13 +169,13 @@ PlayCandidate onlinePartCandidate(
 PlayCandidate _candidate(
   SourceInstance rule,
   SourceSubject site, {
-  required String label,
+  String? label,
   required String line,
   required OnlineTarget target,
   required bool possibleMatch,
   required int order,
 }) {
-  final title = '${site.title} · $label';
+  final title = label == null ? site.title : '${site.title} · $label';
   final info = describeResource(title);
   return PlayCandidate(
     kind: PlayKind.online,

@@ -257,7 +257,7 @@ class ResourceDownloadButton extends StatelessWidget {
 String resourceProviderStatus(SourceProgress source) => switch (source.status) {
   SearchStatus.loading => '搜索中 ${source.completed}/${source.total}',
   SearchStatus.error => '搜索失败',
-  SearchStatus.partial => '${source.resultCount} 条 · 部分名称失败',
+  SearchStatus.partial => '${source.resultCount} 条，部分失败',
   SearchStatus.ready => '${source.resultCount} 条',
 };
 
@@ -272,15 +272,9 @@ class ResourceSearchStatus extends StatelessWidget {
       const LinearProgressIndicator(minHeight: 2),
       const SizedBox(height: Gap.sm),
       Text(
-        [
-          providers.every((e) => e.resultCount == 0)
-              ? '正在查找资源，结果会陆续显示'
-              : providers.any((e) => e.status == SearchStatus.loading)
-              ? '已找到的资源可以使用，其余结果陆续加入'
-              : '正在补充字幕组信息，资源已可使用',
-          for (final provider in providers)
-            '${provider.sourceName} ${resourceProviderStatus(provider)}',
-        ].join(' · '),
+        providers.any((e) => e.status == SearchStatus.loading)
+            ? '正在搜索 ${providers.where((e) => e.status != SearchStatus.loading).length}/${providers.length} 个资源站'
+            : '正在补充字幕组信息',
         style: Theme.of(context).textTheme.bodySmall,
       ),
     ],
@@ -314,7 +308,7 @@ String resourceSizeLabel(TorrentRelease release) {
 }
 
 String resourceBytesLabel(int bytes) {
-  if (bytes <= 1) return '大小未知';
+  if (bytes <= 1) return '—';
   if (bytes >= 1073741824) {
     return '${(bytes / 1073741824).toStringAsFixed(1)} GiB';
   }
@@ -329,10 +323,10 @@ String resourceDateLabel(TorrentRelease release) {
     try {
       date = HttpDate.parse(raw).toLocal();
     } on HttpException {
-      return '未提供';
+      return '—';
     }
   }
-  if (date == null) return '未提供';
+  if (date == null) return '—';
   return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 }
 
@@ -355,6 +349,7 @@ class ResourceResultRow extends StatelessWidget {
     required this.expanded,
     required this.onExpand,
     this.notes = const [],
+    this.warnings = const [],
     this.recommended = false,
     this.download,
     this.onPlay,
@@ -367,8 +362,11 @@ class ResourceResultRow extends StatelessWidget {
   final bool expanded, recommended, playing;
   final VoidCallback onExpand;
 
-  /// Annotations beside the title's, such as match certainty or health.
+  /// Annotations beside the title's, such as duration or progress.
   final List<String> notes;
+
+  /// Annotations that need attention, such as match certainty or health.
+  final List<String> warnings;
 
   /// The download button of a torrent, given whether the row is wide.
   final Widget Function(bool wide)? download;
@@ -388,7 +386,7 @@ class ResourceResultRow extends StatelessWidget {
       final groups = info.sourceGroups.join(' & ');
       final (group, size, date) = switch (candidate.target) {
         ReleaseTarget(candidate: ReleaseCandidate(:final release)) => (
-          groups.isEmpty ? '待确认' : groups,
+          groups.isEmpty ? '—' : groups,
           resourceSizeLabel(release),
           resourceDateLabel(release),
         ),
@@ -399,7 +397,7 @@ class ResourceResultRow extends StatelessWidget {
         ),
         OnlineTarget() => (
           candidate.line.isEmpty ? '—' : candidate.line,
-          '在线播放',
+          '—',
           '—',
         ),
       };
@@ -411,10 +409,9 @@ class ResourceResultRow extends StatelessWidget {
       };
       final small = Theme.of(context).textTheme.bodySmall;
       final episodeLabel = info.episodeLabel;
-      final episodeNote = '$episodeLabel（标题）';
-      final labels = info.labels.where((label) => label != episodeNote);
+      final warnings = [...info.warnings, ...this.warnings];
       final notes = [
-        ...info.notes.where((note) => note != episodeNote),
+        if (info.titleCredits.length > 1) info.titleCredits.join(' & '),
         ...this.notes,
       ];
       Widget tag(String text, {Color? background, Color? foreground}) =>
@@ -450,7 +447,7 @@ class ResourceResultRow extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.only(top: 1, right: 2),
                           child: Tooltip(
-                            message: expanded ? '收起' : '展开完整原名',
+                            message: expanded ? '收起' : '显示原标题',
                             child: AnimatedRotation(
                               turns: expanded ? .25 : 0,
                               duration: motionDuration(context, 150),
@@ -485,7 +482,7 @@ class ResourceResultRow extends StatelessWidget {
                         children: [
                           if (recommended)
                             Tooltip(
-                              message: '当前列表里综合画质、字幕、格式和大小的最佳选择',
+                              message: '综合画质、字幕和大小推荐',
                               child: tag(
                                 '推荐',
                                 background: scheme.primary,
@@ -502,7 +499,9 @@ class ResourceResultRow extends StatelessWidget {
                           }, background: scheme.secondaryContainer),
                           if (episodeLabel != null)
                             tag(
-                              episodeLabel,
+                              episodeLabel.contains('–')
+                                  ? '合集 $episodeLabel'
+                                  : episodeLabel,
                               background: info.episodeConflict
                                   ? scheme.errorContainer
                                   : scheme.primaryContainer,
@@ -510,16 +509,14 @@ class ResourceResultRow extends StatelessWidget {
                                   ? scheme.onErrorContainer
                                   : scheme.onPrimaryContainer,
                             ),
-                          for (final label in labels) tag(label),
-                          if (notes.isNotEmpty)
-                            Text(
-                              notes.join(' · '),
-                              style: small?.copyWith(
-                                fontSize: 11,
-                                color: info.episodeConflict
-                                    ? scheme.error
-                                    : null,
-                              ),
+                          for (final label in info.labels) tag(label),
+                          for (final note in notes)
+                            tag(note, background: Colors.transparent),
+                          for (final warning in warnings)
+                            tag(
+                              warning,
+                              background: scheme.tertiaryContainer,
+                              foreground: scheme.onTertiaryContainer,
                             ),
                         ],
                       ),
@@ -532,8 +529,8 @@ class ResourceResultRow extends StatelessWidget {
                             group,
                             size,
                             date,
-                            if (source.isNotEmpty) source,
-                          ].join(' · '),
+                            source,
+                          ].where((e) => e.isNotEmpty && e != '—').join('  '),
                           style: small,
                         ),
                       ),
@@ -562,7 +559,7 @@ class ResourceResultRow extends StatelessWidget {
                                         Icons.open_in_new,
                                         size: 13,
                                       ),
-                                      label: const Text('查看原始发布'),
+                                      label: const Text('打开发布页'),
                                     ),
                                   ?details,
                                 ],
@@ -659,7 +656,7 @@ class ResourceResultRow extends StatelessWidget {
     } catch (_) {}
     if (context.mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('无法打开原始发布链接。')));
+          .showSnackBar(const SnackBar(content: Text('无法打开发布页')));
     }
   }
 }

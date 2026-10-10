@@ -75,7 +75,11 @@ class BilibiliEngine implements OnlineSourceEngine {
       id: row['bvid'] as String,
       title: html.parseFragment(row['title'] as String).text!,
       line: '投稿 · $author',
-      description: '$author · ${row['duration']}',
+      description: _clock(
+        (row['duration'] as String)
+            .split(':')
+            .fold(0, (a, b) => a * 60 + int.parse(b)),
+      ),
       choosePart: true,
     );
   }
@@ -132,7 +136,7 @@ class BilibiliEngine implements OnlineSourceEngine {
         for (final page in objects(data['pages']))
           SourceEpisode(
             label: 'P${page['page']} · ${page['part']}',
-            description: '${page['duration']} 秒',
+            description: _clock(page['duration'] as int),
             line: line,
             ref: StreamRef(instance.id, {
               'bvid': data['bvid'],
@@ -293,4 +297,13 @@ class BilibiliEngine implements OnlineSourceEngine {
     );
     return builder.buildDocument().toXmlString();
   }
+}
+
+/// "1:02:03" or "2:03".
+String _clock(int seconds) {
+  String two(int value) => value.toString().padLeft(2, '0');
+  final minutes = seconds ~/ 60 % 60, hours = seconds ~/ 3600;
+  return hours > 0
+      ? '$hours:${two(minutes)}:${two(seconds % 60)}'
+      : '$minutes:${two(seconds % 60)}';
 }

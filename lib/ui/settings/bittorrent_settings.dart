@@ -206,61 +206,56 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
     );
   }
 
-  Widget row(String title, Widget control, {String? help, String? note}) =>
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final label = Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+  Widget row(String title, Widget control, {String? help}) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 12),
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final label = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        title,
-                        style: Theme.of(context).textTheme.bodyMedium!
-                            .copyWith(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    if (help != null) ...[
-                      const SizedBox(width: 4),
-                      _HelpHint(message: help),
-                    ],
-                  ],
+                Flexible(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.bodyMedium!
+                        .copyWith(fontWeight: FontWeight.w600),
+                  ),
                 ),
-                if (note != null) ...[
-                  const SizedBox(height: 4),
-                  Text(note, style: Theme.of(context).textTheme.bodySmall),
+                if (help != null) ...[
+                  const SizedBox(width: 4),
+                  _HelpHint(message: help),
                 ],
               ],
-            );
-            if (constraints.maxWidth < 620) {
-              return SizedBox(
-                width: double.infinity,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    label,
-                    const SizedBox(height: 12),
-                    SizedBox(width: 260, child: control),
-                  ],
-                ),
-              );
-            }
-            return Row(
+            ),
+          ],
+        );
+        if (constraints.maxWidth < 620) {
+          return SizedBox(
+            width: double.infinity,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(child: label),
-                const SizedBox(width: 24),
+                label,
+                const SizedBox(height: 12),
                 SizedBox(width: 260, child: control),
               ],
-            );
-          },
-        ),
-      );
+            ),
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: label),
+            const SizedBox(width: 24),
+            SizedBox(width: 260, child: control),
+          ],
+        );
+      },
+    ),
+  );
 
-  Widget toggle(String key, String title, {String? help, String? note}) => row(
+  Widget toggle(String key, String title, {String? help}) => row(
     title,
     Align(
       alignment: Alignment.centerRight,
@@ -271,7 +266,6 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
       ),
     ),
     help: help,
-    note: note,
   );
 
   Widget speed(String key, String title) => row(
@@ -317,19 +311,13 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('控制传输速度，以及下载完成后如何分享。'),
-              const SizedBox(height: 16),
               MelonPanel(
                 child: Column(
                   children: separated([
                     speed('downloadKiB', '下载速度'),
                     speed('uploadKiB', '上传速度'),
                     row('同时下载', taskSlider('activeDownloads', 5)),
-                    toggle(
-                      'resumeOnStartup',
-                      '启动时继续任务',
-                      note: '关闭后，重新打开应用时任务保持暂停。',
-                    ),
+                    toggle('resumeOnStartup', '启动时继续任务'),
                     row(
                       '做种方案',
                       MelonChoiceMenu<String>(
@@ -427,11 +415,6 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                '保存后应用于现有任务，手动暂停的任务保持暂停。',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 16),
               if (error != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),

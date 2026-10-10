@@ -43,7 +43,6 @@ class _DanmakuPreferencesEditorState extends State<DanmakuPreferencesEditor> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (widget.display) ...[
-            Text('显示', style: Theme.of(context).textTheme.titleSmall),
             toggle('显示弹幕', prefs.enabled, (value) => prefs.enabled = value),
             Text('字号 ${prefs.size.round()}'),
             Slider(
@@ -96,7 +95,7 @@ class _DanmakuPreferencesEditorState extends State<DanmakuPreferencesEditor> {
                   ),
                   Expanded(
                     child: Text(
-                      '${rule.isRegex ? '/${rule.pattern}/' : rule.pattern}${rule.invalid ? ' · 正则无效' : ''}',
+                      '${rule.isRegex ? '/${rule.pattern}/' : rule.pattern}${rule.invalid ? '（正则无效）' : ''}',
                       style: TextStyle(
                         color: rule.invalid
                             ? Theme.of(context).colorScheme.error

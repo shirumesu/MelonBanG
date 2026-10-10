@@ -106,7 +106,7 @@ class _TrackingPageState extends State<TrackingPage> {
                 key: const PageStorageKey('collection-search'),
                 controller: search,
                 decoration: const InputDecoration(
-                  hintText: '在追番列表中搜索…',
+                  hintText: '搜索收藏',
                   prefixIcon: Icon(Icons.search, size: 18),
                 ),
                 onChanged: (value) => updateFilters(() => query = value),
@@ -151,10 +151,10 @@ class _TrackingPageState extends State<TrackingPage> {
               style: const TextStyle(color: gold, fontSize: 12),
             ),
           ),
-        SectionTitle(title: '${items.length} 部收藏', color: mint),
+        const SizedBox(height: Gap.lg),
         if (items.isEmpty)
           EmptyState(
-            text: collection.isEmpty ? '还没有收藏的番剧' : '当前筛选下没有收藏条目',
+            text: collection.isEmpty ? '还没有收藏的番剧' : '没有符合条件的番剧',
             actionLabel: query.isNotEmpty || quickFilter != '全部'
                 ? '清除筛选'
                 : '搜索番剧',
