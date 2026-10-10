@@ -5,7 +5,7 @@ import '../../app_services.dart';
 import '../../domain/play_candidate.dart';
 import '../core/theme.dart';
 import 'candidate_resources.dart';
-import 'playback.dart';
+import '../../features/playback/playback.dart';
 
 class PlayerResourceSheet extends StatefulWidget {
   const PlayerResourceSheet({

@@ -3,12 +3,13 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import 'danmaku_repository.dart';
-import 'catalog.dart';
-import 'downloads.dart';
-import 'json.dart';
-import 'resource_metadata.dart';
-import 'store.dart';
+import '../../data/catalog.dart';
+import '../../data/danmaku_repository.dart';
+import '../../data/json.dart';
+import '../../data/resource_metadata.dart';
+import '../../data/store.dart';
+import '../../domain/transfer.dart';
+import '../downloads/download_repository.dart';
 
 class PlaybackLibrary {
   PlaybackLibrary(this.store, this.downloads, this.danmaku, this.catalog);
@@ -28,10 +29,10 @@ class PlaybackLibrary {
     int? episodeId,
   }) async {
     final media = await downloads.openMedia(id, fileId: fileId);
-    subjectId ??= media['subjectId'] as int?;
-    episodeId ??= media['episodeId'] as int?;
-    final path = '${media['path']}';
-    final streamUrl = media['streamUrl'] as String?;
+    subjectId ??= media.subjectId;
+    episodeId ??= media.episodeId;
+    final path = media.file.path;
+    final streamUrl = media.streamUrl;
     if (streamUrl == null && !await File(path).exists()) {
       throw StateError('视频文件不存在');
     }
@@ -41,16 +42,16 @@ class PlaybackLibrary {
       'path': path,
       'source': {
         'url': streamUrl ?? Uri.file(path).toString(),
-        if (media['sourceHeaders'] != null) 'headers': media['sourceHeaders'],
+        if (media.headers != null) 'headers': media.headers,
       },
-      'resumeKey': 'download:$id:${media['id']}',
-      'streamId': media['streamId'],
+      'resumeKey': 'download:$id:${media.file.id}',
+      'streamId': media.streamId,
       'status': 'ready',
       'subjectId': subjectId,
       'episodeId': episodeId,
       'downloadId': id,
-      'fileId': media['id'],
-      'fileSize': media['size'],
+      'fileId': media.file.id,
+      'fileSize': media.file.size,
       'remoteSource': streamUrl != null,
       'danmaku': <Json>[],
       'danmakuSources': [
@@ -150,12 +151,12 @@ class PlaybackLibrary {
       await store.remove('episode_files', '$subjectId:$episodeId');
       final replacement = downloads.episodeMedia(subjectId, episodeId);
       return fromDownload(
-        '${replacement['downloadId']}',
-        fileId: '${replacement['id']}',
+        replacement.file.downloadId,
+        fileId: replacement.file.id,
       );
     }
     final media = downloads.episodeMedia(subjectId, episodeId);
-    return fromDownload('${media['downloadId']}', fileId: '${media['id']}');
+    return fromDownload(media.file.downloadId, fileId: media.file.id);
   }
 
   Future<Json?> progress(int subjectId, int episodeId) =>
@@ -171,7 +172,7 @@ class PlaybackLibrary {
       binding = await store.get('episode_files', '$subjectId:$episodeId');
     }
     try {
-      final Json media;
+      final TransferMedia media;
       if (binding?['downloadId'] case final String id) {
         media = downloads.contains(id)
             ? downloads.media(id, fileId: binding!['fileId'] as String?)
@@ -179,8 +180,7 @@ class PlaybackLibrary {
       } else {
         media = downloads.episodeMedia(subjectId, episodeId);
       }
-      return media['incomplete'] == true ||
-          await File('${media['path']}').exists();
+      return media.incomplete || await File(media.file.path).exists();
     } on StateError {
       return false;
     }
@@ -199,10 +199,8 @@ class PlaybackLibrary {
         if (id != null) ids.add(id);
       }
     }
-    for (final task in downloads.tasksForSubject(subjectId)) {
-      if (task['subjectId'] == subjectId && task['episodeId'] is int) {
-        ids.add(task['episodeId'] as int);
-      }
+    for (final task in downloads.snapshot().forSubject(subjectId)) {
+      if (task.episodeId case final int episodeId) ids.add(episodeId);
     }
     final available = <int>{};
     for (final id in ids) {
@@ -252,10 +250,7 @@ class PlaybackLibrary {
                     null)) {
           continue;
         }
-        final cached =
-            await store.get('catalog', 'detail:$subjectId') ??
-            await store.get('catalog', 'playback-detail:$subjectId');
-        final detail = object(object(cached?['value'])['data']);
+        final detail = await cachedSubjectDetail(store, subjectId) ?? {};
         final episodes = objects(detail['episodes'])
             .where((e) => e['episodeId'] == episodeId);
         result.add({

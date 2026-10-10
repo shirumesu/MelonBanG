@@ -1,9 +1,9 @@
-import '../../data/cache_method.dart';
-import '../../data/downloads.dart';
 import '../../data/json.dart';
 import '../../data/network.dart';
 import '../../data/torrent_identity.dart';
 import '../../domain/sources.dart';
+import '../../domain/transfer.dart';
+import '../downloads/download_repository.dart';
 import 'source_registry.dart';
 
 /// Torrent search across the usable index sources, and enqueueing of its
@@ -147,7 +147,7 @@ class ReleaseSearch {
     return snapshot();
   }
 
-  Future<Json> enqueue(
+  Future<DownloadTask> enqueue(
     ReleaseCandidate candidate, {
     int? episodeId,
     CacheMethod? method,

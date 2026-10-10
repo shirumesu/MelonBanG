@@ -9,11 +9,12 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../app_services.dart';
 import '../../domain/play_candidate.dart';
+import '../../domain/transfer.dart';
 import '../core/motion.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'danmaku.dart';
-import 'playback.dart';
+import '../../features/playback/playback.dart';
 import 'player_controls.dart';
 import 'player_library_panel.dart';
 import 'player_resource_sheet.dart';
@@ -56,7 +57,7 @@ class PlayerPage extends StatefulWidget {
   /// `preparePlayback` in app.dart.
   final Json? preparing;
   final VoidCallback? onRetryPreparing, onChoosePreparing;
-  final ValueListenable<Json> downloads;
+  final ValueListenable<TransferSnapshot> downloads;
   final ValueChanged<Json> onEpisode;
   final void Function(String id, String? fileId)? onPlayFile;
   final Future<void> Function(PlayCandidate candidate, Json episode)?
@@ -208,11 +209,10 @@ class _PlayerPageState extends State<PlayerPage> {
     if (index < 0 || index + 1 >= episodes.length) return null;
     final next = episodes[index + 1];
     final id = next['episodeId'] as int;
-    final tasks = subjectTasks(
-      widget.downloads.value,
+    final tasks = widget.downloads.value.forSubject(
       widget.subject?['subjectId'] as int?,
     );
-    return (next, playableTask(widget.downloads.value, tasks, id) != null);
+    return (next, playableTask(tasks, id) != null);
   }
 
   void toggleMenu(PlayerMenu value) {
@@ -444,7 +444,7 @@ class _PlayerPageState extends State<PlayerPage> {
                       ),
                       child: SizedBox(
                         width: libraryWidth,
-                        child: ValueListenableBuilder<Json>(
+                        child: ValueListenableBuilder<TransferSnapshot>(
                           valueListenable: widget.downloads,
                           builder: (context, downloads, _) =>
                               PlayerLibraryPanel(

@@ -3,32 +3,19 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../app_services.dart';
-import '../../data/bittorrent_settings.dart';
+import '../../domain/transfer.dart';
+import '../acquisition/download_labels.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 
-List<Json> subjectTasks(Json downloads, int? subjectId) => subjectId == null
-    ? []
-    : objects(downloads['tasks'])
-          .where((task) => task['subjectId'] == subjectId)
-          .toList();
-
-List<Json> taskVideoFiles(Json downloads, Json task) =>
-    objects(downloads['files'])
-        .where(
-          (file) =>
-              file['downloadId'] == task['id'] && file['mediaKind'] == 'video',
-        )
-        .toList();
-
 /// A task whose single video file can be played (finished or streaming).
-Json? playableTask(Json downloads, List<Json> tasks, int episodeId) => tasks
+DownloadTask? playableTask(List<DownloadTask> tasks, int episodeId) => tasks
     .where(
       (task) =>
-          task['episodeId'] == episodeId &&
-          !['checking', 'failed'].contains(task['status']) &&
-          taskVideoFiles(downloads, task).length == 1,
+          task.episodeId == episodeId &&
+          task.playable &&
+          task.videos.length == 1,
     )
     .firstOrNull;
 
@@ -50,7 +37,7 @@ class PlayerLibraryPanel extends StatefulWidget {
   final int? subjectId, episodeId;
   final Json? subject;
   final String title;
-  final Json downloads;
+  final TransferSnapshot downloads;
   final ValueChanged<Json> onEpisode;
   final ValueChanged<Json?> onFindResources;
   final void Function(String id, String? fileId) onPlayFile;
@@ -61,9 +48,8 @@ class PlayerLibraryPanel extends StatefulWidget {
 class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
   final episodeScroll = ScrollController();
   static const episodeHeight = 58.0;
-  final filesByTask = <Object?, List<Json>>{};
-  final tasksByEpisode = <Object?, List<Json>>{};
-  List<Json> _tasks = [];
+  final tasksByEpisode = <int?, List<DownloadTask>>{};
+  List<DownloadTask> _tasks = [];
   String tab = 'episodes';
   String? error;
   List<Json> episodes = [];
@@ -77,19 +63,13 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
     }
   }
 
-  List<Json> get tasks => _tasks;
+  List<DownloadTask> get tasks => _tasks;
 
   void indexDownloads() {
-    _tasks = subjectTasks(widget.downloads, widget.subjectId);
-    filesByTask.clear();
+    _tasks = widget.downloads.forSubject(widget.subjectId);
     tasksByEpisode.clear();
-    for (final file in objects(widget.downloads['files'])) {
-      if (file['mediaKind'] == 'video') {
-        filesByTask.putIfAbsent(file['downloadId'], () => []).add(file);
-      }
-    }
     for (final task in _tasks) {
-      tasksByEpisode.putIfAbsent(task['episodeId'], () => []).add(task);
+      tasksByEpisode.putIfAbsent(task.episodeId, () => []).add(task);
     }
   }
 
@@ -136,19 +116,23 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
     );
   });
 
-  Future<void> toggleTask(Json task) async {
+  Future<void> toggleTask(DownloadTask task) async {
     try {
-      if (['paused', 'failed', 'completed'].contains(task['status'])) {
-        await widget.service.downloads.resume('${task['id']}');
+      if (_resumable(task)) {
+        await widget.service.downloads.resume(task.id);
       } else {
-        await widget.service.downloads.pause('${task['id']}');
+        await widget.service.downloads.pause(task.id);
       }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     }
   }
 
-  List<Json> filesFor(Json task) => filesByTask[task['id']] ?? const [];
+  bool _resumable(DownloadTask task) => const {
+    DownloadStatus.paused,
+    DownloadStatus.failed,
+    DownloadStatus.completed,
+  }.contains(task.status);
 
   @override
   Widget build(BuildContext context) {
@@ -274,22 +258,16 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
     final small = Theme.of(context).textTheme.bodySmall;
     final id = episode['episodeId'] as int;
     final current = id == widget.episodeId;
-    final related = tasksByEpisode[id] ?? const <Json>[];
-    final complete = related
-        .where(
-          (task) =>
-              !['checking', 'failed'].contains(task['status']) &&
-              filesFor(task).length == 1,
-        )
-        .firstOrNull;
+    final related = tasksByEpisode[id] ?? const <DownloadTask>[];
+    final complete = playableTask(related, id);
     final task = complete ?? related.firstOrNull;
     final available = current || complete != null;
     final status = current
         ? '正在播放'
         : available
-        ? (task != null && number(task['progress']) < 1 ? '可边下边看' : '已缓存')
+        ? (task != null && !task.complete ? '可边下边看' : '已缓存')
         : task != null
-        ? '${taskStatus(task)} · ${(number(task['progress']) * 100).round()}%'
+        ? '${taskStatus(task)} · ${(task.progress * 100).round()}%'
         : '未缓存 · 点击查找资源';
     final title = titleOf(episode);
     return Padding(
@@ -385,10 +363,10 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
     );
   }
 
-  Widget taskTile(Json task) {
-    final progress = number(task['progress']).clamp(0.0, 1.0);
-    final episode = episodesById[task['episodeId']];
-    final files = filesFor(task);
+  Widget taskTile(DownloadTask task) {
+    final progress = task.progress.clamp(0.0, 1.0);
+    final episode = episodesById[task.episodeId];
+    final files = task.videos;
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Ink(
@@ -402,16 +380,16 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
           children: [
             Row(
               children: [
-                if (task['coverUrl'] != null) ...[
+                if (task.coverUrl != null) ...[
                   SizedBox(
                     width: 28,
                     height: 38,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(5),
                       child: SubjectCover(
-                        url: task['coverUrl'],
-                        title: '${task['title'] ?? ''}',
-                        id: number(task['subjectId']).toInt(),
+                        url: task.coverUrl,
+                        title: task.title,
+                        id: task.subjectId ?? 0,
                       ),
                     ),
                   ),
@@ -419,9 +397,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                 ],
                 Expanded(
                   child: Text(
-                    episode == null
-                        ? '${task['title'] ?? '本作资源'}'
-                        : '第 ${episode['sort']} 话',
+                    episode == null ? task.title : '第 ${episode['sort']} 话',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 12),
@@ -431,37 +407,22 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                   '${(progress * 100).round()}%',
                   style: const TextStyle(fontSize: 11),
                 ),
-                if (task['status'] != 'completed' ||
-                    task['seedingStopped'] == true)
+                if (task.status != DownloadStatus.completed ||
+                    task.seedingStopped)
                   IconButton(
-                    tooltip:
-                        [
-                          'paused',
-                          'failed',
-                          'completed',
-                        ].contains(task['status'])
-                        ? (progress >= 1 && task['provider'] != 'pikpak'
-                              ? '继续做种'
-                              : '继续下载')
-                        : (progress >= 1 && task['provider'] != 'pikpak'
-                              ? '暂停做种'
-                              : '暂停下载'),
+                    tooltip: _resumable(task)
+                        ? (progress >= 1 && !task.cloud ? '继续做种' : '继续下载')
+                        : (progress >= 1 && !task.cloud ? '暂停做种' : '暂停下载'),
                     onPressed: () => toggleTask(task),
                     icon: Icon(
-                      ['paused', 'failed', 'completed'].contains(task['status'])
-                          ? Icons.play_arrow
-                          : Icons.pause,
+                      _resumable(task) ? Icons.play_arrow : Icons.pause,
                       size: 18,
                     ),
                   ),
-                if (!['checking', 'failed'].contains(task['status']) &&
-                    files.length == 1)
+                if (task.playable && files.length == 1)
                   IconButton(
                     tooltip: progress >= 1 ? '播放已缓存视频' : '边下边看',
-                    onPressed: () => widget.onPlayFile(
-                      '${task['id']}',
-                      '${files.first['id']}',
-                    ),
+                    onPressed: () => widget.onPlayFile(task.id, files.first.id),
                     icon: const Icon(Icons.play_arrow, size: 18),
                   ),
               ],
@@ -473,23 +434,22 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
             ),
             const SizedBox(height: 7),
             Text(
-              '${taskStatus(task)}${task['status'] == 'seeding'
-                  ? ' · ↑ ${(number(task['uploadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} MiB/s'
-                  : task['status'] == 'downloading'
-                  ? ' · ${(number(task['downloadSpeedBytesPerSecond']) / 1048576).toStringAsFixed(1)} MB/s'
+              '${taskStatus(task)}${task.status == DownloadStatus.seeding
+                  ? ' · ↑ ${(task.uploadSpeed / 1048576).toStringAsFixed(1)} MiB/s'
+                  : task.status == DownloadStatus.downloading
+                  ? ' · ${(task.downloadSpeed / 1048576).toStringAsFixed(1)} MB/s'
                   : ''}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            if (task['errorMessage'] != null)
+            if (task.errorMessage case final message?)
               Text(
-                '${task['errorMessage']}',
+                message,
                 style: TextStyle(
                   fontSize: 11,
                   color: Theme.of(context).colorScheme.error,
                 ),
               ),
-            if (!['checking', 'failed'].contains(task['status']) &&
-                files.length > 1)
+            if (task.playable && files.length > 1)
               ExpansionTile(
                 tilePadding: EdgeInsets.zero,
                 title: Text(
@@ -501,12 +461,11 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                     ListTile(
                       dense: true,
                       title: Text(
-                        '${file['name']}',
+                        file.name,
                         style: const TextStyle(fontSize: 11),
                       ),
                       trailing: const Icon(Icons.play_arrow, size: 16),
-                      onTap: () =>
-                          widget.onPlayFile('${task['id']}', '${file['id']}'),
+                      onTap: () => widget.onPlayFile(task.id, file.id),
                     ),
                 ],
               ),
@@ -517,10 +476,5 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
   }
 }
 
-String taskStatus(Json task) => task['provider'] == 'pikpak'
-    ? 'PikPak · ${switch (task['status']) {
-        'metadata' => '云端准备中',
-        'downloading' => '下载到本机',
-        _ => downloadStatus(task),
-      }}'
-    : downloadStatus(task);
+String taskStatus(DownloadTask task) =>
+    task.cloud ? 'PikPak · ${downloadStatus(task)}' : downloadStatus(task);

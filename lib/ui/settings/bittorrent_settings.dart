@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../../data/bittorrent_settings.dart';
-import '../../data/downloads.dart';
+import '../../domain/bittorrent_settings.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
 
 class BitTorrentSettingsPanel extends StatefulWidget {
-  const BitTorrentSettingsPanel({super.key, required this.downloads});
-  final DownloadRepository downloads;
+  const BitTorrentSettingsPanel({
+    super.key,
+    required this.settings,
+    required this.onSave,
+  });
+  final BitTorrentSettings settings;
+  final Future<void> Function(BitTorrentSettings) onSave;
   @override
   State<BitTorrentSettingsPanel> createState() =>
       _BitTorrentSettingsPanelState();
@@ -36,7 +40,7 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
   @override
   void initState() {
     super.initState();
-    load(widget.downloads.settings);
+    load(widget.settings);
   }
 
   void load(BitTorrentSettings settings) {
@@ -131,7 +135,7 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
     try {
       final settings = BitTorrentSettings.fromJson(values);
       settings.validate();
-      await widget.downloads.saveSettings(settings);
+      await widget.onSave(settings);
       if (mounted) setState(() => saved = true);
     } catch (_) {
       if (mounted) setState(() => error = '暂时无法保存设置，请重试。');

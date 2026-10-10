@@ -1,19 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../data/json.dart';
-import '../../data/bittorrent_settings.dart';
+import '../../domain/transfer.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
-
-String _transferRate(dynamic value) {
-  final bytes = number(value);
-  if (bytes <= 0) return '0 B/s';
-  if (bytes < 1024) return '${bytes.toStringAsFixed(0)} B/s';
-  if (bytes < 1048576) return '${(bytes / 1024).toStringAsFixed(1)} KiB/s';
-  return '${(bytes / 1048576).toStringAsFixed(1)} MiB/s';
-}
+import 'download_labels.dart';
 
 class DownloadsPage extends StatefulWidget {
   const DownloadsPage({
@@ -27,9 +19,9 @@ class DownloadsPage extends StatefulWidget {
     required this.onStopSeeding,
     required this.onPlay,
   });
-  final Json downloads;
+  final TransferSnapshot downloads;
   final VoidCallback onAddMagnet, onAddTorrent, onExplore;
-  final ValueChanged<Json> onTogglePause, onRemove, onStopSeeding;
+  final ValueChanged<DownloadTask> onTogglePause, onRemove, onStopSeeding;
   final void Function(String, String?) onPlay;
   @override
   State<DownloadsPage> createState() => _DownloadsPageState();
@@ -40,25 +32,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
   String statusFilter = '所有状态';
   final expanded = <String>{};
   StateSetter? _refreshFileDialog;
-  final filesByTask = <Object?, List<Json>>{};
-
-  void indexFiles() {
-    filesByTask.clear();
-    for (final file in objects(widget.downloads['files'])) {
-      filesByTask.putIfAbsent(file['downloadId'], () => []).add(file);
-    }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    indexFiles();
-  }
 
   @override
   void didUpdateWidget(covariant DownloadsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.downloads != widget.downloads) indexFiles();
     if (_refreshFileDialog != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _refreshFileDialog?.call(() {});
@@ -68,33 +45,27 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final tasks = objects(widget.downloads['tasks'])
-        .where((t) => t['status'] != 'removed')
-        .toList();
+    final tasks = widget.downloads.tasks;
     final visible = tasks.where((t) {
-      final complete = number(t['progress']) >= 1;
       final category =
-          filter == '全部' || (filter == '已缓存' ? complete : !complete);
+          filter == '全部' || (filter == '已缓存' ? t.complete : !t.complete);
       final status = switch (statusFilter) {
-        '已暂停' => t['status'] == 'paused',
-        '失败' => t['status'] == 'failed',
-        '做种中' => t['status'] == 'seeding',
+        '已暂停' => t.status == DownloadStatus.paused,
+        '失败' => t.status == DownloadStatus.failed,
+        '做种中' => t.status == DownloadStatus.seeding,
         _ => true,
       };
       return category && status;
     }).toList();
-    final speed = tasks.fold<double>(
-      0,
-      (sum, t) => sum + number(t['downloadSpeedBytesPerSecond']),
-    );
-    final active = visible.where((t) => number(t['progress']) < 1).toList();
-    final cached = visible.where((t) => number(t['progress']) >= 1).toList();
+    final speed = tasks.fold<int>(0, (sum, t) => sum + t.downloadSpeed);
+    final active = visible.where((t) => !t.complete).toList();
+    final cached = visible.where((t) => t.complete).toList();
     return PageScroll(
       children: [
         SectionTitle(
           title: '缓存',
           subtitle:
-              '${tasks.length} 个任务 · ${tasks.where((t) => number(t['progress']) >= 1).length} 个已缓存',
+              '${tasks.length} 个任务 · ${tasks.where((t) => t.complete).length} 个已缓存',
           trailing: Wrap(
             spacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
@@ -169,20 +140,24 @@ class _DownloadsPageState extends State<DownloadsPage> {
     );
   }
 
-  Widget _task(BuildContext context, Json task) {
-    final id = '${task['id']}';
-    final progress = number(task['progress']).clamp(0.0, 1.0).toDouble();
-    final complete = progress >= 1;
-    final cloud = task['provider'] == 'pikpak';
-    final canStop = complete && ['seeding', 'queued'].contains(task['status']);
+  Widget _task(BuildContext context, DownloadTask task) {
+    final id = task.id;
+    final progress = task.progress.clamp(0.0, 1.0);
+    final complete = task.complete;
+    final cloud = task.cloud;
+    final status = task.status;
+    final swarm = task.swarm;
+    final canStop =
+        complete &&
+        (status == DownloadStatus.seeding || status == DownloadStatus.queued);
     final canResume =
-        ['paused', 'failed'].contains(task['status']) ||
-        (task['status'] == 'completed' && task['seedingStopped'] == true);
-    final stoppedByPolicy = task['status'] == 'completed' && !canResume;
-    final files = filesByTask[task['id']] ?? const <Json>[];
-    final videos = files.where((f) => f['mediaKind'] == 'video').toList();
-    final playable =
-        !['checking', 'failed'].contains(task['status']) && videos.isNotEmpty;
+        status == DownloadStatus.paused ||
+        status == DownloadStatus.failed ||
+        (status == DownloadStatus.completed && task.seedingStopped);
+    final stoppedByPolicy = status == DownloadStatus.completed && !canResume;
+    final files = task.files;
+    final videos = task.videos;
+    final playable = task.playable && videos.isNotEmpty;
     final scheme = Theme.of(context).colorScheme;
     final details = expanded.contains(id);
     return MelonPanel(
@@ -199,9 +174,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(10),
                   child: SubjectCover(
-                    url: task['coverUrl'],
-                    title: '${task['title'] ?? ''}',
-                    id: number(task['subjectId']).toInt(),
+                    url: task.coverUrl,
+                    title: task.title,
+                    id: task.subjectId ?? 0,
                   ),
                 ),
               ),
@@ -211,7 +186,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${task['title']}',
+                      task.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -225,14 +200,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       runSpacing: 5,
                       children: [
                         MelonBadge(
-                          cloud
-                              ? switch (task['status']) {
-                                  'metadata' => '云端准备中',
-                                  'downloading' => '下载到本机',
-                                  _ => downloadStatus(task),
-                                }
-                              : downloadStatus(task),
-                          color: task['status'] == 'failed'
+                          downloadStatus(task),
+                          color: status == DownloadStatus.failed
                               ? coral
                               : complete
                               ? sky
@@ -246,9 +215,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
                           ),
                         if (!complete)
                           Text(
-                            cloud && task['status'] == 'metadata'
+                            cloud && status == DownloadStatus.metadata
                                 ? '等待 PikPak 完成离线下载'
-                                : '${(progress * 100).toStringAsFixed(0)}% · ↓ ${_transferRate(task['downloadSpeedBytesPerSecond'])}',
+                                : '${(progress * 100).toStringAsFixed(0)}% · ↓ ${transferRate(task.downloadSpeed)}',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                       ],
@@ -304,11 +273,11 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ),
             ],
           ),
-          if (task['errorMessage'] != null || task['persistenceError'] != null)
+          if ((task.errorMessage ?? task.persistenceError) case final issue?)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Text(
-                '${task['errorMessage'] ?? task['persistenceError']}',
+                issue,
                 style: TextStyle(color: scheme.error, fontSize: 12),
               ),
             ),
@@ -317,39 +286,36 @@ class _DownloadsPageState extends State<DownloadsPage> {
             if (files.isNotEmpty)
               Text(
                 files.length == 1
-                    ? '${files.single['name']}'
-                    : '${files.length} 个文件 · ${files.first['name']}',
+                    ? files.single.name
+                    : '${files.length} 个文件 · ${files.first.name}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             const SizedBox(height: 8),
             Text(
               cloud
-                  ? 'PikPak 云端文件 → 本机缓存 · ↓ ${_transferRate(task['downloadSpeedBytesPerSecond'])}'
-                  : '↓ ${_transferRate(task['downloadSpeedBytesPerSecond'])} · ↑ ${_transferRate(task['uploadSpeedBytesPerSecond'])} · ${number(task['peerCount']).toInt()} 个连接 · 分享率 ${number(task['totalBytes']) > 0 ? (number(task['uploadedBytes']) / number(task['totalBytes'])).toStringAsFixed(2) : '0.00'}',
+                  ? 'PikPak 云端文件 → 本机缓存 · ↓ ${transferRate(task.downloadSpeed)}'
+                  : '↓ ${transferRate(task.downloadSpeed)} · ↑ ${transferRate(task.uploadSpeed)} · ${swarm.peers} 个连接 · 分享率 ${task.totalBytes > 0 ? (task.uploadedBytes / task.totalBytes).toStringAsFixed(2) : '0.00'}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            if (!cloud && !complete && task.containsKey('trackerCount')) ...[
+            if (!cloud && !complete && swarm.trackers != null) ...[
               const SizedBox(height: 6),
               Text(
-                '发现 ${number(task['knownPeerCount']).toInt()} 个节点 · Tracker ${number(task['workingTrackers']).toInt()}/${number(task['trackerCount']).toInt()} 可用'
-                '${number(task['failedTrackers']) > 0 ? '（${number(task['failedTrackers']).toInt()} 个连接异常）' : ''}'
-                ' · ${number(task['dhtNodes']) < 0 ? 'DHT 已关闭' : 'DHT ${number(task['dhtNodes']).toInt()} 个节点'}',
+                '发现 ${swarm.knownPeers ?? 0} 个节点 · Tracker ${swarm.workingTrackers ?? 0}/${swarm.trackers} 可用'
+                '${(swarm.failedTrackers ?? 0) > 0 ? '（${swarm.failedTrackers} 个连接异常）' : ''}'
+                ' · ${(swarm.dhtNodes ?? 0) < 0 ? 'DHT 已关闭' : 'DHT ${swarm.dhtNodes ?? 0} 个节点'}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              if ([
-                    'metadata',
-                    'downloading',
-                    'ready',
-                  ].contains(task['status']) &&
-                  number(task['peerCount']) == 0)
+              if ((status == DownloadStatus.metadata ||
+                      status == DownloadStatus.downloading) &&
+                  swarm.peers == 0)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
-                    number(task['knownPeerCount']) > 0
+                    (swarm.knownPeers ?? 0) > 0
                         ? '已发现节点，正在尝试连接。'
-                        : number(task['failedTrackers']) > 0 &&
-                              number(task['workingTrackers']) == 0 &&
-                              number(task['dhtNodes']) <= 0
+                        : (swarm.failedTrackers ?? 0) > 0 &&
+                              (swarm.workingTrackers ?? 0) == 0 &&
+                              (swarm.dhtNodes ?? 0) <= 0
                         ? '暂未发现下载节点。可检查网络是否允许 BT / UDP，或尝试其他资源。'
                         : '正在寻找下载节点；等待时间也取决于资源的做种情况。',
                     style: Theme.of(context).textTheme.bodySmall,
@@ -358,7 +324,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
             ],
             if (!cloud && complete)
               Text(
-                '已上传 ${(number(task['uploadedBytes']) / 1048576).toStringAsFixed(1)} MiB · 累计做种 ${(number(task['seedSeconds']) / 60).floor()} 分钟',
+                '已上传 ${(task.uploadedBytes / 1048576).toStringAsFixed(1)} MiB · 累计做种 ${(task.seedSeconds / 60).floor()} 分钟',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             const SizedBox(height: 8),
@@ -372,7 +338,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     icon: const Icon(Icons.folder_open_outlined, size: 17),
                     label: const Text('查看文件'),
                   ),
-                if (!cloud && complete && task['status'] != 'checking')
+                if (!cloud && complete && status != DownloadStatus.checking)
                   TextButton.icon(
                     onPressed: stoppedByPolicy
                         ? null
@@ -418,15 +384,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
         builder: (context) => StatefulBuilder(
           builder: (context, refresh) {
             _refreshFileDialog = refresh;
-            final task = objects(widget.downloads['tasks'])
-                .where(
-                  (task) =>
-                      '${task['id']}' == id && task['status'] != 'removed',
-                )
-                .firstOrNull;
-            final files = objects(widget.downloads['files'])
-                .where((file) => '${file['downloadId']}' == id)
-                .toList();
+            final task = widget.downloads.task(id);
+            final files = task?.files ?? const <DownloadFile>[];
             return AlertDialog(
               title: Text(task == null ? '任务已移除' : '任务文件'),
               content: SizedBox(
@@ -438,32 +397,30 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   itemBuilder: (context, index) {
                     final file = files[index];
                     final playable =
-                        task != null &&
-                        file['mediaKind'] == 'video' &&
-                        !['checking', 'failed'].contains(task['status']);
+                        task != null && file.video && task.playable;
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(
-                        file['mediaKind'] == 'video'
+                        file.video
                             ? Icons.video_file_outlined
                             : Icons.insert_drive_file_outlined,
                         size: 20,
                       ),
                       title: Text(
-                        '${file['name']}',
+                        file.name,
                         style: const TextStyle(fontSize: 12),
                       ),
                       subtitle: Text(
-                        '${(number(file['size']) / 1048576).toStringAsFixed(1)} MiB · ${(number(file['progress']) * 100).toStringAsFixed(0)}%',
+                        '${(file.size / 1048576).toStringAsFixed(1)} MiB · ${(file.progress * 100).toStringAsFixed(0)}%',
                       ),
-                      trailing: file['mediaKind'] != 'video'
+                      trailing: !file.video
                           ? null
                           : IconButton(
                               tooltip: '播放此文件',
                               onPressed: playable
                                   ? () {
                                       Navigator.pop(context);
-                                      widget.onPlay(id, '${file['id']}');
+                                      widget.onPlay(id, file.id);
                                     }
                                   : null,
                               icon: const Icon(Icons.play_arrow, size: 20),

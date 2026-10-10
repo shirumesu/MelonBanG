@@ -1,18 +1,23 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
-import 'json.dart';
-import 'pikpak.dart';
-import 'store.dart';
-import 'torrent_identity.dart';
+import '../../data/json.dart';
+import '../../data/store.dart';
+import '../../data/torrent_identity.dart';
+import '../../domain/sources.dart';
+import '../../domain/transfer.dart';
+import 'pikpak_client.dart';
+import 'records.dart';
 
-/// Cloud acquisition and local cache records have independent lifetimes.
-class PikPakDownloadRepository {
-  PikPakDownloadRepository(
+/// PikPak offline download followed by a local copy. Cloud acquisition and
+/// local cache records have independent lifetimes.
+class PikPakTransfer implements Transfer {
+  PikPakTransfer(
     this.store,
     String directory,
     this.client, {
@@ -26,7 +31,11 @@ class PikPakDownloadRepository {
   final PikPakClient client;
   final Duration pollInterval;
   final http.Client _transfer;
-  final changes = StreamController<Json>.broadcast();
+  @override
+  CacheMethod get method => CacheMethod.pikpak;
+  final _changes = StreamController<void>.broadcast();
+  @override
+  Stream<void> get changes => _changes.stream;
   final _tasks = <String, Json>{};
   final _adding = <String, Future<Json>>{};
   final _removing = <String, Future<void>>{};
@@ -35,6 +44,7 @@ class PikPakDownloadRepository {
   Completer<void>? _abort, _wake;
   bool _closed = false;
 
+  @override
   Future<void> initialize() async {
     _requireOpen();
     for (final task in await store.list('pikpak_downloads')) {
@@ -52,58 +62,71 @@ class PikPakDownloadRepository {
     _emit();
   }
 
-  Json snapshot() {
-    final tasks = [
-      for (final task in _tasks.values)
-        {
-          ...task,
-          'files': [
-            for (final file in objects(task['files'])) {...file},
-          ],
-        },
-    ];
-    return {
-      'tasks': tasks,
-      'files': tasks.expand((task) => objects(task['files'])).toList(),
-    };
-  }
+  @override
+  List<DownloadTask> tasks() => [
+    for (final task in _tasks.values) downloadTask(task, CacheMethod.pikpak),
+  ];
 
+  @override
   bool contains(String id) => _tasks.containsKey(id);
 
-  Future<Json> addMagnet(
-    String input, {
+  @override
+  Future<DownloadTask> addMagnet(
+    Uri magnet, {
+    String? title,
     int? subjectId,
     int? episodeId,
     String? coverUrl,
-    String? title,
     List<String> releaseGroups = const [],
-  }) {
+  }) async {
     _requireOpen();
     final owner = client.userId;
     if (!client.isSignedIn || owner == null) {
       throw StateError('请先在设置中登录 PikPak');
     }
-    final uri = Uri.parse(input.trim());
-    if (uri.scheme != 'magnet') throw const FormatException('请输入磁力链接');
-    final fingerprint = magnetInfoHash(uri);
+    final fingerprint = magnetInfoHash(magnet);
     final key = '$owner:$fingerprint';
-    return _adding.putIfAbsent(
-      key,
-      () =>
-          _create(
-            uri.toString(),
-            owner,
-            fingerprint,
-            title ?? uri.queryParameters['dn'] ?? 'PikPak 云端缓存',
-            subjectId,
-            episodeId,
-            coverUrl,
-            releaseGroups,
-          ).whenComplete(() {
-            _adding.remove(key);
-          }),
+    return downloadTask(
+      await _adding.putIfAbsent(
+        key,
+        () =>
+            _create(
+              magnet.toString(),
+              owner,
+              fingerprint,
+              title ?? magnet.queryParameters['dn'] ?? 'PikPak 云端缓存',
+              subjectId,
+              episodeId,
+              coverUrl,
+              releaseGroups,
+            ).whenComplete(() {
+              _adding.remove(key);
+            }),
+      ),
+      CacheMethod.pikpak,
     );
   }
+
+  /// PikPak accepts magnets only; the torrent is reduced to its info hash.
+  @override
+  Future<DownloadTask> addTorrent(
+    Uint8List bytes,
+    String name, {
+    int? subjectId,
+    int? episodeId,
+    String? coverUrl,
+    List<String> releaseGroups = const [],
+  }) => addMagnet(
+    Uri(
+      scheme: 'magnet',
+      queryParameters: {'xt': 'urn:btih:${torrentInfoHash(bytes)}', 'dn': name},
+    ),
+    title: name,
+    subjectId: subjectId,
+    episodeId: episodeId,
+    coverUrl: coverUrl,
+    releaseGroups: releaseGroups,
+  );
 
   Future<Json> _create(
     String input,
@@ -115,6 +138,7 @@ class PikPakDownloadRepository {
     String? coverUrl,
     List<String> releaseGroups,
   ) async {
+    coverUrl ??= await cachedCover(store, subjectId);
     await _removing['$owner:$fingerprint'];
     _requireOpen();
     final existing = _tasks.values
@@ -498,6 +522,7 @@ class PikPakDownloadRepository {
         : 0.0;
   }
 
+  @override
   Future<void> pause(String id) async {
     _requireOpen();
     final task = _task(id);
@@ -510,6 +535,7 @@ class PikPakDownloadRepository {
     _emit();
   }
 
+  @override
   Future<void> resume(String id) async {
     _requireOpen();
     final task = _task(id);
@@ -545,6 +571,7 @@ class PikPakDownloadRepository {
     await _worker;
   }
 
+  @override
   Future<void> remove(String id) {
     _requireOpen();
     final task = _tasks[id];
@@ -569,7 +596,7 @@ class PikPakDownloadRepository {
     _emit();
   }
 
-  Json media(String id, {String? fileId}) {
+  (Json, Json, int) _video(String id, String? fileId) {
     final task = _task(id);
     final videos = objects(task['files'])
         .where((file) => file['mediaKind'] == 'video')
@@ -584,48 +611,51 @@ class PikPakDownloadRepository {
     if (file['complete'] != true && !_owns(task)) {
       throw StateError('请登录创建此缓存的 PikPak 账号');
     }
-    return {
-      ...file,
-      'incomplete': file['complete'] != true,
-      'subjectId': task['subjectId'],
-      'episodeId': videos.length == 1 ? task['episodeId'] : null,
-    };
+    return (task, file, videos.length);
   }
 
-  Json episodeMedia(int subjectId, int episodeId) {
-    final matches =
-        _tasks.values
-            .where(
-              (task) =>
-                  task['subjectId'] == subjectId &&
-                  task['episodeId'] == episodeId,
-            )
-            .toList()
-          ..sort(
-            (a, b) => number(b['progress']).compareTo(number(a['progress'])),
-          );
-    for (final task in matches) {
-      try {
-        return media('${task['id']}');
-      } on StateError {
-        continue;
-      }
-    }
-    throw StateError('该章节尚无可播放下载，请选择资源或具体视频文件');
+  @override
+  TransferMedia media(String id, {String? fileId}) {
+    final (task, file, videos) = _video(id, fileId);
+    return TransferMedia(
+      file: downloadFile(file),
+      incomplete: file['complete'] != true,
+      subjectId: task['subjectId'] as int?,
+      episodeId: videos == 1 ? task['episodeId'] as int? : null,
+    );
   }
 
-  Future<Json> openMedia(String id, {String? fileId}) async {
+  @override
+  Future<TransferMedia> openMedia(String id, {String? fileId}) async {
     final selected = media(id, fileId: fileId);
-    if (selected['incomplete'] != true) return selected;
-    final remote = await client.file('${selected['cloudFileId']}');
+    if (!selected.incomplete) return selected;
+    final (_, file, _) = _video(id, fileId);
+    final remote = await client.file('${file['cloudFileId']}');
     if (!_owns(_task(id))) throw StateError('PikPak 账号已切换，请重新选择文件');
     await resume(id);
-    return {
-      ...selected,
-      'streamUrl': _downloadAddress(remote),
-      'sourceHeaders': <String, String>{'Accept': 'application/octet-stream'},
-    };
+    return selected.streaming(
+      _downloadAddress(remote),
+      headers: {'Accept': 'application/octet-stream'},
+    );
   }
+
+  static const driveUrl = 'https://api-drive.mypikpak.com/drive/v1/files';
+
+  /// Checks that the signed-in drive answers, for source diagnostics.
+  Future<void> checkAccess() async {
+    if (!client.isSignedIn || client.needsAuthorization) {
+      throw StateError('请在设置中登录 PikPak 后重试');
+    }
+    try {
+      await client.files('');
+    } on PikPakCaptchaRequired catch (error) {
+      throw SourceVerificationRequired(error.url.toString());
+    }
+  }
+
+  /// Files are read directly from PikPak; there is no local stream to stop.
+  @override
+  void releaseStreamsExcept(int? keep) {}
 
   Future<void> _persist(Json task) {
     final saved = object(jsonDecode(jsonEncode(task)));
@@ -642,9 +672,10 @@ class PikPakDownloadRepository {
   }
 
   void _emit() {
-    if (!_closed) changes.add(snapshot());
+    if (!_closed) _changes.add(null);
   }
 
+  @override
   Future<void> close() => _closing ??= _close();
   Future<void> _close() async {
     _closed = true;
@@ -661,7 +692,7 @@ class PikPakDownloadRepository {
     }
     await _writes;
     _transfer.close();
-    await changes.close();
+    await _changes.close();
   }
 
   static int _integer(dynamic value) =>

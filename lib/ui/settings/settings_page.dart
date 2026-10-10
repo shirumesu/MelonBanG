@@ -5,7 +5,7 @@ import '../core/account_avatar.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
 import '../core/selection_controls.dart';
-import '../player/playback.dart';
+import '../../features/playback/playback.dart';
 import '../player/danmaku_preferences_editor.dart';
 
 class SettingsPage extends StatefulWidget {

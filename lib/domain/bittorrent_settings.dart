@@ -1,6 +1,5 @@
-import 'package:libtorrent_flutter/libtorrent_flutter.dart' as lt;
-
-import 'json.dart';
+import '../data/json.dart';
+import 'transfer.dart';
 
 /// Persistent download policy; independent of the streaming engine's cache knobs.
 class BitTorrentSettings {
@@ -102,49 +101,17 @@ class BitTorrentSettings {
     }
   }
 
-  String? stopReason(Json task) {
-    if (seedMode == 'off') return 'disabled';
+  SeedStop? stopReason(int totalBytes, int uploadedBytes, double seedSeconds) {
+    if (seedMode == 'off') return SeedStop.disabled;
     if (seedMode == 'unlimited') return null;
-    final size = number(task['totalBytes']);
     if (seedRatio > 0 &&
-        size > 0 &&
-        number(task['uploadedBytes']) / size >= seedRatio) {
-      return 'ratio';
+        totalBytes > 0 &&
+        uploadedBytes / totalBytes >= seedRatio) {
+      return SeedStop.ratio;
     }
-    if (seedMinutes > 0 && number(task['seedSeconds']) >= seedMinutes * 60) {
-      return 'time';
+    if (seedMinutes > 0 && seedSeconds >= seedMinutes * 60) {
+      return SeedStop.time;
     }
     return null;
   }
-
-  lt.BtConfig get engineConfig => lt.BtConfig(
-    downloadRateLimit: downloadKiB,
-    uploadRateLimit: uploadKiB,
-    connectionsLimit: connectionsPerTask,
-    peersListenPort: listenPort,
-    disableDht: !dht,
-    disableUpnp: !upnp,
-    enableIpv6: ipv6,
-    forceEncrypt: forceEncryption,
-  );
 }
-
-String downloadStatus(Json task) => switch (task['status']) {
-  'metadata' => '获取种子信息',
-  'checking' => '校验本地文件',
-  'queued' => number(task['progress']) >= 1 ? '等待做种' : '排队中',
-  'downloading' || 'ready' =>
-    task['peerCount'] == 0 && number(task['downloadSpeedBytesPerSecond']) == 0
-        ? '寻找下载节点'
-        : '下载中',
-  'seeding' => '做种中',
-  'completed' => switch (task['seedStopReason']) {
-    'manual' => '已完成 · 已手动停止做种',
-    'ratio' => '已完成 · 达到分享率',
-    'time' => '已完成 · 达到做种时限',
-    _ => '已完成 · 已停止做种',
-  },
-  'paused' => number(task['progress']) >= 1 ? '已暂停做种' : '已暂停',
-  'failed' => '需要重试',
-  _ => '等待下载',
-};

@@ -1,18 +1,18 @@
 import 'dart:io';
 
-import '../domain/play_candidate.dart';
-import '../domain/sources.dart';
-import '../features/acquisition/online_candidates.dart';
-import '../features/acquisition/release_search.dart';
-import '../features/acquisition/source_registry.dart';
-import 'cache_method.dart';
-import 'downloads.dart';
-import 'json.dart';
-import 'network.dart';
+import '../../data/json.dart';
+import '../../data/network.dart';
+import '../../data/resource_metadata.dart';
+import '../../data/resource_title.dart';
+import '../../data/store.dart';
+import '../../domain/play_candidate.dart';
+import '../../domain/sources.dart';
+import '../../domain/transfer.dart';
+import '../acquisition/online_candidates.dart';
+import '../acquisition/release_search.dart';
+import '../acquisition/source_registry.dart';
+import '../downloads/download_repository.dart';
 import 'playback_library.dart';
-import 'resource_metadata.dart';
-import 'resource_title.dart';
-import 'store.dart';
 
 class PlaySelectionRepository {
   PlaySelectionRepository(
@@ -62,49 +62,38 @@ class PlaySelectionRepository {
     }
 
     final binding = await store.get('episode_files', '$subjectId:$episodeId');
-    for (final task in downloads.tasksForSubject(subjectId)) {
-      final bound = binding?['downloadId'] == task['id'];
-      if (task['subjectId'] != subjectId ||
-          (!bound && task['episodeId'] != episodeId)) {
-        continue;
-      }
+    for (final task in downloads.snapshot().forSubject(subjectId)) {
+      final bound = binding?['downloadId'] == task.id;
+      if (!bound && task.episodeId != episodeId) continue;
       try {
         final media = downloads.media(
-          '${task['id']}',
+          task.id,
           fileId: bound ? binding!['fileId'] as String? : null,
         );
-        if (media['incomplete'] == true &&
-            task['provider'] == 'pikpak' &&
-            !registry.isEnabled('pikpak')) {
+        if (media.incomplete && task.cloud && !registry.isEnabled('pikpak')) {
           continue;
         }
-        if (media['incomplete'] != true &&
-            !await File('${media['path']}').exists()) {
+        if (!media.incomplete && !await File(media.file.path).exists()) {
           continue;
         }
         final info = describeResource(
-          '${task['title'] ?? '未命名资源'}',
-          releaseGroups: (task['releaseGroups'] as List? ?? const [])
-              .whereType<String>(),
+          task.title,
+          releaseGroups: task.releaseGroups,
         );
         add([
           PlayCandidate(
-            kind: media['incomplete'] != true
+            kind: !media.incomplete
                 ? PlayKind.local
-                : task['provider'] == 'pikpak'
+                : task.cloud
                 ? PlayKind.pikpak
                 : PlayKind.bt,
-            provider: task['provider'] == 'pikpak' ? 'pikpak' : 'bt',
-            providerLabel: task['provider'] == 'pikpak' ? 'PikPak' : 'BT 缓存',
-            title: '${task['title'] ?? media['name']}',
+            provider: task.method.name,
+            providerLabel: task.cloud ? 'PikPak' : 'BT 缓存',
+            title: task.title,
             line: info.sourceGroups.join(' & '),
             quality: info.quality,
             languages: info.languages,
-            target: DownloadTarget(
-              '${task['id']}',
-              media['id'] as String?,
-              task,
-            ),
+            target: DownloadTarget(task.id, media.file.id, task),
             instant: true,
             existing: true,
           ),
@@ -197,7 +186,7 @@ class PlaySelectionRepository {
           ? CacheMethod.pikpak
           : CacheMethod.bt,
     );
-    final id = '${task['id']}';
+    final id = task.id;
     final deadline = DateTime.now().add(const Duration(seconds: 45));
     while (DateTime.now().isBefore(deadline)) {
       cancel?.throwIfCancelled();
@@ -205,11 +194,9 @@ class PlaySelectionRepository {
         downloads.media(id);
         return await library.fromDownload(id);
       } on StateError catch (e) {
-        final current = objects(downloads.snapshot()['tasks'])
-            .where((task) => task['id'] == id)
-            .firstOrNull;
+        final current = downloads.snapshot().task(id);
         if (current == null ||
-            current['status'] == 'failed' ||
+            current.status == DownloadStatus.failed ||
             '$e'.contains('多个视频')) {
           rethrow;
         }

@@ -1,6 +1,6 @@
-import '../data/json.dart';
 import '../data/torrent_identity.dart';
 import 'sources.dart';
+import 'transfer.dart';
 
 enum PlayKind {
   local('本地'),
@@ -22,7 +22,7 @@ final class DownloadTarget extends PlayTarget {
   const DownloadTarget(this.downloadId, this.fileId, this.task);
   final String downloadId;
   final String? fileId;
-  final Json task;
+  final DownloadTask task;
 }
 
 /// An online entry, or an upload whose part still has to be chosen.
@@ -85,7 +85,7 @@ class PlayCandidate {
 
   String get continuityKey {
     final family = switch (target) {
-      DownloadTarget(:final task) => '${task['provider'] ?? 'bt'}',
+      DownloadTarget(:final task) => task.method.name,
       _ => kind.name,
     };
     return kind == PlayKind.online

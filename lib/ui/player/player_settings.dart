@@ -8,9 +8,9 @@ import 'package:media_kit/media_kit.dart';
 
 import '../../app_services.dart';
 import '../../data/danmaku_repository.dart';
-import '../../data/playback_library.dart';
+import '../../features/playback/playback_library.dart';
 import '../core/theme.dart';
-import 'playback.dart';
+import '../../features/playback/playback.dart';
 import 'danmaku_preferences_editor.dart';
 import 'player_theme.dart';
 
