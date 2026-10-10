@@ -7,7 +7,7 @@ import 'package:media_kit/media_kit.dart';
 import '../core/motion.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
-import 'playback.dart';
+import '../../features/playback/playback.dart';
 import 'player_theme.dart';
 
 /// Bottom transport bar: progress on top, playback on the left, viewing

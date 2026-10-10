@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app_services.dart';
-import '../../data/cache_method.dart';
+import '../../domain/transfer.dart';
 import '../../data/network.dart';
-import '../../data/play_selection.dart';
+import '../../features/playback/play_selection.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/sources.dart';
 import '../../features/acquisition/online_candidates.dart';
@@ -15,7 +15,7 @@ import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
-import 'playback.dart';
+import '../../features/playback/playback.dart';
 
 class CandidateResources extends StatefulWidget {
   const CandidateResources({

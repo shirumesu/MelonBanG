@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../data/cache_method.dart';
+import '../../domain/transfer.dart';
 import '../../data/resource_title.dart';
 import '../../domain/sources.dart';
 import '../core/motion.dart';

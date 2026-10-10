@@ -3,9 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../data/pikpak.dart';
 import '../../domain/sources.dart';
-import '../../features/acquisition/pikpak_probe.dart';
 import '../../features/acquisition/source_registry.dart';
 import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
@@ -15,11 +13,11 @@ class SourcesPage extends StatefulWidget {
   const SourcesPage({
     super.key,
     required this.registry,
-    required this.pikpak,
+    required this.onProbePikPak,
     required this.onPlay,
   });
   final SourceRegistry registry;
-  final PikPakClient pikpak;
+  final Future<void> Function() onProbePikPak;
   final Future<void> Function(ResolvedStream) onPlay;
   @override
   State<SourcesPage> createState() => _SourcesPageState();
@@ -97,9 +95,8 @@ class _SourcesPageState extends State<SourcesPage> {
     ProbeStatus.error => coral,
     ProbeStatus.loading => sky,
   };
-  Future<void> _probeSource(String id) => id == 'pikpak'
-      ? probePikPak(registry, widget.pikpak)
-      : registry.probe(id);
+  Future<void> _probeSource(String id) =>
+      id == 'pikpak' ? widget.onProbePikPak() : registry.probe(id);
   void _select(String id) {
     _generation++;
     _search.dispose();

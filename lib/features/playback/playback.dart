@@ -7,11 +7,15 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../app_services.dart';
+import '../../data/json.dart';
+import '../../data/store.dart';
+import '../downloads/download_repository.dart';
+import 'playback_library.dart';
 import 'playback_preferences.dart';
 
 class Playback extends ChangeNotifier {
-  Playback(this.service, this.preferences) {
+  Playback(this.library, this.store, this.downloads, this.preferences) {
+    _subscriptions.add(library.changes.stream.listen(accept));
     settings = PlaybackPreferences(preferences);
     danmaku = DanmakuPreferences(preferences);
     danmaku.addListener(_presentationChanged);
@@ -76,7 +80,9 @@ class Playback extends ChangeNotifier {
       unawaited(saveProgress());
     });
   }
-  final AppServices service;
+  final PlaybackLibrary library;
+  final AppStore store;
+  final DownloadRepository downloads;
   final SharedPreferences preferences;
   final player = Player(
     configuration: const PlayerConfiguration(title: 'Melonbang', libass: true),
@@ -208,7 +214,7 @@ class Playback extends ChangeNotifier {
       if (next['status'] == 'failed') {
         throw StateError('${next['errorMessage']}');
       }
-      await service.library.activate(next);
+      await library.activate(next);
       session = next;
       comments = [];
       danmakuOffsets = {};
@@ -246,7 +252,7 @@ class Playback extends ChangeNotifier {
       if (next['subjectId'] != null && next['episodeId'] != null) {
         try {
           final saved = object(
-            await service.library.progress(
+            await library.progress(
               next['subjectId'] as int,
               next['episodeId'] as int,
             ),
@@ -280,13 +286,13 @@ class Playback extends ChangeNotifier {
       }
       await player.setRate(_savedRate);
       await _preferTracks(player.state.tracks);
-      service.releasePlaybackStreams(next['streamId'] as int?);
+      downloads.releaseStreamsExcept(next['streamId'] as int?);
       await player.play();
       if (!_closed &&
           next['standalone'] != true &&
-          service.library.current?['id'] == next['id']) {
+          library.current?['id'] == next['id']) {
         unawaited(
-          service.library.autoMatch(
+          library.autoMatch(
             player.state.duration.inMilliseconds / 1000,
             sessionId: next['id'] as String,
           ),
@@ -297,7 +303,7 @@ class Playback extends ChangeNotifier {
       session = null;
       uri = null;
       await player.stop();
-      service.releasePlaybackStreams(null);
+      downloads.releaseStreamsExcept(null);
       rethrow;
     } finally {
       opening = false;
@@ -338,7 +344,7 @@ class Playback extends ChangeNotifier {
           'progress:$savedUri',
           completed ? 0 : position,
         );
-        await service.library.save(savedSession, position, duration, completed);
+        await library.save(savedSession, position, duration, completed);
       } catch (_) {
         if (_lastProgress == signature) _lastProgress = null;
         /* Playback is independent of progress storage availability. */
@@ -357,17 +363,16 @@ class Playback extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _ensureOffsetTable() =>
-      _offsetTable ??= service.store.database.execute(
-        'CREATE TABLE IF NOT EXISTS danmaku_offsets (resume_key TEXT NOT NULL, source TEXT NOT NULL, seconds REAL NOT NULL, PRIMARY KEY(resume_key,source))',
-      );
+  Future<void> _ensureOffsetTable() => _offsetTable ??= store.database.execute(
+    'CREATE TABLE IF NOT EXISTS danmaku_offsets (resume_key TEXT NOT NULL, source TEXT NOT NULL, seconds REAL NOT NULL, PRIMARY KEY(resume_key,source))',
+  );
 
   Future<void> _loadOffsets(Json next) async {
     final key = next['resumeKey'] ?? object(next['source'])['url'];
     if (key == null) return;
     try {
       await _ensureOffsetTable();
-      final rows = await service.store.database.query(
+      final rows = await store.database.query(
         'danmaku_offsets',
         where: 'resume_key=?',
         whereArgs: ['$key'],
@@ -389,7 +394,7 @@ class Playback extends ChangeNotifier {
     danmakuOffsets = {...danmakuOffsets, provider: seconds};
     _presentationChanged();
     await _ensureOffsetTable();
-    await service.store.database.rawInsert(
+    await store.database.rawInsert(
       'INSERT OR REPLACE INTO danmaku_offsets (resume_key,source,seconds) VALUES (?,?,?)',
       ['$key', provider, seconds],
     );
@@ -610,7 +615,7 @@ class Playback extends ChangeNotifier {
       await subscription.cancel();
     }
     await player.dispose();
-    service.releasePlaybackStreams(null);
+    downloads.releaseStreamsExcept(null);
   }
 }
 

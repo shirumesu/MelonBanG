@@ -5,6 +5,14 @@ import 'json.dart';
 import 'network.dart';
 import 'store.dart';
 
+/// The locally cached full or playback detail of a subject, without a request.
+Future<Json?> cachedSubjectDetail(AppStore store, int id) async {
+  final cached =
+      await store.get('catalog', 'detail:$id') ??
+      await store.get('catalog', 'playback-detail:$id');
+  return cached == null ? null : object(object(cached['value'])['data']);
+}
+
 class CatalogRepository {
   CatalogRepository(
     this.api,
@@ -36,11 +44,9 @@ class CatalogRepository {
     if (_closed || id <= 0 || _covers.containsKey(id)) return Future.value();
     return _coverRequests.putIfAbsent(id, () async {
       try {
-        final cached =
-            await store.get('catalog', 'detail:$id') ??
-            await store.get('catalog', 'playback-detail:$id');
+        final cached = await cachedSubjectDetail(store, id);
         if (!_closed && cached != null && !_covers.containsKey(id)) {
-          _rememberCover(object(object(cached['value'])['data']));
+          _rememberCover(cached);
         }
       } finally {
         _coverRequests.remove(id);

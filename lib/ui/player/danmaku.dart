@@ -4,7 +4,7 @@ import 'package:flutter/scheduler.dart';
 import '../../app_services.dart';
 import 'danmaku_clock.dart';
 import 'danmaku_layout.dart';
-import 'playback.dart';
+import '../../features/playback/playback.dart';
 
 export 'danmaku_layout.dart' show firstVisibleComment;
 

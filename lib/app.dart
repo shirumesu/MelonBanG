@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -13,10 +12,14 @@ import 'ui/acquisition/download_dialogs.dart';
 import 'ui/acquisition/downloads_page.dart';
 import 'ui/acquisition/resources_page.dart';
 import 'data/resource_metadata.dart';
-import 'data/play_selection.dart';
 import 'domain/play_candidate.dart';
 import 'domain/sources.dart';
+import 'domain/transfer.dart';
 import 'data/network.dart';
+import 'features/playback/play_selection.dart';
+import 'features/playback/playback.dart';
+import 'features/playback/playback_coordinator.dart';
+import 'integrations/transfer/pikpak.dart';
 import 'ui/core/action_feedback.dart';
 import 'ui/core/app_chrome.dart';
 import 'ui/core/motion.dart';
@@ -24,7 +27,6 @@ import 'ui/core/page_widgets.dart';
 import 'ui/core/theme.dart';
 import 'ui/core/subject_posters.dart';
 import 'ui/discovery/discovery_pages.dart';
-import 'ui/player/playback.dart';
 import 'ui/player/player_page.dart';
 import 'ui/player/candidate_resources.dart';
 import 'ui/sources/sources_page.dart';
@@ -44,7 +46,9 @@ class MelonApp extends StatefulWidget {
   State<MelonApp> createState() => _MelonAppState();
 }
 
-class _MelonAppState extends State<MelonApp> with WindowListener {
+class _MelonAppState extends State<MelonApp>
+    with WindowListener
+    implements PlaybackShell {
   final messages = GlobalKey<ScaffoldMessengerState>();
   final navigation = GlobalKey<NavigatorState>();
   final playerPageKey = GlobalKey();
@@ -61,7 +65,8 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   int _searchRequestOffset = 0;
   List<String>? resourceQueryNames;
   String resourceQueryEpisode = '';
-  late final Playback playback;
+  Playback get playback => widget.service.playback;
+  PlaybackCoordinator get coordinator => widget.service.coordinator;
   final subscriptions = <StreamSubscription<dynamic>>[];
   String route = 'home', collectionFilter = 'watching';
   bool dark = false, ready = false, busy = false, fullScreen = false;
@@ -90,12 +95,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   final homeFeedback = ActionFeedback();
   final syncFeedback = ActionFeedback();
   List<String> recentSearches = [];
-  Json? account, subject, playerSubject, subjectResume;
-
-  /// Player route opened before a source is chosen: `subject`, `episode`,
-  /// and `failed` once no playable source could be started.
-  Json? preparing;
-  int _preparingTicket = 0;
+  Json? account, subject, subjectResume;
   Set<int>? cachedEpisodeIds;
   List<Json> resumable = [];
   int? mediaSubjectId;
@@ -106,24 +106,23 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       collection = [],
       results = [];
   ReleaseSearchResult releases = const ReleaseSearchResult();
-  final downloadState = ValueNotifier<Json>({});
+  final downloadState = ValueNotifier(const TransferSnapshot());
   final downloadCount = ValueNotifier<int>(0);
-  Json get downloads => downloadState.value;
+  TransferSnapshot get downloads => downloadState.value;
   Json sync = {};
 
-  void acceptDownloads(Json value) {
+  void acceptDownloads(TransferSnapshot value) {
     downloadState.value = value;
-    downloadCount.value = objects(value['tasks'])
+    downloadCount.value = value.tasks
         .where(
           (task) =>
-              [
-                'metadata',
-                'downloading',
-                'ready',
-                'queued',
-                'checking',
-              ].contains(task['status']) &&
-              number(task['progress']) < 1,
+              const {
+                DownloadStatus.metadata,
+                DownloadStatus.downloading,
+                DownloadStatus.queued,
+                DownloadStatus.checking,
+              }.contains(task.status) &&
+              !task.complete,
         )
         .length;
   }
@@ -131,22 +130,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   int? resourceEpisode;
   int _navigation = 0;
   int? _subjectRequest;
-  int _personalRequest = 0, _resourceRequest = 0, _playbackRequest = 0;
-  Future<void> _playbackOperations = Future.value();
+  int _personalRequest = 0, _resourceRequest = 0;
   Future<void> _fullScreenOperations = Future.value();
   Completer<void>? _fullScreenTransition;
-  PlayCandidate? _activeCandidate;
-  Json? _candidateSubject, _candidateEpisode;
-  List<PlayCandidate> _playChoices = [];
-  int _selectionRequest = 0, _fallbackCount = 0;
-  RequestCancellation _selectionCancel = RequestCancellation();
   RequestCancellation _resourceCancel = RequestCancellation();
-
-  int nextSelection() {
-    _selectionCancel.cancel();
-    _selectionCancel = RequestCancellation();
-    return ++_selectionRequest;
-  }
 
   int nextNavigation() {
     _resourceCancel.cancel();
@@ -154,20 +141,12 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     return ++_navigation;
   }
 
-  bool _recoveringSource = false;
-  bool _onlineRefreshed = false;
-  Timer? _firstFrameDeadline, _bufferDeadline;
-  int _longBufferCount = 0;
-  DateTime? _lastLongBuffer;
-
   @override
   void initState() {
     super.initState();
     dark = widget.preferences.getBool('dark') ?? false;
     playerLightsOff = widget.preferences.getBool('player-lights-off') ?? false;
     recentSearches = widget.preferences.getStringList('recentSearches') ?? [];
-    playback = Playback(widget.service, widget.preferences);
-    playback.resolveNext = prepareAutoplay;
     windowManager.addListener(this);
     unawaited(windowManager.setPreventClose(true));
     unawaited(boot());
@@ -177,14 +156,13 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     try {
       await widget.service.start();
       if (!mounted || closing) return;
+      coordinator.shell = this;
+      coordinator.addListener(servicesChanged);
       subscriptions.add(
         widget.service.downloads.changes.stream.listen((value) {
           if (!mounted) return;
-          String availability(Json snapshot) => objects(snapshot['tasks'])
-              .map(
-                (task) =>
-                    '${task['id']}:${task['status']}:${number(task['progress']) >= 1}',
-              )
+          String availability(TransferSnapshot snapshot) => snapshot.tasks
+              .map((task) => '${task.id}:${task.status.name}:${task.complete}')
               .join('|');
           final changed = availability(downloads) != availability(value);
           acceptDownloads(value);
@@ -194,48 +172,13 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         }),
       );
       subscriptions.add(
-        widget.service.library.changes.stream.listen(playback.accept),
-      );
-      subscriptions.add(
         widget.service.tracking.changes.stream.listen((_) {
           if (mounted) unawaited(perform(refreshPersonal));
         }),
       );
       acceptDownloads(widget.service.downloads.snapshot());
-      widget.service.library.providerEnabled = playback.danmaku.sourceEnabled;
-      widget.service.sources.addListener(sourcesChanged);
-      widget.service.downloadsAvailable.addListener(sourcesChanged);
-      subscriptions.add(
-        playback.player.stream.error.listen((reason) {
-          if (_activeCandidate != null &&
-              !playback.opening &&
-              route == 'player') {
-            unawaited(recoverSource(reason));
-          }
-        }),
-      );
-      subscriptions.add(
-        playback.player.stream.buffering.listen((buffering) {
-          _bufferDeadline?.cancel();
-          if (buffering &&
-              _activeCandidate != null &&
-              !playback.opening &&
-              route == 'player') {
-            _bufferDeadline = Timer(const Duration(seconds: 15), () {
-              final now = DateTime.now();
-              if (_lastLongBuffer == null ||
-                  now.difference(_lastLongBuffer!) >
-                      const Duration(minutes: 2)) {
-                _longBufferCount = 0;
-              }
-              _lastLongBuffer = now;
-              if (++_longBufferCount >= 2) {
-                unawaited(recoverSource('播放反复长时间缓冲'));
-              }
-            });
-          }
-        }),
-      );
+      widget.service.sources.addListener(servicesChanged);
+      widget.service.downloadsAvailable.addListener(servicesChanged);
       setState(() => ready = true);
       if (!mounted || closing) return;
       await Future.wait([
@@ -349,28 +292,13 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
 
   void rememberLocation() => history.add(location);
 
-  void cancelPlaybackSelection() {
-    playback.cancelAutoplay();
-    nextSelection();
-    _firstFrameDeadline?.cancel();
-    _bufferDeadline?.cancel();
-    _playbackRequest++;
-  }
-
   void leavePlayer() {
-    cancelPlaybackSelection();
-    _preparingTicket++;
-    preparing = null;
+    // Navigation can happen before startup has created the coordinator.
+    if (ready) coordinator.leave();
     if (route != 'player') return;
     if (fullScreen) unawaited(setFullScreen(false));
     windowFullScreen = false;
-    _playbackOperations = _playbackOperations.then(
-      (_) => perform(() async {
-        await playback.player.pause();
-        await playback.saveProgress();
-        await refreshPlaybackAvailability();
-      }),
-    );
+    coordinator.stop(refreshPlaybackAvailability);
   }
 
   void goBack() {
@@ -480,6 +408,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     }
   }
 
+  @override
   void showError(Object e) => messages.currentState?.showSnackBar(
     SnackBar(
       content: Text(e.toString().replaceFirst('Bad state: ', '')),
@@ -535,160 +464,34 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     }
   }
 
-  Future<void> startPlayback(Future<Json> Function() load) async {
-    final request = nextSelection();
-    _activeCandidate = null;
-    _firstFrameDeadline?.cancel();
-    _bufferDeadline?.cancel();
-    await queuePlayback(() async {
-      await playback.saveProgress();
-      final session = await load();
-      if (!mounted || closing || request != _selectionRequest) {
-        widget.service.releasePlaybackStreams(
-          playback.session?['streamId'] as int?,
-        );
-        return;
-      }
-      await playback.open(session);
-    }, isCurrent: () => request == _selectionRequest);
-  }
-
-  Future<void> queuePlayback(
-    Future<void> Function() open, {
-    bool reportFailure = true,
-    bool Function()? isCurrent,
-  }) {
-    final ticket = ++_playbackRequest;
-    final operation = _playbackOperations.then((_) async {
-      if (!mounted || closing || ticket != _playbackRequest) return;
-      Future<void> action() async {
-        final previousSessionId = playback.session?['id'];
-        await open();
-        if (!mounted ||
-            closing ||
-            ticket != _playbackRequest ||
-            !(isCurrent?.call() ?? true)) {
-          if (playback.session?['id'] != previousSessionId) {
-            await playback.player.pause();
-            await playback.saveProgress();
-          }
-          return;
-        }
-        showPlayback(ticket);
-      }
-
-      if (reportFailure) {
-        await perform(action);
-      } else {
-        try {
-          await action();
-        } catch (_) {}
-      }
-    });
-    _playbackOperations = operation.catchError((Object _) {});
-    return operation;
-  }
-
-  void playEpisode(Json episode) {
-    final current = playerSubject;
-    if (current != null) {
-      unawaited(
-        perform(() => selectEpisode(current, episode, useContinuity: true)),
-      );
-    }
-  }
-
-  void sourcesChanged() {
+  void servicesChanged() {
     if (mounted && !closing) setState(() {});
   }
 
-  Future<List<PlayCandidate>> episodeCandidates(
-    Json item,
-    Json episode, {
-    bool instantOnly = false,
-    bool useContinuity = false,
-    bool forPlayback = false,
-    RequestCancellation? cancel,
-  }) {
-    final settings = playback.settings;
-    return widget.service.selection.candidates(
-      item,
-      episode,
-      instantOnly: instantOnly,
-      useContinuity: useContinuity,
-      forPlayback: forPlayback,
-      cancel: cancel ?? _selectionCancel,
-      onlineFirst:
-          (subjectIsAiring(item)
-              ? settings.airingPriority
-              : settings.completedPriority) ==
-          'online',
-      language: settings.subtitleLanguage,
-    );
+  @override
+  bool get showingPlayer => route == 'player';
+
+  @override
+  void enterPlayer() {
+    if (route != 'player') rememberLocation();
+    nextNavigation();
+    setState(() {
+      route = 'player';
+      busy = false;
+    });
   }
 
-  Future<void> selectEpisode(
-    Json item,
-    Json episode, {
-    bool useContinuity = false,
-  }) async {
-    playback.cancelAutoplay();
-    final request = nextSelection();
-    _activeCandidate = null;
-    _firstFrameDeadline?.cancel();
-    _bufferDeadline?.cancel();
-    final id = item['subjectId'] as int;
-    final episodeId = episode['episodeId'] as int;
-    final available = await widget.service.library.playableEpisodes(id);
-    if (!mounted || closing || request != _selectionRequest) return;
-    if (available.contains(episodeId)) {
-      final local = await widget.service.selection.candidates(
-        item,
-        episode,
-        instantOnly: true,
-        includeOnline: false,
-        cancel: _selectionCancel,
-        useContinuity: useContinuity,
-        language: playback.settings.subtitleLanguage,
-      );
-      if (!mounted || closing || request != _selectionRequest) return;
-      final cached = local.where(
-        (candidate) => candidate.kind == PlayKind.local,
-      );
-      if (cached.isNotEmpty) {
-        await playCandidate(cached.first, item, episode);
-        return;
-      }
-    }
-    playback.showNotice('正在查找第 ${episode['sort']} 话资源');
-    final choices = await episodeCandidates(
-      item,
-      episode,
-      useContinuity: useContinuity,
-      forPlayback: true,
-    );
-    if (!mounted || closing || request != _selectionRequest) return;
-    if (choices.isEmpty) {
-      if (preparing != null) {
-        failPreparing(_preparingTicket, '没有找到可以直接播放的资源');
-        return;
-      }
-      subject = item;
-      await findResources(episode: episode);
-      return;
-    }
-    if (choices.first.possibleMatch) {
-      await showEpisodeResources(item, episode);
-      return;
-    }
-    await playCandidate(choices.first, item, episode, choices: choices);
+  @override
+  Future<void> openResources(Json item, Json episode) {
+    subject = item;
+    return findResources(episode: episode);
   }
 
-  Future<void> showEpisodeResources(Json item, Json episode) async {
-    cancelPlaybackSelection();
+  @override
+  Future<PlayCandidate?> chooseCandidate(Json item, Json episode) async {
     final target = navigation.currentState?.overlay?.context;
-    if (target == null) return;
-    final chosen = await showDialog<PlayCandidate>(
+    if (target == null) return null;
+    return showDialog<PlayCandidate>(
       context: target,
       builder: (context) => Dialog(
         child: SizedBox(
@@ -737,349 +540,6 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           ),
         ),
       ),
-    );
-    if (!mounted || closing) return;
-    if (chosen != null) {
-      if (route == 'player') {
-        await playCandidate(chosen, item, episode);
-      } else {
-        await preparePlayback(
-          item,
-          episode,
-          () => playCandidate(chosen, item, episode),
-        );
-      }
-    } else if (preparing != null) {
-      failPreparing(_preparingTicket, '没有选择资源');
-    }
-  }
-
-  /// Enters the player at once and keeps it in a preparing state until
-  /// [start] opens a session (cleared by [showPlayback]) or fails.
-  Future<void> preparePlayback(
-    Json item,
-    Json episode,
-    Future<void> Function() start,
-  ) async {
-    if (route != 'player') rememberLocation();
-    nextNavigation();
-    final ticket = ++_preparingTicket;
-    setState(() {
-      route = 'player';
-      busy = false;
-      playerSubject = item;
-      preparing = {'subject': item, 'episode': episode};
-    });
-    try {
-      await start();
-    } on RequestCancelled {
-      return;
-    } catch (e) {
-      failPreparing(ticket, e.toString().replaceFirst('Bad state: ', ''));
-      return;
-    }
-    failPreparing(ticket, '没能开始播放，可以换一个资源再试');
-  }
-
-  void failPreparing(int ticket, String reason) {
-    final current = preparing;
-    if (!mounted ||
-        ticket != _preparingTicket ||
-        current == null ||
-        current['failed'] != null) {
-      return;
-    }
-    setState(() => preparing = {...current, 'failed': reason});
-  }
-
-  Future<void> playCandidate(
-    PlayCandidate candidate,
-    Json item,
-    Json episode, {
-    List<PlayCandidate>? choices,
-    bool recovery = false,
-    Duration? recoveryPosition,
-  }) async {
-    final request = recovery ? _selectionRequest : nextSelection();
-    final cancellation = _selectionCancel;
-    if (!recovery) {
-      playback.cancelAutoplay();
-      _candidateSubject = item;
-      _candidateEpisode = episode;
-      _playChoices = choices ?? [];
-      _fallbackCount = 0;
-      _onlineRefreshed = false;
-      _longBufferCount = 0;
-      _lastLongBuffer = null;
-      _activeCandidate = null;
-    }
-    _firstFrameDeadline?.cancel();
-    _bufferDeadline?.cancel();
-    Object? failure;
-    await queuePlayback(
-      () async {
-        try {
-          final session = await widget.service.selection.load(
-            candidate,
-            item['subjectId'] as int,
-            episode['episodeId'] as int,
-            cancel: cancellation,
-          );
-          if (!mounted || closing || request != _selectionRequest) {
-            widget.service.releasePlaybackStreams(
-              playback.session?['streamId'] as int?,
-            );
-            return;
-          }
-          if (recoveryPosition != null) {
-            session['startSeconds'] = recoveryPosition.inMilliseconds / 1000;
-          }
-          _activeCandidate = candidate;
-          await playback.open(session);
-          if (playback.error != null) throw StateError(playback.error!);
-          widget.service.selection.played(item['subjectId'] as int, candidate);
-          if (recovery) playback.showNotice('已切换到 ${candidate.sourceLabel}');
-          final sessionId = session['id'];
-          _firstFrameDeadline?.cancel();
-          _firstFrameDeadline = Timer(const Duration(seconds: 15), () {
-            unawaited(checkFirstFrame('$sessionId', request));
-          });
-        } catch (e) {
-          if (request == _selectionRequest) _activeCandidate = candidate;
-          failure = e;
-          rethrow;
-        }
-      },
-      reportFailure: false,
-      isCurrent: () => request == _selectionRequest,
-    );
-    if (failure != null && mounted && request == _selectionRequest) {
-      if (recovery) throw failure!;
-      await recoverSource('$failure');
-    }
-  }
-
-  Future<void> checkFirstFrame(String sessionId, int request) async {
-    bool current() =>
-        mounted &&
-        !closing &&
-        request == _selectionRequest &&
-        playback.session?['id'] == sessionId;
-    if (!current()) return;
-    final platform = playback.player.platform;
-    if (platform is! NativePlayer) return;
-    final fps = double.tryParse(await platform.getProperty('estimated-vf-fps'));
-    if (!current() || (fps != null && fps.isFinite && fps > 0)) return;
-    final seeking = await platform.getProperty('seeking') == 'yes';
-    if (!current()) return;
-    if (seeking ||
-        (!playback.player.state.playing && !playback.player.state.buffering)) {
-      _firstFrameDeadline = Timer(const Duration(seconds: 5), () {
-        unawaited(checkFirstFrame(sessionId, request));
-      });
-      return;
-    }
-    await recoverSource('15 秒内未产生视频画面');
-  }
-
-  Future<void> recoverSource(String reason) async {
-    var failed = _activeCandidate;
-    final item = _candidateSubject, episode = _candidateEpisode;
-    if (_recoveringSource ||
-        failed == null ||
-        item == null ||
-        episode == null ||
-        closing) {
-      return;
-    }
-    _recoveringSource = true;
-    final request = _selectionRequest;
-    final cancellation = _selectionCancel;
-    var searchedAlternatives = false;
-    _firstFrameDeadline?.cancel();
-    _bufferDeadline?.cancel();
-    try {
-      final saved = await widget.service.library.progress(
-        item['subjectId'] as int,
-        episode['episodeId'] as int,
-      );
-      final position =
-          playback.session?['subjectId'] == item['subjectId'] &&
-              playback.session?['episodeId'] == episode['episodeId']
-          ? playback.player.state.position
-          : Duration(
-              milliseconds: (number(saved?['positionSeconds']) * 1000).round(),
-            );
-      while (mounted && !closing && request == _selectionRequest) {
-        widget.service.selection.failed(failed!);
-        if (failed.kind == PlayKind.online && !_onlineRefreshed) {
-          _onlineRefreshed = true;
-          playback.showNotice('正在刷新播放地址');
-          try {
-            await playCandidate(
-              failed,
-              item,
-              episode,
-              recovery: true,
-              recoveryPosition: position,
-            );
-            if (playback.error == null) return;
-          } catch (error) {
-            reason = '$error';
-          }
-        }
-        if (_fallbackCount >= 3) break;
-        List<PlayCandidate> healthyChoices() => _playChoices
-            .where(
-              (candidate) =>
-                  candidate.instant &&
-                  !candidate.possibleMatch &&
-                  candidate.id != failed!.id &&
-                  candidate.health >= 0,
-            )
-            .toList();
-        var alternatives = healthyChoices();
-        if (alternatives.isEmpty && !searchedAlternatives) {
-          searchedAlternatives = true;
-          _playChoices = await episodeCandidates(
-            item,
-            episode,
-            instantOnly: true,
-            useContinuity: true,
-            cancel: cancellation,
-          );
-          alternatives = healthyChoices();
-        }
-        final alternative =
-            alternatives
-                .where((candidate) => candidate.provider == failed!.provider)
-                .firstOrNull ??
-            alternatives.firstOrNull;
-        if (!mounted || closing || request != _selectionRequest) return;
-        if (alternative == null) break;
-        _playChoices.removeWhere((candidate) => candidate.id == failed!.id);
-        failed = alternative;
-        _fallbackCount++;
-        _onlineRefreshed = false;
-        try {
-          await playCandidate(
-            alternative,
-            item,
-            episode,
-            recovery: true,
-            recoveryPosition: position,
-          );
-          if (playback.error == null) return;
-        } catch (error) {
-          reason = '$error';
-        }
-      }
-      if (mounted && request == _selectionRequest) {
-        await playback.player.pause();
-        playback.showNotice('暂无可立即播放的其他资源，请打开“资源”或改用 BT');
-        playback.showResourceFailure(episode);
-        showError(reason);
-        if (route != 'player') await showEpisodeResources(item, episode);
-      }
-    } catch (e) {
-      if (mounted && request == _selectionRequest) showError(e);
-    } finally {
-      _recoveringSource = false;
-    }
-  }
-
-  Future<AutoplayTarget?> prepareAutoplay(Json session) async {
-    final cancellation = _selectionCancel;
-    final id = session['subjectId'] as int?,
-        currentId = session['episodeId'] as int?;
-    if (id == null || currentId == null) return null;
-    final item = playerSubject?['subjectId'] == id
-        ? playerSubject!
-        : await widget.service.tracking.subject(id, forPlayback: true);
-    final episodes =
-        objects(item['episodes'])
-            .where(
-              (e) => e['type'] == 0 || e['type'] == 'main' || e['type'] == null,
-            )
-            .toList()
-          ..sort((a, b) => number(a['sort']).compareTo(number(b['sort'])));
-    final current = episodes
-        .where((e) => e['episodeId'] == currentId)
-        .firstOrNull;
-    if (current == null) return null;
-    final next = episodes
-        .where((e) => number(e['sort']) > number(current['sort']))
-        .firstOrNull;
-    if (next == null) return null;
-    final date = DateTime.tryParse(
-      '${next['airdate'] ?? next['airDate'] ?? ''}',
-    );
-    if (date != null && date.isAfter(DateTime.now())) return null;
-    if ((await widget.service.library.playableEpisodes(id))
-        .contains(next['episodeId'])) {
-      final local = await widget.service.selection.candidates(
-        item,
-        next,
-        instantOnly: true,
-        includeOnline: false,
-        cancel: cancellation,
-        useContinuity: true,
-        language: playback.settings.subtitleLanguage,
-      );
-      if (local.isNotEmpty) {
-        return AutoplayTarget(
-          episode: next,
-          sourceLabel: local.first.sourceLabel,
-          play: () => playCandidate(local.first, item, next),
-        );
-      }
-    }
-    final choices = (await episodeCandidates(
-      item,
-      next,
-      instantOnly: true,
-      cancel: cancellation,
-      useContinuity: true,
-    )).where((c) => c.instant && !c.possibleMatch).toList();
-    if (choices.isEmpty) {
-      return AutoplayTarget(
-        episode: next,
-        sourceLabel: '',
-        unavailable: true,
-        play: () async {},
-      );
-    }
-    return AutoplayTarget(
-      episode: next,
-      sourceLabel: choices.first.sourceLabel,
-      play: () => playCandidate(choices.first, item, next, choices: choices),
-    );
-  }
-
-  void showPlayback(int ticket) {
-    if (!mounted || closing || ticket != _playbackRequest) return;
-    final sessionId = playback.session?['id'];
-    final subjectId = playback.session?['subjectId'] as int?;
-    if (route != 'player') rememberLocation();
-    nextNavigation();
-    _preparingTicket++;
-    setState(() {
-      route = 'player';
-      busy = false;
-      playerSubject = null;
-      preparing = null;
-    });
-    if (subjectId == null || !ready) return;
-    unawaited(
-      perform(() async {
-        final detail = await widget.service.tracking.subject(
-          subjectId,
-          forPlayback: true,
-        );
-        if (mounted && sessionId == playback.session?['id']) {
-          setState(() => playerSubject = detail);
-        }
-      }),
     );
   }
 
@@ -1389,8 +849,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     // Detach the video texture before disposing its native rendering context.
     await WidgetsBinding.instance.endOfFrame;
     try {
-      await _playbackOperations;
-      await playback.close();
+      if (ready) await coordinator.close();
     } finally {
       try {
         await widget.service.close();
@@ -1451,21 +910,19 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
   @override
   void dispose() {
     closing = true;
-    _firstFrameDeadline?.cancel();
-    _bufferDeadline?.cancel();
     if (ready) {
-      widget.service.sources.removeListener(sourcesChanged);
-      widget.service.downloadsAvailable.removeListener(sourcesChanged);
+      widget.service.sources.removeListener(servicesChanged);
+      widget.service.downloadsAvailable.removeListener(servicesChanged);
+      coordinator.removeListener(servicesChanged);
     }
     unawaited(
-      _playbackOperations
-          .then((_) => playback.close())
-          .whenComplete(widget.service.close),
+      (ready ? coordinator.close() : Future<void>.value()).whenComplete(
+        widget.service.close,
+      ),
     );
     for (final subscription in subscriptions) {
       unawaited(subscription.cancel());
     }
-    _selectionCancel.cancel();
     _resourceCancel.cancel();
     downloadState.dispose();
     downloadCount.dispose();
@@ -1591,7 +1048,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                                             setWindowFullScreen,
                                         downloads: downloadState,
                                         onPlayFile: (id, fileId) =>
-                                            startPlayback(
+                                            coordinator.play(
                                               () => widget.service.library
                                                   .fromDownload(
                                                     id,
@@ -1603,45 +1060,21 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
                                             ? null
                                             : playerLightsOff,
                                         onLightsChanged: setPlayerLights,
-                                        subject: playerSubject,
-                                        preparing: preparing,
-                                        onRetryPreparing: () {
-                                          final current = preparing!;
-                                          final item = object(
-                                            current['subject'],
-                                          );
-                                          final episode = object(
-                                            current['episode'],
-                                          );
-                                          unawaited(
-                                            preparePlayback(
-                                              item,
-                                              episode,
-                                              () =>
-                                                  selectEpisode(item, episode),
-                                            ),
-                                          );
-                                        },
-                                        onChoosePreparing: () {
-                                          final current = preparing!;
-                                          unawaited(
-                                            perform(
-                                              () => showEpisodeResources(
-                                                object(current['subject']),
-                                                object(current['episode']),
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                        onEpisode: playEpisode,
+                                        subject: coordinator.subject,
+                                        preparing: coordinator.preparing,
+                                        onRetryPreparing:
+                                            coordinator.retryPreparing,
+                                        onChoosePreparing:
+                                            coordinator.choosePreparing,
+                                        onEpisode: coordinator.playEpisode,
                                         onPlayCandidate: (candidate, episode) =>
-                                            playCandidate(
+                                            coordinator.playCandidate(
                                               candidate,
-                                              playerSubject!,
+                                              coordinator.subject!,
                                               episode,
                                             ),
                                         onFindAllResources: (episode) {
-                                          final current = playerSubject;
+                                          final current = coordinator.subject;
                                           if (current == null) return;
                                           subject = current;
                                           unawaited(
@@ -1728,18 +1161,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           today: today,
           trending: trending,
           resumable: resumable,
-          onResume: (item) => perform(() async {
-            final request = nextSelection();
-            final detail = await widget.service.tracking.subject(
-              item['subjectId'] as int,
-              forPlayback: true,
-            );
-            if (!mounted || closing || request != _selectionRequest) return;
-            final episode = objects(detail['episodes'])
-                .where((e) => e['episodeId'] == item['episodeId'])
-                .firstOrNull;
-            if (episode != null) await selectEpisode(detail, episode);
-          }),
+          onResume: (item) => perform(() => coordinator.resume(item)),
           watching: collection
               .where((item) => item['status'] == 'watching')
               .toList(),
@@ -1800,11 +1222,11 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
               : null,
           onFindResources: (episode) => episode == null
               ? findResources()
-              : showEpisodeResources(item!, episode),
-          onPlayEpisode: (episode) => preparePlayback(
+              : coordinator.chooseSource(item!, episode),
+          onPlayEpisode: (episode) => coordinator.prepare(
             item!,
             episode,
-            () => selectEpisode(item, episode),
+            () => coordinator.selectEpisode(item, episode),
           ),
           onOpenSubject: openSubject,
         );
@@ -1830,7 +1252,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
         );
       case 'downloads':
         return downloadsSection(
-          () => ValueListenableBuilder<Json>(
+          () => ValueListenableBuilder<TransferSnapshot>(
             valueListenable: downloadState,
             builder: (context, value, _) => DownloadsPage(
               downloads: value,
@@ -1838,21 +1260,20 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
               onAddTorrent: addTorrent,
               onExplore: () => navigate('home'),
               onRemove: confirmRemoval,
-              onStopSeeding: (task) => perform(
-                () => widget.service.downloads.stopSeeding('${task['id']}'),
-              ),
+              onStopSeeding: (task) =>
+                  perform(() => widget.service.bt.stopSeeding(task.id)),
               onTogglePause: (task) => perform(() async {
-                if ([
-                  'paused',
-                  'failed',
-                  'completed',
-                ].contains(task['status'])) {
-                  await widget.service.downloads.resume('${task['id']}');
+                if (const {
+                  DownloadStatus.paused,
+                  DownloadStatus.failed,
+                  DownloadStatus.completed,
+                }.contains(task.status)) {
+                  await widget.service.downloads.resume(task.id);
                 } else {
-                  await widget.service.downloads.pause('${task['id']}');
+                  await widget.service.downloads.pause(task.id);
                 }
               }),
-              onPlay: (id, fileId) => startPlayback(
+              onPlay: (id, fileId) => coordinator.play(
                 () => widget.service.library.fromDownload(id, fileId: fileId),
               ),
             ),
@@ -1861,13 +1282,14 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
       case 'sources':
         return SourcesPage(
           registry: widget.service.sources,
-          pikpak: widget.service.pikpak,
-          onPlay: (stream) async {
-            _activeCandidate = null;
-            await startPlayback(
-              () => widget.service.library.online(stream.toSession()),
-            );
-          },
+          onProbePikPak: () => widget.service.sources.probe(
+            'pikpak',
+            url: PikPakTransfer.driveUrl,
+            external: widget.service.pikpakTransfer.checkAccess,
+          ),
+          onPlay: (stream) => coordinator.play(
+            () => widget.service.library.online(stream.toSession()),
+          ),
         );
       case 'settings':
         return SettingsPage(
@@ -1887,17 +1309,17 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
               verificationUrl: widget.service.pikpak.verificationUrl,
               onUnlock: () async {
                 await widget.service.pikpak.unlock();
-                await widget.service.downloads.pikpak!.accountChanged();
+                await widget.service.pikpakTransfer.accountChanged();
                 if (mounted) setState(() {});
               },
               onLogin: (username, password) async {
                 await widget.service.pikpak.signIn(username, password);
-                await widget.service.downloads.pikpak!.accountChanged();
+                await widget.service.pikpakTransfer.accountChanged();
                 if (mounted) setState(() {});
               },
               onLogout: () async {
                 await widget.service.pikpak.signOut();
-                await widget.service.downloads.pikpak!.accountChanged();
+                await widget.service.pikpakTransfer.accountChanged();
                 if (mounted) setState(() {});
               },
             ),
@@ -1912,7 +1334,7 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
             onExit: () => windowManager.close(),
             storage: widget.service.storage,
             dataDirectory: widget.service.dataDirectory!,
-            mediaDirectory: widget.service.downloads.directory,
+            mediaDirectory: widget.service.bt.directory,
           ),
           onSync: () => perform(() async {
             final syncing = syncCollection();
@@ -1925,7 +1347,10 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
           }),
           syncBusy: syncFeedback.busy,
           bitTorrentSettings: downloadsSection(
-            () => BitTorrentSettingsPanel(downloads: widget.service.downloads),
+            () => BitTorrentSettingsPanel(
+              settings: widget.service.bt.settings,
+              onSave: widget.service.bt.saveSettings,
+            ),
           ),
           onThemeChanged: setDark,
           onCancelSignIn: () => perform(() async {
@@ -1987,20 +1412,16 @@ class _MelonAppState extends State<MelonApp> with WindowListener {
     }
   }
 
-  Future<void> confirmRemoval(Json task) async {
+  Future<void> confirmRemoval(DownloadTask task) async {
     final context = navigation.currentState?.overlay?.context;
     if (context == null) return;
     final remove = await showDialog<bool>(
       context: context,
-      builder: (_) => RemoveDownloadDialog(
-        title: '${task['title']}',
-        cloud: task['provider'] == 'pikpak',
-      ),
+      builder: (_) =>
+          RemoveDownloadDialog(title: task.title, cloud: task.cloud),
     );
     if (remove == true) {
-      await perform(() async {
-        await widget.service.downloads.remove('${task['id']}');
-      });
+      await perform(() => widget.service.downloads.remove(task.id));
     }
   }
 }
