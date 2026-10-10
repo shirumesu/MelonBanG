@@ -80,6 +80,5 @@ class DownloadsController {
       ? downloads.resume(task.id)
       : downloads.pause(task.id);
 
-
   Future<void> close() => _subscription.cancel();
 }
