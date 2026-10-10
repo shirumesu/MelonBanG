@@ -8,7 +8,6 @@ import '../../domain/transfer.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
 import '../core/motion.dart';
-import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
 
@@ -474,11 +473,6 @@ class ResourceResultRow extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (recommended)
-                          const Padding(
-                            padding: EdgeInsets.only(left: Gap.sm),
-                            child: MelonBadge('推荐'),
-                          ),
                       ],
                     ),
                     const SizedBox(height: 5),
@@ -489,10 +483,23 @@ class ResourceResultRow extends StatelessWidget {
                         runSpacing: 4,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          tag(
-                            candidate.kind.label,
-                            background: scheme.secondaryContainer,
-                          ),
+                          if (recommended)
+                            Tooltip(
+                              message: '当前列表里综合画质、字幕、格式和大小的最佳选择',
+                              child: tag(
+                                '推荐',
+                                background: scheme.primary,
+                                foreground: scheme.onPrimary,
+                              ),
+                            ),
+                          tag(switch (candidate.target) {
+                            DownloadTarget() =>
+                              candidate.kind == PlayKind.local
+                                  ? '本地'
+                                  : '${candidate.providerLabel} 缓存中',
+                            OnlineTarget() => '在线',
+                            ReleaseTarget() => 'BT',
+                          }, background: scheme.secondaryContainer),
                           if (episodeLabel != null)
                             tag(
                               episodeLabel,
