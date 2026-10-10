@@ -267,15 +267,13 @@ class _PlayerSettingsState extends State<PlayerSettings> {
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: Text(source.label),
-            subtitle: Text(
-              '${source.count} 条 · ${switch (source.status) {
-                DanmakuStatus.idle => '等待匹配',
-                DanmakuStatus.loading => '匹配中',
-                DanmakuStatus.ready => '已加载',
-                DanmakuStatus.unmatched => source.message ?? '未匹配',
-                DanmakuStatus.error => '加载失败',
-              }}',
-            ),
+            subtitle: Text(switch (source.status) {
+              DanmakuStatus.idle => '等待匹配',
+              DanmakuStatus.loading => '匹配中',
+              DanmakuStatus.ready => '${source.count} 条',
+              DanmakuStatus.unmatched => source.message ?? '未匹配',
+              DanmakuStatus.error => '加载失败',
+            }),
             value: source.enabled,
             onChanged: busy
                 ? null

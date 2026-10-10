@@ -71,17 +71,15 @@ class PlayCandidate {
   final int order;
   int health;
 
-  String get id {
-    final identity = switch (target) {
-      DownloadTarget(:final downloadId, :final fileId) =>
-        '$downloadId:${fileId ?? ''}',
-      OnlineTarget(:final candidateId) => candidateId,
-      ReleaseTarget(:final candidate) => torrentIdentity(
-        candidate.release.locator,
-      ),
-    };
-    return '${kind.name}:$provider:$line:$identity';
-  }
+  /// A torrent is one candidate per site however its groups are enriched.
+  String get id => switch (target) {
+    DownloadTarget(:final downloadId, :final fileId) =>
+      '${kind.name}:$provider:$line:$downloadId:${fileId ?? ''}',
+    OnlineTarget(:final candidateId) =>
+      '${kind.name}:$provider:$line:$candidateId',
+    ReleaseTarget(:final candidate) =>
+      '${kind.name}:$provider:${torrentIdentity(candidate.release.locator)}',
+  };
 
   String get continuityKey {
     final family = switch (target) {

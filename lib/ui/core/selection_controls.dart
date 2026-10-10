@@ -490,7 +490,7 @@ class MelonFilterMenu<T> extends StatelessWidget {
       builder: (context, controller, _) {
         void toggle() =>
             controller.isOpen ? controller.close() : controller.open();
-        final text = on && summary != null ? '$label · $summary' : label;
+        final text = on && summary != null ? '$label $summary' : label;
         final content = Row(
           mainAxisSize: MainAxisSize.min,
           children: [

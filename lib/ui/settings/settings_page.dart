@@ -149,10 +149,12 @@ class _SettingsPageState extends State<SettingsPage> {
                 name: account?.nickname ?? '',
                 size: 44,
               ),
-              title: account?.nickname ?? '连接 Bangumi',
+              title: account?.nickname ?? '未登录',
               subtitle: account == null
-                  ? '同步你的追番收藏与章节记录'
-                  : '@${account.username ?? ''} · ${personal.needsAuthorization ? '登录凭据待解锁' : '已连接 Bangumi'}',
+                  ? '登录 Bangumi 后同步收藏和观看进度'
+                  : personal.needsAuthorization
+                  ? '登录凭据待解锁'
+                  : '@${account.username ?? ''}',
               trailing: Wrap(
                 spacing: Gap.sm,
                 children: [
@@ -187,50 +189,43 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
           ),
-          const SectionTitle(title: '同步'),
-          MelonPanel(
-            padding: EdgeInsets.zero,
-            child: Column(
-              children: [
-                SettingRow(
-                  title: account == null ? '追番记录保存在本机' : 'Bangumi 收藏与章节同步',
-                  subtitle: personal.needsAuthorization
-                      ? '登录凭据待授权，本地追番和播放记录仍可使用。点击「解锁同步」恢复连接。'
-                      : account == null
-                      ? '登录后可同步到 Bangumi，未登录也能记录追番。'
-                      : pending > 0
-                      ? '$pending 项修改等待上传，连接恢复后自动重试'
-                      : '没有待上传修改；联网时自动同步收藏与章节记录。',
-                  trailing: signedIn
-                      ? OutlinedButton.icon(
-                          onPressed: widget.syncBusy ? null : widget.onSync,
-                          icon: const Icon(Icons.sync, size: 18),
-                          label: Text(widget.syncBusy ? '同步中…' : '立即同步'),
-                        )
-                      : null,
-                ),
-                if (personal.sync.error case final error?) ...[
-                  const Divider(height: 1, indent: 20, endIndent: 20),
+          if (signedIn) ...[
+            const SectionTitle(title: '同步'),
+            MelonPanel(
+              padding: EdgeInsets.zero,
+              child: Column(
+                children: [
                   SettingRow(
-                    title: '上次同步失败',
-                    subtitle: error,
-                    subtitleColor: coral,
+                    title: pending > 0 ? '$pending 项修改待上传' : '已全部同步',
+                    subtitle: '联网时自动同步',
+                    trailing: OutlinedButton.icon(
+                      onPressed: widget.syncBusy ? null : widget.onSync,
+                      icon: const Icon(Icons.sync, size: 18),
+                      label: Text(widget.syncBusy ? '同步中…' : '立即同步'),
+                    ),
                   ),
+                  if (personal.sync.error case final error?) ...[
+                    const Divider(height: 1, indent: 20, endIndent: 20),
+                    SettingRow(
+                      title: '上次同步失败',
+                      subtitle: error,
+                      subtitleColor: coral,
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
+          ],
         ],
       ),
       PageScroll(
         key: const PageStorageKey('settings-appearance'),
         children: [
-          const SectionTitle(title: '主题模式'),
+          const SectionTitle(title: '主题'),
           MelonPanel(
             padding: EdgeInsets.zero,
             child: SettingRow(
               title: '深色主题',
-              subtitle: '浅色模式使用中性灰白页面与白色卡片',
               onTap: () => widget.onThemeChanged(!widget.dark),
               trailing: Switch(
                 value: widget.dark,
@@ -250,13 +245,18 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Column(
               children: [
                 for (final (i, (action, keys)) in const [
-                  ('播放 / 暂停', 'Space'),
+                  ('播放 / 暂停', 'Space / K / 单击画面'),
                   ('后退 / 前进 5 秒', '← / →'),
+                  ('跳到 0%–90%', '0–9'),
+                  ('回到开头', 'Home'),
                   ('上一帧 / 下一帧', ', / .'),
-                  ('显示屏全屏', 'F / F11'),
-                  ('退出全屏或关闭菜单', 'Esc'),
+                  ('减速 / 加速', 'Shift + , / .'),
+                  ('音量', '↑ / ↓'),
                   ('静音', 'M'),
-                  ('切换显示屏全屏', '双击画面'),
+                  ('弹幕开关', 'D'),
+                  ('关灯', 'L'),
+                  ('全屏', 'F / F11 / 双击画面'),
+                  ('退出全屏', 'Esc'),
                 ].indexed) ...[
                   if (i > 0)
                     const Divider(height: 1, indent: 20, endIndent: 20),
@@ -330,7 +330,7 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               SettingRow(
                 title: '自动连播',
-                subtitle: '播放完毕后等待 5 秒，接续已有或在线资源',
+                subtitle: '播完 5 秒后播放下一话',
                 trailing: Switch(
                   value: prefs.autoplay,
                   onChanged: prefs.setAutoplay,

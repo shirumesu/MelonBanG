@@ -350,6 +350,13 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   }
 
   List<String> notesOf(PlayCandidate candidate) => [
+    if (candidate.target case OnlineTarget(:final description?)) description,
+    if (!candidate.instant && episode != null) '边下边播',
+    if (candidate.target case DownloadTarget(:final task) when !task.complete)
+      '已下载 ${(task.progress * 100).floor()}%',
+  ];
+
+  List<String> warningsOf(PlayCandidate candidate) => [
     if (candidate.kind == PlayKind.online)
       ?switch (controller.sources.status(candidate.provider)) {
         SourceHealth.partial => '站点部分失败',
@@ -357,12 +364,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         SourceHealth.verification => '站点需要验证',
         _ => null,
       },
-    if (candidate.target case OnlineTarget(:final description?)) description,
     if (candidate.possibleMatch) '可能匹配',
-    if (candidate.health < 0) '近期播放失败',
-    if (!candidate.instant && episode != null) '边下边播',
-    if (candidate.target case DownloadTarget(:final task) when !task.complete)
-      '已下载 ${(task.progress * 100).floor()}%',
+    if (candidate.health < 0) '最近播放失败',
   ];
 
   /// Entries of an upload or site subject, grouped by line; each plays as
@@ -442,8 +445,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     Episode? target,
   ) => Tooltip(
     message: target == null
-        ? '没有对应的本作集数'
-        : item.description ?? '作为第 ${target.number} 话播放',
+        ? '没有对应的集数'
+        : ['作为第 ${target.number} 话播放', ?item.description].join('  '),
     child: ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 260),
       child: OutlinedButton(
@@ -570,7 +573,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       label: '别名',
       active: includedAliases.isNotEmpty,
       summary: '${includedAliases.length}',
-      tooltip: '同时用勾选的别名搜索，结果合并显示',
+      tooltip: '同时搜索勾选的别名',
       sections: [
         MelonFilterSection([
           for (final name in aliases) MelonFilterOption(name, name),
@@ -625,13 +628,10 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    episode == null
-                        ? '本地缓存、在线源与 BT 资源 · 集数留空可查找合集'
-                        : '第 ${episode!.number} 话 · 播放和下载都会关联到这一话',
-                    style: small,
-                  ),
+                  if (episode != null) ...[
+                    const SizedBox(height: 2),
+                    Text('第 ${episode!.number} 话', style: small),
+                  ],
                 ],
               ),
             ),
@@ -770,21 +770,20 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                     semanticLabel: '资源类型',
                     options: {
                       for (final value in _Family.values)
-                        value: '${value.label} · ${kindCounts[value]}',
+                        value: '${value.label} ${kindCounts[value]}',
                     },
                     value: kind,
                     onChanged: (value) => changeForm(() => kind = value),
                   ),
                 ),
                 const Spacer(),
-                Text(
-                  filtered || kind != _Family.all
-                      ? '${visible.length} / ${candidates.length} 条'
-                      : '${candidates.length} 条',
-                  style: small?.copyWith(
-                    fontFeatures: const [FontFeature.tabularFigures()],
+                if (filtered)
+                  Text(
+                    '筛选后 ${visible.length} 条',
+                    style: small?.copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
                   ),
-                ),
               ],
             ),
             const SizedBox(height: Gap.sm),
@@ -840,7 +839,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       label: '画质',
                       icon: Icons.high_quality_outlined,
                       summary: summary(qualities, resourceQualities),
-                      tooltip: '按标题标注的输出画质筛选',
+                      tooltip: '按画质筛选',
                       sections: [
                         MelonFilterSection([
                           for (final value in resourceQualities)
@@ -859,7 +858,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       label: '字幕组',
                       icon: Icons.groups_outlined,
                       summary: summary(groups, groupNames),
-                      tooltip: '资源站标注的发布分组；标题中的联合署名单独展示',
+                      tooltip: '按字幕组筛选',
                       sections: [
                         MelonFilterSection([
                           for (final name in groupNames)
@@ -882,7 +881,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                         {...languages, ...subtitleForms},
                         [...resourceLanguages, ...resourceSubtitleForms],
                       ),
-                      tooltip: '同一组内满足任一项即可，例如勾选“简体”也包含简繁、简日双语',
+                      tooltip: '勾选“简体”也包含简繁、简日双语',
                       sections: [
                         MelonFilterSection([
                           for (final value in resourceLanguages)
@@ -914,7 +913,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                     ),
                   ]) ...[menu, const SizedBox(width: Gap.sm)],
                   Tooltip(
-                    message: '筛选时保留标题没有标明画质、字幕组或字幕的资源',
+                    message: '同时显示没有标明画质、字幕组或字幕的资源',
                     child: FilterChip(
                       label: const Text('含未标明'),
                       selected: includeUnknown,
@@ -984,12 +983,12 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                                     children: [
                                       Expanded(
                                         child: Text(
-                                          '资源 · 标题标注',
+                                          '资源',
                                           style: small?.copyWith(fontSize: 11),
                                         ),
                                       ),
                                       for (final (label, width) in [
-                                        ('来源分组', resourceGroupColumnWidth),
+                                        ('来源', resourceGroupColumnWidth),
                                         ('大小', resourceSizeColumnWidth),
                                         ('发布', resourceDateColumnWidth),
                                       ]) ...[
@@ -1085,6 +1084,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                             }
                           }),
                           notes: notesOf(candidate),
+                          warnings: warningsOf(candidate),
                           recommended: candidate.id == recommendedId,
                           playing: opening == candidate.id,
                           onPlay: playable(candidate) && opening == null

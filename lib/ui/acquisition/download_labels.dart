@@ -11,10 +11,9 @@ String downloadStatus(DownloadTask task) => switch (task.status) {
     task.swarm.peers == 0 && task.downloadSpeed == 0 ? '寻找下载节点' : '下载中',
   DownloadStatus.seeding => '做种中',
   DownloadStatus.completed => switch (task.seedStop) {
-    SeedStop.manual => '已完成 · 已手动停止做种',
-    SeedStop.ratio => '已完成 · 达到分享率',
-    SeedStop.time => '已完成 · 达到做种时限',
-    _ => '已完成 · 已停止做种',
+    SeedStop.ratio => '已达分享率',
+    SeedStop.time => '已达做种时长',
+    _ => '已停止做种',
   },
   DownloadStatus.paused => task.complete ? '已暂停做种' : '已暂停',
   DownloadStatus.failed => '需要重试',

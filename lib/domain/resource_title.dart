@@ -6,7 +6,7 @@ class ResourceTitleInfo {
     required this.title,
     required this.displayTitle,
     required this.labels,
-    required this.notes,
+    required this.warnings,
     required this.sourceGroups,
     required this.titleCredits,
     this.qualities = const {},
@@ -19,7 +19,10 @@ class ResourceTitleInfo {
 
   final String title, displayTitle;
   final String? quality, episodeLabel;
-  final List<String> labels, notes, sourceGroups, titleCredits;
+  final List<String> labels, sourceGroups, titleCredits;
+
+  /// Doubts about the title's annotations, such as several qualities.
+  final List<String> warnings;
   final bool episodeConflict;
 
   /// Every output quality the title mentions; [quality] is set only when unique.
@@ -73,7 +76,7 @@ ResourceTitleInfo describeResource(
       .where((value) => value.isNotEmpty)
       .toSet()
       .toList();
-  final labels = <String>[], notes = <String>[];
+  final labels = <String>[], warnings = <String>[];
   final outputText = normalized.replaceAll(_sourceQuality, '');
   final qualities = <String>{
     if (_token(r'720p|1280\s*[x×*]\s*720').hasMatch(outputText)) '720p',
@@ -93,13 +96,8 @@ ResourceTitleInfo describeResource(
   labels.addAll(qualities);
   if (_sourceQuality.hasMatch(normalized)) {
     labels.add('${_sourceQuality.firstMatch(normalized)!.group(0)}（片源）');
-    notes.add('4K片源说明不代表输出画质');
   }
-  if (qualities.length > 1) {
-    notes.add('标题含多种画质，输出待确认');
-  } else if (quality == null) {
-    notes.add('画质未标明');
-  }
+  if (qualities.length > 1) warnings.add('画质不确定');
   final format = _format.firstMatch(normalized)?.group(0)?.toUpperCase();
   if (format != null) {
     labels.add(switch (format) {
@@ -141,9 +139,6 @@ ResourceTitleInfo describeResource(
           RegExp(r'[&＆]').hasMatch(prefix)
       ? prefix.split(RegExp(r'\s*[&＆]\s*')).where((e) => e.isNotEmpty).toList()
       : <String>[];
-  if (titleCredits.length > 1) {
-    notes.add('标题联合署名：${titleCredits.join(' & ')}');
-  }
 
   String? episodeLabel;
   var episodeConflict = false;
@@ -159,12 +154,9 @@ ResourceTitleInfo describeResource(
     episodeLabel =
         '${range.group(1)}–${range.group(2)}'
         '${range.group(3) == null ? '' : ' + SP×${range.group(3)}'}';
-    notes.add(
-      episodeConflict ? '$episodeLabel 范围倒置，集数待确认' : '合集 · $episodeLabel（标题）',
-    );
+    if (episodeConflict) warnings.add('集数范围有误');
   } else if (special != null) {
     episodeLabel = '特别篇 ${special.group(0)}';
-    notes.add('$episodeLabel（标题）');
   } else {
     final seasonEpisode = RegExp(
       r'\bS(\d{1,2})E(\d{1,3})\b',
@@ -178,8 +170,7 @@ ResourceTitleInfo describeResource(
             .where((match) => match.start != first?.start)
             .firstOrNull;
     if (seasonEpisode != null) {
-      episodeLabel =
-          'S${seasonEpisode.group(1)} · 第 ${seasonEpisode.group(2)} 话';
+      episodeLabel = 'S${seasonEpisode.group(1)} 第 ${seasonEpisode.group(2)} 话';
     } else if (single != null) {
       episodeLabel = single.group(3) == null
           ? '第 ${single.group(1) ?? single.group(2)} 话'
@@ -188,10 +179,6 @@ ResourceTitleInfo describeResource(
         normalized.contains('剧场版')) {
       episodeLabel = '剧场版';
     }
-  }
-
-  if (episodeLabel != null && range == null && special == null) {
-    labels.insert(0, '$episodeLabel（标题）');
   }
 
   var display = title.replaceAllMapped(_brackets, (match) {
@@ -236,7 +223,7 @@ ResourceTitleInfo describeResource(
     languages: languages,
     subtitleForms: subtitleForms,
     labels: labels.toSet().toList(),
-    notes: notes,
+    warnings: warnings,
     sourceGroups: sourceGroups,
     titleCredits: titleCredits,
     episodeLabel: episodeLabel,

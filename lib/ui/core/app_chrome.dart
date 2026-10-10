@@ -401,7 +401,7 @@ class AppSidebar extends StatelessWidget {
           'downloads',
           '缓存',
           Icons.download_outlined,
-          downloadCount > 0 ? '$downloadCount 下载中' : null,
+          downloadCount > 0 ? '$downloadCount' : null,
         ),
         const Spacer(),
         _nav(
@@ -439,7 +439,7 @@ class AppSidebar extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          username == null ? '本地追番记录' : '@$username',
+                          username == null ? '点击登录' : '@$username',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(

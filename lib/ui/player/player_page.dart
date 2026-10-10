@@ -42,7 +42,6 @@ class PlayerPage extends StatefulWidget {
     this.onWindowFullScreenChanged,
     this.onPlayFile,
     this.onPlayCandidate,
-    this.onFindAllResources,
     this.onOpenResources,
     this.lightsOff,
     this.onLightsChanged,
@@ -67,7 +66,6 @@ class PlayerPage extends StatefulWidget {
   /// without a chapter.
   final Future<void> Function(PlayCandidate candidate, Episode? episode)?
   onPlayCandidate;
-  final ValueChanged<Episode?>? onFindAllResources;
 
   /// Continues a resource-sheet search on the resources page.
   final void Function(ResourceSearchController search)? onOpenResources;
@@ -437,7 +435,7 @@ class _PlayerPageState extends State<PlayerPage> {
       final seconds = ((milliseconds ~/ 1000) % 60).toString().padLeft(2, '0');
       final fraction = (milliseconds % 1000).toString().padLeft(3, '0');
       showFeedback(
-        '${forward ? '下一帧' : '上一帧'} · $hours:$minutes:$seconds.$fraction',
+        '${forward ? '下一帧' : '上一帧'}  $hours:$minutes:$seconds.$fraction',
       );
     } catch (e) {
       widget.onError(e);
@@ -468,8 +466,6 @@ class _PlayerPageState extends State<PlayerPage> {
         preparing: preparing,
         onRetry: widget.onRetryPreparing,
         onChoose: widget.onChoosePreparing,
-        onFindResources: () =>
-            widget.onFindAllResources?.call(preparing.episode),
       );
     }
     if (playback.uri == null) {
@@ -798,14 +794,17 @@ class _PlayerPageState extends State<PlayerPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            playback.autoplayTarget == null
-                                ? playback.autoplayMessage!
-                                : '即将播放第 ${playback.autoplayTarget!.episode.number} 话 · ${playback.autoplayTarget!.sourceLabel}',
-                          ),
-                          if (playback.autoplayTarget != null) ...[
-                            const SizedBox(height: 8),
-                            Text('${playback.autoplaySeconds} 秒后播放'),
+                          Text(switch (playback.autoplayTarget) {
+                            null => playback.autoplayMessage!,
+                            final target =>
+                              '${playback.autoplaySeconds} 秒后播放第 ${target.episode.number} 话',
+                          }),
+                          if (playback.autoplayTarget case final target?) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              target.sourceLabel,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -881,8 +880,7 @@ class _PlayerPageState extends State<PlayerPage> {
                             onFeedback: showFeedback,
                             nextLabel: switch (nextEpisode) {
                               null => null,
-                              (final next, true) => '下一话 · 第 ${next.number} 话',
-                              (final next, false) => '下一话 · 第 ${next.number} 话',
+                              (final next, _) => '下一话（第 ${next.number} 话）',
                             },
                             onNext: switch (nextEpisode) {
                               null => null,
@@ -969,11 +967,9 @@ class _PreparingView extends StatelessWidget {
     required this.preparing,
     required this.onRetry,
     required this.onChoose,
-    required this.onFindResources,
   });
   final PreparingPlayback preparing;
   final VoidCallback? onRetry, onChoose;
-  final VoidCallback onFindResources;
 
   @override
   Widget build(BuildContext context) {
@@ -1019,7 +1015,7 @@ class _PreparingView extends StatelessWidget {
               ),
               const SizedBox(height: Gap.xs),
               Text(
-                '第 ${episode.number} 话 · ${episode.title}',
+                '第 ${episode.number} 话  ${episode.title}',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: muted, fontSize: 12),
               ),
@@ -1040,7 +1036,7 @@ class _PreparingView extends StatelessWidget {
                   const SizedBox(width: Gap.sm),
                   Flexible(
                     child: Text(
-                      failed ?? '正在查找第 ${episode.number} 话的可播放资源…',
+                      failed ?? '正在查找资源…',
                       style: TextStyle(color: muted, fontSize: 13),
                     ),
                   ),
@@ -1064,12 +1060,7 @@ class _PreparingView extends StatelessWidget {
                   OutlinedButton(
                     style: buttonStyle,
                     onPressed: onChoose,
-                    child: const Text('手动选择资源'),
-                  ),
-                  OutlinedButton(
-                    style: buttonStyle,
-                    onPressed: onFindResources,
-                    child: const Text('完整资源查找'),
+                    child: const Text('选择资源'),
                   ),
                 ],
               ),

@@ -575,16 +575,11 @@ class _ContinueSection extends StatelessWidget {
       ...rest.where((e) => airingToday.contains(e.id)),
       ...rest.where((e) => !airingToday.contains(e.id)),
     ];
-    final updated = watching.where((e) => airingToday.contains(e.id)).length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SectionTitle(
-          title: '继续 · 正在追',
-          subtitle: [
-            if (watching.isNotEmpty) '在看 ${watching.length} 部',
-            if (updated > 0) '今天 $updated 部更新',
-          ].join(' · '),
+          title: '继续观看',
           icon: Icons.play_circle_outline,
           color: mint,
           top: 0,
@@ -699,28 +694,29 @@ class _ResumePosterState extends State<_ResumePoster> {
                           ),
                         ),
                       ),
-                      Positioned(
-                        top: 10,
-                        left: 10,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: const BoxDecoration(
-                            color: mint,
-                            borderRadius: badgeBorderRadius,
-                          ),
-                          child: Text(
-                            episodeLabel == null ? '继续观看' : '继续$episodeLabel',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
+                      if (episodeLabel != null)
+                        Positioned(
+                          top: 10,
+                          left: 10,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: const BoxDecoration(
+                              color: mint,
+                              borderRadius: badgeBorderRadius,
+                            ),
+                            child: Text(
+                              episodeLabel,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                         ),
-                      ),
                       Positioned(
                         left: 11,
                         right: 10,
@@ -764,9 +760,7 @@ class _ResumePosterState extends State<_ResumePoster> {
             ),
             const SizedBox(height: 10),
             Text(
-              duration > position && remaining > 0
-                  ? '剩余 $remaining 分钟'
-                  : '继续观看',
+              '剩余 $remaining 分钟',
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
@@ -916,7 +910,7 @@ class _TodayTimelineState extends State<_TodayTimeline> {
                 const SizedBox(width: Gap.sm),
                 if (items.isNotEmpty)
                   Text(
-                    '${items.length} 部 · 已更新 $airedCount',
+                    '已更新 $airedCount/${items.length}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 const Spacer(),
@@ -986,9 +980,6 @@ class _TimelineEntry extends StatelessWidget {
     final line = aired
         ? scheme.primary.withValues(alpha: .55)
         : scheme.outlineVariant;
-    final episodes = item.episodeTotal == null
-        ? null
-        : '全 ${item.episodeTotal} 话';
     return SizedBox(
       height: _TodayTimelineState.rowHeight,
       child: InkWell(
@@ -1059,7 +1050,7 @@ class _TimelineEntry extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      [aired ? '已更新' : '待更新', ?episodes].join(' · '),
+                      aired ? '已更新' : '待更新',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: aired ? FontWeight.w700 : FontWeight.w400,
@@ -1203,9 +1194,7 @@ class _SearchPageState extends State<SearchPage> {
           children: [
             SectionTitle(
               title: '“${search.query}” 的搜索结果',
-              subtitle: results.isEmpty && busy
-                  ? null
-                  : '${results.length}${search.total > results.length ? ' / ${search.total}' : ''} 部',
+              subtitle: results.isEmpty && busy ? null : '${search.total} 部',
               icon: Icons.search,
               top: Gap.lg,
             ),
@@ -1388,8 +1377,7 @@ class _CalendarPageState extends State<CalendarPage> {
           child: PageScroll(
             children: [
               SectionTitle(
-                title: '${weekday(selectedDate)} · $selectedDate',
-                subtitle: '${items.length} 部放送',
+                title: '${weekday(selectedDate)}  $selectedDate',
                 icon: Icons.calendar_month_outlined,
               ),
               if (items.isEmpty)
@@ -1567,15 +1555,15 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                                       fontWeight: FontWeight.w800,
                                     ),
                                   ),
-                                  const SizedBox(height: 7),
-                                  Text(
-                                    item.episodeTotal == null
-                                        ? '今日放送'
-                                        : '放送 · 全 ${item.episodeTotal} 话',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall,
-                                  ),
+                                  if (item.episodeTotal != null) ...[
+                                    const SizedBox(height: 7),
+                                    Text(
+                                      '全 ${item.episodeTotal} 话',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall,
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),

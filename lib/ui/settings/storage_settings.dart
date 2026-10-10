@@ -154,7 +154,7 @@ class _StorageSettingsState extends State<StorageSettings> {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       SectionTitle(
-        title: '图片与番剧资料缓存',
+        title: '图片与资料缓存',
         trailing: Text(
           usageLabel(cacheBytes),
           style: Theme.of(context).textTheme.bodySmall,
@@ -164,11 +164,12 @@ class _StorageSettingsState extends State<StorageSettings> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('封面、头像、立绘和番剧资料保存在本机，超过 120 天自动清理。'),
-            const SizedBox(height: 8),
-            const Text('图片缓存最多占用 100 MiB，空间不足时优先清理最近未使用的图片。'),
-            const SizedBox(height: 8),
-            const Text('清理后会按需重新加载。下载的视频、追番记录和播放进度会保留。'),
+            const Text('图片和番剧资料超过 120 天自动清理，图片最多占用 100 MiB'),
+            const SizedBox(height: 4),
+            Text(
+              '清理不影响已下载的视频、追番和观看进度',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             const SizedBox(height: 12),
             FeedbackButton(
               feedback: cleanup,
@@ -229,7 +230,7 @@ class _StorageSettingsState extends State<StorageSettings> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('迁移已安排 · 重启后生效'),
+              const Text('迁移将在重启后进行'),
               const SizedBox(height: 8),
               if (plan['data'] != widget.dataDirectory)
                 SelectableText('应用数据 → ${plan['data']}'),

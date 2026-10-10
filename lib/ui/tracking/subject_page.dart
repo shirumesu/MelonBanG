@@ -262,8 +262,8 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     await _saveFields(
       CollectionChange(status: status),
       label: previous == null
-          ? '已加入收藏 · ${collectionLabels[status]}'
-          : '已保存 · ${collectionLabels[status]}',
+          ? '已加入${collectionLabels[status]}'
+          : '已改为${collectionLabels[status]}',
       undo: previous == null
           ? null
           : CollectionChange(
@@ -290,7 +290,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     unawaited(
       _saveFields(
         CollectionChange(score: score),
-        label: score == 0 ? '已清除评分' : '已保存评分 $score · ${scoreLabels[score]}',
+        label: score == 0 ? '已清除评分' : '已评 $score 分',
         undo: CollectionChange(score: previous),
       ),
     );
@@ -368,7 +368,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       if (_status == null &&
           !await _saveFields(
             const CollectionChange(status: CollectionStatus.watching),
-            label: '已加入收藏 · 在看',
+            label: '已加入在看',
           )) {
         throw StateError('需要先加入收藏');
       }
@@ -424,21 +424,28 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     return '${value ~/ 60}:${(value % 60).toString().padLeft(2, '0')}';
   }
 
-  String _episodeSummary(Episode episode, {required bool next}) {
+  /// The episode's name, then its state and air date.
+  TextSpan _episodeSummary(Episode episode) {
     final date = episode.airDate ?? '';
-    final available = _available(episode);
-    return [
-      '${next ? '下一话 ' : ''}EP${episode.number}',
-      if (episode.title.isNotEmpty) episode.title,
-      if (_isResume(episode))
-        '续播 ${_timestamp(widget.resume!.position)}'
-      else if (!_aired(episode))
-        '未播出'
-      else
-        _episodeStatus(episode) == EpisodeStatus.watched ? '已看' : '未看',
-      if (available != null) available ? '已缓存' : '未缓存',
-      if (date.isNotEmpty) date,
-    ].join(' · ');
+    return TextSpan(
+      children: [
+        TextSpan(
+          text: '第 ${episode.number} 话  ${episode.title}',
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+        ),
+        for (final detail in [
+          if (_isResume(episode))
+            '看到 ${_timestamp(widget.resume!.position)}'
+          else if (!_aired(episode))
+            '未播出'
+          else if (_episodeStatus(episode) == EpisodeStatus.watched)
+            '已看',
+          if (_available(episode) ?? false) '已缓存',
+          if (date.isNotEmpty) date,
+        ])
+          TextSpan(text: '    $detail'),
+      ],
+    );
   }
 
   @override
@@ -575,9 +582,8 @@ class _SubjectDetailState extends State<_SubjectDetail> {
               ? '继续播放'
               : episodes.isNotEmpty && watched == episodes.length
               ? '重看'
-              : '播放'} EP${next.number}';
+              : '播放'}第 ${next.number} 话';
     final date = DateTime.tryParse('${item.airDate}');
-    const seasons = ['WINTER', 'SPRING', 'SUMMER', 'AUTUMN'];
     final score = item.score ?? 0;
     final summary =
         item.summary ?? (_loadingPart('subject') ? '正在加载简介…' : '暂无简介');
@@ -603,15 +609,18 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           spacing: 6,
           runSpacing: 6,
           children: [
-            if (date != null) ...[
-              MelonBadge('${date.year}', color: coral),
-              MelonBadge(seasons[(date.month - 1) ~/ 3], color: coral),
-            ] else if (item.airDate case final airDate?)
+            if (date != null)
+              MelonBadge('${date.year}年${date.month}月', color: coral)
+            else if (item.airDate case final airDate?)
               MelonBadge(airDate, color: coral),
             MelonBadge(item.platform ?? '动画', color: sky),
             for (final tag
                 in item.tags
-                    .where((tag) => tag.name != (item.platform ?? '动画'))
+                    .where(
+                      (tag) =>
+                          tag.name != (item.platform ?? '动画') &&
+                          !RegExp(r'^\d{4}年').hasMatch(tag.name),
+                    )
                     .take(3))
               MelonBadge(tag.name, color: grape),
           ],
@@ -645,7 +654,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (item.rank != null)
-                    Text('#${item.rank} Bangumi', style: text.bodySmall),
+                    Text('排名 #${item.rank}', style: text.bodySmall),
                   if (item.ratingCount != null)
                     Text('${item.ratingCount} 人评分', style: text.bodySmall),
                 ],
@@ -782,18 +791,15 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           children: [
             Text('剧集', style: text.titleSmall),
             const SizedBox(width: Gap.md),
-            Expanded(
-              child: Text(
-                hover != null
-                    ? _episodeSummary(hover, next: false)
-                    : next != null
-                    ? _episodeSummary(next, next: true)
-                    : '',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: text.bodySmall,
+            if (hover ?? next case final shown?)
+              Expanded(
+                child: Text.rich(
+                  _episodeSummary(shown),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.bodySmall,
+                ),
               ),
-            ),
           ],
         ),
         const SizedBox(height: Gap.sm + 2),
@@ -1312,7 +1318,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                     children: [
                       Expanded(
                         child: Text(
-                          '$heading · ${people.length} 位',
+                          '$heading（${people.length}）',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                       ),
@@ -1367,7 +1373,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       for (final MapEntry(:key, value: person) in people.entries)
         person.withRole(
           (positions[key]!..sort((a, b) => priority(a).compareTo(priority(b))))
-              .join(' · '),
+              .join('、'),
         ),
     ];
     result.sort(
@@ -1722,10 +1728,7 @@ class _TagAdderState extends State<_TagAdder> {
                 ),
               ],
               const SizedBox(height: Gap.sm),
-              Text(
-                '${widget.tags.length} / $collectionTagLimit · 点一下添加或取消，立即保存',
-                style: small,
-              ),
+              Text('${widget.tags.length}/$collectionTagLimit', style: small),
             ],
           ),
         ),
@@ -1859,7 +1862,7 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
         position.dy,
       ),
       items: [
-        PopupMenuItem(value: 'play', child: Text('播放 EP${episode.number}')),
+        const PopupMenuItem(value: 'play', child: Text('播放')),
         const PopupMenuItem(value: 'resources', child: Text('查看资源')),
         PopupMenuItem(value: 'mark', child: Text(watched ? '标为未看' : '标为已看')),
       ],
@@ -1954,7 +1957,7 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
           final label = episode.main ? episode.number : 'SP${episode.number}';
           return Semantics(
             button: true,
-            label: 'EP${episode.number} ${watched ? '已看' : '未看'}',
+            label: '第 ${episode.number} 话 ${watched ? '已看' : '未看'}',
             onTap: () => widget.onOpen(episode),
             child: AnimatedContainer(
               duration: motionDuration(context, 120),
@@ -2000,14 +2003,11 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
         Widget legend(Widget mark, String text) =>
             Row(mainAxisSize: MainAxisSize.min, children: [mark, Text(text)]);
         final target = dragStatus == EpisodeStatus.watched ? '已看' : '未看';
-        final String hint;
-        if (dragStatus == null) {
-          hint = '点击查看资源 · 长按标为已看 · 右键更多';
-        } else if (outside) {
-          hint = '已移出选集区域，松开将取消';
-        } else {
-          hint = '已选 ${selected.length} 话，松开标为$target · 按住拖动调整范围 · 右键或 Esc 取消';
-        }
+        final hint = dragStatus == null
+            ? null
+            : outside
+            ? '松开将取消'
+            : '已选 ${selected.length} 话，松开标为$target，Esc 取消';
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2100,15 +2100,23 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
                     swatch(Colors.transparent, scheme.outlineVariant),
                     '未看',
                   ),
-                  Text(
-                    hint,
-                    style: dragStatus == null
-                        ? null
-                        : TextStyle(
-                            color: outside ? scheme.error : scheme.primary,
-                            fontWeight: FontWeight.w700,
-                          ),
-                  ),
+                  if (hint == null)
+                    Tooltip(
+                      message: '点击查看资源\n长按标为已看，按住拖动可选多话\n右键查看更多操作',
+                      child: Icon(
+                        Icons.help_outline_rounded,
+                        size: 14,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    )
+                  else
+                    Text(
+                      hint,
+                      style: TextStyle(
+                        color: outside ? scheme.error : scheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   if (collapsible)
                     TextButton(
                       style: TextButton.styleFrom(

@@ -234,7 +234,7 @@ class _SourcesPageState extends State<SourcesPage> {
                       ],
                     ),
                     Text(
-                      '规则 ${registry.version} · ${registry.ruleOrigin} · ${snapshotDate(registry.snapshot.updatedAt)}',
+                      '规则 ${registry.version}，${snapshotDate(registry.snapshot.updatedAt)} 更新',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     FeedbackIssue(
@@ -311,13 +311,15 @@ class _SourcesPageState extends State<SourcesPage> {
               selected: selected?.id == entry.id,
               titleTextStyle: Theme.of(context).textTheme.titleSmall,
               title: Text(entry.name),
-              subtitle: Align(
-                alignment: Alignment.centerLeft,
-                child: MelonBadge(
-                  label(registry.status(entry.id)),
-                  color: color(registry.status(entry.id)),
-                ),
-              ),
+              subtitle: registry.status(entry.id) == SourceHealth.unknown
+                  ? null
+                  : Align(
+                      alignment: Alignment.centerLeft,
+                      child: MelonBadge(
+                        label(registry.status(entry.id)),
+                        color: color(registry.status(entry.id)),
+                      ),
+                    ),
               trailing: Switch(
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 value:
@@ -397,8 +399,8 @@ class _SourcesPageState extends State<SourcesPage> {
                 instance == null
                     ? '网盘'
                     : manual
-                    ? '外接数据源 · 手动选择'
-                    : '${instance.engine} · 规则 ${registry.version}',
+                    ? '需要手动选择条目'
+                    : instance.engine,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               if (instance?.description case final description?)
@@ -446,10 +448,7 @@ class _SourcesPageState extends State<SourcesPage> {
               ),
             )
           else
-            Text(
-              '检查搜索与播放链路，结果仅保留于本次运行。',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            Text('检查搜索和播放是否正常', style: Theme.of(context).textTheme.bodySmall),
         ],
         if (online) ...[
           const SectionTitle(title: '手动搜索', top: Gap.lg),
@@ -483,7 +482,7 @@ class _SourcesPageState extends State<SourcesPage> {
             Padding(
               padding: const EdgeInsets.only(top: Gap.sm),
               child: Text(
-                '没有匹配条目，请换个名称搜索。',
+                '没有找到，换个名称试试',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -524,7 +523,7 @@ class _SourcesPageState extends State<SourcesPage> {
             ),
           if (_subject != null)
             SectionTitle(
-              title: '${_subject!.title} · ${_episodes.length} 个播放入口',
+              title: '${_subject!.title}（${_episodes.length}）',
               top: Gap.lg,
             ),
           if (_episodes.isNotEmpty) _episodeChoices(),
@@ -592,7 +591,7 @@ class _SourcesPageState extends State<SourcesPage> {
         Expanded(child: Text(step.label)),
         const SizedBox(width: Gap.sm),
         Text(
-          '${step.milliseconds ?? '…'} ms${step.statusCode == null ? '' : ' · HTTP ${step.statusCode}'}',
+          '${step.milliseconds ?? '…'} ms${step.statusCode == null ? '' : '  HTTP ${step.statusCode}'}',
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ],

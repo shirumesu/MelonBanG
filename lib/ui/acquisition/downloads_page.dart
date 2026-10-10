@@ -28,7 +28,7 @@ class DownloadsPage extends StatefulWidget {
 
 class _DownloadsPageState extends State<DownloadsPage> {
   String filter = '全部';
-  String statusFilter = '所有状态';
+  String statusFilter = '全部状态';
   final expanded = <String>{};
   StateSetter? _refreshFileDialog;
 
@@ -125,8 +125,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
       children: [
         SectionTitle(
           title: '缓存',
-          subtitle:
-              '${tasks.length} 个任务 · ${tasks.where((t) => t.complete).length} 个已缓存',
           trailing: Wrap(
             spacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
@@ -159,7 +157,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
             ),
             MelonChoiceMenu<String>(
               options: const {
-                '所有状态': '所有状态',
+                '全部状态': '全部状态',
                 '已暂停': '已暂停',
                 '失败': '失败',
                 '做种中': '做种中',
@@ -179,7 +177,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
         ),
         for (final group in [('进行中', active), ('已缓存', cached)]) ...[
           if (group.$2.isNotEmpty) ...[
-            SectionTitle(title: group.$1, subtitle: '${group.$2.length} 个任务'),
+            if (filter == '全部')
+              SectionTitle(title: '${group.$1} ${group.$2.length}')
+            else
+              const SizedBox(height: Gap.lg),
             PageSliver(
               child: SliverList.builder(
                 itemCount: group.$2.length,
@@ -193,7 +194,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         ],
         if (visible.isEmpty)
           EmptyState(
-            text: tasks.isEmpty ? '缓存好喜欢的故事，随时开始观看' : '当前分类没有任务',
+            text: tasks.isEmpty ? '还没有缓存' : '没有符合条件的任务',
             action: tasks.isEmpty ? widget.onExplore : null,
             actionLabel: '去探索',
           ),
@@ -269,18 +270,17 @@ class _DownloadsPageState extends State<DownloadsPage> {
                               : mint,
                         ),
                         if (cloud) const MelonBadge('PikPak', color: sky),
-                        if (files.isNotEmpty)
+                        if (!complete &&
+                            !(cloud && status == DownloadStatus.metadata)) ...[
                           Text(
-                            '${files.length} 个文件',
+                            '${(progress * 100).toStringAsFixed(0)}%',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
-                        if (!complete)
                           Text(
-                            cloud && status == DownloadStatus.metadata
-                                ? '等待 PikPak 完成离线下载'
-                                : '${(progress * 100).toStringAsFixed(0)}% · ↓ ${transferRate(task.downloadSpeed)}',
+                            '↓ ${transferRate(task.downloadSpeed)}',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
+                        ],
                       ],
                     ),
                     if (!complete)
@@ -315,14 +315,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 ),
               if (!complete)
                 IconButton(
-                  tooltip: cloud ? '暂停 / 继续本机缓存' : '暂停 / 继续下载',
+                  tooltip: canResume ? '继续' : '暂停',
                   onPressed: () => _toggle(task),
                   icon: Icon(
                     canResume ? Icons.play_arrow_rounded : Icons.pause_rounded,
                   ),
                 ),
               IconButton(
-                tooltip: details ? '收起任务详情' : '任务详情',
+                tooltip: details ? '收起详情' : '详情',
                 onPressed: () => setState(
                   () => details ? expanded.remove(id) : expanded.add(id),
                 ),
@@ -348,24 +348,27 @@ class _DownloadsPageState extends State<DownloadsPage> {
               Text(
                 files.length == 1
                     ? files.single.name
-                    : '${files.length} 个文件 · ${files.first.name}',
+                    : '${files.first.name} 等 ${files.length} 个文件',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             const SizedBox(height: 8),
-            Text(
-              cloud
-                  ? 'PikPak 云端文件 → 本机缓存 · ↓ ${transferRate(task.downloadSpeed)}'
-                  : '↓ ${transferRate(task.downloadSpeed)} · ↑ ${transferRate(task.uploadSpeed)} · ${swarm.peers} 个连接 · 分享率 ${task.totalBytes > 0 ? (task.uploadedBytes / task.totalBytes).toStringAsFixed(2) : '0.00'}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            _stats(context, [
+              '↓ ${transferRate(task.downloadSpeed)}',
+              if (!cloud) ...[
+                '↑ ${transferRate(task.uploadSpeed)}',
+                '${swarm.peers} 个连接',
+                '分享率 ${task.totalBytes > 0 ? (task.uploadedBytes / task.totalBytes).toStringAsFixed(2) : '0.00'}',
+              ],
+            ]),
             if (!cloud && !complete && swarm.trackers != null) ...[
               const SizedBox(height: 6),
-              Text(
-                '发现 ${swarm.knownPeers ?? 0} 个节点 · Tracker ${swarm.workingTrackers ?? 0}/${swarm.trackers} 可用'
-                '${(swarm.failedTrackers ?? 0) > 0 ? '（${swarm.failedTrackers} 个连接异常）' : ''}'
-                ' · ${(swarm.dhtNodes ?? 0) < 0 ? 'DHT 已关闭' : 'DHT ${swarm.dhtNodes ?? 0} 个节点'}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+              _stats(context, [
+                '发现 ${swarm.knownPeers ?? 0} 个节点',
+                'Tracker ${swarm.workingTrackers ?? 0}/${swarm.trackers} 可用',
+                (swarm.dhtNodes ?? 0) < 0
+                    ? 'DHT 已关闭'
+                    : 'DHT ${swarm.dhtNodes ?? 0} 个节点',
+              ]),
               if ((status == DownloadStatus.metadata ||
                       status == DownloadStatus.downloading) &&
                   swarm.peers == 0)
@@ -373,21 +376,23 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
                     (swarm.knownPeers ?? 0) > 0
-                        ? '已发现节点，正在尝试连接。'
+                        ? '已发现节点，正在连接'
                         : (swarm.failedTrackers ?? 0) > 0 &&
                               (swarm.workingTrackers ?? 0) == 0 &&
                               (swarm.dhtNodes ?? 0) <= 0
-                        ? '暂未发现下载节点。可检查网络是否允许 BT / UDP，或尝试其他资源。'
-                        : '正在寻找下载节点；等待时间也取决于资源的做种情况。',
+                        ? '没有找到下载节点，请检查网络是否允许 BT，或换一个资源'
+                        : '正在寻找下载节点，做种的人少时会比较慢',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
             ],
-            if (!cloud && complete)
-              Text(
-                '已上传 ${(task.uploadedBytes / 1048576).toStringAsFixed(1)} MiB · 累计做种 ${(task.seedSeconds / 60).floor()} 分钟',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+            if (!cloud && complete) ...[
+              const SizedBox(height: 6),
+              _stats(context, [
+                '已上传 ${(task.uploadedBytes / 1048576).toStringAsFixed(1)} MiB',
+                '做种 ${(task.seedSeconds / 60).floor()} 分钟',
+              ]),
+            ],
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -423,13 +428,13 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 TextButton.icon(
                   onPressed: () => _remove(task),
                   icon: const Icon(Icons.delete_outline, size: 17),
-                  label: Text(cloud ? '移除本机任务与缓存' : '移除任务与缓存'),
+                  label: const Text('移除任务与缓存'),
                 ),
               ],
             ),
             if (cloud)
               Text(
-                '暂停和移除仅影响本机缓存，PikPak 云端文件会保留。',
+                'PikPak 云端文件会保留',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
           ],
@@ -437,6 +442,15 @@ class _DownloadsPageState extends State<DownloadsPage> {
       ),
     );
   }
+
+  Widget _stats(BuildContext context, List<String> values) => Wrap(
+    spacing: Gap.lg,
+    runSpacing: 4,
+    children: [
+      for (final value in values)
+        Text(value, style: Theme.of(context).textTheme.bodySmall),
+    ],
+  );
 
   Future<void> _showFiles(BuildContext context, String id) async {
     try {
@@ -472,12 +486,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
                         style: const TextStyle(fontSize: 12),
                       ),
                       subtitle: Text(
-                        '${(file.size / 1048576).toStringAsFixed(1)} MiB · ${(file.progress * 100).toStringAsFixed(0)}%',
+                        file.progress >= 1
+                            ? '${(file.size / 1048576).toStringAsFixed(1)} MiB'
+                            : '${(file.size / 1048576).toStringAsFixed(1)} MiB  ${(file.progress * 100).toStringAsFixed(0)}%',
                       ),
                       trailing: !file.video
                           ? null
                           : IconButton(
-                              tooltip: '播放此文件',
+                              tooltip: '播放',
                               onPressed: playable
                                   ? () {
                                       Navigator.pop(context);
