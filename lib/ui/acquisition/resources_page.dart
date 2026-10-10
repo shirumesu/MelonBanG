@@ -5,6 +5,7 @@ import '../../data/cache_method.dart';
 import '../../data/json.dart';
 import '../../data/resource_metadata.dart';
 import '../../data/resource_title.dart';
+import '../../domain/sources.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
@@ -20,8 +21,7 @@ class ResourcesPage extends StatefulWidget {
     required this.subject,
     required this.resourceSearch,
     required this.resourceEpisode,
-    required this.providers,
-    required this.candidates,
+    required this.releases,
     required this.busy,
     required this.onSearch,
     required this.onDownload,
@@ -31,12 +31,13 @@ class ResourcesPage extends StatefulWidget {
   final Json? subject;
   final TextEditingController resourceSearch;
   final int? resourceEpisode;
-  final List<Json> providers, candidates;
+  final ReleaseSearchResult releases;
   final bool busy;
   final Future<void> Function(List<String>, String) onSearch;
-  final Future<void> Function(Json) onDownload;
+  final Future<void> Function(ReleaseCandidate) onDownload;
   final CacheMethod defaultMethod;
-  final Future<void> Function(Json, CacheMethod)? onDownloadWithMethod;
+  final Future<void> Function(ReleaseCandidate, CacheMethod)?
+  onDownloadWithMethod;
   @override
   State<ResourcesPage> createState() => _ResourcesPageState();
 }
@@ -192,14 +193,17 @@ class _ResourcesPageState extends State<ResourcesPage> {
         : '${selected.length} 项';
   }
 
-  String downloadKey(Json candidate, CacheMethod method) =>
-      '${candidate['candidateId']}:${method.name}';
+  String downloadKey(ReleaseCandidate candidate, CacheMethod method) =>
+      '${candidate.candidateId}:${method.name}';
 
-  ResourceDownloadPhase phaseFor(Json candidate, CacheMethod method) =>
+  ResourceDownloadPhase phaseFor(
+    ReleaseCandidate candidate,
+    CacheMethod method,
+  ) =>
       downloadPhases[downloadKey(candidate, method)] ??
       ResourceDownloadPhase.idle;
 
-  String? errorFor(Json candidate) {
+  String? errorFor(ReleaseCandidate candidate) {
     for (final method in [widget.defaultMethod, widget.defaultMethod.other]) {
       final error = downloadErrors[downloadKey(candidate, method)];
       if (error != null) {
@@ -211,7 +215,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
     return null;
   }
 
-  Future<void> download(Json candidate, CacheMethod method) async {
+  Future<void> download(ReleaseCandidate candidate, CacheMethod method) async {
     final id = downloadKey(candidate, method);
     if (CacheMethod.values.any(
           (value) => phaseFor(candidate, value) == ResourceDownloadPhase.adding,
@@ -245,18 +249,19 @@ class _ResourcesPageState extends State<ResourcesPage> {
     }
   }
 
-  ResourceTitleInfo annotate(Json candidate) {
-    final id = '${candidate['candidateId']}';
+  ResourceTitleInfo annotate(ReleaseCandidate candidate) {
+    final id = candidate.candidateId;
     final previous = annotations[id];
-    final groups = (candidate['releaseGroups'] as List? ?? [])
-        .whereType<String>()
-        .toList();
+    final release = candidate.release;
     if (previous != null &&
-        previous.title == candidate['title'] &&
-        listEquals(previous.sourceGroups, groups)) {
+        previous.title == release.title &&
+        listEquals(previous.sourceGroups, release.releaseGroups)) {
       return previous;
     }
-    return annotations[id] = describeResource(candidate);
+    return annotations[id] = describeResource(
+      release.title,
+      releaseGroups: release.releaseGroups,
+    );
   }
 
   @override
@@ -265,13 +270,11 @@ class _ResourcesPageState extends State<ResourcesPage> {
     final aliases = names
         .where((name) => name != widget.resourceSearch.text.trim())
         .toList();
-    final annotated = widget.candidates
+    final annotated = widget.releases.candidates
         .map((candidate) => (candidate, annotate(candidate)))
         .toList();
     final fromShownProviders = annotated
-        .where(
-          (entry) => !excludedProviders.contains(resourceProviderKey(entry.$1)),
-        )
+        .where((entry) => !excludedProviders.contains(entry.$1.sourceId))
         .toList();
     final visible = fromShownProviders
         .where(
@@ -316,13 +319,12 @@ class _ResourcesPageState extends State<ResourcesPage> {
         );
     final episode = selectedEpisode;
     final providersFailed =
-        widget.providers.isNotEmpty &&
-        widget.providers.every((e) => e['status'] == 'error');
+        widget.releases.sources.isNotEmpty &&
+        widget.releases.sources.every((e) => e.status == SearchStatus.error);
     final allProvidersExcluded =
-        widget.providers.isNotEmpty &&
-        widget.providers.every(
-          (provider) =>
-              excludedProviders.contains(resourceProviderKey(provider)),
+        widget.releases.sources.isNotEmpty &&
+        widget.releases.sources.every(
+          (provider) => excludedProviders.contains(provider.sourceId),
         );
     final filtered =
         [
@@ -476,18 +478,18 @@ class _ResourcesPageState extends State<ResourcesPage> {
         ),
         if (searchBusy) ...[
           const SizedBox(height: Gap.md),
-          ResourceSearchStatus(providers: widget.providers),
+          ResourceSearchStatus(providers: widget.releases.sources),
         ],
       ],
     );
-    final providerWarning = widget.providers.any(
-      (provider) => ['error', 'partial'].contains(provider['status']),
+    final providerWarning = widget.releases.sources.any(
+      (provider) => const [
+        SearchStatus.error,
+        SearchStatus.partial,
+      ].contains(provider.status),
     );
-    final shownProviders = widget.providers
-        .where(
-          (provider) =>
-              !excludedProviders.contains(resourceProviderKey(provider)),
-        )
+    final shownProviders = widget.releases.sources
+        .where((provider) => !excludedProviders.contains(provider.sourceId))
         .length;
     final filterBar = ColoredBox(
       color: background,
@@ -506,7 +508,8 @@ class _ResourcesPageState extends State<ResourcesPage> {
                         label: '资源站',
                         icon: Icons.public_rounded,
                         active: excludedProviders.isNotEmpty,
-                        summary: '$shownProviders / ${widget.providers.length}',
+                        summary:
+                            '$shownProviders / ${widget.releases.sources.length}',
                         warning: providerWarning,
                         tooltip: providerWarning
                             ? '有资源站搜索失败，打开查看'
@@ -514,29 +517,29 @@ class _ResourcesPageState extends State<ResourcesPage> {
                         sections: [
                           MelonFilterSection(
                             [
-                              for (final provider in widget.providers)
+                              for (final provider in widget.releases.sources)
                                 MelonFilterOption(
-                                  resourceProviderKey(provider),
-                                  '${provider['providerName']}',
+                                  provider.sourceId,
+                                  provider.sourceName,
                                   detail: resourceProviderStatus(provider),
                                   detailColor:
-                                      [
-                                        'error',
-                                        'partial',
-                                      ].contains(provider['status'])
+                                      const [
+                                        SearchStatus.error,
+                                        SearchStatus.partial,
+                                      ].contains(provider.status)
                                       ? Theme.of(context).colorScheme.tertiary
                                       : null,
                                 ),
                             ],
-                            title: widget.providers.isEmpty ? '搜索后显示资源站' : null,
+                            title: widget.releases.sources.isEmpty
+                                ? '搜索后显示资源站'
+                                : null,
                           ),
                         ],
                         selected: {
-                          for (final provider in widget.providers)
-                            if (!excludedProviders.contains(
-                              resourceProviderKey(provider),
-                            ))
-                              resourceProviderKey(provider),
+                          for (final provider in widget.releases.sources)
+                            if (!excludedProviders.contains(provider.sourceId))
+                              provider.sourceId,
                         },
                         onToggle: (id, selected) => changeForm(
                           () => selected
@@ -655,8 +658,8 @@ class _ResourcesPageState extends State<ResourcesPage> {
             const SizedBox(width: Gap.md),
             Text(
               filtered
-                  ? '${visible.length} / ${widget.candidates.length} 条'
-                  : '${widget.candidates.length} 条',
+                  ? '${visible.length} / ${widget.releases.candidates.length} 条'
+                  : '${widget.releases.candidates.length} 条',
               style: small?.copyWith(
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
@@ -744,18 +747,18 @@ class _ResourcesPageState extends State<ResourcesPage> {
                 return (visible.isEmpty &&
                         (allProvidersExcluded ||
                             !searchBusy ||
-                            widget.candidates.isNotEmpty))
+                            widget.releases.candidates.isNotEmpty))
                     ? EmptyState(
                         text: allProvidersExcluded
                             ? '已隐藏全部资源站的结果'
-                            : widget.candidates.isNotEmpty
+                            : widget.releases.candidates.isNotEmpty
                             ? '没有符合筛选条件的资源'
                             : providersFailed
                             ? '资源站暂时无法连接'
                             : '没有找到资源，试试其他名称或清空集数关键词',
                         action: allProvidersExcluded
                             ? () => changeForm(excludedProviders.clear)
-                            : widget.candidates.isNotEmpty
+                            : widget.releases.candidates.isNotEmpty
                             ? clearFilters
                             : () {
                                 if (!providersFailed) episodeQuery.clear();
@@ -763,7 +766,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
                               },
                         actionLabel: allProvidersExcluded
                             ? '显示全部资源站'
-                            : widget.candidates.isNotEmpty
+                            : widget.releases.candidates.isNotEmpty
                             ? '清除筛选'
                             : !providersFailed && episodeQuery.text.isNotEmpty
                             ? '清空集数并搜索'
@@ -773,7 +776,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
               }
               final i = index - 1;
               return LayoutBuilder(
-                key: ValueKey(visible[i].$1['candidateId']),
+                key: ValueKey(visible[i].$1.candidateId),
                 builder: (context, constraints) => Material(
                   color: Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.vertical(
@@ -794,10 +797,10 @@ class _ResourcesPageState extends State<ResourcesPage> {
                           candidate: visible[i].$1,
                           info: visible[i].$2,
                           expanded: expandedTitles.contains(
-                            '${visible[i].$1['candidateId']}',
+                            visible[i].$1.candidateId,
                           ),
                           onExpand: () => changeForm(() {
-                            final id = '${visible[i].$1['candidateId']}';
+                            final id = visible[i].$1.candidateId;
                             if (!expandedTitles.remove(id)) {
                               expandedTitles.add(id);
                             }

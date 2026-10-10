@@ -1,13 +1,12 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../data/json.dart';
-import '../../data/online_sources/repository.dart';
 import '../../data/pikpak.dart';
-import '../../data/sources.dart';
+import '../../domain/sources.dart';
+import '../../features/acquisition/pikpak_probe.dart';
+import '../../features/acquisition/source_registry.dart';
 import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
@@ -15,15 +14,13 @@ import '../core/theme.dart';
 class SourcesPage extends StatefulWidget {
   const SourcesPage({
     super.key,
-    required this.repository,
-    required this.sources,
+    required this.registry,
     required this.pikpak,
     required this.onPlay,
   });
-  final OnlineSourceRepository repository;
-  final SourceRepository sources;
+  final SourceRegistry registry;
   final PikPakClient pikpak;
-  final Future<void> Function(Json) onPlay;
+  final Future<void> Function(ResolvedStream) onPlay;
   @override
   State<SourcesPage> createState() => _SourcesPageState();
 }
@@ -38,38 +35,27 @@ class _SourcesPageState extends State<SourcesPage> {
   String? _selected;
   bool _narrowDetail = false;
   bool _searched = false;
-  List<Json> _subjects = [], _episodes = [];
-  Json? _subject, _episode, _resolved;
+  List<SourceSubject> _subjects = [];
+  List<SourceEpisode> _episodes = [];
+  SourceSubject? _subject;
+  SourceEpisode? _episode;
+  ResolvedStream? _resolved;
   int _generation = 0;
-  OnlineSourceRepository get repository => widget.repository;
-  List<Json> get entries => [
-    ...repository.rules,
-    {
-      'id': 'dmhy',
-      'name': '动漫花园',
-      'engine': 'RSS',
-      'website': 'https://share.dmhy.org',
-      'group': 'BT 索引',
-    },
-    {
-      'id': 'mikan',
-      'name': '蜜柑计划',
-      'engine': 'RSS',
-      'website': 'https://mikanani.me',
-      'group': 'BT 索引',
-    },
-    {
-      'id': 'pikpak',
-      'name': 'PikPak',
-      'engine': '网盘',
-      'website': 'https://mypikpak.com',
-      'group': '网盘',
-    },
+  SourceRegistry get registry => widget.registry;
+  List<_Entry> get entries => [
+    for (final instance in registry.instances)
+      _Entry(
+        instance.id,
+        instance.name,
+        instance.kind == SourceKind.torrent ? 'BT 索引' : '在线源',
+        instance: instance,
+      ),
+    const _Entry('pikpak', 'PikPak', '网盘'),
   ];
   @override
   void initState() {
     super.initState();
-    unawaited(repository.refreshRules().catchError((Object _) {}));
+    unawaited(registry.refreshRules().catchError((Object _) {}));
   }
 
   @override
@@ -89,53 +75,31 @@ class _SourcesPageState extends State<SourcesPage> {
     super.dispose();
   }
 
-  String label(String status) => switch (status) {
-    'ready' => '正常',
-    'partial' => '部分失败',
-    'error' => '失效',
-    'verification' => '需要验证',
-    'update' => '需要更新应用',
-    'disabled' => '已停用',
-    _ => '未检查',
+  String label(SourceHealth status) => switch (status) {
+    SourceHealth.ready => '正常',
+    SourceHealth.partial => '部分失败',
+    SourceHealth.error => '失效',
+    SourceHealth.verification => '需要验证',
+    SourceHealth.update => '需要更新应用',
+    SourceHealth.disabled => '已停用',
+    SourceHealth.unknown => '未检查',
   };
-  Color color(String status) => switch (status) {
-    'ready' => mint,
-    'error' => coral,
-    'partial' || 'verification' || 'update' => gold,
+  Color color(SourceHealth status) => switch (status) {
+    SourceHealth.ready => mint,
+    SourceHealth.error => coral,
+    SourceHealth.partial ||
+    SourceHealth.verification ||
+    SourceHealth.update => gold,
     _ => sky,
   };
-  Future<void> _probeSource(String id) => repository.probe(
-    id,
-    external: switch (id) {
-      'dmhy' || 'mikan' => () async {
-        final uri = id == 'dmhy'
-            ? Uri.https('share.dmhy.org', '/topics/rss/rss.xml', {
-                'keyword': '葬送的芙莉莲',
-              })
-            : Uri.https('mikanani.me', '/RSS/Search', {'searchstr': '葬送的芙莉莲'});
-        repository.results[id]?.last['url'] = uri.toString();
-        final response = await repository.api.send(
-          uri,
-          headers: {'Accept': 'application/rss+xml,application/xml'},
-        );
-        final rows = parseRss(utf8.decode(response.bodyBytes), base: uri);
-        if (rows.isEmpty) throw StateError('RSS 暂无匹配的资源');
-      },
-      'pikpak' => () async {
-        if (!widget.pikpak.isSignedIn || widget.pikpak.needsAuthorization) {
-          throw StateError('请在设置中登录 PikPak 后重试');
-        }
-        repository.results[id]?.last['url'] =
-            'https://api-drive.mypikpak.com/drive/v1/files';
-        try {
-          await widget.pikpak.files('');
-        } on PikPakCaptchaRequired catch (error) {
-          throw SourceVerificationRequired(error.url.toString());
-        }
-      },
-      _ => null,
-    },
-  );
+  Color stepColor(ProbeStatus status) => switch (status) {
+    ProbeStatus.ready => mint,
+    ProbeStatus.error => coral,
+    ProbeStatus.loading => sky,
+  };
+  Future<void> _probeSource(String id) => id == 'pikpak'
+      ? probePikPak(registry, widget.pikpak)
+      : registry.probe(id);
   void _select(String id) {
     _generation++;
     _search.dispose();
@@ -160,7 +124,7 @@ class _SourcesPageState extends State<SourcesPage> {
     _search.run(() async {
       final query = _query.text.trim();
       if (query.isEmpty) return '请输入番名';
-      final rows = await repository.search(id, [query], refresh: true);
+      final rows = await registry.searchSubjects(id, [query], refresh: true);
       if (mounted && generation == _generation) {
         setState(() {
           _searched = true;
@@ -175,11 +139,11 @@ class _SourcesPageState extends State<SourcesPage> {
     });
   }
 
-  void _loadEpisodes(String id, Json site) {
+  void _loadEpisodes(String id, SourceSubject site) {
     if (_search.busy) return;
     final generation = ++_generation;
     _search.run(() async {
-      final rows = await repository.episodes(id, site);
+      final rows = await registry.episodes(id, site);
       if (mounted && generation == _generation) {
         setState(() {
           _subject = site;
@@ -192,7 +156,7 @@ class _SourcesPageState extends State<SourcesPage> {
     });
   }
 
-  void _resolveEpisode(Json episode) {
+  void _resolveEpisode(SourceEpisode episode) {
     if (_resolve.busy) return;
     final generation = _generation;
     setState(() {
@@ -200,7 +164,7 @@ class _SourcesPageState extends State<SourcesPage> {
       _resolved = null;
     });
     _resolve.run(() async {
-      final value = await repository.resolve({'ref': episode['ref']});
+      final value = await registry.resolve(episode.ref);
       if (mounted && generation == _generation) {
         setState(() => _resolved = value);
       }
@@ -210,19 +174,12 @@ class _SourcesPageState extends State<SourcesPage> {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([repository, _search, _resolve]),
+    listenable: Listenable.merge([registry, _search, _resolve]),
     builder: (context, _) {
       final selected = entries
-          .where(
-            (entry) =>
-                entry['id'] ==
-                (_selected ?? repository.rules.firstOrNull?['id'] ?? 'dmhy'),
-          )
+          .where((entry) => entry.id == (_selected ?? entries.first.id))
           .firstOrNull;
-      final hasUpdate = repository.rules.any(
-        (rule) => number(rule['minEngine']) > onlineEngineVersion,
-      );
-      _engineIssue.issue = hasUpdate ? '部分视频源需要更新应用后才能使用' : null;
+      _engineIssue.issue = registry.needsUpdate ? '部分视频源需要更新应用后才能使用' : null;
       return LayoutBuilder(
         builder: (context, constraints) {
           final narrow = constraints.maxWidth < 820;
@@ -254,7 +211,7 @@ class _SourcesPageState extends State<SourcesPage> {
                           successLabel: '已更新',
                           icon: Icons.refresh,
                           onPressed: () => _update.run(() async {
-                            await repository.refreshRules();
+                            await registry.refreshRules();
                             return null;
                           }),
                         ),
@@ -267,12 +224,12 @@ class _SourcesPageState extends State<SourcesPage> {
                           onPressed: () => _probe.run(() async {
                             for (final entry in entries.where(
                               (e) =>
-                                  repository.isEnabled('${e['id']}') &&
-                                  e['disabled'] != true &&
-                                  e['manualOnly'] != true &&
-                                  number(e['minEngine']) <= onlineEngineVersion,
+                                  registry.isEnabled(e.id) &&
+                                  e.instance?.disabled != true &&
+                                  e.instance?.manualOnly != true &&
+                                  e.instance?.supported != false,
                             )) {
-                              await _probeSource('${entry['id']}');
+                              await _probeSource(entry.id);
                             }
                             return null;
                           }),
@@ -280,21 +237,21 @@ class _SourcesPageState extends State<SourcesPage> {
                       ],
                     ),
                     Text(
-                      '规则 ${repository.version} · ${repository.ruleOrigin} · ${snapshotDate(repository.snapshot['updatedAt'])}',
+                      '规则 ${registry.version} · ${registry.ruleOrigin} · ${snapshotDate(registry.snapshot.updatedAt)}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     FeedbackIssue(
                       feedback: _update,
                       onRetry: () => _update.run(() async {
-                        await repository.refreshRules();
+                        await registry.refreshRules();
                         return null;
                       }),
                     ),
-                    if (repository.updateIssue != null && _update.issue == null)
+                    if (registry.updateIssue != null && _update.issue == null)
                       Padding(
                         padding: const EdgeInsets.only(top: Gap.sm),
                         child: Text(
-                          repository.updateIssue!,
+                          registry.updateIssue!,
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.error,
                           ),
@@ -336,7 +293,7 @@ class _SourcesPageState extends State<SourcesPage> {
       );
     },
   );
-  Widget _list(Json? selected) => ListView(
+  Widget _list(_Entry? selected) => ListView(
     padding: const EdgeInsets.fromLTRB(pageGutter, 0, Gap.md, Gap.lg),
     children: [
       for (final group in ['在线源', 'BT 索引', '网盘']) ...[
@@ -344,9 +301,7 @@ class _SourcesPageState extends State<SourcesPage> {
           padding: const EdgeInsets.fromLTRB(Gap.md, Gap.lg, Gap.md, Gap.sm),
           child: Text(group, style: Theme.of(context).textTheme.titleSmall),
         ),
-        for (final entry in entries.where(
-          (e) => (e['group'] ?? '在线源') == group,
-        ))
+        for (final entry in entries.where((e) => e.group == group))
           Padding(
             padding: const EdgeInsets.only(bottom: Gap.xs),
             child: ListTile(
@@ -356,44 +311,46 @@ class _SourcesPageState extends State<SourcesPage> {
                 left: Gap.md,
                 right: Gap.sm,
               ),
-              selected: selected?['id'] == entry['id'],
+              selected: selected?.id == entry.id,
               titleTextStyle: Theme.of(context).textTheme.titleSmall,
-              title: Text('${entry['name']}'),
+              title: Text(entry.name),
               subtitle: Align(
                 alignment: Alignment.centerLeft,
                 child: MelonBadge(
-                  label(repository.status('${entry['id']}')),
-                  color: color(repository.status('${entry['id']}')),
+                  label(registry.status(entry.id)),
+                  color: color(registry.status(entry.id)),
                 ),
               ),
               trailing: Switch(
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 value:
-                    repository.isEnabled('${entry['id']}') &&
-                    entry['disabled'] != true,
-                onChanged: entry['disabled'] == true
+                    registry.isEnabled(entry.id) &&
+                    entry.instance?.disabled != true,
+                onChanged: entry.instance?.disabled == true
                     ? null
-                    : (value) => repository.setEnabled('${entry['id']}', value),
+                    : (value) => registry.setEnabled(entry.id, value),
               ),
-              onTap: () => _select('${entry['id']}'),
+              onTap: () => _select(entry.id),
             ),
           ),
       ],
     ],
   );
-  Widget _details(Json entry, {bool narrow = false}) {
-    final id = '${entry['id']}';
-    final online = entry['group'] == null;
-    final domain = online
-        ? repository.currentDomain(id)
-        : '${entry['website']}';
-    _runtimeIssue.issue = repository.errors[id];
+  Widget _details(_Entry entry, {bool narrow = false}) {
+    final id = entry.id;
+    final instance = entry.instance;
+    final online = instance?.kind == SourceKind.online;
+    final manual = instance?.manualOnly == true;
+    final domain = instance == null
+        ? 'https://mypikpak.com'
+        : registry.currentDomain(id);
+    _runtimeIssue.issue = registry.errors[id];
     return ListView(
       padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
       children: [
         FeedbackIssue(
           feedback: _runtimeIssue,
-          onRetry: entry['manualOnly'] == true
+          onRetry: manual
               ? () => _manualSearch(id)
               : () => _probe.run(() async {
                   await _probeSource(id);
@@ -410,11 +367,11 @@ class _SourcesPageState extends State<SourcesPage> {
             ),
           ),
         SectionTitle(
-          title: '${entry['name']}',
+          title: entry.name,
           top: 0,
           trailing: MelonBadge(
-            label(repository.status(id)),
-            color: color(repository.status(id)),
+            label(registry.status(id)),
+            color: color(registry.status(id)),
           ),
         ),
         MelonPanel(
@@ -431,7 +388,7 @@ class _SourcesPageState extends State<SourcesPage> {
                   const SizedBox(width: Gap.sm),
                   TextButton.icon(
                     onPressed: () => launchUrl(
-                      Uri.parse('${entry['website'] ?? domain}'),
+                      Uri.parse(instance?.website ?? domain),
                       mode: LaunchMode.externalApplication,
                     ),
                     icon: const Icon(Icons.open_in_new, size: 16),
@@ -440,23 +397,25 @@ class _SourcesPageState extends State<SourcesPage> {
                 ],
               ),
               Text(
-                entry['manualOnly'] == true
+                instance == null
+                    ? '网盘'
+                    : manual
                     ? '外接数据源 · 手动选择'
-                    : '${entry['engine']}${online ? ' · 规则 ${repository.version}' : ''}',
+                    : '${instance.engine} · 规则 ${registry.version}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              if (entry['description'] != null)
+              if (instance?.description case final description?)
                 Padding(
                   padding: const EdgeInsets.only(top: Gap.sm),
                   child: Text(
-                    '${entry['description']}',
+                    description,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
             ],
           ),
         ),
-        if (entry['manualOnly'] != true) ...[
+        if (!manual) ...[
           SectionTitle(
             title: '测试结果',
             top: Gap.lg,
@@ -472,7 +431,7 @@ class _SourcesPageState extends State<SourcesPage> {
               }),
             ),
           ),
-          if (repository.results[id] case final steps?)
+          if (registry.probes[id] case final steps?)
             MelonPanel(
               padding: EdgeInsets.zero,
               child: Column(
@@ -503,9 +462,7 @@ class _SourcesPageState extends State<SourcesPage> {
                 child: TextField(
                   controller: _query,
                   decoration: InputDecoration(
-                    hintText: entry['manualOnly'] == true
-                        ? '输入番名、BV 号或 B 站播放链接'
-                        : '输入番名',
+                    hintText: manual ? '输入番名、BV 号或 B 站播放链接' : '输入番名',
                   ),
                   onSubmitted: (_) => _manualSearch(id),
                 ),
@@ -544,16 +501,16 @@ class _SourcesPageState extends State<SourcesPage> {
                       ListTile(
                         dense: true,
                         minTileHeight: 44,
-                        title: Text('${site['title']}'),
-                        subtitle: site['description'] == null
+                        title: Text(site.title),
+                        subtitle: site.description == null
                             ? null
-                            : Text('${site['description']}'),
-                        selected: _subject?['id'] == site['id'],
+                            : Text(site.description!),
+                        selected: _subject?.id == site.id,
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              '${site['year'] ?? ''}',
+                              '${site.year ?? ''}',
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                             const SizedBox(width: Gap.sm),
@@ -570,7 +527,7 @@ class _SourcesPageState extends State<SourcesPage> {
             ),
           if (_subject != null)
             SectionTitle(
-              title: '${_subject!['title']} · ${_episodes.length} 个播放入口',
+              title: '${_subject!.title} · ${_episodes.length} 个播放入口',
               top: Gap.lg,
             ),
           if (_episodes.isNotEmpty) _episodeChoices(),
@@ -587,12 +544,12 @@ class _SourcesPageState extends State<SourcesPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SelectableText(
-                    '${_resolved!['url']}',
+                    _resolved!.url,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: Gap.sm),
-                  if (_resolved!['kind'] == 'hls' &&
-                      _resolved!['playlist'] != null)
+                  if (_resolved!.format == StreamFormat.hls &&
+                      _resolved!.playlist != null)
                     const Text('已过滤验证过的插入广告分片'),
                   FeedbackButton(
                     feedback: _resolve,
@@ -613,55 +570,53 @@ class _SourcesPageState extends State<SourcesPage> {
     );
   }
 
-  Widget _diagnostic(String id, Json step) => ExpansionTile(
-    key: ValueKey('$id:${step['label']}:${step['status']}'),
+  Widget _diagnostic(String id, ProbeStep step) => ExpansionTile(
+    key: ValueKey('$id:${step.label}:${step.status}'),
     dense: true,
     minTileHeight: 44,
     tilePadding: const EdgeInsets.symmetric(horizontal: Gap.lg),
     childrenPadding: const EdgeInsets.fromLTRB(Gap.lg, 0, Gap.lg, Gap.md),
     shape: const Border(),
     collapsedShape: const Border(),
-    leading: step['status'] == 'loading'
+    leading: step.status == ProbeStatus.loading
         ? const SizedBox.square(
             dimension: 18,
             child: CircularProgressIndicator(strokeWidth: 2),
           )
         : Icon(
-            step['status'] == 'ready'
+            step.status == ProbeStatus.ready
                 ? Icons.check_circle_outline
-                : step['status'] == 'error'
-                ? Icons.error_outline
-                : Icons.schedule,
+                : Icons.error_outline,
             size: 18,
-            color: color('${step['status']}'),
+            color: stepColor(step.status),
           ),
     title: Row(
       children: [
-        Expanded(child: Text('${step['label']}')),
+        Expanded(child: Text(step.label)),
         const SizedBox(width: Gap.sm),
         Text(
-          '${step['milliseconds'] ?? '…'} ms${step['statusCode'] == null ? '' : ' · HTTP ${step['statusCode']}'}',
+          '${step.milliseconds ?? '…'} ms${step.statusCode == null ? '' : ' · HTTP ${step.statusCode}'}',
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
     ),
-    initiallyExpanded: step['status'] == 'error',
+    initiallyExpanded: step.status == ProbeStatus.error,
     children: [
       Align(
         alignment: Alignment.centerLeft,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (step['url'] != null)
+            if (step.url != null)
               SelectableText(
-                '${step['url']}',
+                step.url!,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-            if (step['error'] != null)
+            if (step.error != null)
               Padding(
                 padding: const EdgeInsets.only(top: Gap.sm),
                 child: SelectableText(
-                  '${step['error']}',
+                  step.error!,
                   style: Theme.of(context).textTheme.bodySmall
                       ?.copyWith(color: Theme.of(context).colorScheme.error),
                 ),
@@ -677,7 +632,7 @@ class _SourcesPageState extends State<SourcesPage> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final line in _episodes.map((e) => '${e['line']}').toSet()) ...[
+        for (final line in _episodes.map((e) => e.line).toSet()) ...[
           Padding(
             padding: const EdgeInsets.only(bottom: Gap.sm),
             child: Text(line, style: Theme.of(context).textTheme.titleSmall),
@@ -686,9 +641,7 @@ class _SourcesPageState extends State<SourcesPage> {
             spacing: Gap.sm,
             runSpacing: Gap.sm,
             children: [
-              for (final episode in _episodes.where(
-                (e) => '${e['line']}' == line,
-              ))
+              for (final episode in _episodes.where((e) => e.line == line))
                 OutlinedButton(
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(64, 36),
@@ -700,7 +653,7 @@ class _SourcesPageState extends State<SourcesPage> {
                   onPressed: _resolve.busy
                       ? null
                       : () => _resolveEpisode(episode),
-                  child: Text('${episode['label']}'),
+                  child: Text(episode.label),
                 ),
             ],
           ),
@@ -711,8 +664,16 @@ class _SourcesPageState extends State<SourcesPage> {
   );
 }
 
-String snapshotDate(dynamic value) {
-  final parsed = DateTime.tryParse('$value')?.toLocal();
-  if (parsed == null) return '$value';
+final class _Entry {
+  const _Entry(this.id, this.name, this.group, {this.instance});
+  final String id, name, group;
+
+  /// `null` for the PikPak transfer, which shares this page's switches.
+  final SourceInstance? instance;
+}
+
+String snapshotDate(DateTime? value) {
+  final parsed = value?.toLocal();
+  if (parsed == null) return '未知时间';
   return '${parsed.year}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')} ${parsed.hour.toString().padLeft(2, '0')}:${parsed.minute.toString().padLeft(2, '0')}';
 }
