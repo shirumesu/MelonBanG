@@ -192,7 +192,7 @@ class AppServices {
       stopSeeding: bt.stopSeeding,
     );
     _dispose.add(downloadList.close);
-    resume = ResumeController(library);
+    resume = ResumeController(library, tracking);
     await account.initialize();
     tracking.start();
     _restoringDownloads = downloads.initialize();

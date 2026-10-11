@@ -388,6 +388,39 @@ class TrackingRepository {
     }
   }
 
+  /// Pulls the episode progress of those [subjectIds] in the collection.
+  Future<void> refreshProgress(Iterable<int> subjectIds) async {
+    final user = account.userId;
+    await Future.wait([
+      for (final id in subjectIds)
+        if (await store.get(_collection(user), '$id') != null)
+          refreshEpisodes(id, useCache: true),
+    ]);
+  }
+
+  /// Whether the recorded progress still leaves [episodeId] of [subject] to
+  /// watch: the subject is collected, neither completed nor dropped, and no
+  /// main episode from it on is watched, by episode record or watched count.
+  Future<bool> leavesUnwatched(Subject subject, int episodeId) async {
+    final user = account.userId;
+    final row = await store.get(_collection(user), '${subject.id}');
+    if (row == null) return false;
+    final status = CollectionStatus.tryParse(row['status']);
+    if (status == CollectionStatus.completed ||
+        status == CollectionStatus.dropped) {
+      return false;
+    }
+    final episodes = subject.episodes.where((e) => e.main).toList()
+      ..sort((a, b) => a.sort.compareTo(b.sort));
+    final index = episodes.indexWhere((e) => e.id == episodeId);
+    if (index < 0 || number(row['watchedEpisodes']) > index) return false;
+    final watched = {
+      for (final e in await store.list(_episodes(user), subjectId: subject.id))
+        if (e['status'] == EpisodeStatus.watched.key) e['episodeId'],
+    };
+    return !episodes.skip(index).any((e) => watched.contains(e.id));
+  }
+
   Future<void> _refreshEpisodes(int subjectId, String user) async {
     final requestedAt = DateTime.now().millisecondsSinceEpoch;
     final preserveEntities = <String>{};
