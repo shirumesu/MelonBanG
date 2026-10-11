@@ -29,7 +29,6 @@ class HomePage extends StatelessWidget {
     required this.onRefresh,
     required this.onOpenSubject,
     required this.onOpenTracking,
-    required this.onResume,
   });
   final DiscoveryController discovery;
   final TrackingController personal;
@@ -37,7 +36,6 @@ class HomePage extends StatelessWidget {
   final VoidCallback onExplore, onCalendar, onRefresh, onOpenTracking;
   final ActionFeedback feedback;
   final ValueChanged<Subject> onOpenSubject;
-  final ValueChanged<PlaybackResume> onResume;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -107,7 +105,6 @@ class HomePage extends StatelessWidget {
       watching: watching,
       resumable: resume.resumable,
       airingToday: {for (final item in today) item.id},
-      onResume: onResume,
       onOpenSubject: onOpenSubject,
       onExplore: onExplore,
       onOpenTracking: onOpenTracking,
@@ -553,7 +550,6 @@ class _ContinueSection extends StatelessWidget {
     required this.watching,
     required this.resumable,
     required this.airingToday,
-    required this.onResume,
     required this.onOpenSubject,
     required this.onExplore,
     required this.onOpenTracking,
@@ -561,7 +557,6 @@ class _ContinueSection extends StatelessWidget {
   final List<Subject> watching;
   final List<PlaybackResume> resumable;
   final Set<int> airingToday;
-  final ValueChanged<PlaybackResume> onResume;
   final ValueChanged<Subject> onOpenSubject;
   final VoidCallback onExplore, onOpenTracking;
 
@@ -596,7 +591,7 @@ class _ContinueSection extends StatelessWidget {
             ranked: false,
             itemCount: resume.length + posters.length,
             itemBuilder: (i) => i < resume.length
-                ? _ResumePoster(item: resume[i], onResume: onResume)
+                ? _ResumePoster(item: resume[i], onOpen: onOpenSubject)
                 : SubjectPoster(
                     item: posters[i - resume.length],
                     onOpen: onOpenSubject,
@@ -612,9 +607,9 @@ class _ContinueSection extends StatelessWidget {
 }
 
 class _ResumePoster extends StatefulWidget {
-  const _ResumePoster({required this.item, required this.onResume});
+  const _ResumePoster({required this.item, required this.onOpen});
   final PlaybackResume item;
-  final ValueChanged<PlaybackResume> onResume;
+  final ValueChanged<Subject> onOpen;
 
   @override
   State<_ResumePoster> createState() => _ResumePosterState();
@@ -636,9 +631,9 @@ class _ResumePosterState extends State<_ResumePoster> {
     final scheme = Theme.of(context).colorScheme;
     final active = hovered || focused;
     return Semantics(
-      label: '${item.title}，继续${episodeLabel ?? '观看'}',
+      label: item.title,
       child: InkWell(
-        onTap: () => widget.onResume(resume),
+        onTap: () => widget.onOpen(item),
         onHover: (value) => setState(() => hovered = value),
         onFocusChange: (value) => setState(() => focused = value),
         overlayColor: const WidgetStatePropertyAll(Colors.transparent),
@@ -673,25 +668,6 @@ class _ResumePosterState extends State<_ResumePoster> {
                           color: active
                               ? Colors.black.withValues(alpha: .12)
                               : null,
-                        ),
-                      ),
-                      Center(
-                        child: AnimatedScale(
-                          scale: active ? 1.08 : 1,
-                          duration: motionDuration(context, 150),
-                          child: Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: .9),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.play_arrow_rounded,
-                              color: Color(0xff168364),
-                              size: 30,
-                            ),
-                          ),
                         ),
                       ),
                       if (episodeLabel != null)
