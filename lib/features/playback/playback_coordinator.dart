@@ -245,21 +245,6 @@ class PlaybackCoordinator extends ChangeNotifier {
     }
   }
 
-  /// Continues a recently watched episode, entering the player while its
-  /// sources are searched. [item] is loaded first when it has no episodes.
-  Future<void> resume(Subject item, int episodeId) async {
-    var detail = item;
-    if (detail.episode(episodeId) == null) {
-      final request = _nextSelection();
-      detail = await tracking.subject(item.id, forPlayback: true);
-      if (_closed || request != _selectionRequest) return;
-    }
-    final episode = detail.episode(episodeId);
-    if (episode != null) {
-      await prepare(detail, episode, () => selectEpisode(detail, episode));
-    }
-  }
-
   Future<List<PlayCandidate>> _candidates(
     Subject item,
     Episode episode, {
