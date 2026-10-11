@@ -761,8 +761,6 @@ class _MelonAppState extends State<MelonApp>
           personal: personal,
           resume: resume,
           onOpenTracking: () => navigate('tracking'),
-          onResume: (item) =>
-              perform(() => coordinator.resume(item.subject, item.episodeId)),
           onExplore: focusSearch,
           feedback: homeFeedback,
           onCalendar: () => navigate('calendar'),
