@@ -50,6 +50,10 @@ class PlaybackCoordinator extends ChangeNotifier {
     this.downloads,
   ) {
     playback.resolveNext = _prepareAutoplay;
+    playback.addListener(_markWatched);
+    _subscriptions.add(
+      playback.player.stream.position.listen((_) => _markWatched()),
+    );
     _subscriptions.add(
       playback.errors.listen((reason) {
         if (_activeCandidate != null &&
@@ -94,6 +98,7 @@ class PlaybackCoordinator extends ChangeNotifier {
   int _preparingTicket = 0;
   final _subscriptions = <StreamSubscription<dynamic>>[];
   Future<void> _operations = Future.value();
+  (String, String)? _watchedSession;
   Future<void>? _closing;
   bool _closed = false;
   int _selectionRequest = 0, _playbackRequest = 0, _fallbackCount = 0;
@@ -121,6 +126,33 @@ class PlaybackCoordinator extends ChangeNotifier {
     } catch (e) {
       shell.showError(e);
     }
+  }
+
+  void _markWatched() {
+    final current = playback.session;
+    if (_closed ||
+        current == null ||
+        current.standalone ||
+        playback.opening ||
+        playback.error != null ||
+        !playback.settings.autoMarkWatched) {
+      return;
+    }
+    final subjectId = current.subjectId, episodeId = current.episodeId;
+    final duration = playback.player.state.duration.inMilliseconds;
+    final key = (current.id, tracking.account.userId);
+    if (subjectId == null ||
+        episodeId == null ||
+        duration <= 0 ||
+        playback.player.state.position.inMilliseconds < duration * .8 ||
+        _watchedSession == key) {
+      return;
+    }
+    _watchedSession = key;
+    final write = _perform(
+      () => tracking.setEpisode(subjectId, episodeId, EpisodeStatus.watched),
+    );
+    _operations = Future.wait([_operations, write]).then((_) {});
   }
 
   /// Drops pending selection, checks and autoplay.
@@ -651,6 +683,7 @@ class PlaybackCoordinator extends ChangeNotifier {
   Future<void> close() => _closing ??= _close();
   Future<void> _close() async {
     _closed = true;
+    playback.removeListener(_markWatched);
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
     _selectionCancel.cancel();
