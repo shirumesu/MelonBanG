@@ -9,6 +9,8 @@ class PlaybackPreferences extends ChangeNotifier {
   String get audioLanguage =>
       storage.getString('player-audio-language') ?? 'auto';
   bool get autoplay => storage.getBool('player-autoplay') ?? true;
+  bool get autoMarkWatched =>
+      storage.getBool('player-auto-mark-watched') ?? true;
   String get airingPriority =>
       storage.getString('player-airing-priority') ?? 'bt';
   String get completedPriority =>
@@ -28,6 +30,11 @@ class PlaybackPreferences extends ChangeNotifier {
 
   Future<void> setAutoplay(bool value) async {
     await storage.setBool('player-autoplay', value);
+    notifyListeners();
+  }
+
+  Future<void> setAutoMarkWatched(bool value) async {
+    await storage.setBool('player-auto-mark-watched', value);
     notifyListeners();
   }
 
