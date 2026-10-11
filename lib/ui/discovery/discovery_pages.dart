@@ -104,6 +104,7 @@ class HomePage extends StatelessWidget {
     final continuation = _ContinueSection(
       watching: watching,
       resumable: resume.resumable,
+      played: resume.played,
       airingToday: {for (final item in today) item.id},
       onOpenSubject: onOpenSubject,
       onExplore: onExplore,
@@ -549,6 +550,7 @@ class _ContinueSection extends StatelessWidget {
   const _ContinueSection({
     required this.watching,
     required this.resumable,
+    required this.played,
     required this.airingToday,
     required this.onOpenSubject,
     required this.onExplore,
@@ -556,6 +558,7 @@ class _ContinueSection extends StatelessWidget {
   });
   final List<Subject> watching;
   final List<PlaybackResume> resumable;
+  final List<int> played;
   final Set<int> airingToday;
   final ValueChanged<Subject> onOpenSubject;
   final VoidCallback onExplore, onOpenTracking;
@@ -564,11 +567,16 @@ class _ContinueSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final resume = resumable.take(4).toList();
     final resumeIds = {for (final item in resume) item.subject.id};
-    final rest = watching.where((e) => !resumeIds.contains(e.id));
-    // Shows airing today lead the watching list.
+    final byId = <int, (Subject, PlaybackResume?)>{
+      for (final item in resume) item.subject.id: (item.subject, item),
+      for (final item in watching)
+        if (!resumeIds.contains(item.id)) item.id: (item, null),
+    };
+    // Most recently played first; of the rest, shows airing today lead.
     final posters = [
-      ...rest.where((e) => airingToday.contains(e.id)),
-      ...rest.where((e) => !airingToday.contains(e.id)),
+      for (final id in played) ?byId.remove(id),
+      ...byId.values.where((e) => airingToday.contains(e.$1.id)),
+      ...byId.values.where((e) => !airingToday.contains(e.$1.id)),
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -583,23 +591,24 @@ class _ContinueSection extends StatelessWidget {
             child: const Text('全部追番 →'),
           ),
         ),
-        if (resume.isEmpty && posters.isEmpty)
+        if (posters.isEmpty)
           EmptyState(text: '还没有在追的番剧', action: onExplore, actionLabel: '搜索番剧')
         else
           HorizontalPosters(
             storageId: const ValueKey('continue-posters'),
             ranked: false,
-            itemCount: resume.length + posters.length,
-            itemBuilder: (i) => i < resume.length
-                ? _ResumePoster(item: resume[i], onOpen: onOpenSubject)
-                : SubjectPoster(
-                    item: posters[i - resume.length],
-                    onOpen: onOpenSubject,
-                    tracking: true,
-                    badge: airingToday.contains(posters[i - resume.length].id)
-                        ? '今日更新'
-                        : null,
-                  ),
+            itemCount: posters.length,
+            itemBuilder: (i) {
+              final (item, resume) = posters[i];
+              return resume != null
+                  ? _ResumePoster(item: resume, onOpen: onOpenSubject)
+                  : SubjectPoster(
+                      item: item,
+                      onOpen: onOpenSubject,
+                      tracking: true,
+                      badge: airingToday.contains(item.id) ? '今日更新' : null,
+                    );
+            },
           ),
       ],
     );

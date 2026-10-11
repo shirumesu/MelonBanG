@@ -134,10 +134,13 @@ class _MelonAppState extends State<MelonApp>
       downloads.availability.addListener(availabilityChanged);
       subscriptions.add(
         service.tracking.changes.stream.listen((_) {
-          if (mounted) unawaited(perform(personal.refresh));
+          if (!mounted) return;
+          unawaited(perform(personal.refresh));
+          unawaited(perform(refreshPlaybackAvailability));
         }),
       );
       setState(() => ready = true);
+      unawaited(perform(pullProgress));
       await Future.wait([
         discovery.loadHome().then((issue) {
           if (issue != null) showError(issue);
@@ -160,8 +163,17 @@ class _MelonAppState extends State<MelonApp>
     }
   }
 
-  Future<void> refreshHome() =>
-      homeFeedback.run(() => discovery.loadHome(refresh: true));
+  Future<void> refreshHome() {
+    unawaited(perform(pullProgress));
+    return homeFeedback.run(() => discovery.loadHome(refresh: true));
+  }
+
+  /// Pulls the Bangumi collection and the episode progress of recently
+  /// played subjects; the tracking changes refresh the pages.
+  Future<void> pullProgress() async {
+    await personal.pull();
+    await resume.pull();
+  }
 
   Future<void> syncCollection() => syncFeedback.run(personal.synchronize);
 
@@ -454,6 +466,7 @@ class _MelonAppState extends State<MelonApp>
       case 'home':
         unawaited(discovery.loadHome());
         unawaited(perform(refreshPlaybackAvailability));
+        unawaited(perform(pullProgress));
       case 'tracking':
         unawaited(perform(personal.pull));
       case 'calendar':
