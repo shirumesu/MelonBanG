@@ -173,7 +173,19 @@ class PlaybackLibrary {
     return available;
   }
 
-  Future<List<PlaybackResume>> recent({int limit = 8, int? forSubject}) async {
+  /// Subjects by when an episode of theirs last played, most recent first.
+  Future<List<int>> playedSubjects() async => {
+    for (final key in (await store.entries('playback_progress')).keys)
+      ?int.tryParse(key.split(':').first),
+  }.toList();
+
+  /// The latest unfinished episode of each recently played subject; with
+  /// [accept], a subject whose latest one it rejects is left out.
+  Future<List<PlaybackResume>> recent({
+    int limit = 8,
+    int? forSubject,
+    Future<bool> Function(Subject subject, int episodeId)? accept,
+  }) async {
     final result = <PlaybackResume>[];
     final subjects = <int>{};
     if (limit <= 0) return result;
@@ -209,6 +221,8 @@ class PlaybackLibrary {
         }
         final detail =
             await catalog.cached(subjectId) ?? Subject(id: subjectId);
+        subjects.add(subjectId);
+        if (accept != null && !await accept(detail, episodeId)) continue;
         result.add(
           PlaybackResume(
             subject: detail,
@@ -218,7 +232,6 @@ class PlaybackLibrary {
             episodeSort: detail.episode(episodeId)?.number,
           ),
         );
-        subjects.add(subjectId);
         if (result.length >= limit) return result;
       }
       if (page.length < pageSize) break;
