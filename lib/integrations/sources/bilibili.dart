@@ -75,11 +75,12 @@ class BilibiliEngine implements OnlineSourceEngine {
       id: row['bvid'] as String,
       title: html.parseFragment(row['title'] as String).text!,
       line: '投稿 · $author',
-      description: _clock(
-        (row['duration'] as String)
-            .split(':')
-            .fold(0, (a, b) => a * 60 + int.parse(b)),
-      ),
+      // Search rows give "m:ss"; the view API gives seconds.
+      description: _clock(switch (row['duration']) {
+        final String clock =>
+          clock.split(':').fold(0, (a, b) => a * 60 + int.parse(b)),
+        final seconds => seconds as int,
+      }),
       choosePart: true,
     );
   }
@@ -160,6 +161,9 @@ class BilibiliEngine implements OnlineSourceEngine {
           line: '官方番剧',
           ref: StreamRef(instance.id, {
             'epId': episode['id'],
+            'bvid': episode['bvid'],
+            'cid': episode['cid'],
+            'members': episode['status'] == 13,
             'line': '官方番剧',
             'url': '${instance.website}/bangumi/play/ep${episode['id']}',
           }),
@@ -172,34 +176,24 @@ class BilibiliEngine implements OnlineSourceEngine {
     StreamRef ref, {
     RequestCancellation? cancel,
   }) async {
-    await guest(cancel);
-    final Json info;
-    final String locator;
-    if (ref.data['epId'] != null) {
-      final value = await request('/pgc/player/web/v2/playurl', {
-        'ep_id': '${ref.data['epId']}',
-        'fnval': '4048',
-        'qn': '80',
-        'fourk': '1',
-      }, cancel: cancel);
-      final result = object(value['result']);
-      if (object(result['play_check'])['play_detail'] != 'PLAY_WHOLE') {
-        throw StateError('Bilibili 此集仅提供试看或受会员、地区限制，无法播放完整正片');
-      }
-      info = object(result['video_info']);
-      locator = 'ep${ref.data['epId']}';
-    } else {
-      final value = await request('/x/player/playurl', {
-        'bvid': ref.data['bvid'] as String,
-        'cid': '${ref.data['cid']}',
-        'fnval': '4048',
-        'qn': '80',
-        'fourk': '1',
-      }, cancel: cancel);
-      info = object(value['data']);
-      locator = '${ref.data['bvid']}?p=${ref.data['page']}';
+    if (ref.data['members'] == true) {
+      throw StateError('Bilibili 此集为会员专享，访客无法播放完整正片');
     }
-    final dash = object(info['dash']);
+    await guest(cancel);
+    // The season player API caps guests at 480p; official free episodes play
+    // through the video player API, whose `try_look` lifts guests to 1080p.
+    final value = await request('/x/player/playurl', {
+      'bvid': ref.data['bvid'] as String,
+      'cid': '${ref.data['cid']}',
+      'fnval': '4048',
+      'qn': '80',
+      'fourk': '1',
+      'try_look': '1',
+    }, cancel: cancel);
+    final locator = ref.data['epId'] != null
+        ? 'ep${ref.data['epId']}'
+        : '${ref.data['bvid']}?p=${ref.data['page']}';
+    final dash = object(object(value['data'])['dash']);
     final videos =
         objects(dash['video'])
             .where((track) => (track['codecs'] as String).startsWith('avc1'))
@@ -219,7 +213,7 @@ class BilibiliEngine implements OnlineSourceEngine {
     }
     final selected = videos.first;
     return ResolvedStream(
-      url: selected['baseUrl'] as String,
+      url: _mediaUrl(selected),
       playlist: manifest(dash, selected, audios.first),
       format: StreamFormat.dash,
       headers: mediaHeaders,
@@ -267,10 +261,7 @@ class BilibiliEngine implements OnlineSourceEngine {
                       },
                     },
                     nest: () {
-                      builder.element(
-                        'BaseURL',
-                        nest: track['baseUrl'] as String,
-                      );
+                      builder.element('BaseURL', nest: _mediaUrl(track));
                       final segment = object(track['SegmentBase']);
                       builder.element(
                         'SegmentBase',
@@ -297,6 +288,19 @@ class BilibiliEngine implements OnlineSourceEngine {
     );
     return builder.buildDocument().toXmlString();
   }
+}
+
+/// The track's Bilibili-hosted `upos-` mirror; the primary URL is often a
+/// third-party PCDN edge whose TLS handshakes fail intermittently.
+String _mediaUrl(Json track) {
+  final urls = [
+    track['baseUrl'] as String,
+    ...(track['backupUrl'] as List).cast<String>(),
+  ];
+  return urls.firstWhere(
+    (url) => Uri.parse(url).host.startsWith('upos-'),
+    orElse: () => urls.first,
+  );
 }
 
 /// "1:02:03" or "2:03".
