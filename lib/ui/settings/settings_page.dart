@@ -336,6 +336,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   onChanged: prefs.setAutoplay,
                 ),
               ),
+              SettingRow(
+                title: '自动标记为看过',
+                subtitle: '播放进度达到 80% 时将本话标为看过',
+                trailing: Switch(
+                  value: prefs.autoMarkWatched,
+                  onChanged: prefs.setAutoMarkWatched,
+                ),
+              ),
               choice(
                 '字幕语言',
                 const {'chs': '简体中文', 'cht': '繁体中文', 'ja': '日语', 'auto': '自动'},

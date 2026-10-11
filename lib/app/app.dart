@@ -197,6 +197,7 @@ class _MelonAppState extends State<MelonApp>
   }
 
   void goBack() {
+    final leavingPlayer = route == 'player';
     leavePlayer();
     if (history.isEmpty) {
       navigate('home');
@@ -232,6 +233,8 @@ class _MelonAppState extends State<MelonApp>
         subject != null &&
         (previous.pending || switched)) {
       unawaited(openSubject(subject));
+    } else if (route == 'subject' && leavingPlayer) {
+      unawaited(perform(subjects.reload));
     } else if (route == 'resources' && previous.pending) {
       unawaited(perform(() => resources.search(previous.resources.terms!)));
     }
