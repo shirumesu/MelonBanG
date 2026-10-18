@@ -18,21 +18,20 @@ int firstVisibleComment(List<DanmakuComment> comments, double after) {
 }
 
 class PlacedDanmaku {
-  PlacedDanmaku(this.item, this.extent, this.y);
+  PlacedDanmaku(this.item, this.extent, this.y, this.lifetime);
 
   final DanmakuComment item;
   final Size extent;
   final double y;
+  final double lifetime;
   double get start => item.time;
-  double get end => start + DanmakuLayout.lifetime;
+  double get end => start + lifetime;
   bool get scrolling => item.mode == DanmakuMode.scroll;
 
   Rect boundsAt(double time, double viewportWidth) => Rect.fromLTWH(
     scrolling
         ? viewportWidth -
-              (viewportWidth + extent.width) *
-                  (time - start) /
-                  DanmakuLayout.lifetime
+              (viewportWidth + extent.width) * (time - start) / lifetime
         : (viewportWidth - extent.width) / 2,
     y,
     extent.width,
@@ -42,7 +41,11 @@ class PlacedDanmaku {
 
 /// Admits comments once, using their measured bounds over their shared lifetime.
 class DanmakuLayout {
-  static const lifetime = 8.0;
+  /// Scrolling comments move at one speed in logical pixels at every viewport
+  /// width, so fullscreen reads like the window (Bilibili's engine likewise
+  /// scales duration with width: 682 px in 3.8 s). Fixed comments keep a duration.
+  static const scrollSpeed = 170.0;
+  static const fixedLifetime = 8.0;
   static const horizontalGap = 20.0;
   static const verticalGap = 10.0;
   final _active = <PlacedDanmaku>[];
@@ -67,6 +70,8 @@ class DanmakuLayout {
     required Size Function(DanmakuComment) measure,
   }) {
     final configuration = (comments, viewport, fontSize, area, density);
+    final scrollLifetime = viewport.width / scrollSpeed;
+    final lifetime = math.max(fixedLifetime, scrollLifetime);
     if (_configuration != configuration ||
         _time == null ||
         time < _time! ||
@@ -97,7 +102,12 @@ class DanmakuLayout {
         final y = item.mode == DanmakuMode.bottom
             ? bottom - extent.height - offset
             : top + offset;
-        final candidate = PlacedDanmaku(item, extent, y);
+        final candidate = PlacedDanmaku(
+          item,
+          extent,
+          y,
+          item.mode == DanmakuMode.scroll ? scrollLifetime : fixedLifetime,
+        );
         if (_active.any(
           (previous) => _collides(previous, candidate, viewport.width),
         )) {
