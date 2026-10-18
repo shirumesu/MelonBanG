@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -794,9 +795,9 @@ void _reveal(BuildContext context) =>
       );
     });
 
-/// Text cut to [maxLines] with 展开 / 收起 when it is longer. Plain text
-/// ends at the last punctuation in the second half of the shown lines, or
-/// is cut where the lines end; rich text ends with an ellipsis.
+/// Text cut to [maxLines] with 展开 / 收起 when it is longer; 展开 follows the
+/// ellipsis on the last line. Plain text ends at the last punctuation in the
+/// second half of the shown lines, or is cut where the lines end.
 class _ClampedText extends StatefulWidget {
   _ClampedText.plain(
     String text, {
@@ -809,7 +810,7 @@ class _ClampedText extends StatefulWidget {
     : punctuation = false,
       truncated = false,
       onExpand = null;
-  final InlineSpan span;
+  final TextSpan span;
   final int maxLines;
   final bool punctuation;
 
@@ -828,23 +829,32 @@ class _ClampedTextState extends State<_ClampedText>
   static const _breaks = '。，、；：！？…,.;:!?～~ ';
   static const _closers = '）)」』】》”’"';
   bool _expanded = false;
+  late final _expand = TapGestureRecognizer()
+    ..onTap = () => (widget.onExpand ?? _toggle)();
 
   @override
   bool get wantKeepAlive => _expanded;
 
-  String _cut(String text, TextPainter painter, double width) {
-    final end = painter
-        .getPositionForOffset(Offset(width, painter.height - 1))
-        .offset;
+  @override
+  void dispose() {
+    _expand.dispose();
+    super.dispose();
+  }
+
+  /// How much of [text] to show before the ellipsis when the shown lines
+  /// end at [end].
+  int _cut(String text, int end) {
     // One character makes room for the ellipsis.
     final shown = text.substring(0, math.max(0, end - 1));
-    for (var i = shown.length - 1; i >= shown.length ~/ 2; i--) {
-      if (_closers.contains(shown[i])) return '${shown.substring(0, i + 1)}…';
-      if (_breaks.contains(shown[i])) {
-        return '${shown.substring(0, i).trimRight()}…';
+    if (widget.punctuation) {
+      for (var i = shown.length - 1; i >= shown.length ~/ 2; i--) {
+        if (_closers.contains(shown[i])) return i + 1;
+        if (_breaks.contains(shown[i])) {
+          return shown.substring(0, i).trimRight().length;
+        }
       }
     }
-    return '${shown.trimRight()}…';
+    return shown.trimRight().length;
   }
 
   void _toggle() {
@@ -860,45 +870,76 @@ class _ClampedTextState extends State<_ClampedText>
       builder: (context, constraints) {
         final style = DefaultTextStyle.of(context).style.merge(_postText);
         final span = TextSpan(style: style, children: [widget.span]);
-        final painter = TextPainter(
-          text: span,
+        TextPainter layout(InlineSpan text) => TextPainter(
+          text: text,
           maxLines: widget.maxLines,
           textDirection: Directionality.of(context),
           textScaler: MediaQuery.textScalerOf(context),
         )..layout(maxWidth: constraints.maxWidth);
+        final painter = layout(span);
         final clamped = painter.didExceedMaxLines;
-        final Widget text = !clamped || _expanded
-            ? widget.truncated
-                  ? Text('${span.toPlainText().trimRight()}…', style: style)
-                  : SelectableText.rich(span)
-            : widget.punctuation
-            ? Text(
-                _cut(span.toPlainText(), painter, constraints.maxWidth),
-                maxLines: widget.maxLines,
-                overflow: TextOverflow.ellipsis,
-                style: style,
-              )
-            : Text.rich(
-                span,
-                maxLines: widget.maxLines,
-                overflow: TextOverflow.ellipsis,
-              );
-        painter.dispose();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            text,
-            if (clamped || widget.truncated)
-              TextButton(
-                style: _compactButton,
-                onPressed: widget.onExpand ?? _toggle,
-                child: Text(_expanded ? '收起' : '展开'),
-              ),
-          ],
+        if (!clamped && !widget.truncated || _expanded) {
+          painter.dispose();
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SelectableText.rich(span),
+              if (_expanded)
+                TextButton(
+                  style: _compactButton,
+                  onPressed: _toggle,
+                  child: const Text('收起'),
+                ),
+            ],
+          );
+        }
+        final link = TextSpan(
+          text: '展开',
+          style: style.copyWith(color: Theme.of(context).colorScheme.primary),
+          recognizer: _expand,
         );
+        TextSpan ending(TextSpan shown) => TextSpan(
+          style: style,
+          children: [shown, const TextSpan(text: '…'), link],
+        );
+        var text = ending(widget.span);
+        final whole = layout(text);
+        if (clamped || whole.didExceedMaxLines) {
+          final label = layout(link);
+          final end = painter
+              .getPositionForOffset(
+                Offset(constraints.maxWidth - label.width, painter.height - 1),
+              )
+              .offset;
+          label.dispose();
+          text = ending(_prefix(widget.span, _cut(span.toPlainText(), end)));
+        }
+        whole.dispose();
+        painter.dispose();
+        return Text.rich(text);
       },
     );
   }
+}
+
+/// The first [length] characters of [span], keeping their styles.
+TextSpan _prefix(TextSpan span, int length) {
+  var left = length;
+  TextSpan take(TextSpan span) {
+    final text = span.text ?? '';
+    final shown = text.substring(0, math.min(left, text.length));
+    left -= shown.length;
+    return TextSpan(
+      text: shown,
+      style: span.style,
+      children: [
+        for (final child in span.children ?? const <InlineSpan>[])
+          if (left > 0) take(child as TextSpan),
+      ],
+    );
+  }
+
+  return take(span);
 }
 
 /// A review's summary in three lines; 展开 reads the whole post, since the

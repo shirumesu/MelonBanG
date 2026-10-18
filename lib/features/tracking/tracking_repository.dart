@@ -75,9 +75,9 @@ class TrackingRepository {
     }
 
     // Public detail and personal progress are independent network requests.
-    final personal = refreshEpisodes(id, useCache: true).catchError((Object e) {
-      if (user == account.userId) lastSyncError = e.toString();
-    });
+    // A failed progress read keeps the saved progress and is retried on the
+    // next visit; it is not an upload failure, so it leaves lastSyncError.
+    final personal = refreshEpisodes(id, useCache: true).catchError((_) {});
     if (forPlayback) {
       unawaited(personal);
       return _withProgress(
