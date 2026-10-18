@@ -768,6 +768,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         const SizedBox(height: Gap.lg),
         if (_summaryExpanded)
           SelectableText(
+            key: PageStorageKey('subject-summary:${item.id}'),
             summary,
             style: const TextStyle(fontSize: 13, height: 1.75),
           )

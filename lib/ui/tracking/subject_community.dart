@@ -45,6 +45,10 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   /// snapshots so rows rebuilt while scrolling show them at once.
   final _topics = <int, AsyncSnapshot<List<TopicPost>>>{};
   final _blogs = <int, AsyncSnapshot<String>>{};
+
+  /// Keeps the posts' selectable text from sharing the page's saved scroll
+  /// offset, which built each row scrolled away and springing back into view.
+  final _storage = PageStorageBucket();
   final _feedback = ActionFeedback();
   final _commentFeedback = ActionFeedback();
   final _composer = TextEditingController();
@@ -436,7 +440,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   Widget build(BuildContext context) {
     // Built once per state change: the layout builder runs on every scroll
     // frame, and returning the same widget keeps the posts from rebuilding.
-    final content = _content(context);
+    final content = PageStorage(bucket: _storage, child: _content(context));
     return SliverLayoutBuilder(
       builder: (context, constraints) {
         if (!_requested && constraints.remainingCacheExtent > 0) {
