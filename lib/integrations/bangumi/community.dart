@@ -120,6 +120,28 @@ class BangumiPrivateClient implements SubjectCommunitySource {
   }
 
   @override
+  Future<List<TopicPost>> topic(int topicId) async {
+    final response = object(await _request('/p1/subjects/-/topics/$topicId'));
+    return objects(response['replies']).map(_post).toList();
+  }
+
+  @override
+  Future<String> blog(int entryId) async =>
+      '${object(await _request('/p1/blogs/$entryId'))['content'] ?? ''}';
+
+  TopicPost _post(Json row) {
+    final user = object(row['creator']);
+    return TopicPost(
+      id: number(row['id']).toInt(),
+      author: '${user['nickname'] ?? user['username'] ?? '未知用户'}',
+      avatarUrl: coverAddress(object(user['avatar'])['medium']),
+      time: number(row['createdAt']).toInt(),
+      content: '${row['content'] ?? ''}',
+      replies: objects(row['replies']).map(_post).toList(),
+    );
+  }
+
+  @override
   Future<List<Subject>> relations(int subjectId, {bool refresh = false}) async {
     final values = <Json>[];
     try {
