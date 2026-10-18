@@ -125,6 +125,10 @@ class TrackingRepository {
     'coverUrl': subject.coverUrl,
     'episodeTotal': subject.episodeTotal,
     'score': subject.score,
+    'airDate': subject.airDate,
+    if (subject.collectionStats.isNotEmpty)
+      'collectionTotal': subject.collectionStats.values.reduce((a, b) => a + b),
+    'collectedAt': DateTime.now().toUtc().toIso8601String(),
   };
 
   Future<void> setCollection(int subjectId, CollectionChange change) async {
@@ -330,6 +334,9 @@ class TrackingRepository {
             ].whereType<String>().firstOrNull,
             'episodeTotal': s['eps'] ?? s['total_episodes'],
             'score': s['score'],
+            'airDate': s['date'],
+            'collectionTotal': s['collection_total'],
+            'collectedAt': row['updated_at'],
             'status': CollectionStatus.fromRemote(number(row['type']).toInt())
                 .key,
             'userScore': row['rate'],
