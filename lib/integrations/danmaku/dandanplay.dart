@@ -72,27 +72,28 @@ class DandanplayDanmaku implements DanmakuSearch {
 
   @override
   Future<DanmakuMatch> match(DanmakuQuery query) async {
-    DanmakuMatch? match;
+    final file = query.file;
+    final DanmakuEpisode episode;
     try {
-      final episode = await query.episode();
-      try {
-        match = await _matchBangumi(episode.subjectId, episode.number);
-      } catch (_) {
-        // Mapping availability is independent of episode search.
-      }
-      if (match == null || match.empty) {
-        match = await _matchTitles(episode.names, episode.number);
-      }
+      episode = await query.episode();
     } catch (_) {
-      // A missing catalog/mapping must not prevent filename fallback.
+      // A missing catalogue episode must not prevent filename matching.
+      if (file == null) rethrow;
+      return _found(await _matchFile(file));
     }
-    if ((match == null || match.empty) && query.file != null) {
-      match = await _matchFile(query.file!);
+    var match = const DanmakuMatch.none('');
+    try {
+      match = await _matchBangumi(episode.subjectId, episode.number);
+    } catch (_) {
+      // Mapping availability is independent of episode search.
     }
-    return match == null || match.empty
-        ? const DanmakuMatch.none('文件未匹配到唯一章节')
-        : match;
+    if (match.empty) match = await _matchTitles(episode.names, episode.number);
+    if (match.empty && file != null) match = await _matchFile(file);
+    return _found(match);
   }
+
+  DanmakuMatch _found(DanmakuMatch match) =>
+      match.empty ? const DanmakuMatch.none('未匹配到唯一章节') : match;
 
   Future<DanmakuMatch> _matchBangumi(int subjectId, double episode) async {
     if (!episode.isFinite || episode <= 0) return const DanmakuMatch.none('');
