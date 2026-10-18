@@ -882,13 +882,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           _EpisodeGrid(
             episodes: episodes,
             nextId: next?.id,
-            resume: switch (widget.resume) {
-              final resume? when resume.position > 0 && resume.duration > 0 => (
-                resume.episodeId,
-                (resume.position / resume.duration).clamp(0.0, 1.0),
-              ),
-              _ => null,
-            },
             statusOf: _episodeStatus,
             aired: _aired,
             onOpen: (episode) => widget.onFindResources(episode),
@@ -1892,7 +1885,6 @@ class _EpisodeGrid extends StatefulWidget {
   const _EpisodeGrid({
     required this.episodes,
     required this.nextId,
-    required this.resume,
     required this.statusOf,
     required this.aired,
     required this.onOpen,
@@ -1905,8 +1897,6 @@ class _EpisodeGrid extends StatefulWidget {
   /// The episode the collapsed grid keeps in view.
   final int? nextId;
 
-  /// The partly watched episode and how far it played, 0–1.
-  final (int, double)? resume;
   final EpisodeStatus Function(Episode) statusOf;
   final bool Function(Episode) aired;
   final ValueChanged<Episode> onOpen, onPlay;
@@ -2077,10 +2067,6 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
               : widget.statusOf(episode);
           final watched = status == EpisodeStatus.watched;
           final aired = widget.aired(episode);
-          final progress = switch (widget.resume) {
-            (final id, final value) when !watched && id == episode.id => value,
-            _ => null,
-          };
           final (background, foreground, border) = watched
               ? (
                   scheme.primaryContainer,
@@ -2117,39 +2103,17 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
                       : border,
                 ),
               ),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Center(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: foreground,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
+              child: Center(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: foreground,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
-                  if (progress != null)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(5, 0, 5, 3),
-                      child: Align(
-                        alignment: Alignment.bottomLeft,
-                        child: FractionallySizedBox(
-                          widthFactor: progress,
-                          child: Container(
-                            height: 2.5,
-                            decoration: BoxDecoration(
-                              color: scheme.primary,
-                              borderRadius: BorderRadius.circular(99),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
+                ),
               ),
             ),
           );
