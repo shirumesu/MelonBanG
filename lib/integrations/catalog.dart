@@ -1,10 +1,12 @@
 import 'dart:async';
 
-import '../../domain/catalog.dart';
-import '../../core/content_cache.dart';
-import '../../core/json.dart';
-import '../../core/network.dart';
-import '../../core/store.dart';
+import '../domain/catalog.dart';
+import '../core/content_cache.dart';
+import '../core/json.dart';
+import '../core/network.dart';
+import '../core/store.dart';
+import 'bangumi/subjects.dart';
+import 'melon_api/source_rules.dart' show melonApiOrigin;
 
 /// The locally cached full or playback detail of a subject, without a request.
 Future<Json?> cachedSubjectDetail(AppStore store, int id) async {
@@ -14,16 +16,24 @@ Future<Json?> cachedSubjectDetail(AppStore store, int id) async {
   return cached == null ? null : object(object(cached['value'])['data']);
 }
 
+typedef _Load = Future<({dynamic value, String? etag})> Function(Json? cached);
+
+/// Public catalogue reads with a local cache. Subject search, details and
+/// covers come directly from Bangumi; Melon API supplies only the shared
+/// season index, broadcast schedule and regional aliases.
 class CatalogRepository implements Catalog {
   CatalogRepository(
     this.api,
     this.store,
     this.cache, {
-    this.origin = 'https://melonapi.konataizumi.com',
-  });
+    this.origin = melonApiOrigin,
+  }) : bangumi = BangumiSubjects(api);
   final ApiClient api;
   final AppStore store;
   final ContentCache cache;
+  final BangumiSubjects bangumi;
+
+  /// The Melon API origin.
   final String origin;
   final _requests = <String, Future<dynamic>>{};
   bool _closed = false;
@@ -57,7 +67,8 @@ class CatalogRepository implements Catalog {
         if (!_closed && !_covers.containsKey(id)) {
           final response = await _cached(
             'basic-detail:$id',
-            '/v1/subjects/$id?includeHtml=false&view=basic',
+            (_) async =>
+                (value: {'data': await bangumi.subject(id)}, etag: null),
             refresh: true,
           );
           _rememberCover(object(object(response)['data']));
@@ -70,11 +81,10 @@ class CatalogRepository implements Catalog {
 
   Future<dynamic> _cached(
     String key,
-    String path, {
+    _Load load, {
     Duration ttl = const Duration(minutes: 5),
     bool refresh = false,
     FutureOr<void> Function(dynamic)? onCached,
-    Future<({dynamic value, String? etag})> Function(Json? cached)? load,
   }) async {
     if (_closed) throw StateError('番剧服务已关闭');
     final generation = cache.generation;
@@ -91,9 +101,7 @@ class CatalogRepository implements Catalog {
     try {
       return await _requests.putIfAbsent(key, () async {
         try {
-          final result = await (load == null
-              ? _read(Uri.parse('$origin$path'), cached)
-              : load(cached));
+          final result = await load(cached);
           if (_closed) throw StateError('番剧服务已关闭');
           if (generation == cache.generation) {
             await store.put('catalog', key, {
@@ -113,9 +121,10 @@ class CatalogRepository implements Catalog {
     }
   }
 
-  Future<({dynamic value, String? etag})> _read(Uri uri, Json? cached) async {
+  /// A conditional Melon API read.
+  _Load _melon(String path) => (cached) async {
     final response = await api.send(
-      uri,
+      Uri.parse('$origin$path'),
       headers: {'If-None-Match': ?cached?['etag'] as String?},
       acceptedStatuses: const {304},
     );
@@ -125,7 +134,7 @@ class CatalogRepository implements Catalog {
           : await decodeJsonBytes(response.bodyBytes),
       etag: response.headers['etag'] ?? cached?['etag'] as String?,
     );
-  }
+  };
 
   dynamic _revalidated(Json? cached, Map<String, String> headers) {
     if (cached == null) throw const FormatException('缓存响应缺少本地内容');
@@ -141,10 +150,6 @@ class CatalogRepository implements Catalog {
   }
 
   bool _serverFresh(dynamic value, int now) {
-    if (object(object(object(value)['data'])['source'])['notes']
-        case final List notes when notes.isNotEmpty) {
-      return false;
-    }
     final cache = object(object(value)['cache']);
     if (cache['stale'] == true) return false;
     final expiresAt = DateTime.tryParse('${cache['expiresAt'] ?? ''}');
@@ -192,7 +197,10 @@ class CatalogRepository implements Catalog {
     final response = object(
       await _cached(
         'search:${query.toLowerCase()}:10:$offset',
-        '/v1/subjects/search?q=${Uri.encodeQueryComponent(query)}&limit=10&offset=$offset',
+        (_) async => (
+          value: await bangumi.search(query, limit: 10, offset: offset),
+          etag: null,
+        ),
         onCached: onCached == null ? null : (value) => onCached(page(value)),
       ),
     );
@@ -217,7 +225,7 @@ class CatalogRepository implements Catalog {
       final page = object(
         await _cached(
           'trending:$pageSize:$offset',
-          '/v1/trending/current?limit=$pageSize&offset=$offset',
+          _melon('/v1/trending/current?limit=$pageSize&offset=$offset'),
           refresh: refresh,
           ttl: const Duration(hours: 1),
           onCached: offset == 0 && onCached != null
@@ -263,7 +271,7 @@ class CatalogRepository implements Catalog {
     final response = object(
       await _cached(
         'today:$scheduleDate',
-        '/v1/schedule/today',
+        _melon('/v1/schedule/today'),
         refresh: refresh,
         ttl: const Duration(minutes: 15),
         onCached: onCached == null ? null : (value) => onCached(_today(value)),
@@ -279,7 +287,9 @@ class CatalogRepository implements Catalog {
     final response = object(
       await _cached(
         'week-forward:$scheduleDate',
-        '/v1/schedule/latest?startDate=$scheduleDate&dayCount=7&view=byDate',
+        _melon(
+          '/v1/schedule/latest?startDate=$scheduleDate&dayCount=7&view=byDate',
+        ),
         ttl: const Duration(hours: 1),
         onCached: onCached == null
             ? null
@@ -320,81 +330,86 @@ class CatalogRepository implements Catalog {
   }) async {
     if (id <= 0) throw const FormatException('番剧编号无效');
     // Detail and list caches have distinct keys; a search cannot erase detail.
-    Json? available;
-    final path =
-        '/v1/subjects/$id?includeHtml=false&streamVersion=2'
-        '&view=${forPlayback ? 'playback' : 'full'}';
-    final uri = Uri.parse('$origin$path');
     final response = object(
       await _cached(
         forPlayback ? 'playback-detail:$id' : 'detail:$id',
-        path,
+        (_) async => (
+          value: {'data': await _detail(id, forPlayback, onAvailable)},
+          etag: null,
+        ),
         ttl: const Duration(hours: 1),
         onCached: onAvailable == null
             ? null
-            : (value) async {
-                available = object(object(value)['data']);
-                await onAvailable(_subject(id, value));
-              },
-        load: (cached) async {
-          var headers = <String, String>{};
-          await for (final message in api.ndjson(
-            uri,
-            headers: {'If-None-Match': ?cached?['etag'] as String?},
-            onHeaders: (value) => headers = value,
-          )) {
-            switch (message['type']) {
-              case 'snapshot':
-              case 'patch':
-                final pending = message['pending'] as List<dynamic>? ?? [];
-                final append = (message['append'] as List?) ?? const [];
-                available = message['type'] == 'snapshot'
-                    ? {...object(message['data'])}
-                    : {...?available};
-                for (final entry in object(message['data']).entries) {
-                  if (append.contains(entry.key)) {
-                    final previous = available![entry.key] as List? ?? const [];
-                    available![entry.key] = [
-                      ...previous,
-                      ...entry.value as List,
-                    ];
-                  } else if (!pending.contains(entry.key)) {
-                    available![entry.key] = entry.value;
-                  }
-                }
-                if (onAvailable != null) {
-                  await onAvailable(
-                    Subject.fromJson({
-                      ..._subjectJson(id, {'data': available}),
-                      '_pending': pending,
-                    }),
-                  );
-                }
-              case 'complete':
-                final data = message['data'] ?? available;
-                if (data == null) throw const FormatException('番剧详情响应缺少内容');
-                return (
-                  value: {'data': data, 'cache': message['cache']},
-                  etag:
-                      headers['etag'] ??
-                      object(message['cache'])['etag'] as String?,
-                );
-              case 'notModified':
-                return (
-                  value: _revalidated(cached, headers),
-                  etag: headers['etag'] ?? cached?['etag'] as String?,
-                );
-              case 'error':
-                throw StateError(
-                  '番剧详情加载失败：${object(message['error'])['message']}',
-                );
-            }
-          }
-          throw const FormatException('番剧详情响应未完整接收');
-        },
+            : (value) => onAvailable(_subject(id, value)),
       ),
     );
     return _subject(id, response);
+  }
+
+  /// Requests the detail parts concurrently and publishes each one as it
+  /// arrives once the base metadata is known. A failed part fails the detail
+  /// after the others settle and stays pending in the last published value.
+  Future<Json> _detail(
+    int id,
+    bool forPlayback,
+    FutureOr<void> Function(Subject)? onAvailable,
+  ) async {
+    Json? base;
+    final parts = <String, dynamic>{};
+    final pending = {
+      'episodes',
+      'aliases',
+      if (!forPlayback) ...['characters', 'staff'],
+    };
+    var published = Future<void>.value();
+    void publish() {
+      if (onAvailable == null || base == null) return;
+      final value = Subject.fromJson({
+        ..._subjectJson(id, {
+          'data': {...base!, ...parts},
+        }),
+        '_pending': [...pending],
+      });
+      published = published.then((_) => onAvailable(value));
+    }
+
+    Future<void> part(String name, Future<void> Function() load) async {
+      await load();
+      pending.remove(name);
+      publish();
+    }
+
+    try {
+      await Future.wait([
+        bangumi.subject(id).then((value) {
+          base = value;
+          publish();
+        }),
+        part('episodes', () async {
+          await for (final page in bangumi.episodes(id)) {
+            parts['episodes'] = [...?parts['episodes'] as List?, ...page];
+            publish();
+          }
+        }),
+        part('aliases', () async {
+          final response = await api.json(
+            Uri.parse('$origin/v1/subjects/$id/aliases'),
+          );
+          parts['aliases'] = object(response)['data'];
+        }),
+        if (!forPlayback) ...[
+          part('characters', () async {
+            parts['characters'] = await bangumi.characters(id);
+          }),
+          part('staff', () async {
+            parts['staff'] = await bangumi.persons(id);
+          }),
+        ],
+      ]);
+    } finally {
+      await published;
+    }
+    return {...base!, ...parts};
   }
 
   Subject _subject(int id, dynamic value) =>
