@@ -153,59 +153,6 @@ class ApiClient {
     }
   }
 
-  Stream<Json> ndjson(
-    Uri uri, {
-    Map<String, String> headers = const {},
-    void Function(Map<String, String>)? onHeaders,
-  }) async* {
-    final abort = Completer<void>();
-    final request = _request(
-      uri,
-      abort: abort,
-      headers: {'Accept': 'application/x-ndjson', ...headers},
-    );
-    _active.add(abort);
-    try {
-      final response = await client
-          .send(request)
-          .timeout(timeout, onTimeout: () => _timedOut(uri, abort));
-      onHeaders?.call(response.headers);
-      if (response.statusCode == 304) {
-        await response.stream.drain<void>();
-        yield {'type': 'notModified'};
-        return;
-      }
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        _checkResponse(
-          await http.Response.fromStream(response)
-              .timeout(timeout, onTimeout: () => _timedOut(uri, abort)),
-          uri,
-        );
-      }
-      final lines = response.stream
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .timeout(
-            timeout,
-            onTimeout: (sink) {
-              if (!abort.isCompleted) abort.complete();
-              sink.addError(TimeoutException('${uri.host} 请求超时', timeout));
-              sink.close();
-            },
-          );
-      await for (final line in lines) {
-        yield object(
-          line.length < 256 * 1024
-              ? jsonDecode(line)
-              : await Isolate.run(() => jsonDecode(line)),
-        );
-      }
-    } finally {
-      if (!abort.isCompleted) abort.complete();
-      _active.remove(abort);
-    }
-  }
-
   Future<dynamic> json(
     Uri uri, {
     String method = 'GET',

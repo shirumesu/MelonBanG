@@ -1,4 +1,4 @@
-import '../melon_api/catalog.dart';
+import '../catalog.dart';
 import '../../core/json.dart';
 import '../../core/store.dart';
 import '../../domain/transfer.dart';

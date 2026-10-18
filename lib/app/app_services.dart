@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../integrations/bangumi/account.dart';
 import '../integrations/bangumi/community.dart';
-import '../integrations/melon_api/catalog.dart';
+import '../integrations/catalog.dart';
 import '../core/content_cache.dart';
 import '../core/credentials.dart';
 import '../core/network.dart';
