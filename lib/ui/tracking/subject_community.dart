@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -39,6 +40,11 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   String segment = 'comments';
   final _pages = <String, List<CommunityEntry>>{};
   final _totals = <String, int>{};
+
+  /// Discussion topics and full reviews read so far, by id; kept as
+  /// snapshots so rows rebuilt while scrolling show them at once.
+  final _topics = <int, AsyncSnapshot<List<TopicPost>>>{};
+  final _blogs = <int, AsyncSnapshot<String>>{};
   final _feedback = ActionFeedback();
   final _commentFeedback = ActionFeedback();
   final _composer = TextEditingController();
@@ -56,6 +62,8 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
       _account = widget.client.userId;
       _pages.clear();
       _totals.clear();
+      _topics.clear();
+      _blogs.clear();
       _requested = false;
       _editing = _confirmDelete = false;
     }
@@ -85,6 +93,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
       );
       if (!mounted || generation != _generation) return null;
       setState(() {
+        if (refresh && requestedSegment == 'topics') _topics.clear();
         _pages[requestedSegment] = [
           if (!refresh) ...?_pages[requestedSegment],
           ...result.entries,
@@ -118,16 +127,40 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
     }
   }
 
-  String _time(int? seconds) {
-    if (seconds == null || seconds <= 0) return '';
-    final time = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
-    return '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
+  /// Starts reading [id] unless it is already read or being read; [retry]
+  /// reads it again.
+  void _fetch<T>(
+    Map<int, AsyncSnapshot<T>> cache,
+    int id,
+    Future<T> Function(int id) request, {
+    bool retry = false,
+  }) {
+    if (!retry && cache.containsKey(id)) return;
+    final pending = AsyncSnapshot<T>.waiting();
+    cache[id] = pending;
+    unawaited(
+      request(id)
+          .then(
+            (value) => AsyncSnapshot.withData(ConnectionState.done, value),
+            onError: (Object error) =>
+                AsyncSnapshot<T>.withError(ConnectionState.done, error),
+          )
+          .then((snapshot) {
+            if (mounted && identical(cache[id], pending)) {
+              setState(() => cache[id] = snapshot);
+            }
+          }),
+    );
   }
 
   Widget _row(CommunityEntry entry) {
     final name = entry.author;
     final small = Theme.of(context).textTheme.bodySmall;
+    final title = entry.title ?? '无标题';
+    if (segment == 'topics') _fetch(_topics, entry.id, widget.client.topic);
     return Padding(
+      // Expanded text belongs to its entry, not the list position.
+      key: ValueKey('$segment:${entry.id}'),
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -151,49 +184,52 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                                 ? '/blog/${entry.id}'
                                 : '/subject/topic/${entry.id}',
                           ),
-                    child: Text(entry.title ?? '无标题'),
+                    child: Text(title),
                   ),
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: small?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    if (segment == 'comments' && entry.score > 0) ...[
-                      const SizedBox(width: Gap.sm),
+                _PostMeta(
+                  name: name,
+                  time: _date(entry.time),
+                  details: [
+                    if (segment == 'comments' && entry.score > 0)
                       Text(
                         '★ ${entry.score}',
                         style: small?.copyWith(color: gold),
                       ),
-                    ],
                     if (segment == 'comments')
-                      if (collectionLabels[entry.status]
-                          case final status?) ...[
-                        const SizedBox(width: Gap.sm),
+                      if (collectionLabels[entry.status] case final status?)
                         Text(status, style: small),
-                      ],
-                    if (segment == 'topics') ...[
-                      const SizedBox(width: Gap.sm),
+                    if (segment == 'topics')
                       Text('${entry.replies} 回复', style: small),
-                    ],
-                    const Spacer(),
-                    Text(_time(entry.time), style: small),
                   ],
                 ),
-                if (segment != 'topics') ...[
-                  const SizedBox(height: 6),
-                  SelectableText(
-                    entry.text,
-                    style: const TextStyle(fontSize: 13, height: 1.6),
+                const SizedBox(height: 6),
+                switch (segment) {
+                  // Short comments stay whole; Bangumi caps them at 380.
+                  'comments' => SelectableText(entry.text, style: _postText),
+                  'reviews' => _Review(
+                    summary: entry.text,
+                    content: _blogs[entry.id],
+                    onLoad: ({retry = false}) => setState(
+                      () => _fetch(
+                        _blogs,
+                        entry.id,
+                        widget.client.blog,
+                        retry: retry,
+                      ),
+                    ),
                   ),
-                ],
+                  _ => _TopicThread(
+                    posts: _topics[entry.id]!,
+                    onRetry: () => setState(
+                      () => _fetch(
+                        _topics,
+                        entry.id,
+                        widget.client.topic,
+                        retry: true,
+                      ),
+                    ),
+                  ),
+                },
               ],
             ),
           ),
@@ -397,19 +433,24 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   }
 
   @override
-  Widget build(BuildContext context) => SliverLayoutBuilder(
-    builder: (context, constraints) {
-      if (!_requested && constraints.remainingCacheExtent > 0) {
-        _requested = true;
-        final generation = _generation;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || generation != _generation) return;
-          unawaited(_load());
-        });
-      }
-      return _content(context);
-    },
-  );
+  Widget build(BuildContext context) {
+    // Built once per state change: the layout builder runs on every scroll
+    // frame, and returning the same widget keeps the posts from rebuilding.
+    final content = _content(context);
+    return SliverLayoutBuilder(
+      builder: (context, constraints) {
+        if (!_requested && constraints.remainingCacheExtent > 0) {
+          _requested = true;
+          final generation = _generation;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || generation != _generation) return;
+            unawaited(_load());
+          });
+        }
+        return content;
+      },
+    );
+  }
 
   Widget _content(BuildContext context) => SliverMainAxisGroup(
     slivers: [
@@ -671,4 +712,627 @@ class _SubjectRelationsState extends State<SubjectRelations> {
       ),
     );
   }
+}
+
+const _postText = TextStyle(fontSize: 13, height: 1.6);
+
+String _date(int? seconds) {
+  if (seconds == null || seconds <= 0) return '';
+  final time = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+  return '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
+}
+
+final _compactButton = TextButton.styleFrom(
+  minimumSize: const Size(0, 28),
+  padding: const EdgeInsets.symmetric(horizontal: 6),
+  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+);
+
+/// The author, details such as score or reply count, and the date flush
+/// right.
+class _PostMeta extends StatelessWidget {
+  const _PostMeta({
+    required this.name,
+    required this.time,
+    this.details = const [],
+  });
+  final String name, time;
+  final List<Widget> details;
+
+  @override
+  Widget build(BuildContext context) {
+    final small = Theme.of(context).textTheme.bodySmall;
+    return Row(
+      children: [
+        Expanded(
+          child: Row(
+            children: [
+              Flexible(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: small?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              for (final detail in details) ...[
+                const SizedBox(width: Gap.sm),
+                detail,
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(width: Gap.md),
+        Text(
+          time,
+          style: small?.copyWith(
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Scrolls back to [context] once a collapse or page change leaves its top
+/// above the view.
+void _reveal(BuildContext context) =>
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      unawaited(
+        Scrollable.ensureVisible(
+          context,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+        ),
+      );
+    });
+
+/// Text cut to [maxLines] with 展开 / 收起 when it is longer. Plain text
+/// ends at the last punctuation in the second half of the shown lines, or
+/// is cut where the lines end; rich text ends with an ellipsis.
+class _ClampedText extends StatefulWidget {
+  _ClampedText.plain(
+    String text, {
+    required this.maxLines,
+    this.truncated = false,
+    this.onExpand,
+  }) : span = TextSpan(text: text),
+       punctuation = true;
+  const _ClampedText.rich(this.span, {required this.maxLines})
+    : punctuation = false,
+      truncated = false,
+      onExpand = null;
+  final InlineSpan span;
+  final int maxLines;
+  final bool punctuation;
+
+  /// The text goes on past [span], so 展开 shows even when it fits.
+  final bool truncated;
+
+  /// Replaces expanding in place, for text read in full elsewhere.
+  final VoidCallback? onExpand;
+
+  @override
+  State<_ClampedText> createState() => _ClampedTextState();
+}
+
+class _ClampedTextState extends State<_ClampedText>
+    with AutomaticKeepAliveClientMixin {
+  static const _breaks = '。，、；：！？…,.;:!?～~ ';
+  static const _closers = '）)」』】》”’"';
+  bool _expanded = false;
+
+  @override
+  bool get wantKeepAlive => _expanded;
+
+  String _cut(String text, TextPainter painter, double width) {
+    final end = painter
+        .getPositionForOffset(Offset(width, painter.height - 1))
+        .offset;
+    // One character makes room for the ellipsis.
+    final shown = text.substring(0, math.max(0, end - 1));
+    for (var i = shown.length - 1; i >= shown.length ~/ 2; i--) {
+      if (_closers.contains(shown[i])) return '${shown.substring(0, i + 1)}…';
+      if (_breaks.contains(shown[i])) {
+        return '${shown.substring(0, i).trimRight()}…';
+      }
+    }
+    return '${shown.trimRight()}…';
+  }
+
+  void _toggle() {
+    setState(() => _expanded = !_expanded);
+    updateKeepAlive();
+    if (!_expanded) _reveal(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final style = DefaultTextStyle.of(context).style.merge(_postText);
+        final span = TextSpan(style: style, children: [widget.span]);
+        final painter = TextPainter(
+          text: span,
+          maxLines: widget.maxLines,
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+        )..layout(maxWidth: constraints.maxWidth);
+        final clamped = painter.didExceedMaxLines;
+        final Widget text = !clamped || _expanded
+            ? widget.truncated
+                  ? Text('${span.toPlainText().trimRight()}…', style: style)
+                  : SelectableText.rich(span)
+            : widget.punctuation
+            ? Text(
+                _cut(span.toPlainText(), painter, constraints.maxWidth),
+                maxLines: widget.maxLines,
+                overflow: TextOverflow.ellipsis,
+                style: style,
+              )
+            : Text.rich(
+                span,
+                maxLines: widget.maxLines,
+                overflow: TextOverflow.ellipsis,
+              );
+        painter.dispose();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            text,
+            if (clamped || widget.truncated)
+              TextButton(
+                style: _compactButton,
+                onPressed: widget.onExpand ?? _toggle,
+                child: Text(_expanded ? '收起' : '展开'),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// A review's summary in three lines; 展开 reads the whole post, since the
+/// listing holds only its first 120 characters.
+class _Review extends StatefulWidget {
+  const _Review({
+    required this.summary,
+    required this.content,
+    required this.onLoad,
+  });
+
+  /// Bangumi BBCode, possibly cut inside a tag.
+  final String summary;
+  final AsyncSnapshot<String>? content;
+  final void Function({bool retry}) onLoad;
+
+  @override
+  State<_Review> createState() => _ReviewState();
+}
+
+class _ReviewState extends State<_Review> with AutomaticKeepAliveClientMixin {
+  static const _summaryLimit = 120;
+  bool _expanded = false;
+
+  @override
+  bool get wantKeepAlive => _expanded;
+
+  void _toggle() {
+    setState(() => _expanded = !_expanded);
+    updateKeepAlive();
+    if (_expanded) {
+      widget.onLoad();
+    } else {
+      _reveal(context);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final small = Theme.of(context).textTheme.bodySmall;
+    final content = widget.content;
+    if (_expanded && content != null && content.hasData) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SelectableText.rich(
+            _bbcode(context, content.data!),
+            style: _postText,
+          ),
+          TextButton(
+            style: _compactButton,
+            onPressed: _toggle,
+            child: const Text('收起'),
+          ),
+        ],
+      );
+    }
+    // A cut summary may end inside a tag; drop the unfinished tag.
+    final summary = widget.summary.replaceFirst(RegExp(r'\[[^\]]*$'), '');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _ClampedText.plain(
+          _bbcode(context, summary).toPlainText(),
+          maxLines: 3,
+          truncated: widget.summary.runes.length >= _summaryLimit,
+          onExpand: _toggle,
+        ),
+        if (_expanded && content != null && content.hasError)
+          Row(
+            children: [
+              Text('全文加载失败', style: small),
+              TextButton(
+                style: _compactButton,
+                onPressed: () => widget.onLoad(retry: true),
+                child: const Text('重试'),
+              ),
+            ],
+          )
+        else if (_expanded)
+          Text('正在加载全文…', style: small),
+      ],
+    );
+  }
+}
+
+/// A topic's opening post; its replies sit in a box below, closed until
+/// asked for and then shown ten floors a page.
+class _TopicThread extends StatefulWidget {
+  const _TopicThread({required this.posts, required this.onRetry});
+  final AsyncSnapshot<List<TopicPost>> posts;
+  final VoidCallback onRetry;
+
+  @override
+  State<_TopicThread> createState() => _TopicThreadState();
+}
+
+class _TopicThreadState extends State<_TopicThread>
+    with AutomaticKeepAliveClientMixin {
+  static const _perPage = 10;
+  final _replies = GlobalKey();
+
+  /// The reply page shown, or null while the replies are closed.
+  int? _page;
+
+  @override
+  bool get wantKeepAlive => _page != null;
+
+  void _show(int? page) {
+    setState(() => _page = page);
+    updateKeepAlive();
+    if (_replies.currentContext case final context?) _reveal(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final theme = Theme.of(context);
+    final small = theme.textTheme.bodySmall;
+    final snapshot = widget.posts;
+    if (snapshot.hasError) {
+      return Row(
+        children: [
+          Text('正文加载失败', style: small),
+          TextButton(
+            style: _compactButton,
+            onPressed: widget.onRetry,
+            child: const Text('重试'),
+          ),
+        ],
+      );
+    }
+    final posts = snapshot.data;
+    if (posts == null) return Text('正在加载正文…', style: small);
+    final floors = posts.skip(1).toList();
+    final count = floors.fold(0, (n, post) => n + 1 + post.replies.length);
+    final pages = (floors.length / _perPage).ceil();
+    final page = _page;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (posts.firstOrNull case final first?)
+          _ClampedText.rich(_bbcode(context, first.content), maxLines: 4),
+        if (floors.isNotEmpty)
+          Container(
+            key: _replies,
+            width: double.infinity,
+            margin: const EdgeInsets.only(top: 6),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerLow,
+              borderRadius: controlBorderRadius,
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: page == null
+                ? InkWell(
+                    onTap: () => _show(0),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      child: Text(
+                        '共 $count 条回复，点击查看',
+                        style: small?.copyWith(
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  )
+                : Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final (index, post)
+                            in floors
+                                .skip(page * _perPage)
+                                .take(_perPage)
+                                .indexed)
+                          _Floor(
+                            key: ValueKey(post.id),
+                            post: post,
+                            floor: page * _perPage + index + 2,
+                          ),
+                        const SizedBox(height: 4),
+                        _Pager(
+                          page: page,
+                          pages: pages,
+                          onPage: _show,
+                          onClose: () => _show(null),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+      ],
+    );
+  }
+}
+
+/// 共 N 页, the page numbers with the current one highlighted, 上一页 /
+/// 下一页, and 收起.
+class _Pager extends StatelessWidget {
+  const _Pager({
+    required this.page,
+    required this.pages,
+    required this.onPage,
+    required this.onClose,
+  });
+  final int page, pages;
+  final ValueChanged<int> onPage;
+  final VoidCallback onClose;
+
+  /// Every page up to seven; beyond that the first, the last and those
+  /// next to the current one, with null for the gaps.
+  List<int?> get _numbers {
+    if (pages <= 7) return List.generate(pages, (index) => index);
+    final near = {
+      0,
+      page - 1,
+      page,
+      page + 1,
+      pages - 1,
+    }.where((index) => index >= 0 && index < pages).toList()..sort();
+    return [
+      for (final (index, number) in near.indexed) ...[
+        if (index > 0 && number - near[index - 1] > 1) null,
+        number,
+      ],
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final small = Theme.of(context).textTheme.bodySmall;
+    final square = _compactButton.copyWith(
+      minimumSize: const WidgetStatePropertyAll(Size(28, 28)),
+    );
+    final quiet = square.copyWith(
+      foregroundColor: WidgetStatePropertyAll(scheme.onSurfaceVariant),
+    );
+    Widget link(String label, VoidCallback onPressed) =>
+        TextButton(style: quiet, onPressed: onPressed, child: Text(label));
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (pages > 1) ...[
+          Text('共 $pages 页', style: small),
+          const SizedBox(width: Gap.sm),
+          if (page > 0) link('上一页', () => onPage(page - 1)),
+          for (final number in _numbers)
+            if (number == null)
+              Text(' … ', style: small)
+            else if (number == page)
+              TextButton(
+                style: square,
+                onPressed: null,
+                child: Text(
+                  '${number + 1}',
+                  style: TextStyle(
+                    color: scheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              )
+            else
+              link('${number + 1}', () => onPage(number)),
+          if (page < pages - 1) link('下一页', () => onPage(page + 1)),
+        ],
+        link('收起', onClose),
+      ],
+    );
+  }
+}
+
+/// One reply floor; its nested replies hang off a guide line, the first
+/// three shown until expanded.
+class _Floor extends StatefulWidget {
+  const _Floor({super.key, required this.post, required this.floor});
+  final TopicPost post;
+  final int floor;
+
+  @override
+  State<_Floor> createState() => _FloorState();
+}
+
+class _FloorState extends State<_Floor> {
+  static const _preview = 3;
+  bool _all = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final nested = widget.post.replies;
+    final shown = _all ? nested : nested.take(_preview);
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _PostTile(post: widget.post, label: '#${widget.floor}', avatar: 24),
+          if (nested.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(left: 11),
+              padding: const EdgeInsets.only(left: 19),
+              decoration: BoxDecoration(
+                border: Border(
+                  left: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                    width: 2,
+                  ),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final (index, reply) in shown.indexed)
+                    _PostTile(
+                      post: reply,
+                      label: '#${widget.floor}-${index + 1}',
+                      avatar: 20,
+                    ),
+                  if (nested.length > _preview)
+                    TextButton(
+                      style: _compactButton,
+                      onPressed: () => setState(() => _all = !_all),
+                      child: Text(
+                        _all ? '收起楼中楼' : '还有 ${nested.length - _preview} 条楼中楼',
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PostTile extends StatelessWidget {
+  const _PostTile({
+    required this.post,
+    required this.label,
+    required this.avatar,
+  });
+  final TopicPost post;
+  final String label;
+  final double avatar;
+
+  @override
+  Widget build(BuildContext context) {
+    final small = Theme.of(context).textTheme.bodySmall;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AccountAvatar(url: post.avatarUrl, name: post.author, size: avatar),
+          const SizedBox(width: Gap.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _PostMeta(
+                  name: post.author,
+                  time: _date(post.time),
+                  details: [Text(label, style: small)],
+                ),
+                const SizedBox(height: 2),
+                if (post.content.trim().isEmpty)
+                  Text('（内容已删除）', style: small)
+                else
+                  _ClampedText.rich(
+                    _bbcode(context, post.content),
+                    maxLines: 6,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+final _bbcodeTags = RegExp(
+  r'\[(/?)(b|i|u|s|url|img|mask|quote|color|size|font|code|align|left|right|center|sticker|user|subject)(?:=[^\]]*)?\]|\(bgm\d+\)',
+  caseSensitive: false,
+);
+
+/// Bangumi BBCode as styled text: bold, italic, underline and strike keep
+/// their look, spoilers stay blacked out, quotes are muted, images become
+/// [图片], and other tags and stickers are dropped.
+TextSpan _bbcode(BuildContext context, String raw) {
+  final scheme = Theme.of(context).colorScheme;
+  final text = raw.replaceAll('\r\n', '\n').trim();
+  final open = <String, int>{};
+  final spans = <InlineSpan>[];
+  bool on(String tag) => (open[tag] ?? 0) > 0;
+  void add(String value) {
+    if (value.isEmpty) return;
+    spans.add(
+      TextSpan(
+        text: value,
+        style: TextStyle(
+          fontWeight: on('b') ? FontWeight.w700 : null,
+          fontStyle: on('i') ? FontStyle.italic : null,
+          decoration: TextDecoration.combine([
+            if (on('u')) TextDecoration.underline,
+            if (on('s')) TextDecoration.lineThrough,
+          ]),
+          color: on('mask')
+              ? scheme.onSurface
+              : on('quote')
+              ? scheme.onSurfaceVariant
+              : null,
+          backgroundColor: on('mask') ? scheme.onSurface : null,
+        ),
+      ),
+    );
+  }
+
+  var start = 0;
+  var image = false;
+  for (final match in _bbcodeTags.allMatches(text)) {
+    if (!image) add(text.substring(start, match.start));
+    start = match.end;
+    final tag = match[2]?.toLowerCase();
+    if (tag == null) continue;
+    final closing = match[1] == '/';
+    if (tag == 'img') {
+      image = !closing;
+      if (image) add('[图片]');
+      continue;
+    }
+    open[tag] = math.max(0, (open[tag] ?? 0) + (closing ? -1 : 1));
+  }
+  if (!image) add(text.substring(start));
+  return TextSpan(children: spans);
 }

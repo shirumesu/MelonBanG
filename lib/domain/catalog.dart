@@ -501,6 +501,28 @@ class CommunityEntry {
   final int? time;
 }
 
+/// A post in a discussion topic, with the replies nested under it.
+class TopicPost {
+  const TopicPost({
+    required this.id,
+    required this.author,
+    this.avatarUrl,
+    this.time,
+    this.content = '',
+    this.replies = const [],
+  });
+  final int id;
+  final String author;
+  final String? avatarUrl;
+
+  /// Unix seconds.
+  final int? time;
+
+  /// Bangumi BBCode.
+  final String content;
+  final List<TopicPost> replies;
+}
+
 class CommunityPage {
   const CommunityPage({required this.entries, required this.total});
   final List<CommunityEntry> entries;
@@ -521,6 +543,12 @@ abstract interface class SubjectCommunitySource {
     int offset = 0,
     bool refresh = false,
   });
+
+  /// A discussion topic: its opening post, then the replies.
+  Future<List<TopicPost>> topic(int topicId);
+
+  /// The full BBCode of a review, whose listing holds only its start.
+  Future<String> blog(int entryId);
   Future<List<Subject>> relations(int subjectId, {bool refresh = false});
 }
 

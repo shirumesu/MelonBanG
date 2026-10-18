@@ -1878,7 +1878,7 @@ class _ReleaseCountdownState extends State<_ReleaseCountdown> {
             _ when day.year == today.year => '${day.month}月${day.day}日',
             _ => '${day.year}年${day.month}月${day.day}日',
           };
-    return Text('$when更新第 ${widget.episode.number} 话');
+    return Text('$when更新');
   }
 }
 
