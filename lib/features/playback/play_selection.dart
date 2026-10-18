@@ -117,17 +117,18 @@ class PlaySelectionRepository {
     if (forPlayback && ranked().firstOrNull?.kind == PlayKind.local) {
       return ranked();
     }
-    final onlineRequest = includeOnline
+    final Future<void> onlineRequest = includeOnline
         ? onlineCandidates(
             registry,
             subject,
             episode,
             names: search.searchNames,
             onProgress: onProgress,
+            onUpdate: add,
             cancel: cancel,
             firstReady: forPlayback && !useContinuity,
             includeManual: !forPlayback && !instantOnly,
-          ).then(add)
+          )
         : Future<void>.value();
     void addReleases(ReleaseSearchResult result) {
       if (onProgress != null) result.sources.forEach(onProgress);

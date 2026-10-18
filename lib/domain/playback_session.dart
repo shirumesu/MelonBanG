@@ -10,6 +10,7 @@ class PlaybackSession {
     this.headers = const {},
     this.format,
     this.playlist,
+    this.audioUrl,
     this.danmaku,
     this.path,
     this.resumeKey,
@@ -30,6 +31,9 @@ class PlaybackSession {
   /// Online streams only; a [playlist] replaces [url] as the manifest.
   final StreamFormat? format;
   final String? playlist;
+
+  /// Online streams only; an external audio track played with [url].
+  final String? audioUrl;
 
   /// A danmaku locator supplied by the stream, as (provider, locator).
   final (String, String)? danmaku;
@@ -66,6 +70,7 @@ class PlaybackSession {
     headers: headers,
     format: format,
     playlist: playlist,
+    audioUrl: audioUrl,
     danmaku: danmaku,
     path: path,
     resumeKey: resumeKey,

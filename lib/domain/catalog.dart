@@ -132,6 +132,7 @@ class Episode {
     this.name,
     this.nameCn,
     this.airDate,
+    this.durationSeconds,
     this.status = EpisodeStatus.unwatched,
   });
 
@@ -143,6 +144,7 @@ class Episode {
     name: _text(value['name']),
     nameCn: _text(value['nameCn']) ?? _text(value['displayName']),
     airDate: _text(value['airdate']) ?? _text(value['airDate']),
+    durationSeconds: _int(value['duration']),
     status: value['status'] is String
         ? EpisodeStatus.parse(value['status'] as String)
         : EpisodeStatus.unwatched,
@@ -152,6 +154,7 @@ class Episode {
   final double sort;
   final bool main;
   final String? name, nameCn, airDate;
+  final int? durationSeconds;
   final EpisodeStatus status;
   String get title => displayTitle([nameCn, name]);
 
@@ -169,6 +172,7 @@ class Episode {
     name: name,
     nameCn: nameCn,
     airDate: airDate,
+    durationSeconds: durationSeconds,
     status: status,
   );
 }

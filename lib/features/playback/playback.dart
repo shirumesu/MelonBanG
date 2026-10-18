@@ -9,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/catalog.dart';
 import '../../domain/playback_session.dart';
-import '../../domain/sources.dart';
 import '../danmaku/danmaku_controller.dart';
 import '../danmaku/danmaku_repository.dart';
 import '../downloads/download_repository.dart';
@@ -220,12 +219,19 @@ class Playback extends ChangeNotifier {
         await platform.setProperty('demuxer', playlist != null ? 'lavf' : '');
         await platform.setProperty(
           'demuxer-lavf-format',
-          playlist != null
-              ? next.format == StreamFormat.dash
-                    ? 'dash'
-                    : 'hls'
-              : '',
+          playlist != null ? 'hls' : '',
         );
+        // A separate audio track opens as an external file so its requests
+        // carry the stream headers; a local manifest's segments would not.
+        await platform.command(['change-list', 'audio-files', 'clr', '']);
+        if (next.audioUrl case final audio?) {
+          await platform.command([
+            'change-list',
+            'audio-files',
+            'append',
+            audio,
+          ]);
+        }
         await platform.setProperty('sub-auto', 'fuzzy');
         await platform.setProperty('sub-ass-override', 'no');
         await platform.setProperty('sub-delay', '0');

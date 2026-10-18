@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:pinyin/pinyin.dart';
 
 import '../../domain/catalog.dart';
@@ -6,6 +8,12 @@ import '../../domain/sources.dart';
 
 /// Simplified, width-folded title without punctuation, plus its season.
 (String, int) normalizeSourceTitle(String input) {
+  final (title, season) = _normalize(input);
+  return (title, season ?? 1);
+}
+
+/// [normalizeSourceTitle] with the season only when the title states one.
+(String, int?) _normalize(String input) {
   var title = ChineseHelper.convertToSimplifiedChinese(
     String.fromCharCodes(
       input.runes.map(
@@ -21,26 +29,26 @@ import '../../domain/sources.dart';
     r'第\s*([一二三四五六七八九十\d]+)\s*[季期]|season\s*(\d+)',
     caseSensitive: false,
   ).firstMatch(title);
-  final raw = season?[1] ?? season?[2] ?? '1';
-  final number =
-      int.tryParse(raw) ??
-      ({
-            '一': 1,
-            '二': 2,
-            '三': 3,
-            '四': 4,
-            '五': 5,
-            '六': 6,
-            '七': 7,
-            '八': 8,
-            '九': 9,
-            '十': 10,
-          }[raw] ??
-          1);
   if (season != null) title = title.replaceRange(season.start, season.end, '');
+  final raw = season?[1] ?? season?[2];
   return (
     title.replaceAll(RegExp(r'[^a-z0-9\u3040-\u30ff\u3400-\u9fff]'), ''),
-    number,
+    raw == null
+        ? null
+        : int.tryParse(raw) ??
+              {
+                '一': 1,
+                '二': 2,
+                '三': 3,
+                '四': 4,
+                '五': 5,
+                '六': 6,
+                '七': 7,
+                '八': 8,
+                '九': 9,
+                '十': 10,
+              }[raw] ??
+              1,
   );
 }
 
@@ -96,4 +104,74 @@ bool sourceEpisodeMatches(String label, Episode episode) {
     return !main && episode.sort == 1 && parsed != null;
   }
   return double.tryParse(match[1]!) == episode.sort;
+}
+
+/// Openings/endings, soundtracks and songs, audio tracks, recaps, tutorials and
+/// merchandise reuse a title without holding an episode.
+final _notEpisode = RegExp(
+  r'NCOP|NCED|OST|原声|主题曲|片头曲|片尾曲|歌曲|音乐集|音轨|看完|解说|盘点|混剪|预告|教程|攻略|手办',
+  caseSensitive: false,
+);
+
+/// Whether an upload can hold the subject's episodes. Its title or tags must
+/// name the subject, tolerating the variant spellings uploaders use against
+/// takedowns: inserted punctuation, homophones and, for longer names, a wrong
+/// character. It must not state another season, must be about as long as an
+/// episode, and must not predate the subject's broadcast.
+bool uploadMatches(
+  Subject subject,
+  Episode? episode,
+  SourceSubject upload,
+  Iterable<String> names,
+) {
+  if (_notEpisode.hasMatch(upload.title)) return false;
+  final aired = DateTime.tryParse(subject.airDate ?? '');
+  final published = upload.publishedAt;
+  if (aired != null &&
+      published != null &&
+      published.isBefore(aired.subtract(const Duration(days: 1)))) {
+    return false;
+  }
+  final length =
+      episode?.durationSeconds ??
+      subject.episodes.map((e) => e.durationSeconds).nonNulls.firstOrNull;
+  final duration = upload.durationSeconds;
+  if (duration != null && duration < (length ?? 240) * 3 ~/ 4) return false;
+  final stated = _normalize(upload.title).$2;
+  final text = _sounds(_normalize([upload.title, ...upload.tags].join(' ')).$1);
+  return names.any((name) {
+    final (expected, season) = normalizeSourceTitle(name);
+    if (expected.isEmpty || (stated != null && stated != season)) {
+      return false;
+    }
+    final allowed = expected.length >= 10
+        ? 2
+        : expected.length >= 5
+        ? 1
+        : 0;
+    return _closestDistance(_sounds(expected), text) <= allowed;
+  });
+}
+
+/// Each character with its toneless readings, so homophones compare equal.
+List<Set<String>> _sounds(String normalized) => [
+  for (final c in normalized.runes.map(String.fromCharCode))
+    {c, ...PinyinHelper.convertToPinyinArray(c, PinyinFormat.WITHOUT_TONE)},
+];
+
+/// Fewest edits turning [pattern] into some part of [text].
+int _closestDistance(List<Set<String>> pattern, List<Set<String>> text) {
+  var previous = List.filled(text.length + 1, 0);
+  for (var i = 1; i <= pattern.length; i++) {
+    final current = List.filled(text.length + 1, i);
+    for (var j = 1; j <= text.length; j++) {
+      final same = pattern[i - 1].intersection(text[j - 1]).isNotEmpty;
+      current[j] = min(
+        previous[j - 1] + (same ? 0 : 1),
+        min(previous[j], current[j - 1]) + 1,
+      );
+    }
+    previous = current;
+  }
+  return previous.reduce(min);
 }

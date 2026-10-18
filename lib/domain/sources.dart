@@ -109,6 +109,10 @@ final class SourceSubject {
     this.line,
     this.description,
     this.choosePart = false,
+    this.durationSeconds,
+    this.publishedAt,
+    this.tags = const [],
+    this.direct = false,
     this.data = const {},
   });
   final String id, title;
@@ -117,6 +121,15 @@ final class SourceSubject {
 
   /// The entry is a single upload whose parts must be chosen explicitly.
   final bool choosePart;
+
+  /// Total length, publication time and uploader tags of an upload.
+  final int? durationSeconds;
+  final DateTime? publishedAt;
+  final List<String> tags;
+
+  /// Looked up by an identifier the user entered rather than found by title,
+  /// so it is never filtered out as a mismatch.
+  final bool direct;
   final Json data;
 }
 
@@ -141,8 +154,7 @@ final class SourceEpisode {
 
 enum StreamFormat {
   hls('hls'),
-  file('mp4'),
-  dash('dash');
+  file('mp4');
 
   const StreamFormat(this.key);
   final String key;
@@ -155,6 +167,7 @@ final class ResolvedStream {
     required this.sourceId,
     this.headers = const {},
     this.playlist,
+    this.audioUrl,
     this.line,
     this.quality,
     this.danmakuProvider,
@@ -164,8 +177,11 @@ final class ResolvedStream {
   final StreamFormat format;
   final Map<String, String> headers;
 
-  /// Rewritten manifest (filtered HLS or generated DASH) to play instead of [url].
+  /// Filtered HLS manifest to play instead of [url].
   final String? playlist;
+
+  /// Separate audio track played alongside the video at [url].
+  final String? audioUrl;
   final String? line, quality, danmakuProvider, danmakuLocator;
 
   ResolvedStream withPlaylist(String value) => ResolvedStream(
@@ -174,6 +190,7 @@ final class ResolvedStream {
     sourceId: sourceId,
     headers: headers,
     playlist: value,
+    audioUrl: audioUrl,
     line: line,
     quality: quality,
     danmakuProvider: danmakuProvider,

@@ -1,12 +1,11 @@
 import 'package:html/parser.dart' as html;
-import 'package:xml/xml.dart';
 
 import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../domain/sources.dart';
 
 /// Bilibili web API as a guest: official seasons and uploader videos, played
-/// through a generated DASH manifest of the best available AVC/AAC tracks.
+/// as the best available AVC video track with a separate AAC audio track.
 class BilibiliEngine implements OnlineSourceEngine {
   BilibiliEngine(this.api, this.instance);
   final ApiClient api;
@@ -56,7 +55,7 @@ class BilibiliEngine implements OnlineSourceEngine {
     _cookie = 'buvid3=${data['b_3']}; buvid4=${data['b_4']}';
   }
 
-  SourceSubject season(Json row) => SourceSubject(
+  SourceSubject season(Json row, {bool direct = false}) => SourceSubject(
     id: 'ss${row['season_id']}',
     title: html.parseFragment(row['title'] as String).text!,
     line: '官方番剧',
@@ -66,22 +65,35 @@ class BilibiliEngine implements OnlineSourceEngine {
       ).year,
       _ => null,
     },
+    episodeTotal: row['ep_size'] as int?,
+    direct: direct,
     data: {'seasonId': row['season_id']},
   );
 
-  SourceSubject video(Json row) {
+  SourceSubject video(Json row, {bool direct = false}) {
     final author = row['author'] ?? object(row['owner'])['name'];
+    // Search rows give "m:ss"; the view API gives seconds.
+    final duration = switch (row['duration']) {
+      final String clock =>
+        clock.split(':').fold(0, (a, b) => a * 60 + int.parse(b)),
+      final seconds => seconds as int,
+    };
     return SourceSubject(
       id: row['bvid'] as String,
       title: html.parseFragment(row['title'] as String).text!,
       line: '投稿 · $author',
-      // Search rows give "m:ss"; the view API gives seconds.
-      description: _clock(switch (row['duration']) {
-        final String clock =>
-          clock.split(':').fold(0, (a, b) => a * 60 + int.parse(b)),
-        final seconds => seconds as int,
-      }),
+      description: _clock(duration),
       choosePart: true,
+      durationSeconds: duration,
+      publishedAt: DateTime.fromMillisecondsSinceEpoch(
+        (row['pubdate'] as int) * 1000,
+      ),
+      // Only search rows carry the uploader's comma-separated tags.
+      tags: [
+        for (final tag in '${row['tag'] ?? ''}'.split(','))
+          if (tag.trim().isNotEmpty) tag.trim(),
+      ],
+      direct: direct,
     );
   }
 
@@ -98,12 +110,12 @@ class BilibiliEngine implements OnlineSourceEngine {
         final data = await request('/x/web-interface/view', {
           'bvid': locator,
         }, cancel: cancel);
-        return [video(object(data['data']))];
+        return [video(object(data['data']), direct: true)];
       }
       final data = await request('/pgc/view/web/season', {
         locator.startsWith('ss') ? 'season_id' : 'ep_id': locator.substring(2),
       }, cancel: cancel);
-      return [season(object(data['result']))];
+      return [season(object(data['result']), direct: true)];
     }
     final results = await Future.wait([
       for (final type in ['media_bangumi', 'video'])
@@ -214,8 +226,8 @@ class BilibiliEngine implements OnlineSourceEngine {
     final selected = videos.first;
     return ResolvedStream(
       url: _mediaUrl(selected),
-      playlist: manifest(dash, selected, audios.first),
-      format: StreamFormat.dash,
+      audioUrl: _mediaUrl(audios.first),
+      format: StreamFormat.file,
       headers: mediaHeaders,
       sourceId: instance.id,
       line: ref.data['line'] as String?,
@@ -223,70 +235,6 @@ class BilibiliEngine implements OnlineSourceEngine {
       danmakuProvider: 'bilibili',
       danmakuLocator: locator,
     );
-  }
-
-  String manifest(Json dash, Json video, Json audio) {
-    final builder = XmlBuilder();
-    builder.element(
-      'MPD',
-      attributes: {
-        'xmlns': 'urn:mpeg:dash:schema:mpd:2011',
-        'type': 'static',
-        'profiles': 'urn:mpeg:dash:profile:isoff-on-demand:2011',
-        'mediaPresentationDuration': 'PT${dash['duration']}S',
-        'minBufferTime': 'PT${dash['minBufferTime']}S',
-      },
-      nest: () {
-        builder.element(
-          'Period',
-          nest: () {
-            for (final (type, track) in [('video', video), ('audio', audio)]) {
-              builder.element(
-                'AdaptationSet',
-                attributes: {
-                  'contentType': type,
-                  'mimeType': track['mimeType'] as String,
-                },
-                nest: () {
-                  builder.element(
-                    'Representation',
-                    attributes: {
-                      'id': '${track['id']}',
-                      'bandwidth': '${track['bandwidth']}',
-                      'codecs': track['codecs'] as String,
-                      if (type == 'video') ...{
-                        'width': '${track['width']}',
-                        'height': '${track['height']}',
-                        'frameRate': '${track['frameRate']}',
-                      },
-                    },
-                    nest: () {
-                      builder.element('BaseURL', nest: _mediaUrl(track));
-                      final segment = object(track['SegmentBase']);
-                      builder.element(
-                        'SegmentBase',
-                        attributes: {
-                          'indexRange': segment['indexRange'] as String,
-                        },
-                        nest: () {
-                          builder.element(
-                            'Initialization',
-                            attributes: {
-                              'range': segment['Initialization'] as String,
-                            },
-                          );
-                        },
-                      );
-                    },
-                  );
-                },
-              );
-            }
-          },
-        );
-      },
-    );
-    return builder.buildDocument().toXmlString();
   }
 }
 

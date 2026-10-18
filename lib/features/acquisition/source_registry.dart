@@ -158,8 +158,8 @@ class SourceRegistry extends ChangeNotifier {
     _notify();
   }
 
-  /// Searches every name until [enough] accepts the merged rows. One failing
-  /// name does not discard the others.
+  /// Searches every name concurrently, or in order until [enough] accepts the
+  /// merged rows. One failing name does not discard the others.
   Future<List<SourceSubject>> searchSubjects(
     String id,
     Iterable<String> names, {
@@ -171,9 +171,7 @@ class SourceRegistry extends ChangeNotifier {
       final rows = <String, SourceSubject>{};
       Object? failure;
       var completed = false;
-      for (final name
-          in names.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet()) {
-        cancel?.throwIfCancelled();
+      Future<List<SourceSubject>?> read(String name) async {
         final key = '$version:search:$id:$name';
         if (refresh) _cache.remove(key);
         try {
@@ -182,19 +180,38 @@ class SourceRegistry extends ChangeNotifier {
             (token) => online(id).searchSubjects(name, cancel: token),
             cancel: cancel,
           );
-          completed = true;
-          for (final row in values.cast<SourceSubject>()) {
-            rows[row.id] = row;
-          }
-          if (enough?.call(rows.values.toList()) == true) break;
+          return values.cast<SourceSubject>();
         } on SourceVerificationRequired {
           rethrow;
         } catch (error) {
           cancel?.throwIfCancelled();
           failure = error;
+          return null;
         }
       }
-      if (!completed && failure != null) throw failure;
+
+      void merge(List<SourceSubject>? values) {
+        if (values == null) return;
+        completed = true;
+        for (final row in values) {
+          rows[row.id] = row;
+        }
+      }
+
+      final unique = names
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toSet();
+      if (enough == null) {
+        (await Future.wait(unique.map(read))).forEach(merge);
+      } else {
+        for (final name in unique) {
+          cancel?.throwIfCancelled();
+          merge(await read(name));
+          if (enough(rows.values.toList())) break;
+        }
+      }
+      if (!completed && failure != null) throw failure!;
       succeeded(id);
       return rows.values.toList();
     } catch (error) {

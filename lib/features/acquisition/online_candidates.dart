@@ -13,6 +13,9 @@ import 'title_matching.dart';
 /// [episode] lists each matching site subject whose entry is chosen later.
 /// [onProgress] reports each source's state as its search starts and ends.
 ///
+/// Sources and their site subjects run concurrently; [onUpdate] receives all
+/// rows found so far whenever a site subject adds some.
+///
 /// With [firstReady], returns as soon as one confident match exists and falls
 /// back to a full search when none does. Manual-only sources (uploads that
 /// need explicit confirmation) are included only when [includeManual].
@@ -22,6 +25,7 @@ Future<List<PlayCandidate>> onlineCandidates(
   Episode? episode, {
   List<String>? names,
   void Function(SourceProgress)? onProgress,
+  void Function(List<PlayCandidate>)? onUpdate,
   RequestCancellation? cancel,
   bool firstReady = false,
   bool includeManual = true,
@@ -32,6 +36,11 @@ Future<List<PlayCandidate>> onlineCandidates(
   final stop = cancel?.listen(operation.cancel);
   final ready = Completer<List<PlayCandidate>>();
   bool confident(PlayCandidate candidate) => !candidate.possibleMatch;
+  bool accepted(SourceSubject site) =>
+      site.direct ||
+      (site.choosePart
+          ? uploadMatches(subject, episode, site, searchNames)
+          : sourceMatchScore(subject, site, searchNames) >= .55);
   final all = Future.wait(
     registry
         .usableOf(SourceKind.online)
@@ -52,7 +61,7 @@ Future<List<PlayCandidate>> onlineCandidates(
               searchNames,
               cancel: operation,
               enough: manual
-                  ? (rows) => rows.isNotEmpty
+                  ? (rows) => rows.any(accepted)
                   : firstReady
                   ? (rows) => rows.any(
                       (site) =>
@@ -60,51 +69,65 @@ Future<List<PlayCandidate>> onlineCandidates(
                     )
                   : null,
             );
-            for (final site in matches) {
-              final score = sourceMatchScore(subject, site, searchNames);
-              if (!manual && score < .55) continue;
-              if (episode == null || site.choosePart) {
-                final label = site.choosePart ? '选择分 P' : '选择集数';
-                result.add(
-                  _candidate(
-                    rule,
-                    site,
-                    line: site.line ?? '',
-                    target: OnlineTarget(
-                      candidateId: '$id:${site.id}:${site.line}:$label',
-                      chooseFrom: site,
-                      description: site.description,
-                    ),
-                    possibleMatch: manual || score < .84,
-                    order: result.length,
-                  ),
-                );
-                continue;
-              }
-              final rows = await registry.episodes(id, site, cancel: operation);
-              for (final row in rows.where(
-                (row) => sourceEpisodeMatches(row.label, episode),
-              )) {
-                result.add(
-                  _candidate(
-                    rule,
-                    site,
-                    label: row.label,
-                    line: row.line,
-                    target: OnlineTarget(
-                      candidateId: '$id:${site.id}:${row.line}:${row.label}',
-                      ref: row.ref,
-                      description: site.description,
-                    ),
-                    possibleMatch: manual || score < .84,
-                    order: result.length,
-                  ),
-                );
+            void publish(Iterable<PlayCandidate> rows) {
+              if (rows.isEmpty) return;
+              result.addAll(rows);
+              onUpdate?.call(List.of(result));
+              if (firstReady && !ready.isCompleted && result.any(confident)) {
+                ready.complete(List.of(result));
               }
             }
-            if (firstReady && !ready.isCompleted && result.any(confident)) {
-              ready.complete(List.of(result));
-            }
+
+            await Future.wait(
+              matches.map((site) async {
+                if (!accepted(site)) return;
+                final score = sourceMatchScore(subject, site, searchNames);
+                if (episode == null || site.choosePart) {
+                  final label = site.choosePart ? '选择分 P' : '选择集数';
+                  publish([
+                    _candidate(
+                      rule,
+                      site,
+                      line: site.line ?? '',
+                      target: OnlineTarget(
+                        candidateId: '$id:${site.id}:${site.line}:$label',
+                        chooseFrom: site,
+                        description: site.description,
+                      ),
+                      possibleMatch: manual || score < .84,
+                      order: result.length,
+                    ),
+                  ]);
+                  return;
+                }
+                final rows = await registry.episodes(
+                  id,
+                  site,
+                  cancel: operation,
+                );
+                publish([
+                  for (final (index, row)
+                      in rows
+                          .where(
+                            (row) => sourceEpisodeMatches(row.label, episode),
+                          )
+                          .indexed)
+                    _candidate(
+                      rule,
+                      site,
+                      label: row.label,
+                      line: row.line,
+                      target: OnlineTarget(
+                        candidateId: '$id:${site.id}:${row.line}:${row.label}',
+                        ref: row.ref,
+                        description: site.description,
+                      ),
+                      possibleMatch: manual || score < .84,
+                      order: result.length + index,
+                    ),
+                ]);
+              }),
+            );
             progress = progress.copyWith(
               completed: 1,
               resultCount: found(),
@@ -133,6 +156,7 @@ Future<List<PlayCandidate>> onlineCandidates(
         episode,
         names: names,
         onProgress: onProgress,
+        onUpdate: onUpdate,
         cancel: cancel,
         includeManual: includeManual,
       );
