@@ -33,6 +33,7 @@ class SubjectPage extends StatelessWidget {
     required this.subjects,
     required this.personal,
     required this.resume,
+    required this.airings,
     required this.community,
     required this.onFindResources,
     required this.onPlayEpisode,
@@ -42,6 +43,9 @@ class SubjectPage extends StatelessWidget {
   final SubjectController subjects;
   final TrackingController personal;
   final ResumeController resume;
+
+  /// The subject's broadcasts in the coming week's schedule.
+  final List<DateTime> airings;
   final SubjectCommunitySource community;
   final ValueChanged<Episode?> onFindResources;
   final ValueChanged<Episode> onPlayEpisode;
@@ -61,6 +65,7 @@ class SubjectPage extends StatelessWidget {
         collectionSyncError: personal.lastSyncError,
         onRetryCollectionSync: personal.flush,
         resume: resume.resumeOf(subject?.id),
+        airings: airings,
         cachedEpisodeIds: resume.playableOf(subject?.id),
         onSaveCollection: (change) async {
           await subjects.saveCollection(change);
@@ -88,6 +93,7 @@ class _SubjectDetail extends StatefulWidget {
     required this.onPlayEpisode,
     required this.onOpenSubject,
     this.resume,
+    this.airings = const [],
     this.cachedEpisodeIds,
     this.loading = false,
     this.signedIn = false,
@@ -95,6 +101,7 @@ class _SubjectDetail extends StatefulWidget {
     this.onRetryCollectionSync,
   });
   final Subject? subject;
+  final List<DateTime> airings;
   final bool loading;
   final bool signedIn;
   final SubjectCommunitySource community;
@@ -187,9 +194,49 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   @override
   void dispose() {
     _feedbackTimer?.cancel();
+    _releaseTimer?.cancel();
     _collectionIssue.dispose();
     super.dispose();
   }
+
+  DateTime? _releaseAt;
+  Timer? _releaseTimer;
+
+  /// Rebuilds when the next episode airs, so it becomes playable.
+  void _rebuildAt(DateTime? at) {
+    if (at == _releaseAt) return;
+    _releaseAt = at;
+    _releaseTimer?.cancel();
+    if (at == null) return;
+    final wait = at.difference(DateTime.now());
+    // Long waits check again daily rather than holding a far timer.
+    final day = const Duration(days: 1);
+    _releaseTimer = Timer(wait < day ? wait : day, () {
+      if (mounted) setState(() => _releaseAt = null);
+    });
+  }
+
+  /// When [episode] airs. Bangumi's air date decides the day, so a skipped
+  /// week stays right; the schedule, a weekly rule, only adds the time when
+  /// one of its broadcasts falls within a day of that date.
+  _Release? _release(Episode episode) {
+    final date = episode.aired;
+    if (date == null) return null;
+    final day = DateTime.utc(date.year, date.month, date.day);
+    DateTime? timed;
+    var nearest = 2;
+    for (final at in widget.airings) {
+      final gap = _shanghaiDay(at).difference(day).inDays.abs();
+      if (gap < nearest) {
+        nearest = gap;
+        timed = at;
+      }
+    }
+    return timed == null ? (at: date, timed: false) : (at: timed, timed: true);
+  }
+
+  bool _aired(Episode episode) =>
+      !(_release(episode)?.at.isAfter(DateTime.now()) ?? false);
 
   Future<bool> _saveFields(
     CollectionChange fields, {
@@ -437,7 +484,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           if (_isResume(episode))
             '看到 ${_timestamp(widget.resume!.position)}'
           else if (!_aired(episode))
-            '未播出'
+            '未更新'
           else if (_episodeStatus(episode) == EpisodeStatus.watched)
             '已看',
           if (_available(episode) ?? false) '已缓存',
@@ -574,6 +621,16 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         .length;
     final total = item.episodeTotal ?? episodes.length;
     final next = _nextEpisode(episodes);
+    final now = DateTime.now();
+    _rebuildAt(
+      ([
+        for (final episode in episodes)
+          if (_release(episode)?.at case final at? when at.isAfter(now)) at,
+      ]..sort()).firstOrNull,
+    );
+    final upcoming = next == null || _isResume(next) || _aired(next)
+        ? null
+        : _release(next);
     final playLabel = _episodesLoading
         ? '加载剧集…'
         : next == null
@@ -689,13 +746,20 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           spacing: Gap.sm,
           runSpacing: Gap.sm,
           children: [
-            FilledButton.icon(
-              onPressed: next == null || _episodesLoading
-                  ? null
-                  : () => widget.onPlayEpisode(next),
-              icon: const Icon(Icons.play_arrow_rounded, size: 19),
-              label: Text(playLabel),
-            ),
+            if (upcoming != null && !_episodesLoading)
+              FilledButton.icon(
+                onPressed: null,
+                icon: const Icon(Icons.schedule_rounded, size: 18),
+                label: _ReleaseCountdown(release: upcoming, episode: next!),
+              )
+            else
+              FilledButton.icon(
+                onPressed: next == null || _episodesLoading
+                    ? null
+                    : () => widget.onPlayEpisode(next),
+                icon: const Icon(Icons.play_arrow_rounded, size: 19),
+                label: Text(playLabel),
+              ),
             OutlinedButton.icon(
               onPressed: () => widget.onFindResources(null),
               icon: const Icon(Icons.download_outlined, size: 18),
@@ -819,6 +883,13 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           _EpisodeGrid(
             episodes: episodes,
             nextId: next?.id,
+            resume: switch (widget.resume) {
+              final resume? when resume.position > 0 && resume.duration > 0 => (
+                resume.episodeId,
+                (resume.position / resume.duration).clamp(0.0, 1.0),
+              ),
+              _ => null,
+            },
             statusOf: _episodeStatus,
             aired: _aired,
             onOpen: (episode) => widget.onFindResources(episode),
@@ -844,11 +915,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           ),
       ],
     );
-  }
-
-  static bool _aired(Episode episode) {
-    final date = episode.aired;
-    return date == null || !date.isAfter(DateTime.now());
   }
 
   Widget _collectionCard(Subject item) {
@@ -1752,6 +1818,72 @@ class _TagAdderState extends State<_TagAdder> {
   }
 }
 
+/// When an episode airs; [timed] when the schedule gives the hour, otherwise
+/// [at] is the start of its air date.
+typedef _Release = ({DateTime at, bool timed});
+
+/// The calendar day of [instant] in UTC+8, the schedule's time zone.
+DateTime _shanghaiDay(DateTime instant) {
+  final time = instant.toUtc().add(const Duration(hours: 8));
+  return DateTime.utc(time.year, time.month, time.day);
+}
+
+/// The play button's label while the next episode has not aired: minutes
+/// within the last hour, then 今天 / 明天 / 周X with the hour within a week,
+/// else the date.
+class _ReleaseCountdown extends StatefulWidget {
+  const _ReleaseCountdown({required this.release, required this.episode});
+  final _Release release;
+  final Episode episode;
+
+  @override
+  State<_ReleaseCountdown> createState() => _ReleaseCountdownState();
+}
+
+class _ReleaseCountdownState extends State<_ReleaseCountdown> {
+  static const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  late final Timer _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 30), (_) => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _tick.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (:at, :timed) = widget.release;
+    final now = DateTime.now();
+    final left = at.difference(now);
+    final day = timed
+        ? _shanghaiDay(at)
+        : DateTime.utc(at.year, at.month, at.day);
+    final today = _shanghaiDay(now);
+    final shanghai = at.toUtc().add(const Duration(hours: 8));
+    final clock = timed
+        ? ' ${shanghai.hour.toString().padLeft(2, '0')}:${shanghai.minute.toString().padLeft(2, '0')} '
+        : '';
+    final when = timed && left < const Duration(hours: 1)
+        ? left.inMinutes < 1
+              ? '即将'
+              : '${left.inMinutes} 分钟后'
+        : switch (day.difference(today).inDays) {
+            <= 0 => '今天$clock',
+            1 => '明天$clock',
+            < 7 => '${_weekdays[day.weekday - 1]}$clock',
+            _ when day.year == today.year => '${day.month}月${day.day}日',
+            _ => '${day.year}年${day.month}月${day.day}日',
+          };
+    return Text('$when更新第 ${widget.episode.number} 话');
+  }
+}
+
 /// All episodes as numbered cells. Click opens the episode's resources,
 /// right-click offers more, and a long press marks; while still pressed,
 /// dragging selects the range from the pressed cell to the pointer, so
@@ -1761,6 +1893,7 @@ class _EpisodeGrid extends StatefulWidget {
   const _EpisodeGrid({
     required this.episodes,
     required this.nextId,
+    required this.resume,
     required this.statusOf,
     required this.aired,
     required this.onOpen,
@@ -1769,7 +1902,12 @@ class _EpisodeGrid extends StatefulWidget {
     required this.onHover,
   });
   final List<Episode> episodes;
+
+  /// The episode the collapsed grid keeps in view.
   final int? nextId;
+
+  /// The partly watched episode and how far it played, 0–1.
+  final (int, double)? resume;
   final EpisodeStatus Function(Episode) statusOf;
   final bool Function(Episode) aired;
   final ValueChanged<Episode> onOpen, onPlay;
@@ -1939,25 +2077,33 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
               ? dragStatus!
               : widget.statusOf(episode);
           final watched = status == EpisodeStatus.watched;
-          final next = !watched && episode.id == widget.nextId;
           final aired = widget.aired(episode);
-          final Color background, foreground;
-          if (next) {
-            background = scheme.primary;
-            foreground = scheme.onPrimary;
-          } else if (watched) {
-            background = scheme.primaryContainer;
-            foreground = scheme.onPrimaryContainer;
-          } else {
-            background = Colors.transparent;
-            foreground = scheme.onSurfaceVariant.withValues(
-              alpha: aired ? 1 : .45,
-            );
-          }
+          final progress = switch (widget.resume) {
+            (final id, final value) when !watched && id == episode.id => value,
+            _ => null,
+          };
+          final (background, foreground, border) = watched
+              ? (
+                  scheme.primaryContainer,
+                  scheme.onPrimaryContainer,
+                  scheme.primaryContainer,
+                )
+              : aired
+              ? (
+                  Colors.transparent,
+                  scheme.onSurfaceVariant,
+                  scheme.outlineVariant,
+                )
+              : (
+                  scheme.surfaceContainerHigh,
+                  scheme.onSurfaceVariant.withValues(alpha: .45),
+                  scheme.surfaceContainerHigh,
+                );
           final label = episode.main ? episode.number : 'SP${episode.number}';
           return Semantics(
             button: true,
-            label: '第 ${episode.number} 话 ${watched ? '已看' : '未看'}',
+            label:
+                '第 ${episode.number} 话 ${watched ? '已看' : (aired ? '未看' : '未更新')}',
             onTap: () => widget.onOpen(episode),
             child: AnimatedContainer(
               duration: motionDuration(context, 120),
@@ -1969,22 +2115,42 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
                 border: Border.all(
                   color: hovered == index && dragStatus == null
                       ? scheme.primary
-                      : watched || next
-                      ? background
-                      : scheme.outlineVariant,
+                      : border,
                 ),
               ),
-              child: Center(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: foreground,
-                    fontFeatures: const [FontFeature.tabularFigures()],
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Center(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: foreground,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
                   ),
-                ),
+                  if (progress != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(5, 0, 5, 3),
+                      child: Align(
+                        alignment: Alignment.bottomLeft,
+                        child: FractionallySizedBox(
+                          widthFactor: progress,
+                          child: Container(
+                            height: 2.5,
+                            decoration: BoxDecoration(
+                              color: scheme.primary,
+                              borderRadius: BorderRadius.circular(99),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           );
@@ -2095,10 +2261,16 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
                     swatch(scheme.primaryContainer, scheme.primaryContainer),
                     '已看',
                   ),
-                  legend(swatch(scheme.primary, scheme.primary), '下一话'),
                   legend(
                     swatch(Colors.transparent, scheme.outlineVariant),
                     '未看',
+                  ),
+                  legend(
+                    swatch(
+                      scheme.surfaceContainerHigh,
+                      scheme.surfaceContainerHigh,
+                    ),
+                    '未更新',
                   ),
                   if (hint == null)
                     Tooltip(
