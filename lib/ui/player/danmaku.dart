@@ -103,6 +103,9 @@ class DanmakuPainter extends CustomPainter {
       fontSize: preferences.size,
       area: preferences.area,
       density: preferences.density,
+      speed: preferences.speedFactor,
+      overlap: preferences.overlap,
+      shield: preferences.shield,
       measure: (item) => _text(item).size,
     );
     for (final entry in visible) {

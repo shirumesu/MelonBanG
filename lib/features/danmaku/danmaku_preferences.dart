@@ -40,6 +40,9 @@ class DanmakuPreferences extends ChangeNotifier {
       opacity = number(saved['opacity'] ?? .9).clamp(.1, 1).toDouble();
       area = number(saved['area'] ?? .6).clamp(.2, 1).toDouble();
       density = number(saved['density'] ?? 1).toInt().clamp(0, 3);
+      speed = number(saved['speed'] ?? 2).toInt().clamp(0, 4);
+      overlap = saved['overlap'] as bool? ?? false;
+      shield = saved['shield'] as bool? ?? false;
       scroll = saved['scroll'] as bool? ?? true;
       top = saved['top'] as bool? ?? true;
       bottom = saved['bottom'] as bool? ?? true;
@@ -68,9 +71,15 @@ class DanmakuPreferences extends ChangeNotifier {
       top = true,
       bottom = true,
       colorful = true,
-      stroke = true;
+      stroke = true,
+      overlap = false,
+      shield = false;
   double size = 25, opacity = .9, area = .6;
-  int density = 1;
+  int density = 1, speed = 2;
+
+  /// Scroll speed multipliers from 极慢 to 极快, spanning Bilibili's 0.4–1.6.
+  static const speeds = [.4, .7, 1.0, 1.3, 1.6];
+  double get speedFactor => speeds[speed];
   Map<String, bool> providers = {};
   List<DanmakuFilter> filters = [];
   bool sourceEnabled(String provider) => providers[provider] ?? true;
@@ -84,6 +93,9 @@ class DanmakuPreferences extends ChangeNotifier {
         'opacity': opacity,
         'area': area,
         'density': density,
+        'speed': speed,
+        'overlap': overlap,
+        'shield': shield,
         'scroll': scroll,
         'top': top,
         'bottom': bottom,
@@ -101,10 +113,12 @@ class DanmakuPreferences extends ChangeNotifier {
 
   void resetDisplay() => update(() {
     enabled = scroll = top = bottom = colorful = stroke = true;
+    overlap = shield = false;
     size = 25;
     opacity = .9;
     area = .6;
     density = 1;
+    speed = 2;
   });
   void setProvider(String provider, bool value) =>
       update(() => providers[provider] = value);
