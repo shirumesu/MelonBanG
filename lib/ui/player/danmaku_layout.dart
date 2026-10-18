@@ -42,9 +42,9 @@ class PlacedDanmaku {
 /// Admits comments once, using their measured bounds over their shared lifetime.
 class DanmakuLayout {
   /// Scrolling comments move at one speed in logical pixels at every viewport
-  /// width, so fullscreen reads like the window (Bilibili's engine likewise
-  /// scales duration with width: 682 px in 3.8 s). Fixed comments keep a duration.
-  static const scrollSpeed = 170.0;
+  /// width, so fullscreen reads like the window. Bilibili's engine scales
+  /// duration with width the same way: 682 px of size-25 text in 3.8 s.
+  static const scrollSpeed = 682 / 3.8;
   static const fixedLifetime = 8.0;
   static const horizontalGap = 20.0;
   static const verticalGap = 10.0;
