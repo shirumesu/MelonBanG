@@ -65,11 +65,23 @@ class _DanmakuPreferencesEditorState extends State<DanmakuPreferencesEditor> {
               max: 1,
               onChanged: (value) => prefs.update(() => prefs.area = value),
             ),
+            toggle('允许重叠', prefs.overlap, (value) => prefs.overlap = value),
+            toggle(
+              '防挡弹幕（底部 15%）',
+              prefs.shield,
+              (value) => prefs.shield = value,
+            ),
             const SizedBox(height: 8),
             MelonSegmentedControl<int>(
               value: prefs.density,
               options: const {0: '稀疏', 1: '正常', 2: '密集', 3: '全部'},
               onChanged: (value) => prefs.update(() => prefs.density = value),
+            ),
+            const SizedBox(height: 8),
+            MelonSegmentedControl<int>(
+              value: prefs.speed,
+              options: const {0: '极慢', 1: '较慢', 2: '适中', 3: '较快', 4: '极快'},
+              onChanged: (value) => prefs.update(() => prefs.speed = value),
             ),
             toggle('滚动弹幕', prefs.scroll, (value) => prefs.scroll = value),
             toggle('顶部弹幕', prefs.top, (value) => prefs.top = value),
