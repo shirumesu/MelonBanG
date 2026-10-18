@@ -1,7 +1,5 @@
-import 'dart:convert';
 import 'dart:isolate';
 
-import 'package:html/parser.dart' as html;
 import 'package:pinyin/pinyin.dart' show ChineseHelper;
 
 import '../../core/json.dart';
@@ -9,8 +7,8 @@ import '../../core/network.dart';
 import '../../domain/danmaku.dart';
 import 'matching.dart';
 
-/// Bahamut Anime Crazy: matches only the main episode list; locators are
-/// `sn` values or playback URLs.
+/// Bahamut Anime Crazy through its app API: matches only the main episode
+/// list; locators are video `sn` values or playback URLs.
 class BahamutDanmaku implements DanmakuMatcher {
   BahamutDanmaku(this.api);
   final ApiClient api;
@@ -33,56 +31,36 @@ class BahamutDanmaku implements DanmakuMatcher {
     final titles = searchTitles(episode);
     if (titles.isEmpty) return null;
     final normalizedTitles = titles.map(normalizedTitle).toSet();
-    final candidates = <String>{};
+    // animeSn -> one of its videoSn, which addresses the anime's episode list.
+    final candidates = <String, String>{};
     for (final query
         in titles.map(ChineseHelper.convertToTraditionalChinese).toSet()) {
-      final response = await api.send(
-        Uri.https('ani.gamer.com.tw', '/search.php', {'keyword': query}),
+      final value = await api.map(
+        Uri.https('api.gamer.com.tw', '/anime/v1/search.php', {'kw': query}),
       );
-      final document = html.parse(utf8.decode(response.bodyBytes));
-      for (final link in document.querySelectorAll('a[href]')) {
-        final uri = Uri.tryParse(link.attributes['href']!);
-        if (uri == null || !uri.path.endsWith('animeRef.php')) continue;
-        final names = [
-          if (link.querySelector('.theme-name') case final name?) name.text,
-          ...link
-              .querySelectorAll('img[alt]')
-              .map((img) => img.attributes['alt']!),
-          if (link.children.isEmpty) link.text,
-        ];
-        if (names.any(
-          (name) => normalizedTitles.contains(normalizedTitle(name)),
-        )) {
-          final sn = positiveId(uri.queryParameters['sn']);
-          if (sn != null) candidates.add(sn);
+      for (final anime in objects(object(value['data'])['animeList'])) {
+        final animeSn = positiveId(anime['animeSn']);
+        final videoSn = positiveId(anime['videoSn']);
+        if (animeSn != null &&
+            videoSn != null &&
+            normalizedTitles.contains(normalizedTitle('${anime['title']}'))) {
+          candidates[animeSn] = videoSn;
         }
       }
     }
     if (candidates.length != 1) return null;
-    final page = await api.send(
-      Uri.https('ani.gamer.com.tw', '/animeRef.php', {'sn': candidates.single}),
+    final value = await api.map(
+      Uri.https('api.gamer.com.tw', '/anime/v1/video.php', {
+        'videoSn': candidates.values.single,
+      }),
     );
-    final document = html.parse(utf8.decode(page.bodyBytes));
-    final episodes = <String>{};
-    // Main episodes have their own list; dubbed versions and specials reuse numbers.
-    for (final list in document.querySelectorAll('.season > ul')) {
-      final heading = list.previousElementSibling;
-      final isMain = heading?.localName == 'p' && heading!.text.trim() == '本篇';
-      final isOnlyUnlabelled =
-          heading == null &&
-          list.parent!.children.length == 1 &&
-          document.querySelectorAll('.season').length == 1;
-      if (!isMain && !isOnlyUnlabelled) continue;
-      for (final link in list.querySelectorAll('a[href]')) {
-        final uri = Uri.tryParse(link.attributes['href']!);
-        final sn = positiveId(
-          link.attributes['data-ani-video-sn'] ?? uri?.queryParameters['sn'],
-        );
-        if (episodeNumber(link.text) == episode.number && sn != null) {
-          episodes.add(sn);
-        }
-      }
-    }
+    final lists = object(object(object(value['data'])['anime'])['episodes']);
+    // List "0" is the main series; dubbed versions and specials reuse numbers.
+    final episodes = {
+      for (final item in objects(lists['0']))
+        if (number(item['episode']) == episode.number)
+          ?positiveId(item['videoSn']),
+    };
     return episodes.length == 1 ? 'sn=${episodes.single}' : null;
   }
 
@@ -92,16 +70,15 @@ class BahamutDanmaku implements DanmakuMatcher {
         Uri.tryParse(locator)?.queryParameters['sn'] ??
         RegExp(r'^(?:sn=)?(\d+)$').firstMatch(locator)?[1];
     if (sn == null) throw const FormatException('请输入动画疯 sn 或播放链接');
-    final value = await api.json(
-      Uri.https('ani.gamer.com.tw', '/ajax/danmuGet.php'),
-      method: 'POST',
-      body: <String, String>{'sn': sn},
-      headers: {
-        'Origin': 'https://ani.gamer.com.tw',
-        'Referer': 'https://ani.gamer.com.tw/animeVideo.php?sn=$sn',
-      },
+    // The ani.gamer.com.tw pages sit behind a Cloudflare challenge; the app
+    // API does not.
+    final value = await api.map(
+      Uri.https('api.gamer.com.tw', '/anime/v1/danmu.php', {
+        'videoSn': sn,
+        'geo': 'TW,HK',
+      }),
     );
-    final rows = objects(value);
+    final rows = objects(object(value['data'])['danmu']);
     return Isolate.run(
       () => sortedComments(
         rows.map(
