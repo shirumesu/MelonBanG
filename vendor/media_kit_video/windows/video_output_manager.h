@@ -43,6 +43,9 @@ class VideoOutputManager {
   // Destroys the |VideoOutput| with given handle.
   void Dispose(int64_t handle, std::function<void()> on_disposed);
 
+  // Releases outputs owned by the previous Dart isolate after hot restart.
+  void Reset(std::function<void()> on_disposed);
+
   ~VideoOutputManager();
 
  private:

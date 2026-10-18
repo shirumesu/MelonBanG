@@ -350,6 +350,9 @@ class TorrentBridgeBindings {
 
   late final LtCreateSession createSession;
   late final LtDestroySession destroySession;
+  late final NativeFinalizer sessionFinalizer = NativeFinalizer(
+    _lib.lookup<NativeFinalizerFunction>('lt_destroy_session'),
+  );
   late final LtPollAlerts pollAlerts;
   late final LtSetAlertCallback setAlertCallback;
   late final int Function(Pointer<LtSessionOpaque>, int, Pointer<Utf8>)

@@ -532,15 +532,13 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                 hero,
                 const SizedBox(height: Gap.lg),
                 if (constraints.maxWidth >= 600 && cards.length > 1)
-                  IntrinsicHeight(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(child: cards[0]),
-                        const SizedBox(width: Gap.lg),
-                        Expanded(child: cards[1]),
-                      ],
-                    ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: cards[0]),
+                      const SizedBox(width: Gap.lg),
+                      Expanded(child: cards[1]),
+                    ],
                   )
                 else
                   for (final (index, card) in cards.indexed) ...[
