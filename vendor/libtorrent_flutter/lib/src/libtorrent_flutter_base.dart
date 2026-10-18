@@ -120,7 +120,7 @@ StreamInfo _toStreamInfo(LtStreamStatus s) => StreamInfo(
 /// final stream = LibtorrentFlutter.instance.startStream(torrentId);
 /// // Pass stream.url to your video player
 /// ```
-class LibtorrentFlutter {
+class LibtorrentFlutter implements Finalizable {
   static LibtorrentFlutter? _instance;
 
   late final TorrentBridgeBindings _b;
@@ -241,6 +241,7 @@ class LibtorrentFlutter {
         throw StateError('Failed to create libtorrent session: $err');
       }
       engine._session = session;
+      engine._b.sessionFinalizer.attach(engine, session.cast(), detach: engine);
     } finally {
       malloc.free(iface);
     }
@@ -660,6 +661,7 @@ class LibtorrentFlutter {
   /// [init] again to use the engine.
   Future<void> dispose() async {
     _pollTimer?.cancel();
+    _b.sessionFinalizer.detach(this);
     _b.destroySession(_session);
     await _torrentsCtrl.close();
     await _streamsCtrl.close();

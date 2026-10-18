@@ -6,6 +6,11 @@ CA bundle, and native bridge; examples and unrelated platform runners are omitte
 The unused upstream src/CMakeLists.txt is also omitted. README.md and CHANGELOG.md
 retain upstream documentation and may describe platforms absent from this copy.
 
+The Dart engine attaches a NativeFinalizer to each native session so isolate
+shutdown (including hot restart) destroys its threads, sockets and streams even
+when Dart dispose is not called. Normal disposal detaches the finalizer before
+destroying the session, preserving downloaded files in both cases.
+
 The upstream session sets `no_recheck_incomplete_resume=true`, which skips existing
 file verification when adding a torrent without resume data. Both reattachment and
 force-recheck then returned zero progress with valid files still on disk. Set it to

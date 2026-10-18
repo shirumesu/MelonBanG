@@ -52,6 +52,23 @@ void VideoOutputManager::Dispose(int64_t handle,
   }).detach();
 }
 
+void VideoOutputManager::Reset(std::function<void()> on_disposed) {
+  std::thread([this, on_disposed = std::move(on_disposed)]() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      // Every app player owns a VideoOutput. Its Dart NativeCallable no longer
+      // exists after restart; even teardown must not invoke that callback.
+      for (const auto& output : video_outputs_) {
+        mpv_set_wakeup_callback(reinterpret_cast<mpv_handle*>(output.first),
+                                nullptr, nullptr);
+      }
+      video_outputs_.clear();
+      thread_pool_->Post([]() {}).wait();
+    }
+    on_disposed();
+  }).detach();
+}
+
 VideoOutputManager::~VideoOutputManager() {
   std::lock_guard<std::mutex> lock(mutex_);
   // |VideoOutput| destructor will do the relevant cleanup.

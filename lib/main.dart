@@ -1,4 +1,8 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
@@ -9,6 +13,12 @@ import 'core/service_configuration.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (kDebugMode && Platform.isWindows) {
+    // Hot restart replaces Dart isolates, but keeps the native video plugin.
+    // Release its old outputs before media_kit sends quit to the old players.
+    await const MethodChannel('com.alexmercerind/media_kit_video')
+        .invokeMethod<void>('VideoOutputManager.Reset');
+  }
   final configuration = await ServiceConfiguration.load();
   MediaKit.ensureInitialized();
   await windowManager.ensureInitialized();
