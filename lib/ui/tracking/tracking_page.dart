@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/catalog.dart';
+import '../../features/playback/resume_controller.dart';
 import '../../features/tracking/tracking_controller.dart';
 import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
@@ -13,6 +14,8 @@ class TrackingPage extends StatefulWidget {
   const TrackingPage({
     super.key,
     required this.personal,
+    required this.resume,
+    required this.airing,
     required this.onSync,
     required this.feedback,
     required this.onSignIn,
@@ -20,6 +23,10 @@ class TrackingPage extends StatefulWidget {
     this.onExplore,
   });
   final TrackingController personal;
+  final ResumeController resume;
+
+  /// Subjects with an episode in the schedule's coming seven days.
+  final Set<int> airing;
   final VoidCallback onSync, onSignIn;
   final ActionFeedback feedback;
   final ValueChanged<Subject> onOpenSubject;
@@ -28,11 +35,29 @@ class TrackingPage extends StatefulWidget {
   State<TrackingPage> createState() => _TrackingPageState();
 }
 
+enum _Order { collected, score, personal, played, popularity }
+
+/// The airing quarter of [item], `2024-10`, or empty when unknown.
+String _season(Subject item) {
+  final match = RegExp(r'^(\d{4})-(\d{2})').firstMatch(item.airDate ?? '');
+  if (match == null) return '';
+  final month = (int.parse(match[2]!) - 1) ~/ 3 * 3 + 1;
+  return '${match[1]}-${'$month'.padLeft(2, '0')}';
+}
+
+String _seasonLabel(String season) => season.isEmpty
+    ? '未标明'
+    : '${season.substring(0, 4)}年${int.parse(season.substring(5))}月';
+
 class _TrackingPageState extends State<TrackingPage> {
-  String query = '', quickFilter = '全部';
-  bool sortByScore = false;
+  String query = '';
+  bool airingOnly = false;
+  Set<String> seasons = {};
+  _Order order = _Order.collected;
   final search = TextEditingController();
   bool restored = false;
+  late final listenable = Listenable.merge([widget.personal, widget.resume]);
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -44,16 +69,18 @@ class _TrackingPageState extends State<TrackingPage> {
     if (saved == null) return;
     query = saved['query'] as String;
     search.text = query;
-    quickFilter = saved['quickFilter'] as String;
-    sortByScore = saved['sortByScore'] as bool;
+    airingOnly = saved['airing'] as bool;
+    seasons = {...saved['seasons'] as List<String>};
+    order = _Order.values.byName(saved['order'] as String);
   }
 
   void updateFilters(VoidCallback update) {
     setState(update);
     PageStorage.maybeOf(context)?.writeState(context, {
       'query': query,
-      'quickFilter': quickFilter,
-      'sortByScore': sortByScore,
+      'airing': airingOnly,
+      'seasons': seasons.toList(),
+      'order': order.name,
     }, identifier: 'tracking-filters');
   }
 
@@ -65,22 +92,54 @@ class _TrackingPageState extends State<TrackingPage> {
 
   @override
   Widget build(BuildContext context) =>
-      ListenableBuilder(listenable: widget.personal, builder: _page);
+      ListenableBuilder(listenable: listenable, builder: _page);
 
   Widget _page(BuildContext context, Widget? _) {
     final personal = widget.personal;
     final collection = personal.collection;
-    int score(Subject item) => item.collection?.score ?? 0;
-    final items = collection
+    final base = collection
         .where(
           (item) =>
               item.status == personal.filter &&
               item.title.toLowerCase().contains(query.toLowerCase()) &&
-              (quickFilter != '有进度' || (item.watchedEpisodes ?? 0) > 0) &&
-              (quickFilter != '已评分' || score(item) > 0),
+              (!airingOnly || widget.airing.contains(item.id)),
         )
         .toList();
-    if (sortByScore) items.sort((a, b) => score(b).compareTo(score(a)));
+    final seasonCounts = <String, int>{for (final season in seasons) season: 0};
+    for (final item in base) {
+      seasonCounts.update(_season(item), (n) => n + 1, ifAbsent: () => 1);
+    }
+    final years = <String, List<String>>{};
+    for (final season
+        in seasonCounts.keys.where((s) => s.isNotEmpty).toList()
+          ..sort((a, b) => b.compareTo(a))) {
+      years.putIfAbsent(season.substring(0, 4), () => []).add(season);
+    }
+    final items = base
+        .where((item) => seasons.isEmpty || seasons.contains(_season(item)))
+        .toList();
+    // Ties fall back to the newest collected, then the stored order.
+    final position = {for (final (i, item) in items.indexed) item.id: i};
+    final played = {for (final (i, id) in widget.resume.played.indexed) id: i};
+    num publicScore(Subject item) => item.score ?? 0;
+    final keys = <num Function(Subject)>[
+      ...switch (order) {
+        _Order.collected => [],
+        _Order.score => [publicScore],
+        _Order.personal => [(item) => item.collection?.score ?? 0, publicScore],
+        _Order.played => [(item) => -(played[item.id] ?? played.length)],
+        _Order.popularity => [(item) => item.collectionTotal ?? 0],
+      },
+      (item) => item.collection?.collectedAt?.millisecondsSinceEpoch ?? 0,
+    ];
+    items.sort((a, b) {
+      for (final key in keys) {
+        final result = key(b).compareTo(key(a));
+        if (result != 0) return result;
+      }
+      return position[a.id]!.compareTo(position[b.id]!);
+    });
+    final filtered = query.isNotEmpty || airingOnly || seasons.isNotEmpty;
     return PageScroll(
       children: [
         const SizedBox(height: 8),
@@ -112,19 +171,63 @@ class _TrackingPageState extends State<TrackingPage> {
                 onChanged: (value) => updateFilters(() => query = value),
               ),
             ),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 260),
-              child: MelonSegmentedControl<String>(
-                options: const {'全部': '全部', '有进度': '有进度', '已评分': '已评分'},
-                value: quickFilter,
-                onChanged: (value) => updateFilters(() => quickFilter = value),
-                semanticLabel: '追番筛选',
+            Tooltip(
+              message: '7 天内有新一话放送',
+              child: FilterChip(
+                label: const Text('本周更新'),
+                selected: airingOnly,
+                backgroundColor: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHigh,
+                showCheckmark: true,
+                checkmarkColor: Theme.of(context).colorScheme.primary,
+                onSelected: (value) => updateFilters(() => airingOnly = value),
               ),
             ),
-            MelonChoiceMenu<bool>(
-              options: const {false: '默认顺序', true: '按我的评分'},
-              value: sortByScore,
-              onSelected: (value) => updateFilters(() => sortByScore = value),
+            MelonFilterMenu<String>(
+              label: '放送',
+              icon: Icons.date_range_outlined,
+              summary: seasons.length == 1
+                  ? _seasonLabel(seasons.single)
+                  : '${seasons.length} 项',
+              tooltip: '按放送季度筛选',
+              sections: [
+                for (final MapEntry(key: year, value: quarters)
+                    in years.entries)
+                  MelonFilterSection([
+                    for (final season in quarters)
+                      MelonFilterOption(
+                        season,
+                        '${int.parse(season.substring(5))}月',
+                        detail: '${seasonCounts[season]}',
+                      ),
+                  ], title: '$year 年'),
+                if (seasonCounts[''] case final count?)
+                  MelonFilterSection([
+                    MelonFilterOption('', _seasonLabel(''), detail: '$count'),
+                  ]),
+                if (seasonCounts.isEmpty)
+                  const MelonFilterSection([], title: '没有可筛选的季度'),
+              ],
+              selected: seasons,
+              onToggle: (season, on) => updateFilters(
+                () => on ? seasons.add(season) : seasons.remove(season),
+              ),
+              actions: [
+                if (seasons.isNotEmpty)
+                  ('清除', () => updateFilters(seasons.clear)),
+              ],
+            ),
+            MelonChoiceMenu<_Order>(
+              options: const {
+                _Order.collected: '最近收藏',
+                _Order.score: '按评分',
+                _Order.personal: '按我的评分',
+                _Order.played: '最近观看',
+                _Order.popularity: '按收藏人数',
+              },
+              value: order,
+              onSelected: (value) => updateFilters(() => order = value),
               icon: Icons.sort,
               tooltip: '追番排序',
             ),
@@ -155,14 +258,13 @@ class _TrackingPageState extends State<TrackingPage> {
         if (items.isEmpty)
           EmptyState(
             text: collection.isEmpty ? '还没有收藏的番剧' : '没有符合条件的番剧',
-            actionLabel: query.isNotEmpty || quickFilter != '全部'
-                ? '清除筛选'
-                : '搜索番剧',
-            action: query.isNotEmpty || quickFilter != '全部'
+            actionLabel: filtered ? '清除筛选' : '搜索番剧',
+            action: filtered
                 ? () => updateFilters(() {
                     query = '';
                     search.clear();
-                    quickFilter = '全部';
+                    airingOnly = false;
+                    seasons.clear();
                   })
                 : widget.onExplore,
           )
@@ -172,6 +274,7 @@ class _TrackingPageState extends State<TrackingPage> {
               onOpen: widget.onOpenSubject,
               items: items,
               tracking: true,
+              personalScore: order == _Order.personal,
             ),
           ),
       ],

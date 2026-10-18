@@ -567,6 +567,7 @@ class _ContinueSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final resume = resumable.take(4).toList();
     final resumeIds = {for (final item in resume) item.subject.id};
+    final watchingById = {for (final item in watching) item.id: item};
     final byId = <int, (Subject, PlaybackResume?)>{
       for (final item in resume) item.subject.id: (item.subject, item),
       for (final item in watching)
@@ -601,7 +602,12 @@ class _ContinueSection extends StatelessWidget {
             itemBuilder: (i) {
               final (item, resume) = posters[i];
               return resume != null
-                  ? _ResumePoster(item: resume, onOpen: onOpenSubject)
+                  ? _ResumePoster(
+                      item: resume,
+                      // The collection row carries the watched count.
+                      meta: watchingById[item.id] ?? item,
+                      onOpen: onOpenSubject,
+                    )
                   : SubjectPoster(
                       item: item,
                       onOpen: onOpenSubject,
@@ -616,8 +622,15 @@ class _ContinueSection extends StatelessWidget {
 }
 
 class _ResumePoster extends StatefulWidget {
-  const _ResumePoster({required this.item, required this.onOpen});
+  const _ResumePoster({
+    required this.item,
+    required this.meta,
+    required this.onOpen,
+  });
   final PlaybackResume item;
+
+  /// Score and progress shown under the poster.
+  final Subject meta;
   final ValueChanged<Subject> onOpen;
 
   @override
@@ -703,6 +716,28 @@ class _ResumePosterState extends State<_ResumePoster> {
                           ),
                         ),
                       Positioned(
+                        top: 10,
+                        right: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: const BoxDecoration(
+                            color: Colors.black38,
+                            borderRadius: badgeBorderRadius,
+                          ),
+                          child: Text(
+                            '剩余 $remaining 分钟',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
                         left: 11,
                         right: 10,
                         bottom: 14,
@@ -744,14 +779,7 @@ class _ResumePosterState extends State<_ResumePoster> {
               ),
             ),
             const SizedBox(height: 10),
-            Text(
-              '剩余 $remaining 分钟',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: scheme.primary,
-              ),
-            ),
+            PosterMeta(item: widget.meta, tracking: true),
           ],
         ),
       ),

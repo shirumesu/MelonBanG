@@ -180,6 +180,7 @@ class SubjectCollection {
     this.score = 0,
     this.tags = const [],
     this.comment = '',
+    this.collectedAt,
   });
 
   /// Null while a subject is outside the collection.
@@ -188,11 +189,16 @@ class SubjectCollection {
   final List<String> tags;
   final String comment;
 
+  /// When the entry was collected or its status last changed, as Bangumi
+  /// records it; entries collected here keep the local time until a pull.
+  final DateTime? collectedAt;
+
   SubjectCollection apply(CollectionChange change) => SubjectCollection(
     status: change.status ?? status,
     score: change.status == CollectionStatus.wish ? 0 : change.score ?? score,
     tags: change.tags ?? tags,
     comment: change.comment ?? comment,
+    collectedAt: collectedAt,
   );
 }
 
@@ -237,6 +243,7 @@ class Subject {
     this.score,
     this.rank,
     this.ratingCount,
+    this.collectionTotal,
     this.tags = const [],
     this.metaTags = const [],
     this.aliases = const [],
@@ -277,6 +284,7 @@ class Subject {
       score: _double(value['score'] ?? rating['score']),
       rank: _int(value['rank']),
       ratingCount: _int(value['ratingCount']),
+      collectionTotal: _int(value['collectionTotal']),
       tags: [
         for (final tag in _objects(value['tags']))
           SubjectTag('${tag['name']}', _int(tag['count'])),
@@ -323,6 +331,9 @@ class Subject {
   final String? platform;
   final Season? season;
   final int? episodeTotal, rank, ratingCount;
+
+  /// Bangumi users who collected the subject; stored collection rows only.
+  final int? collectionTotal;
   final double? score;
   final List<SubjectTag> tags;
   final List<String> metaTags, aliases;
@@ -382,6 +393,7 @@ class Subject {
     score: score,
     rank: rank,
     ratingCount: ratingCount,
+    collectionTotal: collectionTotal,
     tags: tags,
     metaTags: metaTags,
     aliases: aliases,
@@ -409,6 +421,7 @@ SubjectCollection? _collectionRow(Map<String, dynamic> value) {
           score: _int(value['userScore']) ?? 0,
           tags: _strings(value['collectionTags']),
           comment: _text(value['comment']) ?? '',
+          collectedAt: DateTime.tryParse('${value['collectedAt'] ?? ''}'),
         );
 }
 

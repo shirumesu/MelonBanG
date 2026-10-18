@@ -79,33 +79,178 @@ class SubjectPosters extends StatelessWidget {
   }
 }
 
-class SubjectPosterGrid extends StatelessWidget {
+/// Posters in a grid. When the order or set of items changes, posters that
+/// stay glide to their new cells and new ones fade in.
+class SubjectPosterGrid extends StatefulWidget {
   const SubjectPosterGrid({
     super.key,
     required this.items,
     required this.onOpen,
     this.tracking = false,
+    this.personalScore = false,
   });
   final List<Subject> items;
   final ValueChanged<Subject> onOpen;
   final bool tracking;
 
+  /// Shows the user's own score instead of the public one.
+  final bool personalScore;
+
   @override
-  Widget build(BuildContext context) => SliverLayoutBuilder(
-    builder: (context, constraints) => SliverGrid.builder(
-      itemCount: items.length,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: (constraints.crossAxisExtent / 184).floor().clamp(1, 8),
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 20,
-        childAspectRatio: .65,
-      ),
-      itemBuilder: (_, i) => SubjectPoster(
-        key: ValueKey(items[i].id),
-        onOpen: onOpen,
-        item: items[i],
-        tracking: tracking,
-      ),
+  State<SubjectPosterGrid> createState() => _SubjectPosterGridState();
+}
+
+class _SubjectPosterGridState extends State<SubjectPosterGrid> {
+  DateTime? _changedAt;
+
+  @override
+  void didUpdateWidget(SubjectPosterGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final before = oldWidget.items, after = widget.items;
+    if (before.length != after.length ||
+        Iterable.generate(after.length)
+            .any((i) => before[i].id != after[i].id)) {
+      _changedAt = DateTime.now();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = widget.items;
+    final indexes = {for (final (i, item) in items.indexed) item.id: i};
+    final duration = motionDuration(context, 220);
+    return SliverLayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = Offset(16, 20);
+        final columns = (constraints.crossAxisExtent / 184).floor().clamp(1, 8);
+        final width =
+            (constraints.crossAxisExtent - (columns - 1) * spacing.dx) /
+            columns;
+        final stride = Offset(width, width / .65) + spacing;
+        return SliverGrid.builder(
+          itemCount: items.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: spacing.dx,
+            mainAxisSpacing: spacing.dy,
+            childAspectRatio: .65,
+          ),
+          findChildIndexCallback: (key) =>
+              indexes[(key as ValueKey<int>).value],
+          itemBuilder: (_, i) => _PosterMotion(
+            key: ValueKey(items[i].id),
+            index: i,
+            columns: columns,
+            stride: stride,
+            duration: duration,
+            // Only posters built right after a change fade in, not those
+            // scrolled into view later.
+            entering:
+                _changedAt != null &&
+                DateTime.now().difference(_changedAt!) <
+                    const Duration(milliseconds: 300),
+            child: SubjectPoster(
+              onOpen: widget.onOpen,
+              item: items[i],
+              tracking: widget.tracking,
+              personalScore: widget.personalScore,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PosterMotion extends StatefulWidget {
+  const _PosterMotion({
+    super.key,
+    required this.index,
+    required this.columns,
+    required this.stride,
+    required this.duration,
+    required this.entering,
+    required this.child,
+  });
+  final int index, columns;
+  final Offset stride;
+  final Duration duration;
+  final bool entering;
+  final Widget child;
+
+  Offset get slot =>
+      Offset((index % columns) * stride.dx, (index ~/ columns) * stride.dy);
+
+  @override
+  State<_PosterMotion> createState() => _PosterMotionState();
+}
+
+class _PosterMotionState extends State<_PosterMotion>
+    with SingleTickerProviderStateMixin {
+  late final _controller = AnimationController(vsync: this, value: 1);
+  Curve _curve = Curves.easeOutCubic;
+
+  /// Offset from the cell when the animation starts.
+  Offset _from = Offset.zero;
+  bool _fade = false;
+
+  Offset get _offset => _from * (1 - _curve.transform(_controller.value));
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.entering) _enter();
+  }
+
+  @override
+  void didUpdateWidget(_PosterMotion oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.index == widget.index) return;
+    // Continue from where the poster is drawn, even mid-move.
+    final from = _offset + oldWidget.slot - widget.slot;
+    // A long jump reads as noise; the poster fades in at its cell instead.
+    if (from.distance > widget.stride.dy * 3) return _enter();
+    _from = from;
+    _fade = false;
+    _run(widget.duration, Curves.easeOutCubic);
+  }
+
+  void _enter() {
+    _from = const Offset(0, 10);
+    _fade = true;
+    if (widget.duration == Duration.zero) return _run(Duration.zero, _curve);
+    // Rows further down start a little later.
+    final delay = math.min(widget.index ~/ widget.columns, 4) * 25;
+    final total = 180 + delay;
+    _run(
+      Duration(milliseconds: total),
+      Interval(delay / total, 1, curve: Curves.easeOut),
+    );
+  }
+
+  void _run(Duration duration, Curve curve) {
+    _curve = curve;
+    if (duration == Duration.zero) {
+      _controller.value = 1;
+      return;
+    }
+    _controller.duration = duration;
+    _controller.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _controller,
+    child: widget.child,
+    builder: (context, child) => Opacity(
+      opacity: _fade ? _curve.transform(_controller.value) : 1,
+      child: Transform.translate(offset: _offset, child: child),
     ),
   );
 }
@@ -286,11 +431,12 @@ class SubjectPoster extends StatefulWidget {
     this.rank,
     required this.tracking,
     this.badge,
+    this.personalScore = false,
   });
   final Subject item;
   final ValueChanged<Subject> onOpen;
   final int? rank;
-  final bool tracking;
+  final bool tracking, personalScore;
 
   /// Replaces the collection status badge with a highlighted label.
   final String? badge;
@@ -471,48 +617,107 @@ class _SubjectPosterState extends State<SubjectPoster> {
             ),
             const SizedBox(height: 6),
           ],
-          Row(
-            children: [
-              Text(
-                '★ ${scoreLabel(tracking ? item.collection?.score : item.score)}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: rank != null
-                      ? Theme.of(context).colorScheme.tertiary
-                      : Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const Spacer(),
-              if (tracking)
-                Text(
-                  switch ((item.watchedEpisodes, item.episodeTotal)) {
-                    (null, null) => '',
-                    (null, final total?) => '全 $total 话',
-                    (final watched?, null) => '已看 $watched 话',
-                    (final watched?, final total?) => '已看 $watched/$total',
-                  },
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                )
-              else if (rank == null)
-                Text(
-                  [
-                    if (item.season?.year case final year?) '$year',
-                    if (item.episodeTotal != null) '${item.episodeTotal} 话',
-                  ].join(' · '),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-            ],
+          PosterMeta(
+            item: item,
+            tracking: tracking,
+            ranked: rank != null,
+            personalScore: widget.personalScore,
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The line under a poster: the score, then the watch progress when
+/// [tracking], or the year and episode count.
+class PosterMeta extends StatelessWidget {
+  const PosterMeta({
+    super.key,
+    required this.item,
+    this.tracking = false,
+    this.ranked = false,
+    this.personalScore = false,
+  });
+  final Subject item;
+  final bool tracking, ranked;
+
+  /// Shows the user's own score, marked apart so it is not taken for the
+  /// public one.
+  final bool personalScore;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final personal = item.collection?.score ?? 0;
+    return Row(
+      children: [
+        AnimatedSwitcher(
+          duration: motionDuration(context, 150),
+          layoutBuilder: (current, previous) => Stack(
+            alignment: Alignment.centerLeft,
+            children: [...previous, ?current],
+          ),
+          child: personalScore
+              ? DecoratedBox(
+                  key: const ValueKey('personal'),
+                  decoration: BoxDecoration(
+                    color: scheme.secondaryContainer,
+                    borderRadius: badgeBorderRadius,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Text.rich(
+                      TextSpan(
+                        text: '我的 ',
+                        children: [
+                          TextSpan(
+                            text: '★ ${personal > 0 ? personal : '—'}',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: scheme.onSecondaryContainer,
+                      ),
+                    ),
+                  ),
+                )
+              : Text(
+                  '★ ${scoreLabel(item.score)}',
+                  key: const ValueKey('public'),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: ranked ? scheme.tertiary : scheme.onSurfaceVariant,
+                  ),
+                ),
+        ),
+        const Spacer(),
+        if (tracking)
+          Text(
+            switch ((item.watchedEpisodes, item.episodeTotal)) {
+              (null, null) => '',
+              (null, final total?) => '全 $total 话',
+              (final watched?, null) => '已看 $watched 话',
+              (final watched?, final total?) => '已看 $watched/$total',
+            },
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurfaceVariant,
+            ),
+          )
+        else if (!ranked)
+          Text(
+            [
+              if (item.season?.year case final year?) '$year',
+              if (item.episodeTotal != null) '${item.episodeTotal} 话',
+            ].join(' · '),
+            style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+          ),
+      ],
     );
   }
 }
@@ -618,10 +823,9 @@ class _SubjectCoverState extends State<SubjectCover> {
     // The placeholder remains visible while missing metadata or a failed
     // catalogue request is retried, just like CachedImage's byte requests.
     unawaited(
-      catalog.resolveCover(id).then(
-        (_) => retry(),
-        onError: (Object _) => retry(),
-      ),
+      catalog
+          .resolveCover(id)
+          .then((_) => retry(), onError: (Object _) => retry()),
     );
   }
 

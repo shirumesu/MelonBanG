@@ -469,6 +469,7 @@ class _MelonAppState extends State<MelonApp>
         unawaited(perform(pullProgress));
       case 'tracking':
         unawaited(perform(personal.pull));
+        unawaited(perform(discovery.loadCalendar));
       case 'calendar':
         unawaited(perform(discovery.loadCalendar));
       case 'sources':
@@ -793,6 +794,11 @@ class _MelonAppState extends State<MelonApp>
       case 'tracking':
         return TrackingPage(
           personal: personal,
+          resume: resume,
+          airing: {
+            for (final day in discovery.calendar)
+              for (final item in day.items) item.id,
+          },
           onOpenSubject: openSubject,
           feedback: syncFeedback,
           onSignIn: () => navigate('settings'),
