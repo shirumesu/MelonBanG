@@ -93,6 +93,8 @@ class BangumiSubjects {
           'name': episode['name'],
           'nameCn': ?_text(episode['name_cn']),
           'airdate': ?_text(episode['airdate']),
+          if (number(episode['duration_seconds']) > 0)
+            'duration': episode['duration_seconds'],
         },
   ];
 

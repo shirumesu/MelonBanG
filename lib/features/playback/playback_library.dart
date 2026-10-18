@@ -76,6 +76,7 @@ class PlaybackLibrary {
     headers: stream.headers,
     format: stream.format,
     playlist: stream.playlist,
+    audioUrl: stream.audioUrl,
     danmaku: stream.danmakuProvider == null
         ? null
         : (stream.danmakuProvider!, '${stream.danmakuLocator}'),

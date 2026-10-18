@@ -112,13 +112,6 @@ class ApiClient {
   }) async {
     cancel?.throwIfCancelled();
     final abort = Completer<void>();
-    final request = _request(
-      uri,
-      abort: abort,
-      method: method,
-      body: body,
-      headers: headers,
-    );
     _active.add(abort);
     final unsubscribe = cancel?.listen(() {
       if (!abort.isCompleted) abort.complete();
@@ -126,9 +119,27 @@ class ApiClient {
     try {
       final queue = _hosts.putIfAbsent(uri.host, _HostRequests.new);
       final receiving = queue
-          .run(() {
-            if (abort.isCompleted) throw const RequestCancelled();
-            return client.send(request).then(http.Response.fromStream);
+          .run(() async {
+            for (var attempt = 0; ; attempt++) {
+              if (abort.isCompleted) throw const RequestCancelled();
+              final request = _request(
+                uri,
+                abort: abort,
+                method: method,
+                body: body,
+                headers: headers,
+              );
+              try {
+                return await client
+                    .send(request)
+                    .then(http.Response.fromStream);
+              } on HandshakeException {
+                // Some networks reset a few percent of new TLS connections
+                // (measured ~2% to api.bgm.tv); the request was never sent and
+                // a fresh connection succeeds.
+                if (attempt > 0) rethrow;
+              }
+            }
           })
           .whenComplete(() {
             if (queue.active == 0 && identical(_hosts[uri.host], queue)) {
