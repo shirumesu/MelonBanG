@@ -310,6 +310,7 @@ class _MelonAppState extends State<MelonApp>
     setState(() => route = 'subject');
     final opening = subjects.open(item);
     unawaited(perform(refreshPlaybackAvailability));
+    if (discovery.calendar.isEmpty) unawaited(perform(discovery.loadCalendar));
     await perform(() => opening);
   }
 
@@ -810,6 +811,11 @@ class _MelonAppState extends State<MelonApp>
           subjects: subjects,
           personal: personal,
           resume: resume,
+          airings: [
+            for (final day in discovery.calendar)
+              for (final item in day.items)
+                if (item.id == subjects.id) ?item.airingAt,
+          ],
           community: service.community,
           onFindResources: (episode) {
             final item = subjects.subject;
