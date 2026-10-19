@@ -216,6 +216,13 @@ class Playback extends ChangeNotifier {
       final playlist = next.playlist;
       final platform = player.platform;
       if (platform is NativePlayer) {
+        // media_kit's 5 s timeout breaks a transfer stream mid-response while
+        // the next piece arrives; its local server ends responses itself.
+        // 0 leaves FFmpeg's unbounded read.
+        await platform.setProperty(
+          'network-timeout',
+          next.streamId != null ? '0' : '5',
+        );
         await platform.setProperty('demuxer', playlist != null ? 'lavf' : '');
         await platform.setProperty(
           'demuxer-lavf-format',

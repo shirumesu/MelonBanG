@@ -112,7 +112,9 @@ class LibtorrentTransfer implements Transfer {
       }
       _tasks['${task['id']}'] = task;
     }
-    if (_tasks.isNotEmpty) await _engine();
+    // A cold DHT takes tens of seconds to find peers; start it before the
+    // first magnet is added.
+    await _engine();
     var attached = 0;
     for (final task in _tasks.values.toList()) {
       if (attached++ % 8 == 0) await Future<void>.delayed(Duration.zero);

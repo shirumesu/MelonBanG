@@ -87,8 +87,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
   Future<void> _remove(DownloadTask task) async {
     final remove = await showDialog<bool>(
       context: context,
-      builder: (_) =>
-          RemoveDownloadDialog(title: task.title, cloud: task.cloud),
+      builder: (_) => RemoveDownloadDialog(title: task.title),
     );
     if (remove == true) await _perform(() => widget.downloads.remove(task.id));
   }
@@ -432,11 +431,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 ),
               ],
             ),
-            if (cloud)
-              Text(
-                'PikPak 云端文件会保留',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
           ],
         ],
       ),

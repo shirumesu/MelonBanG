@@ -1,9 +1,9 @@
 import '../../domain/transfer.dart';
 
-/// Status text; PikPak tasks name their cloud and local phases.
+/// Status text.
 String downloadStatus(DownloadTask task) => switch (task.status) {
-  DownloadStatus.metadata when task.cloud => '云端准备中',
-  DownloadStatus.downloading when task.cloud => '下载到本机',
+  DownloadStatus.metadata when task.cloud => '读取 PikPak 收录信息',
+  DownloadStatus.downloading when task.cloud => '下载中',
   DownloadStatus.metadata => '获取种子信息',
   DownloadStatus.checking => '校验本地文件',
   DownloadStatus.queued => task.complete ? '等待做种' : '排队中',

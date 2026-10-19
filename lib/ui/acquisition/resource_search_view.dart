@@ -265,9 +265,18 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       downloadErrors.remove(id);
     });
     try {
-      await controller.enqueue(release, method: method);
+      final task = await controller.enqueue(release, method: method);
       if (mounted) {
-        setState(() => downloadPhases[id] = ResourceDownloadPhase.added);
+        setState(() {
+          downloadPhases[id] = ResourceDownloadPhase.added;
+          downloadPhases[downloadKey(candidate, task.method)] =
+              ResourceDownloadPhase.added;
+        });
+        if (task.method != method) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('PikPak 未收录该资源，已改用 BT 下载')),
+          );
+        }
       }
     } catch (error) {
       if (mounted) {
