@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../domain/catalog.dart';
 import '../../domain/transfer.dart';
 import '../acquisition/download_labels.dart';
+import '../acquisition/download_task_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -123,12 +124,6 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
       if (mounted) setState(() => error = '$e');
     }
   }
-
-  bool _resumable(DownloadTask task) => const {
-    DownloadStatus.paused,
-    DownloadStatus.failed,
-    DownloadStatus.completed,
-  }.contains(task.status);
 
   @override
   Widget build(BuildContext context) {
@@ -362,9 +357,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
   }
 
   Widget taskTile(DownloadTask task) {
-    final progress = task.progress.clamp(0.0, 1.0);
     final episode = episodesById[task.episodeId];
-    final files = task.videos;
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Ink(
@@ -401,71 +394,30 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                     style: const TextStyle(fontSize: 12),
                   ),
                 ),
-                Text(
-                  '${(progress * 100).round()}%',
-                  style: const TextStyle(fontSize: 11),
+                DownloadToggleButton(
+                  task: task,
+                  onToggle: toggleTask,
+                  size: 18,
                 ),
-                if (task.status != DownloadStatus.completed ||
-                    task.seedingStopped)
-                  IconButton(
-                    tooltip: _resumable(task)
-                        ? (progress >= 1 && !task.cloud ? '继续做种' : '继续下载')
-                        : (progress >= 1 && !task.cloud ? '暂停做种' : '暂停下载'),
-                    onPressed: () => toggleTask(task),
-                    icon: Icon(
-                      _resumable(task) ? Icons.play_arrow : Icons.pause,
-                      size: 18,
-                    ),
-                  ),
-                if (task.playable && files.length == 1)
-                  IconButton(
-                    tooltip: '播放',
-                    onPressed: () => widget.onPlayFile(task.id, files.first.id),
-                    icon: const Icon(Icons.play_arrow, size: 18),
-                  ),
+                DownloadPlayButton(
+                  task: task,
+                  onPlay: widget.onPlayFile,
+                  compact: true,
+                ),
               ],
             ),
-            LinearProgressIndicator(
-              value: progress,
-              minHeight: 3,
-              borderRadius: BorderRadius.circular(3),
-            ),
-            const SizedBox(height: 7),
-            Text(
-              '${taskStatus(task)}${task.status == DownloadStatus.seeding
-                  ? '  ↑ ${transferRate(task.uploadSpeed)}'
-                  : task.status == DownloadStatus.downloading
-                  ? '  ↓ ${transferRate(task.downloadSpeed)}'
-                  : ''}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            const SizedBox(height: 4),
+            DownloadTaskStatus(task: task),
             if (task.errorMessage case final message?)
-              Text(
-                message,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Theme.of(context).colorScheme.error,
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  message,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
                 ),
-              ),
-            if (task.playable && files.length > 1)
-              ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                title: Text(
-                  '选择文件（${files.length}）',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                children: [
-                  for (final file in files)
-                    ListTile(
-                      dense: true,
-                      title: Text(
-                        file.name,
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                      trailing: const Icon(Icons.play_arrow, size: 16),
-                      onTap: () => widget.onPlayFile(task.id, file.id),
-                    ),
-                ],
               ),
           ],
         ),
@@ -475,4 +427,4 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
 }
 
 String taskStatus(DownloadTask task) =>
-    task.cloud ? 'PikPak ${downloadStatus(task)}' : downloadStatus(task);
+    [?downloadOrigin(task), downloadStatus(task)].join(' ');

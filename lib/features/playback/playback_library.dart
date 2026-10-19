@@ -42,16 +42,31 @@ class PlaybackLibrary {
     final media = await downloads.openMedia(id, fileId: fileId);
     subjectId ??= media.subjectId;
     episodeId ??= media.episodeId;
+    if (media.online case final stream?) {
+      return online(
+        stream,
+        subjectId: subjectId,
+        episodeId: episodeId,
+        title: downloads.snapshot().task(id)?.title,
+      );
+    }
     final path = media.file.path;
     final streamUrl = media.streamUrl;
     if (streamUrl == null && !await File(path).exists()) {
-      throw StateError('视频文件不存在');
+      throw StateError(
+        await downloads.forgetDeleted(id) ? '视频文件已被删除，已从缓存中移除' : '视频文件不存在',
+      );
     }
     return PlaybackSession(
       id: newId(),
       title: p.basename(path),
       path: path,
       url: streamUrl ?? Uri.file(path).toString(),
+      audioUrl: switch (media.audioPath) {
+        final audio? => Uri.file(audio).toString(),
+        null => null,
+      },
+      danmaku: media.danmaku,
       headers: media.headers ?? const {},
       resumeKey: 'download:$id:${media.file.id}',
       streamId: media.streamId,

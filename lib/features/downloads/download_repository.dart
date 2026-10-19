@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
+import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
 
-/// Download tasks across transfers: adds go to the chosen [CacheMethod],
-/// task operations to the transfer that owns the task.
+/// Download tasks across transfers: torrents go to the chosen [CacheMethod],
+/// online entries to the online transfer, task operations to the transfer
+/// that owns the task.
 class DownloadRepository {
   DownloadRepository(this.transfers);
   final List<Transfer> transfers;
@@ -30,8 +33,9 @@ class DownloadRepository {
   TransferSnapshot snapshot() =>
       TransferSnapshot([for (final transfer in transfers) ...transfer.tasks()]);
 
-  Transfer _transfer(CacheMethod method) =>
-      transfers.firstWhere((transfer) => transfer.method == method);
+  TorrentTransfer _transfer(CacheMethod method) => transfers
+      .whereType<TorrentTransfer>()
+      .firstWhere((transfer) => transfer.method == method);
 
   Transfer _owner(String id) =>
       transfers.where((transfer) => transfer.contains(id)).firstOrNull ??
@@ -92,6 +96,42 @@ class DownloadRepository {
     } on TransferUnavailable catch (error) {
       return _fallback(add, error);
     }
+  }
+
+  Future<DownloadTask> addOnline(
+    StreamRef ref, {
+    required String title,
+    required String source,
+    int? subjectId,
+    int? episodeId,
+    String? coverUrl,
+  }) async {
+    await ready;
+    return transfers.whereType<OnlineTransfer>().single.addOnline(
+      ref,
+      title: title,
+      source: source,
+      subjectId: subjectId,
+      episodeId: episodeId,
+      coverUrl: coverUrl,
+    );
+  }
+
+  /// Removes a finished task whose files were all deleted outside the app;
+  /// true when it did.
+  Future<bool> forgetDeleted(String id) async {
+    final task = snapshot().task(id);
+    if (task == null ||
+        !task.complete ||
+        task.files.isEmpty ||
+        !await Directory(_owner(id).directory).exists()) {
+      return false;
+    }
+    for (final file in task.files) {
+      if (await File(file.path).exists()) return false;
+    }
+    await remove(id);
+    return true;
   }
 
   Future<DownloadTask> _fallback(

@@ -143,6 +143,20 @@ class ResourceSearchController extends ChangeNotifier {
     return selection.releases.enqueue(candidate, method: method);
   }
 
+  /// Saves an online entry as the shown chapter.
+  Future<DownloadTask> saveOnline(PlayCandidate candidate) async {
+    await downloadsReady();
+    final subject = state.subject;
+    return downloads.addOnline(
+      (candidate.target as OnlineTarget).ref!,
+      title: candidate.title,
+      source: candidate.sourceLabel,
+      subjectId: subject?.id,
+      episodeId: state.episode?.id,
+      coverUrl: subject?.coverUrl,
+    );
+  }
+
   @override
   void dispose() {
     cancel();

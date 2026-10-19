@@ -491,12 +491,9 @@ class PikPakClient {
   }
 
   /// Has PikPak's servers download [magnet] into the drive; returns the
-  /// offline task's id.
+  /// offline task's id. A single-file download is named after the magnet's
+  /// display name, or after the link itself when it has none.
   Future<String> offline(String magnet) async {
-    // PikPak names a single-file download after the display name, which is
-    // a release title without the file's extension; without one it keeps
-    // the torrent's own names.
-    final uri = Uri.parse(magnet);
     final result = await _request(
       'POST',
       '/drive/v1/files',
@@ -504,13 +501,7 @@ class PikPakClient {
         'kind': 'drive#file',
         'upload_type': 'UPLOAD_TYPE_URL',
         'folder_type': 'DOWNLOAD',
-        'url': {
-          'url': uri
-              .replace(
-                queryParameters: {...uri.queryParametersAll}..remove('dn'),
-              )
-              .toString(),
-        },
+        'url': {'url': magnet},
       },
     );
     return '${object(result['task'])['id']}';

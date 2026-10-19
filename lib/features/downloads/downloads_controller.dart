@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 
 import '../../domain/transfer.dart';
 import 'download_repository.dart';
@@ -66,15 +68,44 @@ class DownloadsController {
 
   Future<void> remove(String id) => downloads.remove(id);
 
-  /// Resumes a paused, failed or finished task; pauses any other.
-  Future<void> toggle(DownloadTask task) =>
-      const {
-        DownloadStatus.paused,
-        DownloadStatus.failed,
-        DownloadStatus.completed,
-      }.contains(task.status)
-      ? downloads.resume(task.id)
-      : downloads.pause(task.id);
+  /// Does what [DownloadTask.toggle] names.
+  Future<void> toggle(DownloadTask task) => switch (task.toggle) {
+    TaskToggle.pause => downloads.pause(task.id),
+    TaskToggle.resume || TaskToggle.resumeSeeding => downloads.resume(task.id),
+    TaskToggle.stopSeeding => stopSeeding(task.id),
+    null => Future.value(),
+  };
+
+  /// Shows the task's video, or its first file, selected in the system file
+  /// manager; its folder while nothing is written yet. A finished task whose
+  /// files were all deleted is removed instead.
+  Future<void> reveal(DownloadTask task) async {
+    if (await downloads.forgetDeleted(task.id)) {
+      throw StateError('文件已被删除，已从缓存中移除');
+    }
+    final file = task.videos.firstOrNull ?? task.files.firstOrNull;
+    if (file == null) throw StateError('还没有文件');
+    for (final path in [file.path, '${file.path}.part']) {
+      if (await File(path).exists()) {
+        return _show(p.normalize(path), select: true);
+      }
+    }
+    final folder = p.dirname(file.path);
+    if (await Directory(folder).exists()) return _show(p.normalize(folder));
+    throw StateError('文件尚未开始下载');
+  }
+
+  static Future<void> _show(String path, {bool select = false}) async {
+    if (Platform.isMacOS) {
+      await Process.run('open', [if (select) '-R', path]);
+    } else {
+      // Explorer exits with 1 even when it opened the window.
+      await Process.start('explorer.exe', [
+        if (select) '/select,',
+        path,
+      ], mode: ProcessStartMode.detached);
+    }
+  }
 
   Future<void> close() => _subscription.cancel();
 }

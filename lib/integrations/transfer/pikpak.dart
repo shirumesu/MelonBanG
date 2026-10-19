@@ -20,7 +20,7 @@ import 'records.dart';
 /// a drive file; other resources are downloaded by PikPak's servers into the
 /// drive first, and that copy is deleted once the local copy is complete.
 /// Resources PikPak refuses to download are BT's.
-class PikPakTransfer implements Transfer, CloudIndex {
+class PikPakTransfer implements TorrentTransfer, CloudIndex {
   PikPakTransfer(
     this.store,
     String directory,
@@ -30,6 +30,7 @@ class PikPakTransfer implements Transfer, CloudIndex {
        _http = transferClient ?? http.Client();
 
   final AppStore store;
+  @override
   final String directory;
   final PikPakClient client;
   final http.Client _http;
@@ -68,6 +69,12 @@ class PikPakTransfer implements Transfer, CloudIndex {
         file['path'] = p.join('${task['savePath']}', '${file['relativePath']}');
         return file;
       }).toList();
+      if (await deletedOutside(task, directory)) {
+        await store.remove('pikpak_downloads', id);
+        final folder = Directory('${task['savePath']}');
+        if (await folder.exists()) await folder.delete(recursive: true);
+        continue;
+      }
       await _reconcile(task);
       _tasks[id] = task;
     }
@@ -116,7 +123,8 @@ class PikPakTransfer implements Transfer, CloudIndex {
     );
   }
 
-  /// PikPak resolves magnets only; the torrent is reduced to its info hash.
+  /// PikPak resolves magnets only; the torrent is reduced to its info hash
+  /// and its own name, which PikPak gives a single-file download.
   @override
   Future<DownloadTask> addTorrent(
     Uint8List bytes,
@@ -128,7 +136,10 @@ class PikPakTransfer implements Transfer, CloudIndex {
   }) => addMagnet(
     Uri(
       scheme: 'magnet',
-      queryParameters: {'xt': 'urn:btih:${torrentInfoHash(bytes)}', 'dn': name},
+      queryParameters: {
+        'xt': 'urn:btih:${torrentInfoHash(bytes)}',
+        'dn': torrentName(bytes),
+      },
     ),
     title: name,
     subjectId: subjectId,
@@ -407,7 +418,14 @@ class PikPakTransfer implements Transfer, CloudIndex {
       ]);
       if (!_active(task)) return;
     }
-    final files = await client.files('${remote['file_id']}');
+    var files = await client.files('${remote['file_id']}');
+    // A magnet without a display name leaves a single file named after the
+    // link; the index knows the torrent's own name once PikPak stores it.
+    if (files case [final file] when !_isVideo(file.name)) {
+      if (await client.resolveMagnet('${task['input']}') case [final named]) {
+        files = [PikPakDriveFile(file.id, named.name, file.size)];
+      }
+    }
     if (!_active(task)) return;
     task.remove('cloudProgress');
     task['files'] = _records('${task['id']}', '${task['savePath']}', [

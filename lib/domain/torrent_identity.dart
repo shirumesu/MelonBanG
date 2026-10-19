@@ -70,6 +70,32 @@ String torrentInfoHash(Uint8List bytes) {
   throw const FormatException('种子缺少 info 字典');
 }
 
+/// The torrent's own name: its single file's name, or its root folder's.
+String torrentName(Uint8List bytes) {
+  final reader = _BencodeReader(bytes);
+  if (reader.take() != 100) throw const FormatException('种子文件格式无效');
+  while (reader.peek != 101) {
+    final key = ascii.decode(reader.string(), allowInvalid: true);
+    if (key != 'info') {
+      reader.skip();
+      continue;
+    }
+    if (reader.take() != 100) throw const FormatException('种子缺少 info 字典');
+    String? name;
+    while (reader.peek != 101) {
+      final field = ascii.decode(reader.string(), allowInvalid: true);
+      if (field == 'name.utf-8' || (field == 'name' && name == null)) {
+        name = utf8.decode(reader.string(), allowMalformed: true);
+      } else {
+        reader.skip();
+      }
+    }
+    if (name == null || name.isEmpty) break;
+    return name;
+  }
+  throw const FormatException('种子缺少名称');
+}
+
 class _BencodeReader {
   _BencodeReader(this.data);
   final Uint8List data;

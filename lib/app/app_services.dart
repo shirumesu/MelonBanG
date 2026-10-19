@@ -39,6 +39,7 @@ import '../integrations/danmaku/local.dart';
 import '../integrations/melon_api/source_rules.dart';
 import '../integrations/sources/engines.dart';
 import '../integrations/transfer/libtorrent.dart';
+import '../integrations/transfer/online.dart';
 import '../integrations/transfer/pikpak.dart';
 import '../integrations/transfer/pikpak_client.dart';
 export '../core/json.dart';
@@ -143,7 +144,14 @@ class AppServices {
         storage?.media ?? p.join(dataDirectory!, 'downloads');
     bt = LibtorrentTransfer(store, mediaDirectory);
     pikpakTransfer = PikPakTransfer(store, mediaDirectory, pikpak);
-    downloads = DownloadRepository([bt, pikpakTransfer]);
+    // Sources are set up below; tasks resolve entries only once running.
+    final online = OnlineDownloads(
+      store,
+      mediaDirectory,
+      api,
+      (ref) => sources.resolve(ref),
+    );
+    downloads = DownloadRepository([bt, pikpakTransfer, online]);
     _dispose.add(downloads.close);
     await bt.loadPreferences();
     library = PlaybackLibrary(store, downloads, catalog);
