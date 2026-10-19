@@ -28,14 +28,58 @@ abstract interface class PlaybackShell {
   Future<void> openResources(Subject subject, Episode episode);
 }
 
-/// The player route opened before a source is chosen.
+/// The player route opened before a session starts: an episode whose source
+/// is being chosen, or a cached file being opened.
 class PreparingPlayback {
-  const PreparingPlayback(this.subject, this.episode, {this.failed});
-  final Subject subject;
-  final Episode episode;
+  const PreparingPlayback({
+    required this.title,
+    this.detail,
+    this.coverUrl,
+    this.subject,
+    this.episode,
+    this.status,
+    this.downloadId,
+    this.failed,
+  });
+
+  PreparingPlayback.episode(Subject this.subject, Episode this.episode)
+    : title = subject.title,
+      detail = '第 ${episode.number} 话  ${episode.title}',
+      coverUrl = subject.coverUrl,
+      status = null,
+      downloadId = null,
+      failed = null;
+
+  final String title;
+  final String? detail, coverUrl;
+
+  /// Set for an episode; choosing another source needs both.
+  final Subject? subject;
+  final Episode? episode;
+
+  /// The current step, such as resolving an address or opening the video.
+  final String? status;
+
+  /// The download being started or streamed, whose live state is shown.
+  final String? downloadId;
 
   /// Why no playable source could be started.
   final String? failed;
+
+  PreparingPlayback _copy({
+    String? status,
+    String? downloadId,
+    String? failed,
+  }) => PreparingPlayback(
+    title: title,
+    detail: detail,
+    coverUrl: coverUrl,
+    subject: subject,
+    episode: episode,
+    status: status ?? this.status,
+    downloadId: downloadId ?? this.downloadId,
+    failed: failed,
+  );
 }
 
 /// Selects a source, opens it, checks for a first frame, recovers or switches
@@ -98,6 +142,7 @@ class PlaybackCoordinator extends ChangeNotifier {
   Subject? subject;
   PreparingPlayback? preparing;
   int _preparingTicket = 0;
+  Future<void> Function()? _retryPreparing;
   final _subscriptions = <StreamSubscription<dynamic>>[];
   Future<void> _operations = Future.value();
   (String, String)? _watchedSession;
@@ -185,21 +230,53 @@ class PlaybackCoordinator extends ChangeNotifier {
     );
   }
 
-  /// Opens a session that needs no source selection, such as a chosen file.
-  Future<void> play(Future<PlaybackSession> Function() load) async {
+  /// Opens a session that needs no source selection, such as a chosen file,
+  /// entering the player at once in a preparing state titled [title].
+  Future<void> play(
+    Future<PlaybackSession> Function() load, {
+    required String title,
+    String? coverUrl,
+    String? downloadId,
+  }) async {
     final request = _nextSelection();
     _activeCandidate = null;
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
-    await _queue(() async {
-      await playback.saveProgress();
-      final session = await load();
-      if (_closed || request != _selectionRequest) {
-        downloads.releaseStreamsExcept(playback.session?.streamId);
-        return;
-      }
-      await playback.open(session);
-    }, isCurrent: () => request == _selectionRequest);
+    shell.enterPlayer();
+    final ticket = ++_preparingTicket;
+    _retryPreparing = () =>
+        play(load, title: title, coverUrl: coverUrl, downloadId: downloadId);
+    subject = null;
+    preparing = PreparingPlayback(
+      title: title,
+      coverUrl: coverUrl,
+      status: '正在打开视频…',
+      downloadId: downloadId,
+    );
+    notifyListeners();
+    Object? failure;
+    await _queue(
+      () async {
+        try {
+          await playback.saveProgress();
+          final session = await load();
+          if (_closed || request != _selectionRequest) {
+            downloads.releaseStreamsExcept(playback.session?.streamId);
+            return;
+          }
+          await playback.open(session);
+          if (playback.error != null) throw StateError(playback.error!);
+        } catch (e) {
+          failure = e;
+          rethrow;
+        }
+      },
+      reportFailure: false,
+      isCurrent: () => request == _selectionRequest,
+    );
+    if (failure case final error?) {
+      _failPreparing(ticket, '$error'.replaceFirst('Bad state: ', ''));
+    }
   }
 
   Future<void> _queue(
@@ -356,8 +433,10 @@ class PlaybackCoordinator extends ChangeNotifier {
   ) async {
     shell.enterPlayer();
     final ticket = ++_preparingTicket;
+    _retryPreparing = () =>
+        prepare(item, episode, () => selectEpisode(item, episode));
     subject = item;
-    preparing = PreparingPlayback(item, episode);
+    preparing = PreparingPlayback.episode(item, episode);
     notifyListeners();
     try {
       await start();
@@ -370,14 +449,11 @@ class PlaybackCoordinator extends ChangeNotifier {
     _failPreparing(ticket, '没能开始播放，可以换一个资源再试');
   }
 
-  void retryPreparing() {
-    final PreparingPlayback(subject: item, :episode) = preparing!;
-    unawaited(prepare(item, episode, () => selectEpisode(item, episode)));
-  }
+  void retryPreparing() => unawaited(_perform(_retryPreparing!));
 
   void choosePreparing() {
-    final current = preparing!;
-    unawaited(_perform(() => chooseSource(current.subject, current.episode)));
+    final PreparingPlayback(:subject, :episode) = preparing!;
+    unawaited(_perform(() => chooseSource(subject!, episode!)));
   }
 
   void _failPreparing(int ticket, String reason) {
@@ -388,11 +464,15 @@ class PlaybackCoordinator extends ChangeNotifier {
         current.failed != null) {
       return;
     }
-    preparing = PreparingPlayback(
-      current.subject,
-      current.episode,
-      failed: reason,
-    );
+    preparing = current._copy(failed: reason);
+    notifyListeners();
+  }
+
+  /// Shows the step a preparing player is at, and the download it waits on.
+  void _preparingStep({String? status, String? downloadId}) {
+    final current = preparing;
+    if (_closed || current == null || current.failed != null) return;
+    preparing = current._copy(status: status, downloadId: downloadId);
     notifyListeners();
   }
 
@@ -423,12 +503,27 @@ class PlaybackCoordinator extends ChangeNotifier {
     await _queue(
       () async {
         try {
+          _preparingStep(
+            status: switch (candidate.target) {
+              OnlineTarget() => '正在解析播放地址…',
+              DownloadTarget() => '正在打开缓存…',
+              ReleaseTarget() when candidate.kind == PlayKind.pikpak =>
+                '正在提交到 PikPak…',
+              ReleaseTarget() => '正在添加 BT 任务…',
+            },
+            downloadId: switch (candidate.target) {
+              DownloadTarget(:final downloadId) => downloadId,
+              _ => null,
+            },
+          );
           var session = await selection.load(
             candidate,
             item.id,
             episode.id,
             cancel: cancellation,
+            onTask: (id) => _preparingStep(downloadId: id),
           );
+          _preparingStep(status: '正在打开视频…');
           if (_closed || request != _selectionRequest) {
             downloads.releaseStreamsExcept(playback.session?.streamId);
             return;

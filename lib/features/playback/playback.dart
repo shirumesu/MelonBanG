@@ -79,6 +79,22 @@ class Playback extends ChangeNotifier {
     _timer = Timer.periodic(const Duration(seconds: 2), (_) {
       unawaited(saveProgress());
     });
+    // A forced demuxer must not outlive its file: setting the option back to
+    // '' leaves lavf forcing a format named '', so every later file fails
+    // with "Failed to recognize file format". File-local options set while
+    // the file loads revert to unset when it ends.
+    final platform = player.platform;
+    if (platform is NativePlayer) {
+      platform.onLoadHooks.add(() async {
+        final format = _lavfFormat;
+        if (format == null) return;
+        await platform.setProperty('file-local-options/demuxer', 'lavf');
+        await platform.setProperty(
+          'file-local-options/demuxer-lavf-format',
+          format,
+        );
+      });
+    }
   }
   final PlaybackLibrary library;
   final DownloadRepository downloads;
@@ -112,6 +128,9 @@ class Playback extends ChangeNotifier {
   String? uri;
   String? error, notice;
   Media? _manifest;
+
+  /// The lavf format the file being opened is forced to.
+  String? _lavfFormat;
   void showNotice(String value) {
     notice = value;
     notifyListeners();
@@ -223,11 +242,7 @@ class Playback extends ChangeNotifier {
           'network-timeout',
           next.streamId != null ? '0' : '5',
         );
-        await platform.setProperty('demuxer', playlist != null ? 'lavf' : '');
-        await platform.setProperty(
-          'demuxer-lavf-format',
-          playlist != null ? 'hls' : '',
-        );
+        _lavfFormat = playlist != null ? 'hls' : null;
         // A separate audio track opens as an external file so its requests
         // carry the stream headers; a local manifest's segments would not.
         await platform.command(['change-list', 'audio-files', 'clr', '']);

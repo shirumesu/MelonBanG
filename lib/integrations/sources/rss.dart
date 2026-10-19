@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'package:html/parser.dart' as html;
 import 'package:xml/xml.dart';
@@ -46,14 +47,15 @@ class RssEngine implements TorrentSourceEngine {
   }) async {
     final step = object(instance.config['search']);
     final uri = _address(step, keyword);
-    return parseRss(
+    return _parse(
+      _rss,
       await _read(
         uri,
         step,
         'application/rss+xml,application/xml,text/xml',
         cancel: cancel,
       ),
-      base: uri,
+      uri,
     );
   }
 
@@ -73,18 +75,29 @@ class RssEngine implements TorrentSourceEngine {
     final uri = _address(step, keyword);
     switch (step['parser']) {
       case 'dmhy':
-        yield dmhyMetadata(await page(uri), uri);
+        yield await _parse(dmhyMetadata, await page(uri), uri);
       case 'mikan':
-        final series = mikanSeriesPages(await page(uri), uri);
+        final series = await _parse(mikanSeriesPages, await page(uri), uri);
         // Publish each series page as it arrives.
         yield* Stream.fromFutures(
-          series.map((address) async => mikanMetadata(await page(address))),
+          series.map(
+            (address) async => _parse(_mikan, await page(address), address),
+          ),
         );
       default:
         throw FormatException('不支持的资源页解析：${step['parser']}');
     }
   }
 }
+
+/// Parses a feed or page off the UI isolate: a whole-subject search reads
+/// many large ones at once. [parse] must be a top-level function, so the
+/// closure carries nothing but the text.
+Future<T> _parse<T>(T Function(String, Uri) parse, String body, Uri base) =>
+    Isolate.run(() => parse(body, base));
+
+List<TorrentRelease> _rss(String body, Uri base) => parseRss(body, base: base);
+List<TorrentRelease> _mikan(String body, Uri _) => mikanMetadata(body);
 
 List<TorrentRelease> parseRss(String xml, {required Uri base}) {
   final document = XmlDocument.parse(xml);

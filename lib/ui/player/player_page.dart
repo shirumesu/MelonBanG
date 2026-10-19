@@ -8,10 +8,12 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
+import '../../domain/playback_session.dart';
 import '../../domain/transfer.dart';
 import '../../features/downloads/downloads_controller.dart';
 import '../../features/playback/playback_coordinator.dart';
 import '../../features/playback/resource_search.dart';
+import '../acquisition/download_labels.dart';
 import '../core/motion.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -461,10 +463,17 @@ class _PlayerPageState extends State<PlayerPage> {
 
   Widget body(BuildContext context) {
     if (widget.preparing case final preparing?) {
-      return _PreparingView(
-        preparing: preparing,
-        onRetry: widget.onRetryPreparing,
-        onChoose: widget.onChoosePreparing,
+      return ValueListenableBuilder(
+        valueListenable: widget.downloads.snapshot,
+        builder: (context, snapshot, _) => _PreparingView(
+          preparing: preparing,
+          task: switch (preparing.downloadId) {
+            final id? => snapshot.task(id),
+            null => null,
+          },
+          onRetry: widget.onRetryPreparing,
+          onChoose: widget.onChoosePreparing,
+        ),
       );
     }
     if (playback.uri == null) {
@@ -641,8 +650,16 @@ class _PlayerPageState extends State<PlayerPage> {
                 initialData: player.state.buffering,
                 builder: (_, snapshot) =>
                     playback.opening || snapshot.data == true
-                    ? const Center(
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                    ? ValueListenableBuilder(
+                        valueListenable: widget.downloads.snapshot,
+                        builder: (context, downloads, _) => _BufferingStatus(
+                          opening: playback.opening,
+                          task: switch (playback.session) {
+                            PlaybackSession(:final downloadId?, streamId: _?) =>
+                              downloads.task(downloadId),
+                            _ => null,
+                          },
+                        ),
                       )
                     : const SizedBox.shrink(),
               ),
@@ -961,20 +978,118 @@ class _PlayerPageState extends State<PlayerPage> {
   );
 }
 
+/// What a streamed download is doing while the player waits for its data:
+/// its state, speed and connected peers.
+String? _transferLine(DownloadTask? task) {
+  if (task == null || task.complete) return null;
+  return [
+    downloadStatus(task),
+    if (task.status == DownloadStatus.downloading) ...[
+      transferRate(task.downloadSpeed),
+      if (task.method == CacheMethod.bt) '${task.swarm.peers} 个节点',
+    ],
+  ].join('  ');
+}
+
+/// Why a BT task waiting for data has no peers yet. Every tracker failing
+/// with an empty DHT table means its traffic does not get out, which a proxy
+/// routing BT to a node that drops it does.
+String? _swarmHint(DownloadTask? task) {
+  if (task == null ||
+      task.complete ||
+      task.method != CacheMethod.bt ||
+      task.swarm.peers > 0 ||
+      task.downloadSpeed > 0) {
+    return null;
+  }
+  final SwarmStats(:workingTrackers, :failedTrackers, :dhtNodes) = task.swarm;
+  if ((failedTrackers ?? 0) > 0 &&
+      (workingTrackers ?? 0) == 0 &&
+      (dhtNodes ?? 0) == 0) {
+    return '连不上任何 Tracker 和 DHT 节点。开着代理软件时，请让 MelonBanG 直连';
+  }
+  return '冷门资源找到节点可能要很久，可以在选集里换一个资源';
+}
+
+/// Shown over the video while it opens or buffers; a streamed download adds
+/// its live state, and a BT task finding no peers says why it waits.
+class _BufferingStatus extends StatelessWidget {
+  const _BufferingStatus({required this.opening, this.task});
+  final bool opening;
+  final DownloadTask? task;
+
+  @override
+  Widget build(BuildContext context) {
+    final task = this.task;
+    final line = _transferLine(task);
+    final hint = _swarmHint(task);
+    const shadow = [Shadow(blurRadius: 6)];
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox.square(
+            dimension: 28,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
+          const SizedBox(height: Gap.md),
+          Text(
+            opening ? '正在打开视频' : '正在缓冲',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              shadows: shadow,
+            ),
+          ),
+          if (line != null) ...[
+            const SizedBox(height: Gap.xs),
+            Text(
+              line,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: .75),
+                fontSize: 12,
+                fontFeatures: const [FontFeature.tabularFigures()],
+                shadows: shadow,
+              ),
+            ),
+          ],
+          if (hint != null) ...[
+            const SizedBox(height: Gap.xs),
+            Text(
+              hint,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: .75),
+                fontSize: 12,
+                shadows: shadow,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _PreparingView extends StatelessWidget {
   const _PreparingView({
     required this.preparing,
     required this.onRetry,
     required this.onChoose,
+    this.task,
   });
   final PreparingPlayback preparing;
+
+  /// The download being started or streamed.
+  final DownloadTask? task;
   final VoidCallback? onRetry, onChoose;
 
   @override
   Widget build(BuildContext context) {
-    final item = preparing.subject;
-    final episode = preparing.episode;
     final failed = preparing.failed;
+    final live = _transferLine(task);
+    final hint = _swarmHint(task);
+    final canChoose = preparing.subject != null && preparing.episode != null;
     const white = Colors.white;
     final muted = white.withValues(alpha: .7);
     final buttonStyle = OutlinedButton.styleFrom(
@@ -996,15 +1111,15 @@ class _PreparingView extends StatelessWidget {
                 child: ClipRRect(
                   borderRadius: posterBorderRadius,
                   child: SubjectCover(
-                    url: item.coverUrl,
-                    title: item.title,
-                    id: item.id,
+                    url: preparing.coverUrl,
+                    title: preparing.title,
+                    id: preparing.subject?.id ?? 0,
                   ),
                 ),
               ),
               const SizedBox(height: Gap.lg),
               Text(
-                item.title,
+                preparing.title,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: white,
@@ -1012,12 +1127,14 @@ class _PreparingView extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: Gap.xs),
-              Text(
-                '第 ${episode.number} 话  ${episode.title}',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: muted, fontSize: 12),
-              ),
+              if (preparing.detail case final detail?) ...[
+                const SizedBox(height: Gap.xs),
+                Text(
+                  detail,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: muted, fontSize: 12),
+                ),
+              ],
               const SizedBox(height: Gap.xl),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -1035,12 +1152,31 @@ class _PreparingView extends StatelessWidget {
                   const SizedBox(width: Gap.sm),
                   Flexible(
                     child: Text(
-                      failed ?? '正在查找资源…',
+                      failed ?? preparing.status ?? '正在查找资源…',
                       style: TextStyle(color: muted, fontSize: 13),
                     ),
                   ),
                 ],
               ),
+              if (failed == null && live != null) ...[
+                const SizedBox(height: Gap.xs),
+                Text(
+                  live,
+                  style: TextStyle(
+                    color: muted,
+                    fontSize: 12,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+              if (failed == null && hint != null) ...[
+                const SizedBox(height: Gap.xs),
+                Text(
+                  hint,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: muted, fontSize: 12),
+                ),
+              ],
               const SizedBox(height: Gap.lg),
               Wrap(
                 spacing: Gap.sm,
@@ -1056,11 +1192,12 @@ class _PreparingView extends StatelessWidget {
                       onPressed: onRetry,
                       child: const Text('重试'),
                     ),
-                  OutlinedButton(
-                    style: buttonStyle,
-                    onPressed: onChoose,
-                    child: const Text('选择资源'),
-                  ),
+                  if (canChoose)
+                    OutlinedButton(
+                      style: buttonStyle,
+                      onPressed: onChoose,
+                      child: const Text('选择资源'),
+                    ),
                 ],
               ),
             ],
