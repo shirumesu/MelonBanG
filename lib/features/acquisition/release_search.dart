@@ -149,8 +149,8 @@ class ReleaseSearch {
 
   Future<DownloadTask> enqueue(
     ReleaseCandidate candidate, {
+    required CacheMethod method,
     int? episodeId,
-    CacheMethod? method,
   }) async {
     final release = candidate.release;
     episodeId ??= candidate.episodeId;

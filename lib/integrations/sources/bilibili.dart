@@ -14,10 +14,6 @@ class BilibiliEngine implements OnlineSourceEngine {
   String? _cookie;
   @override
   String get currentBase => instance.baseUrls.first;
-  @override
-  Uri? lastRequest;
-  @override
-  int? lastStatus;
   Map<String, String> get mediaHeaders => {
     'Referer': '${instance.website}/',
     'User-Agent': 'Mozilla/5.0',
@@ -30,14 +26,11 @@ class BilibiliEngine implements OnlineSourceEngine {
   }) async {
     final uri = Uri.parse(currentBase)
         .replace(path: path, queryParameters: query);
-    lastRequest = uri;
-    lastStatus = null;
     final response = await api.send(
       uri,
       headers: {...mediaHeaders, 'Cookie': ?_cookie},
       cancel: cancel,
     );
-    lastStatus = response.statusCode;
     final value = object(await decodeJsonBytes(response.bodyBytes));
     if (value['code'] == -352 || value['code'] == -412) {
       throw SourceVerificationRequired('${instance.website}');

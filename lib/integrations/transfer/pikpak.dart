@@ -20,7 +20,7 @@ import 'records.dart';
 /// a drive file; other resources are downloaded by PikPak's servers into the
 /// drive first, and that copy is deleted once the local copy is complete.
 /// Resources PikPak refuses to download are BT's.
-class PikPakTransfer implements Transfer {
+class PikPakTransfer implements Transfer, CloudIndex {
   PikPakTransfer(
     this.store,
     String directory,
@@ -44,6 +44,7 @@ class PikPakTransfer implements Transfer {
   final _fetches = <String, _Fetch>{};
   final _streams = <int, _Fetch>{};
   final _links = <String, Future<String>>{};
+  final _held = <String, Future<bool>>{};
   final _received = <String, int>{};
   Future<void>? _worker, _writes, _closing;
   Future<HttpServer>? _server;
@@ -93,7 +94,7 @@ class PikPakTransfer implements Transfer {
     List<String> releaseGroups = const [],
   }) async {
     _requireOpen();
-    if (!client.isSignedIn) throw StateError('请先在设置中登录 PikPak');
+    if (!client.isSignedIn) throw StateError('请先在视频源页面登录 PikPak');
     final fingerprint = magnetInfoHash(magnet);
     return downloadTask(
       await _adding.putIfAbsent(
@@ -582,6 +583,22 @@ class PikPakTransfer implements Transfer {
     _emit();
   }
 
+  @override
+  bool get available => client.isSignedIn && !client.needsAuthorization;
+
+  @override
+  Future<bool> holds(String infoHash) => _held[infoHash] ??= client
+      .resolveMagnet('magnet:?xt=urn:btih:$infoHash')
+      .then(
+        (files) =>
+            files?.any((file) => _isVideo(file.name) && file.gcid != null) ??
+            false,
+      )
+      .onError<Object>((error, stack) {
+        _held.remove(infoHash);
+        Error.throwWithStackTrace(error, stack);
+      });
+
   /// The signed-in account's name; null when signed out.
   String? get accountName =>
       client.isSignedIn ? client.displayName ?? 'PikPak' : null;
@@ -689,7 +706,9 @@ class PikPakTransfer implements Transfer {
     if (!selected.incomplete) return selected;
     final (task, file, _) = _video(id, fileId);
     final fetch = _fetch(task, file);
-    if (!fetch.done && !client.isSignedIn) throw StateError('请先在设置中登录 PikPak');
+    if (!fetch.done && !client.isSignedIn) {
+      throw StateError('请先在视频源页面登录 PikPak');
+    }
     final server = await (_server ??= HttpServer.bind(
       InternetAddress.loopbackIPv4,
       0,
@@ -778,20 +797,6 @@ class PikPakTransfer implements Transfer {
         if (reader.stream == id) fetch.closeReader(reader);
       }
       fetch.release();
-    }
-  }
-
-  /// Checks that the signed-in drive answers, for source diagnostics.
-  static const driveUrl = 'https://api-drive.mypikpak.com/drive/v1/about';
-
-  Future<void> checkAccess() async {
-    if (!client.isSignedIn || client.needsAuthorization) {
-      throw StateError('请在设置中登录 PikPak 后重试');
-    }
-    try {
-      await client.freeSpace();
-    } on PikPakCaptchaRequired catch (error) {
-      throw SourceVerificationRequired(error.url.toString());
     }
   }
 

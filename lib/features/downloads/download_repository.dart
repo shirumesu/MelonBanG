@@ -1,16 +1,13 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import '../../core/store.dart';
 import '../../domain/transfer.dart';
 
 /// Download tasks across transfers: adds go to the chosen [CacheMethod],
 /// task operations to the transfer that owns the task.
 class DownloadRepository {
-  DownloadRepository(this.store, this.transfers);
-  final AppStore store;
+  DownloadRepository(this.transfers);
   final List<Transfer> transfers;
-  CacheMethod defaultMethod = CacheMethod.bt;
   final changes = StreamController<TransferSnapshot>.broadcast();
 
   /// Why a task added for another method went to BT, by task id.
@@ -19,19 +16,6 @@ class DownloadRepository {
   Future<void>? _restoring, _closing;
   bool _closed = false;
   Future<void> get ready => _restoring ?? initialize();
-
-  Future<void> loadPreferences() async {
-    defaultMethod = CacheMethod.fromStored(
-      (await store.get('settings', 'cache'))?['method'],
-    );
-  }
-
-  Future<void> saveCacheMethod(CacheMethod method) async {
-    await ready;
-    await store.put('settings', 'cache', {'method': method.name});
-    defaultMethod = method;
-    _emit();
-  }
 
   Future<void> initialize() => _restoring ??= _restore();
 
@@ -57,10 +41,10 @@ class DownloadRepository {
 
   Future<DownloadTask> addMagnet(
     String input, {
+    required CacheMethod method,
     int? subjectId,
     int? episodeId,
     String? coverUrl,
-    CacheMethod? method,
     List<String> releaseGroups = const [],
   }) async {
     await ready;
@@ -76,7 +60,7 @@ class DownloadRepository {
       releaseGroups: releaseGroups,
     );
     try {
-      return await add(method ?? defaultMethod);
+      return await add(method);
     } on TransferUnavailable catch (error) {
       // Only PikPak declines a resource; BT fetches it from the swarm.
       return _fallback(add, error);
@@ -86,10 +70,10 @@ class DownloadRepository {
   Future<DownloadTask> addTorrent(
     Uint8List bytes,
     String name, {
+    required CacheMethod method,
     int? subjectId,
     int? episodeId,
     String? coverUrl,
-    CacheMethod? method,
     List<String> releaseGroups = const [],
   }) async {
     await ready;
@@ -104,7 +88,7 @@ class DownloadRepository {
           releaseGroups: releaseGroups,
         );
     try {
-      return await add(method ?? defaultMethod);
+      return await add(method);
     } on TransferUnavailable catch (error) {
       return _fallback(add, error);
     }

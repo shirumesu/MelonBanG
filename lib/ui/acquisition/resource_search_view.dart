@@ -20,27 +20,28 @@ import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'resource_widgets.dart';
 
-/// The kind segment: cache tasks, online entries and torrent results.
+/// The kind segment, like the Sources page groups: online entries, torrents
+/// over BT and torrents PikPak's index holds.
 enum _Family {
   all('全部'),
-  cached('本地'),
   online('在线'),
-  torrent('BT');
+  torrent('BT'),
+  pikpak('PikPak');
 
   const _Family(this.label);
   final String label;
 
-  static _Family of(PlayCandidate candidate) => switch (candidate.target) {
-    DownloadTarget() => cached,
-    OnlineTarget() => online,
-    ReleaseTarget() => torrent,
+  static _Family of(PlayCandidate candidate) => switch (candidate.kind) {
+    PlayKind.online => online,
+    PlayKind.pikpak => pikpak,
+    _ => torrent,
   };
 }
 
 /// The resource search shared by the resources page, the player's resource
 /// sheet and the source picker: a search form, pinned local filters and one
-/// table of cached, online and torrent candidates. Hosts key it by subject
-/// and chapter.
+/// table of online, BT and PikPak candidates. Hosts key it by subject and
+/// chapter.
 class ResourceSearchView extends StatefulWidget {
   static String formStorageId(int? subjectId, int? episodeId) =>
       'resource-form:$subjectId:$episodeId';
@@ -54,9 +55,8 @@ class ResourceSearchView extends StatefulWidget {
   });
   final ResourceSearchController search;
 
-  /// Plays [candidate] as [episode]; the episode is null only for a cached
-  /// file without a chapter.
-  final Future<void> Function(PlayCandidate candidate, Episode? episode) onPlay;
+  /// Plays [candidate] as [episode].
+  final Future<void> Function(PlayCandidate candidate, Episode episode) onPlay;
 
   /// While active, a context that was never searched is searched with the
   /// form.
@@ -76,8 +76,11 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   final excludedProviders = <String>{};
   final qualities = <String>{}, groups = <String>{};
   final languages = <String>{}, subtitleForms = <String>{};
-  final downloadPhases = <String, ResourceDownloadPhase>{};
+  // Downloads started here, by candidate id.
+  final adding = <String>{};
   final downloadErrors = <String, String>{};
+  final downloadTasks = <String, String>{};
+  StreamSubscription<TransferSnapshot>? downloadChanges;
   final annotations = <String, ResourceTitleInfo>{};
   final entries = <String, Future<List<SourceEpisode>>>{};
 
@@ -99,6 +102,9 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     storageId = ResourceSearchView.formStorageId(subject?.id, episode?.id);
     keyword.addListener(saveForm);
     episodeQuery.addListener(saveForm);
+    downloadChanges = controller.downloads.changes.stream.listen((_) {
+      if (downloadTasks.isNotEmpty && mounted) setState(() {});
+    });
   }
 
   @override
@@ -174,6 +180,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
 
   @override
   void dispose() {
+    downloadChanges?.cancel();
     keyword.dispose();
     episodeQuery.dispose();
     queryFocus.dispose();
@@ -229,90 +236,64 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         : '${selected.length} 项';
   }
 
-  String downloadKey(PlayCandidate candidate, CacheMethod method) =>
-      '${candidate.id}:${method.name}';
-
-  ResourceDownloadPhase phaseFor(PlayCandidate candidate, CacheMethod method) =>
-      downloadPhases[downloadKey(candidate, method)] ??
-      ResourceDownloadPhase.idle;
-
-  String? errorFor(PlayCandidate candidate) {
-    final method = controller.defaultMethod();
-    for (final value in [method, method.other]) {
-      final error = downloadErrors[downloadKey(candidate, value)];
-      if (error != null) return '添加失败：${value.label}：$error';
-    }
-    return null;
-  }
+  /// The task a download from this view created, while it exists.
+  DownloadTask? taskOf(PlayCandidate candidate) =>
+      switch (downloadTasks[candidate.id]) {
+        final id? => controller.downloads.snapshot().task(id),
+        null => null,
+      };
 
   Future<void> download(
     PlayCandidate candidate,
     ReleaseCandidate release,
-    CacheMethod method,
   ) async {
-    final id = downloadKey(candidate, method);
-    if (CacheMethod.values.any(
-          (value) => phaseFor(candidate, value) == ResourceDownloadPhase.adding,
-        ) ||
-        [
-          ResourceDownloadPhase.adding,
-          ResourceDownloadPhase.added,
-        ].contains(downloadPhases[id])) {
-      return;
-    }
+    final id = candidate.id;
+    if (adding.contains(id) || taskOf(candidate) != null) return;
+    final method = candidate.kind == PlayKind.pikpak
+        ? CacheMethod.pikpak
+        : CacheMethod.bt;
     setState(() {
-      downloadPhases[id] = ResourceDownloadPhase.adding;
+      adding.add(id);
       downloadErrors.remove(id);
     });
     try {
       final task = await controller.enqueue(release, method: method);
       if (mounted) {
-        setState(() {
-          downloadPhases[id] = ResourceDownloadPhase.added;
-          downloadPhases[downloadKey(candidate, task.method)] =
-              ResourceDownloadPhase.added;
-        });
-        if (controller.selection.releases.downloads.fallbacks[task.id]
-            case final reason? when task.method != method) {
+        setState(() => downloadTasks[id] = task.id);
+        if (controller.downloads.fallbacks[task.id] case final reason?
+            when task.method != method) {
           ScaffoldMessenger.of(context)
               .showSnackBar(SnackBar(content: Text('$reason，已改用 BT 下载')));
         }
       }
     } catch (error) {
       if (mounted) {
-        setState(() {
-          downloadPhases[id] = ResourceDownloadPhase.failed;
-          downloadErrors[id] = error.toString().replaceFirst('Bad state: ', '');
-        });
+        setState(
+          () => downloadErrors[id] =
+              '添加失败：${error.toString().replaceFirst('Bad state: ', '')}',
+        );
       }
+    } finally {
+      if (mounted) setState(() => adding.remove(id));
     }
   }
 
-  /// The chapter a candidate plays as; null when it has none.
-  Episode? episodeOf(PlayCandidate candidate) =>
-      episode ??
+  bool playable(PlayCandidate candidate) =>
+      episode != null &&
       switch (candidate.target) {
-        DownloadTarget(task: DownloadTask(:final episodeId?)) =>
-          subject?.episode(episodeId),
-        _ => null,
+        DownloadTarget() => false,
+        OnlineTarget(:final chooseFrom) => chooseFrom == null,
+        ReleaseTarget() => true,
       };
 
-  bool playable(PlayCandidate candidate) => switch (candidate.target) {
-    DownloadTarget() => true,
-    OnlineTarget(:final chooseFrom) => chooseFrom == null,
-    ReleaseTarget() => episode != null,
-  };
-
-  Future<void> play(PlayCandidate candidate, Episode? target) async {
+  Future<void> play(PlayCandidate candidate, Episode target) async {
     if (opening != null) return;
     if (candidate.possibleMatch) {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('确认条目匹配'),
-          content: Text(
-            '请确认所选资源对应${target == null ? '本作' : '第 ${target.number} 话'}：\n${candidate.title}',
-          ),
+          content: Text('请确认所选资源对应第 ${target.number} 话：\n${candidate.title}'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -360,15 +341,11 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
 
   List<String> notesOf(PlayCandidate candidate) => [
     if (candidate.target case OnlineTarget(:final description?)) description,
-    if (!candidate.instant && episode != null) '边下边播',
-    if (candidate.target case DownloadTarget(:final task) when !task.complete)
-      '已下载 ${(task.progress * 100).floor()}%',
   ];
 
   List<String> warningsOf(PlayCandidate candidate) => [
     if (candidate.kind == PlayKind.online)
       ?switch (controller.sources.status(candidate.provider)) {
-        SourceHealth.partial => '站点部分失败',
         SourceHealth.error => '站点失效',
         SourceHealth.verification => '站点需要验证',
         _ => null,
@@ -489,7 +466,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     final candidates = state.candidates;
     final sources = state.sources;
     bool providerShown(PlayCandidate candidate) =>
-        candidate.target is DownloadTarget ||
         !excludedProviders.contains(candidate.provider);
     bool kindShown(PlayCandidate candidate) =>
         kind == _Family.all || _Family.of(candidate) == kind;
@@ -947,7 +923,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         ),
       ),
     );
-    final method = controller.defaultMethod();
     return CustomScrollView(
       key: const PageStorageKey('page-scroll'),
       slivers: [
@@ -1064,7 +1039,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
               final i = index - 1;
               final (candidate, info) = visible[i];
               final expanded = expandedTitles.contains(candidate.id);
-              final target = episodeOf(candidate);
               return LayoutBuilder(
                 key: ValueKey(candidate.id),
                 builder: (context, constraints) => Material(
@@ -1097,9 +1071,9 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                           recommended: candidate.id == recommendedId,
                           playing: opening == candidate.id,
                           onPlay: playable(candidate) && opening == null
-                              ? () => play(candidate, target)
+                              ? () => play(candidate, episode!)
                               : null,
-                          error: errorFor(candidate),
+                          error: downloadErrors[candidate.id],
                           details: switch (candidate.target) {
                             OnlineTarget(chooseFrom: _?) when expanded =>
                               entryPicker(candidate),
@@ -1108,17 +1082,13 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                           download: switch (candidate.target) {
                             ReleaseTarget(candidate: final release) =>
                               (wide) => ResourceDownloadButton(
-                                phase: phaseFor(candidate, method),
-                                showLabel: wide,
-                                onPressed: () =>
-                                    download(candidate, release, method),
-                                defaultMethod: method,
-                                alternativePhase: phaseFor(
-                                  candidate,
-                                  method.other,
+                                adding: adding.contains(candidate.id),
+                                task: taskOf(candidate),
+                                failed: downloadErrors.containsKey(
+                                  candidate.id,
                                 ),
-                                onAlternative: () =>
-                                    download(candidate, release, method.other),
+                                showLabel: wide,
+                                onPressed: () => download(candidate, release),
                               ),
                             _ => null,
                           },

@@ -304,13 +304,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                             : widget.onPlay(id, null)
                       : null,
                   icon: const Icon(Icons.play_arrow_rounded, size: 19),
-                  label: Text(
-                    videos.length > 1
-                        ? '选择文件'
-                        : complete
-                        ? '播放'
-                        : '边下边看',
-                  ),
+                  label: Text(videos.length > 1 ? '选择文件' : '播放'),
                 ),
               if (!complete)
                 IconButton(

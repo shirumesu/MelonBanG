@@ -18,10 +18,6 @@ abstract class HttpRuleEngine implements SourceEngine {
   final SourceInstance instance;
   String? _base;
   @override
-  Uri? lastRequest;
-  @override
-  int? lastStatus;
-  @override
   String get currentBase => _base ?? instance.baseUrls.firstOrNull ?? '';
   Json get config => instance.config;
   Map<String, String> get headers =>
@@ -46,8 +42,6 @@ abstract class HttpRuleEngine implements SourceEngine {
     for (final base in bases) {
       cancel?.throwIfCancelled();
       final uri = Uri.parse(base).resolve(template('${step['url']}', values));
-      lastRequest = uri;
-      lastStatus = null;
       try {
         final response = await api.send(
           uri,
@@ -57,7 +51,6 @@ abstract class HttpRuleEngine implements SourceEngine {
             ...object(step['headers']).map((k, v) => MapEntry(k, '$v')),
           },
         );
-        lastStatus = response.statusCode;
         final body = utf8.decode(response.bodyBytes);
         if (RegExp(
               r'cf-chl-|captcha|人机验证|安全验证|Just a moment',
@@ -72,7 +65,6 @@ abstract class HttpRuleEngine implements SourceEngine {
       } on SourceVerificationRequired {
         rethrow;
       } on ApiException catch (error) {
-        lastStatus = error.status;
         if (error.status == 403 || error.status == 429) {
           throw SourceVerificationRequired(uri.toString());
         }

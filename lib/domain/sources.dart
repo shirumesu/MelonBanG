@@ -23,8 +23,6 @@ final class SourceInstance {
     this.manualOnly = false,
     this.disabled = false,
     this.minEngine = 1,
-    this.testSubject,
-    this.testMinEpisodes = 0,
   });
 
   factory SourceInstance.fromJson(Json rule) {
@@ -34,7 +32,6 @@ final class SourceInstance {
         rule['engine'] is! String) {
       throw const FormatException('来源规则不完整');
     }
-    final test = object(rule['test']);
     return SourceInstance(
       id: rule['id'] as String,
       name: rule['name'] as String,
@@ -46,8 +43,6 @@ final class SourceInstance {
       manualOnly: rule['manualOnly'] == true,
       disabled: rule['disabled'] == true,
       minEngine: number(rule['minEngine'] ?? 1).toInt(),
-      testSubject: test['subject'] as String?,
-      testMinEpisodes: number(test['minEpisodes']).toInt(),
       config: rule,
     );
   }
@@ -55,9 +50,9 @@ final class SourceInstance {
   final String id, name, engine;
   final SourceKind kind;
   final List<String> baseUrls;
-  final String? website, description, testSubject;
+  final String? website, description;
   final bool manualOnly, disabled;
-  final int minEngine, testMinEpisodes;
+  final int minEngine;
   final Json config;
   bool get supported => minEngine <= sourceEngineVersion;
   String get homepage => website ?? baseUrls.firstOrNull ?? '';
@@ -245,8 +240,6 @@ typedef SourceEngineFactory = SourceEngine Function(SourceInstance instance);
 abstract interface class SourceEngine {
   SourceInstance get instance;
   String get currentBase;
-  Uri? get lastRequest;
-  int? get lastStatus;
 }
 
 abstract interface class OnlineSourceEngine implements SourceEngine {
@@ -357,23 +350,4 @@ final class ReleaseSearchResult {
 }
 
 /// In-memory health of a source in this run; never reported or persisted.
-enum SourceHealth {
-  unknown,
-  ready,
-  partial,
-  error,
-  verification,
-  update,
-  disabled,
-}
-
-enum ProbeStatus { loading, ready, error }
-
-/// One step of a source diagnostic run.
-final class ProbeStep {
-  ProbeStep(this.label, {this.url});
-  final String label;
-  String? url, error;
-  ProbeStatus status = ProbeStatus.loading;
-  int? milliseconds, statusCode;
-}
+enum SourceHealth { enabled, error, verification, update, disabled }

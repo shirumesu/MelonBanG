@@ -239,7 +239,7 @@ class PikPakClient {
   }
 
   Future<void> _refresh({bool force = false}) async {
-    if (_tokens == null) throw const PikPakException('请先在设置中登录 PikPak。');
+    if (_tokens == null) throw const PikPakException('请先在视频源页面登录 PikPak。');
     if (!force &&
         _integer(_tokens!['expires_at']) >
             DateTime.now().millisecondsSinceEpoch) {
@@ -493,6 +493,10 @@ class PikPakClient {
   /// Has PikPak's servers download [magnet] into the drive; returns the
   /// offline task's id.
   Future<String> offline(String magnet) async {
+    // PikPak names a single-file download after the display name, which is
+    // a release title without the file's extension; without one it keeps
+    // the torrent's own names.
+    final uri = Uri.parse(magnet);
     final result = await _request(
       'POST',
       '/drive/v1/files',
@@ -500,7 +504,13 @@ class PikPakClient {
         'kind': 'drive#file',
         'upload_type': 'UPLOAD_TYPE_URL',
         'folder_type': 'DOWNLOAD',
-        'url': {'url': magnet},
+        'url': {
+          'url': uri
+              .replace(
+                queryParameters: {...uri.queryParametersAll}..remove('dn'),
+              )
+              .toString(),
+        },
       },
     );
     return '${object(result['task'])['id']}';
@@ -509,12 +519,18 @@ class PikPakClient {
   Future<Json> offlineTask(String id) =>
       _request('GET', '/drive/v1/tasks/${Uri.encodeComponent(id)}');
 
-  /// Deletes an offline task together with the files it produced.
-  Future<void> deleteOffline(String id) => _request(
-    'DELETE',
-    '/drive/v1/tasks',
-    query: {'task_ids': id, 'delete_files': 'true'},
-  );
+  /// Deletes an offline task and permanently deletes what it downloaded;
+  /// the task's own file deletion only moves them to the trash, which still
+  /// counts against the drive quota.
+  Future<void> deleteOffline(String id) async {
+    final file = '${(await offlineTask(id))['file_id'] ?? ''}';
+    await _request(
+      'DELETE',
+      '/drive/v1/tasks',
+      query: {'task_ids': id, 'delete_files': 'false'},
+    );
+    if (file.isNotEmpty) await _delete([file]);
+  }
 
   /// The leaf files below drive file [rootId], or the file itself.
   Future<List<PikPakDriveFile>> files(String rootId) async {

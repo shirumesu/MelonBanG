@@ -150,11 +150,13 @@ class FeedbackIssue extends StatefulWidget {
   const FeedbackIssue({
     super.key,
     required this.feedback,
-    required this.onRetry,
+    this.onRetry,
     this.actionLabel = '重试',
   });
   final ActionFeedback feedback;
-  final VoidCallback onRetry;
+
+  /// Null when the issue offers no action.
+  final VoidCallback? onRetry;
   final String actionLabel;
 
   @override
@@ -194,10 +196,11 @@ class _FeedbackIssueState extends State<FeedbackIssue> {
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ),
-                        TextButton(
-                          onPressed: widget.onRetry,
-                          child: Text(widget.actionLabel),
-                        ),
+                        if (widget.onRetry != null)
+                          TextButton(
+                            onPressed: widget.onRetry,
+                            child: Text(widget.actionLabel),
+                          ),
                       ],
                     ),
                   ),

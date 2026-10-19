@@ -33,10 +33,6 @@ class DownloadsController {
   /// playable episodes may have changed.
   final availability = ValueNotifier(0);
 
-  CacheMethod get defaultMethod => downloads.defaultMethod;
-  Future<void> saveCacheMethod(CacheMethod method) =>
-      downloads.saveCacheMethod(method);
-
   void _accept(TransferSnapshot value) {
     String signature(TransferSnapshot snapshot) => snapshot.tasks
         .map((task) => '${task.id}:${task.status.name}:${task.complete}')
@@ -60,12 +56,12 @@ class DownloadsController {
 
   Future<void> addMagnet(String uri) async {
     await ready();
-    await downloads.addMagnet(uri);
+    await downloads.addMagnet(uri, method: CacheMethod.bt);
   }
 
   Future<void> addTorrent(Uint8List bytes, String name) async {
     await ready();
-    await downloads.addTorrent(bytes, name);
+    await downloads.addTorrent(bytes, name, method: CacheMethod.bt);
   }
 
   Future<void> remove(String id) => downloads.remove(id);

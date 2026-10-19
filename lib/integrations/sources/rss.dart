@@ -15,10 +15,6 @@ class RssEngine implements TorrentSourceEngine {
   @override
   final SourceInstance instance;
   @override
-  Uri? lastRequest;
-  @override
-  int? lastStatus;
-  @override
   String get currentBase => instance.baseUrls.first;
   Json get _metadata => object(instance.config['metadata']);
 
@@ -32,8 +28,6 @@ class RssEngine implements TorrentSourceEngine {
     String accept, {
     RequestCancellation? cancel,
   }) async {
-    lastRequest = uri;
-    lastStatus = null;
     final response = await api.send(
       uri,
       cancel: cancel,
@@ -42,7 +36,6 @@ class RssEngine implements TorrentSourceEngine {
         ...object(step['headers']).map((k, v) => MapEntry(k, '$v')),
       },
     );
-    lastStatus = response.statusCode;
     return utf8.decode(response.bodyBytes);
   }
 
