@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../core/network.dart';
@@ -80,7 +82,10 @@ class ResourceSearchController extends ChangeNotifier {
     final episode = state.episode;
     var candidates = const <PlayCandidate>[];
     final progress = <String, SourceProgress>{};
+    Timer? pending;
     void show() {
+      pending?.cancel();
+      pending = null;
       if (ticket != _ticket) return;
       state = ResourceSearchState(
         subject: subject,
@@ -91,6 +96,11 @@ class ResourceSearchController extends ChangeNotifier {
       );
       notifyListeners();
     }
+
+    // Results and progress arrive in bursts (a page of torrents, a PikPak
+    // lookup per torrent); rebuilding the page for each would stall it.
+    void showSoon() =>
+        pending ??= Timer(const Duration(milliseconds: 120), show);
 
     busy = true;
     show();
@@ -111,17 +121,18 @@ class ResourceSearchController extends ChangeNotifier {
         useContinuity: playback.session?.subjectId == subject.id,
         onUpdate: (values) {
           candidates = values;
-          show();
+          showSoon();
         },
         onProgress: (value) {
           progress[value.sourceId] = value;
-          show();
+          showSoon();
         },
       );
       show();
     } on RequestCancelled {
       // A newer search or leaving the page replaced this one.
     } finally {
+      if (pending != null) show();
       if (ticket == _ticket) {
         busy = false;
         notifyListeners();
@@ -143,8 +154,11 @@ class ResourceSearchController extends ChangeNotifier {
     return selection.releases.enqueue(candidate, method: method);
   }
 
-  /// Saves an online entry as the shown chapter.
-  Future<DownloadTask> saveOnline(PlayCandidate candidate) async {
+  /// Saves an online entry as [episode], by default the shown chapter.
+  Future<DownloadTask> saveOnline(
+    PlayCandidate candidate, {
+    Episode? episode,
+  }) async {
     await downloadsReady();
     final subject = state.subject;
     return downloads.addOnline(
@@ -152,7 +166,7 @@ class ResourceSearchController extends ChangeNotifier {
       title: candidate.title,
       source: candidate.sourceLabel,
       subjectId: subject?.id,
-      episodeId: state.episode?.id,
+      episodeId: (episode ?? state.episode)?.id,
       coverUrl: subject?.coverUrl,
     );
   }

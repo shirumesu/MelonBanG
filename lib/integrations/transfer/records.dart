@@ -1,9 +1,33 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import '../catalog.dart';
 import '../../core/json.dart';
 import '../../core/store.dart';
 import '../../domain/transfer.dart';
+
+/// Whether a file may be a video. Release names often lack or misstate the
+/// extension, so only extensions known to be something else rule a file out
+/// and the player recognises the rest by content; files under 1 MiB are not
+/// episodes.
+bool mayBeVideo(String name, int size) =>
+    size >= 1 << 20 && !_notVideo.contains(p.extension(name).toLowerCase());
+
+const _notVideo = {
+  // Subtitles
+  '.ass', '.ssa', '.srt', '.sub', '.idx', '.sup', '.vtt', '.lrc',
+  // Audio
+  '.mka', '.mp3', '.flac', '.aac', '.m4a', '.ogg', '.opus', '.wav', '.ape',
+  '.wv', '.tta', '.dts', '.ac3', '.eac3', '.thd',
+  // Images
+  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tif', '.tiff', '.avif',
+  // Fonts, archives and documents
+  '.ttf', '.otf', '.ttc', '.woff', '.woff2', '.zip', '.rar', '.7z', '.tar',
+  '.gz', '.bz2', '.xz', '.txt', '.nfo', '.md', '.pdf', '.htm', '.html',
+  '.url', '.log', '.cue', '.xml', '.json', '.torrent', '.exe', '.iso',
+  '.sfv', '.md5', '.sha1', '.sha256', '.db', '.lnk',
+};
 
 /// Decodes a stored task record; every transfer shares these field names.
 DownloadTask downloadTask(Json task, CacheMethod method) {

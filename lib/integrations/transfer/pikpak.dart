@@ -67,6 +67,10 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
       task['downloadSpeedBytesPerSecond'] = 0;
       task['files'] = objects(task['files']).map((file) {
         file['path'] = p.join('${task['savePath']}', '${file['relativePath']}');
+        file['mediaKind'] =
+            mayBeVideo('${file['name']}', _integer(file['size']))
+            ? 'video'
+            : 'other';
         return file;
       }).toList();
       if (await deletedOutside(task, directory)) {
@@ -225,14 +229,18 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
   Future<List<PikPakIndexedFile>?> _indexed(String input) async {
     final indexed = await client.resolveMagnet(input);
     if (indexed == null ||
-        indexed.any((file) => _isVideo(file.name) && file.gcid == null)) {
+        indexed.any(
+          (file) => mayBeVideo(file.name, file.size) && file.gcid == null,
+        )) {
       return null;
     }
     final files = [
       for (final file in indexed)
         if (file.gcid != null && file.size > 0) file,
     ];
-    final video = files.where((file) => _isVideo(file.name)).firstOrNull;
+    final video = files
+        .where((file) => mayBeVideo(file.name, file.size))
+        .firstOrNull;
     if (video == null) throw const TransferUnavailable('该资源没有视频文件');
     // A lease briefly takes the file's size of drive space.
     final free = await client.freeSpace();
@@ -276,7 +284,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
             'downloadedBytes': 0,
             'progress': 0.0,
             'complete': false,
-            'mediaKind': _isVideo(name) ? 'video' : 'other',
+            'mediaKind': mayBeVideo(name, file.size) ? 'video' : 'other',
           };
         }(),
     ];
@@ -421,7 +429,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     var files = await client.files('${remote['file_id']}');
     // A magnet without a display name leaves a single file named after the
     // link; the index knows the torrent's own name once PikPak stores it.
-    if (files case [final file] when !_isVideo(file.name)) {
+    if (files case [final file] when !_namedVideo(file.name)) {
       if (await client.resolveMagnet('${task['input']}') case [final named]) {
         files = [PikPakDriveFile(file.id, named.name, file.size)];
       }
@@ -609,7 +617,9 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
       .resolveMagnet('magnet:?xt=urn:btih:$infoHash')
       .then(
         (files) =>
-            files?.any((file) => _isVideo(file.name) && file.gcid != null) ??
+            files?.any(
+              (file) => mayBeVideo(file.name, file.size) && file.gcid != null,
+            ) ??
             false,
       )
       .onError<Object>((error, stack) {
@@ -866,7 +876,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     await _changes.close();
   }
 
-  static bool _isVideo(String name) => const {
+  static bool _namedVideo(String name) => const {
     '.mkv',
     '.mp4',
     '.avi',

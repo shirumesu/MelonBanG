@@ -243,7 +243,9 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         null => null,
       };
 
-  Future<void> download(PlayCandidate candidate) async {
+  /// Downloads [candidate]; an online entry is saved as [episode], by
+  /// default the shown chapter.
+  Future<void> download(PlayCandidate candidate, {Episode? episode}) async {
     final id = candidate.id;
     if (adding.contains(id) || taskOf(candidate) != null) return;
     final method = candidate.kind == PlayKind.pikpak
@@ -259,7 +261,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           release,
           method: method,
         ),
-        _ => controller.saveOnline(candidate),
+        _ => controller.saveOnline(candidate, episode: episode),
       };
       if (mounted) {
         setState(() => downloadTasks[id] = task.id);
@@ -392,33 +394,32 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           );
         }
         if (rows.isEmpty) return Text('没有可播放的条目', style: small);
-        final lines = <String, List<SourceEpisode>>{};
+        final lines =
+            <String, List<(PlayCandidate, SourceEpisode, Episode?)>>{};
         for (final row in rows) {
-          (lines[row.line] ??= []).add(row);
+          (lines[row.line] ??= []).add((
+            onlinePartCandidate(parent, upload, row),
+            row,
+            episode ??
+                subject?.episodes
+                    .where((e) => sourceEpisodeMatches(row.label, e))
+                    .firstOrNull,
+          ));
         }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             for (final MapEntry(key: line, value: items) in lines.entries) ...[
-              if (lines.length > 1 && line.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: Gap.sm),
-                  child: Text(line, style: small),
-                ),
-              const SizedBox(height: Gap.xs),
+              entryLineHeader(
+                lines.length > 1 && line.isNotEmpty ? line : null,
+                items,
+              ),
               Wrap(
-                spacing: 6,
+                spacing: 8,
                 runSpacing: 6,
                 children: [
-                  for (final item in items)
-                    entryButton(
-                      onlinePartCandidate(parent, upload, item),
-                      item,
-                      episode ??
-                          subject?.episodes
-                              .where((e) => sourceEpisodeMatches(item.label, e))
-                              .firstOrNull,
-                    ),
+                  for (final (candidate, item, target) in items)
+                    entryButton(candidate, item, target),
                 ],
               ),
             ],
@@ -428,33 +429,96 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     );
   }
 
+  /// A line's name, when there are several, and an action downloading every
+  /// entry of it that matches a chapter.
+  Widget entryLineHeader(
+    String? line,
+    List<(PlayCandidate, SourceEpisode, Episode?)> items,
+  ) {
+    final pending = [
+      for (final (candidate, _, target) in items)
+        if (target != null &&
+            !adding.contains(candidate.id) &&
+            taskOf(candidate) == null)
+          (candidate, target),
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(top: Gap.xs, bottom: Gap.xs),
+      child: Row(
+        children: [
+          if (line != null)
+            Flexible(
+              child: Text(
+                line,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          if (line != null) const SizedBox(width: Gap.sm),
+          if (pending.length > 1)
+            TextButton.icon(
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+              onPressed: () async {
+                for (final (candidate, target) in pending) {
+                  await download(candidate, episode: target);
+                  if (!mounted) return;
+                }
+              },
+              icon: const Icon(Icons.download_rounded, size: 16),
+              label: Text('下载 ${pending.length} 集'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Plays the entry as its chapter; the trailing action downloads it.
   Widget entryButton(
     PlayCandidate candidate,
     SourceEpisode item,
     Episode? target,
-  ) => Tooltip(
-    message: target == null
-        ? '没有对应的集数'
-        : ['作为第 ${target.number} 话播放', ?item.description].join('  '),
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 260),
-      child: OutlinedButton(
-        style: OutlinedButton.styleFrom(
-          visualDensity: VisualDensity.compact,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          minimumSize: const Size(44, 32),
+  ) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Tooltip(
+        message: target == null
+            ? '没有对应的集数'
+            : ['作为第 ${target.number} 话播放', ?item.description].join('  '),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 260),
+          child: OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              minimumSize: const Size(44, 32),
+            ),
+            onPressed: target == null || opening != null
+                ? null
+                : () => play(candidate, target),
+            child: opening == candidate.id
+                ? const SizedBox.square(
+                    dimension: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(
+                    item.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+          ),
         ),
-        onPressed: target == null || opening != null
-            ? null
-            : () => play(candidate, target),
-        child: opening == candidate.id
-            ? const SizedBox.square(
-                dimension: 14,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Text(item.label, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
-    ),
+      if (target != null) ...[
+        const SizedBox(width: 2),
+        ResourceDownloadButton(
+          adding: adding.contains(candidate.id),
+          task: taskOf(candidate),
+          failed: downloadErrors.containsKey(candidate.id),
+          onPressed: () => download(candidate, episode: target),
+        ),
+      ],
+    ],
   );
 
   @override
@@ -946,6 +1010,13 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
           sliver: SliverList.builder(
             itemCount: visible.length + 2,
+            // Rows keep their state when new results reorder the list.
+            findChildIndexCallback: (key) {
+              final index = visible.indexWhere(
+                (entry) => key == ValueKey(entry.$1.id),
+              );
+              return index < 0 ? null : index + 1;
+            },
             itemBuilder: (context, index) {
               if (index == 0) {
                 return visible.isEmpty

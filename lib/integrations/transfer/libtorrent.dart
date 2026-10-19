@@ -235,7 +235,11 @@ class LibtorrentTransfer implements TorrentTransfer {
                     : file.size == 0
                     ? 1.0
                     : (file.downloadedBytes / file.size).clamp(0.0, 1.0),
-                'mediaKind': file.isStreamable ? 'video' : 'other',
+                'mediaKind':
+                    !p.split(file.path).contains('.pad') &&
+                        mayBeVideo(file.name, file.size)
+                    ? 'video'
+                    : 'other',
               },
             )
             .toList();

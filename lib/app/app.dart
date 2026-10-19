@@ -683,6 +683,16 @@ class _MelonAppState extends State<MelonApp>
     );
   }
 
+  Future<void> playDownload(String id, String? fileId) {
+    final task = downloads.snapshot.value.task(id);
+    return coordinator.play(
+      () => service.library.fromDownload(id, fileId: fileId),
+      title: task?.title ?? '缓存视频',
+      coverUrl: task?.coverUrl,
+      downloadId: id,
+    );
+  }
+
   Widget player() => PlayerPage(
     key: playerPageKey,
     playback: playback,
@@ -693,9 +703,7 @@ class _MelonAppState extends State<MelonApp>
     windowFullScreen: windowFullScreen,
     onWindowFullScreenChanged: setWindowFullScreen,
     downloads: downloads,
-    onPlayFile: (id, fileId) => coordinator.play(
-      () => service.library.fromDownload(id, fileId: fileId),
-    ),
+    onPlayFile: playDownload,
     onFullScreenChanged: setFullScreen,
     lightsOff: dark ? null : playerLightsOff,
     onLightsChanged: setPlayerLights,
@@ -846,9 +854,7 @@ class _MelonAppState extends State<MelonApp>
             downloads: downloads,
             onExplore: () => navigate('home'),
             onError: showError,
-            onPlay: (id, fileId) => coordinator.play(
-              () => service.library.fromDownload(id, fileId: fileId),
-            ),
+            onPlay: playDownload,
           ),
         );
       case 'sources':
@@ -869,8 +875,10 @@ class _MelonAppState extends State<MelonApp>
                 changeAccount(() => pikpak.signIn(username, password)),
             onLogout: () => changeAccount(pikpak.signOut),
           ),
-          onPlay: (stream) =>
-              coordinator.play(() async => service.library.online(stream)),
+          onPlay: (stream) => coordinator.play(
+            () async => service.library.online(stream),
+            title: '在线视频',
+          ),
         );
       case 'settings':
         return SettingsPage(

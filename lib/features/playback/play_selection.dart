@@ -262,11 +262,14 @@ class PlaySelectionRepository {
     return ranked();
   }
 
+  /// Opens [candidate] as the episode; a torrent is added first and plays
+  /// once its files are known, reporting its task through [onTask].
   Future<PlaybackSession> load(
     PlayCandidate candidate,
     int subjectId,
     int episodeId, {
     RequestCancellation? cancel,
+    void Function(String downloadId)? onTask,
   }) async {
     cancel?.throwIfCancelled();
     final ReleaseCandidate release;
@@ -298,6 +301,7 @@ class PlaySelectionRepository {
           : CacheMethod.bt,
     );
     final id = task.id;
+    onTask?.call(id);
     // A magnet plays once its metadata names the files; that takes as long
     // as the swarm takes, so wait for it rather than for a fixed time.
     final changes = StreamIterator(downloads.changes.stream);

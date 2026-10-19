@@ -65,10 +65,21 @@ final _technical = RegExp(
   caseSensitive: false,
 );
 
+/// Parsed titles by title and release groups. A search ranks and filters its
+/// results again on every update, so each title is parsed once.
+final _described = <String, ResourceTitleInfo>{};
+
 ResourceTitleInfo describeResource(
   String original, {
   Iterable<String> releaseGroups = const [],
 }) {
+  final key = [original, ...releaseGroups].join('\u0000');
+  if (_described[key] case final info?) return info;
+  if (_described.length >= 4096) _described.clear();
+  return _described[key] = _describe(original, releaseGroups);
+}
+
+ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
   final title = original.trim();
   final normalized = ChineseHelper.convertToSimplifiedChinese(title);
   final sourceGroups = releaseGroups
