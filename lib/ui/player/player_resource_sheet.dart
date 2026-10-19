@@ -26,7 +26,7 @@ class PlayerResourceSheet extends StatefulWidget {
   final int? episodeId;
   final bool visible;
   final VoidCallback onClose;
-  final Future<void> Function(PlayCandidate candidate, Episode? episode) onPlay;
+  final Future<void> Function(PlayCandidate candidate, Episode episode) onPlay;
 
   /// Continues this search on the resources page.
   final void Function(ResourceSearchController search)? onOpenPage;

@@ -10,6 +10,7 @@ import '../../core/store.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/playback_session.dart';
 import '../../domain/sources.dart';
+import '../../domain/torrent_identity.dart';
 import '../../domain/transfer.dart';
 import '../acquisition/online_candidates.dart';
 import '../acquisition/release_search.dart';
@@ -24,23 +25,27 @@ class PlaySelectionRepository {
     this.downloads,
     this.releases,
     this.registry,
+    this.cloud,
   );
   final AppStore store;
   final PlaybackLibrary library;
   final DownloadRepository downloads;
   final ReleaseSearch releases;
   final SourceRegistry registry;
+  final CloudIndex cloud;
   final continuity = <int, String>{};
   final _failures = <String, int>{};
 
   /// Cached files, online entries and torrents for [episode], or for the
-  /// whole subject without one, ranked for playback. [terms] default to the
-  /// catalogue names and the chapter number; [onProgress] reports each online
-  /// and torrent source's search state.
+  /// whole subject without one, ranked for playback. Outside playback,
+  /// torrents PikPak's index holds are also PikPak candidates. [terms]
+  /// default to the catalogue names and the chapter number; [onProgress]
+  /// reports each online, torrent and PikPak search state.
   Future<List<PlayCandidate>> candidates(
     Subject subject,
     Episode? episode, {
     ResourceTerms? terms,
+    bool includeDownloads = true,
     bool instantOnly = false,
     bool includeOnline = true,
     bool onlineFirst = false,
@@ -72,10 +77,13 @@ class PlaySelectionRepository {
       onUpdate?.call(ranked());
     }
 
-    final binding = episodeId == null
+    final binding = episodeId == null || !includeDownloads
         ? null
         : await store.get('episode_files', '$subjectId:$episodeId');
-    for (final task in downloads.snapshot().forSubject(subjectId)) {
+    for (final task
+        in includeDownloads
+            ? downloads.snapshot().forSubject(subjectId)
+            : const <DownloadTask>[]) {
       final bound = binding?['downloadId'] == task.id;
       if (episodeId != null && !bound && task.episodeId != episodeId) continue;
       try {
@@ -131,12 +139,81 @@ class PlaySelectionRepository {
             includeManual: !forPlayback && !instantOnly,
           )
         : Future<void>.value();
+    final searchCloud =
+        !forPlayback &&
+        !instantOnly &&
+        cloud.available &&
+        registry.isEnabled('pikpak');
+    // Torrents by info hash: checked against the index, and held there.
+    final checked = <String>{}, held = <String>{};
+    final cloudChecks = <Future<void>>[];
+    var cloudDone = 0, cloudFailed = 0, cloudRunning = 0;
+    String? cloudIssue;
+    final cloudTurns = <Completer<void>>[];
+    var sourcesDone = false;
+    void reportCloud() => onProgress?.call(
+      SourceProgress(
+        sourceId: 'pikpak',
+        sourceName: 'PikPak',
+        total: checked.length,
+        completed: cloudDone,
+        failed: cloudFailed,
+        resultCount: held.length,
+        message: cloudIssue,
+        status: cloudDone < checked.length || !sourcesDone
+            ? SearchStatus.loading
+            : cloudFailed == 0
+            ? SearchStatus.ready
+            : cloudFailed == cloudDone
+            ? SearchStatus.error
+            : SearchStatus.partial,
+      ),
+    );
+    Future<void> checkCloud(
+      ReleaseCandidate release,
+      String hash,
+      int order,
+    ) async {
+      // A few lookups at a time; a page of results would flood the API.
+      if (cloudRunning >= 4) {
+        final turn = Completer<void>();
+        cloudTurns.add(turn);
+        await turn.future;
+      }
+      cloudRunning++;
+      try {
+        if (cancel?.isCancelled != true && await cloud.holds(hash)) {
+          held.add(hash);
+          add([releaseCandidate(release, order, kind: PlayKind.pikpak)]);
+        }
+      } catch (error) {
+        cloudFailed++;
+        cloudIssue = '$error';
+      } finally {
+        cloudRunning--;
+        if (cloudTurns.isNotEmpty) cloudTurns.removeAt(0).complete();
+        cloudDone++;
+        reportCloud();
+      }
+    }
+
     void addReleases(ReleaseSearchResult result) {
       if (onProgress != null) result.sources.forEach(onProgress);
       add([
-        for (final (index, candidate) in result.candidates.indexed)
+        for (final (index, candidate) in result.candidates.indexed) ...[
           releaseCandidate(candidate, index),
+          if (held.contains(torrentIdentity(candidate.release.locator)))
+            releaseCandidate(candidate, index, kind: PlayKind.pikpak),
+        ],
       ]);
+      if (!searchCloud) return;
+      for (final (index, candidate) in result.candidates.indexed) {
+        final hash = torrentIdentity(candidate.release.locator);
+        if (_infoHash.hasMatch(hash) && checked.add(hash)) {
+          cloudChecks.add(checkCloud(candidate, hash, index));
+        }
+      }
+      reportCloud();
     }
 
     final sourceRequest = instantOnly
@@ -165,6 +242,11 @@ class PlaySelectionRepository {
       }
     }
     await Future.wait([onlineRequest, sourceRequest]);
+    sourcesDone = true;
+    if (searchCloud) {
+      reportCloud();
+      await Future.wait(cloudChecks);
+    }
     cancel?.throwIfCancelled();
     return ranked();
   }
@@ -237,16 +319,24 @@ class PlaySelectionRepository {
   }
 }
 
-PlayCandidate releaseCandidate(ReleaseCandidate candidate, int order) {
+final _infoHash = RegExp(r'^[0-9a-f]{40}$');
+
+/// A torrent fetched over BT, or through PikPak when its index holds it.
+PlayCandidate releaseCandidate(
+  ReleaseCandidate candidate,
+  int order, {
+  PlayKind kind = PlayKind.bt,
+}) {
   final release = candidate.release;
   final info = describeResource(
     release.title,
     releaseGroups: release.releaseGroups,
   );
+  final cloud = kind == PlayKind.pikpak;
   return PlayCandidate(
-    kind: PlayKind.bt,
-    provider: candidate.sourceId,
-    providerLabel: candidate.sourceName,
+    kind: kind,
+    provider: cloud ? 'pikpak' : candidate.sourceId,
+    providerLabel: cloud ? 'PikPak' : candidate.sourceName,
     title: info.title,
     line: info.sourceGroups.join(' & '),
     quality: info.quality,

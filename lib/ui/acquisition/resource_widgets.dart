@@ -8,246 +8,149 @@ import '../../domain/transfer.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
 import '../core/motion.dart';
-import '../core/selection_controls.dart';
 import '../core/theme.dart';
+import 'download_labels.dart';
 
-enum ResourceDownloadPhase { idle, adding, added, failed }
+/// Width of the download and play columns; rows and the table header share
+/// them.
+double resourceDownloadWidth({required bool labelled}) => labelled ? 84 : 36;
+double resourcePlayWidth({required bool labelled}) => labelled ? 76 : 36;
+const _actionGap = 6.0;
 
-/// Width of the download column; rows and the table header share it.
-double resourceDownloadWidth({required bool labelled, required bool split}) =>
-    (labelled ? 80.0 : 36.0) + (split ? 29.0 : 0);
+/// A compact action of a result row: an icon, and a label when wide.
+class _ResourceAction extends StatelessWidget {
+  const _ResourceAction({
+    required this.icon,
+    required this.label,
+    required this.tooltip,
+    required this.width,
+    required this.background,
+    required this.foreground,
+    this.onTap,
+  });
+  final Widget icon;
+  final String? label;
+  final String tooltip;
+  final double width;
+  final Color background, foreground;
+  final VoidCallback? onTap;
 
-/// Split button: the main part uses the default cache method, the chevron
-/// lists every method so the choice is explicit.
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: AnimatedContainer(
+      duration: motionDuration(context, 150),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: controlBorderRadius,
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: controlBorderRadius,
+          onTap: onTap,
+          child: SizedBox(
+            width: width,
+            height: 34,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox.square(dimension: 18, child: icon),
+                if (label != null) ...[
+                  const SizedBox(width: 5),
+                  Text(
+                    label!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: foreground,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// Downloads a torrent into the cache; once added it follows that task.
 class ResourceDownloadButton extends StatelessWidget {
   const ResourceDownloadButton({
     super.key,
-    required this.phase,
     required this.onPressed,
-    this.error,
+    this.adding = false,
+    this.failed = false,
+    this.task,
     this.showLabel = false,
-    this.defaultMethod = CacheMethod.bt,
-    this.onAlternative,
-    this.alternativePhase = ResourceDownloadPhase.idle,
   });
-  final ResourceDownloadPhase phase;
   final VoidCallback onPressed;
-  final String? error;
-  final bool showLabel;
-  final CacheMethod defaultMethod;
-  final VoidCallback? onAlternative;
-  final ResourceDownloadPhase alternativePhase;
+  final bool adding, failed, showLabel;
 
-  static const _height = 34.0, _chevronWidth = 28.0, _menuWidth = 280.0;
+  /// The task this button added, while it exists.
+  final DownloadTask? task;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final busy =
-        phase == ResourceDownloadPhase.adding ||
-        alternativePhase == ResourceDownloadPhase.adding;
-    final split = onAlternative != null;
-    final label = switch (phase) {
-      ResourceDownloadPhase.idle =>
-        split ? '用 ${defaultMethod.label} 下载（默认）' : '下载',
-      ResourceDownloadPhase.adding => '正在加入下载…',
-      ResourceDownloadPhase.added => '已加入下载',
-      ResourceDownloadPhase.failed =>
-        '添加失败，点击重试${error == null ? '' : '\n$error'}',
-    };
-    final action =
-        busy ||
-            [
-              ResourceDownloadPhase.adding,
-              ResourceDownloadPhase.added,
-            ].contains(phase)
-        ? null
-        : onPressed;
-    final settled = phase == ResourceDownloadPhase.added;
-    final failed = phase == ResourceDownloadPhase.failed;
-    final background = settled || failed
-        ? scheme.surfaceContainerHigh
-        : scheme.primaryContainer;
+    final task = this.task;
     final foreground = failed
         ? scheme.tertiary
-        : settled
+        : task != null
         ? scheme.primary
-        : scheme.onPrimaryContainer;
-    final icon = SizedBox.square(
-      dimension: 18,
-      child: AnimatedSwitcher(
-        duration: motionDuration(context, 150),
-        child: busy
-            ? Padding(
-                key: const ValueKey(ResourceDownloadPhase.adding),
-                padding: const EdgeInsets.all(2),
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: foreground,
-                ),
-              )
-            : Icon(
-                switch (phase) {
-                  ResourceDownloadPhase.added => Icons.check_rounded,
-                  ResourceDownloadPhase.failed => Icons.refresh_rounded,
-                  _ => Icons.download_rounded,
-                },
-                key: ValueKey(phase),
-                size: 18,
-                color: foreground,
-              ),
+        : scheme.onSurface;
+    final percent = task == null ? 0 : (task.progress * 100).floor();
+    final (Widget icon, String label, String tooltip) = switch (task) {
+      _ when adding => (
+        Padding(
+          padding: const EdgeInsets.all(2),
+          child: CircularProgressIndicator(strokeWidth: 2, color: foreground),
+        ),
+        '加入中',
+        '正在加入缓存',
       ),
-    );
-    final left = split
-        ? const BorderRadius.horizontal(left: Radius.circular(12))
-        : controlBorderRadius;
-    final main = Tooltip(
-      message: label,
-      child: InkWell(
-        borderRadius: left,
-        onTap: action,
-        child: SizedBox(
-          width: showLabel ? 80 : 36,
-          height: _height,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              icon,
-              if (showLabel) ...[
-                const SizedBox(width: 5),
-                Text(
-                  switch (phase) {
-                    ResourceDownloadPhase.adding => '加入中',
-                    ResourceDownloadPhase.added => '已加入',
-                    ResourceDownloadPhase.failed => '重试',
-                    _ => '下载',
-                  },
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: foreground,
-                  ),
-                ),
-              ],
-            ],
+      DownloadTask(complete: true) => (
+        Icon(Icons.download_done_rounded, size: 18, color: foreground),
+        '已下载',
+        '已下载到本机，可在缓存页查看',
+      ),
+      final DownloadTask task => (
+        Padding(
+          padding: const EdgeInsets.all(2),
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            value: task.progress,
+            color: foreground,
+            backgroundColor: foreground.withValues(alpha: .2),
           ),
         ),
+        '$percent%',
+        '${downloadStatus(task)} $percent%，可在缓存页查看',
       ),
-    );
+      null when failed => (
+        Icon(Icons.refresh_rounded, size: 18, color: foreground),
+        '重试',
+        '添加失败，点击重试',
+      ),
+      null => (
+        Icon(Icons.download_rounded, size: 18, color: foreground),
+        '下载',
+        '下载到本机',
+      ),
+    };
     return Semantics(
-      liveRegion: phase != ResourceDownloadPhase.idle,
-      child: AnimatedContainer(
-        duration: motionDuration(context, 150),
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: controlBorderRadius,
-        ),
-        child: Material(
-          type: MaterialType.transparency,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              main,
-              if (split) ...[
-                Container(
-                  width: 1,
-                  height: 18,
-                  color: foreground.withValues(alpha: .2),
-                ),
-                _methodMenu(context, busy, foreground),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _methodMenu(BuildContext context, bool busy, Color foreground) {
-    final scheme = Theme.of(context).colorScheme;
-    final small = Theme.of(context).textTheme.bodySmall;
-    MenuItemButton item(
-      CacheMethod method,
-      ResourceDownloadPhase state,
-      VoidCallback run,
-    ) {
-      final added = state == ResourceDownloadPhase.added;
-      return MenuItemButton(
-        style: const ButtonStyle(
-          minimumSize: WidgetStatePropertyAll(Size(_menuWidth - 10, 48)),
-          shape: WidgetStatePropertyAll(
-            RoundedRectangleBorder(borderRadius: controlBorderRadius),
-          ),
-        ),
-        onPressed: added || busy ? null : run,
-        leadingIcon: Icon(
-          method == CacheMethod.bt
-              ? Icons.hub_outlined
-              : Icons.cloud_download_outlined,
-          size: 18,
-          color: added ? scheme.onSurfaceVariant : scheme.primary,
-        ),
-        trailingIcon: added
-            ? Text('已加入', style: small?.copyWith(color: scheme.primary))
-            : method == defaultMethod
-            ? Text('默认', style: small)
-            : null,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('${method.label} 下载'),
-            Text(
-              method == CacheMethod.bt
-                  ? '本机直接下载，完成后可做种'
-                  : '先在 PikPak 云端离线，再下载到本机',
-              style: small?.copyWith(fontSize: 11),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return MenuAnchor(
-      style: MenuStyle(
-        backgroundColor: WidgetStatePropertyAll(menuSurface(context)),
-        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-        padding: const WidgetStatePropertyAll(EdgeInsets.all(5)),
-        shape: const WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: controlBorderRadius),
-        ),
-        elevation: const WidgetStatePropertyAll(3),
-        minimumSize: const WidgetStatePropertyAll(Size(_menuWidth, 0)),
-        maximumSize: const WidgetStatePropertyAll(
-          Size(_menuWidth, double.infinity),
-        ),
-      ),
-      // Right-align the menu with the button so it stays inside the table.
-      alignmentOffset: const Offset(_chevronWidth - _menuWidth + 8, 4),
-      menuChildren: [
-        item(defaultMethod, phase, onPressed),
-        item(defaultMethod.other, alternativePhase, onAlternative!),
-      ],
-      builder: (context, controller, _) => Tooltip(
-        message: '选择下载方式',
-        child: InkWell(
-          borderRadius: const BorderRadius.horizontal(
-            right: Radius.circular(12),
-          ),
-          onTap: busy
-              ? null
-              : () =>
-                    controller.isOpen ? controller.close() : controller.open(),
-          child: SizedBox(
-            width: _chevronWidth,
-            height: _height,
-            child: Icon(
-              Icons.keyboard_arrow_down_rounded,
-              size: 18,
-              color: foreground,
-            ),
-          ),
-        ),
+      liveRegion: adding || task != null,
+      child: _ResourceAction(
+        icon: icon,
+        label: showLabel ? label : null,
+        tooltip: tooltip,
+        width: resourceDownloadWidth(labelled: showLabel),
+        background: scheme.surfaceContainerHigh,
+        foreground: foreground,
+        onTap: adding || task != null ? null : onPressed,
       ),
     );
   }
@@ -335,11 +238,12 @@ const resourceTableWidth = 760.0;
 const resourceGroupColumnWidth = 120.0;
 const resourceSizeColumnWidth = 76.0;
 const resourceDateColumnWidth = 84.0;
-const resourcePlayWidth = 40.0;
 
 /// Width of the action columns: download (torrents) and play.
 double resourceActionsWidth({required bool wide}) =>
-    resourceDownloadWidth(labelled: wide, split: true) + resourcePlayWidth;
+    resourceDownloadWidth(labelled: wide) +
+    _actionGap +
+    resourcePlayWidth(labelled: wide);
 
 class ResourceResultRow extends StatelessWidget {
   const ResourceResultRow({
@@ -495,7 +399,7 @@ class ResourceResultRow extends StatelessWidget {
                                   ? '本地'
                                   : '${candidate.providerLabel} 缓存中',
                             OnlineTarget() => '在线',
-                            ReleaseTarget() => 'BT',
+                            ReleaseTarget() => candidate.kind.label,
                           }, background: scheme.secondaryContainer),
                           if (episodeLabel != null)
                             tag(
@@ -619,28 +523,37 @@ class ResourceResultRow extends StatelessWidget {
               ],
               const SizedBox(width: Gap.sm),
               SizedBox(
-                width: resourceDownloadWidth(labelled: wide, split: true),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: download?.call(wide),
-                ),
+                width: resourceDownloadWidth(labelled: wide),
+                child: download?.call(wide),
               ),
+              const SizedBox(width: _actionGap),
               SizedBox(
-                width: resourcePlayWidth,
-                child: playing
-                    ? const Center(
-                        child: SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
+                width: resourcePlayWidth(labelled: wide),
+                child: playing || onPlay != null
+                    ? _ResourceAction(
+                        icon: playing
+                            ? Padding(
+                                padding: const EdgeInsets.all(2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: scheme.onPrimary,
+                                ),
+                              )
+                            : Icon(
+                                Icons.play_arrow_rounded,
+                                size: 18,
+                                color: scheme.onPrimary,
+                              ),
+                        label: wide ? (playing ? '打开中' : '播放') : null,
+                        tooltip: candidate.instant || playing
+                            ? '播放'
+                            : '播放，同时下载到本机',
+                        width: resourcePlayWidth(labelled: wide),
+                        background: scheme.primary,
+                        foreground: scheme.onPrimary,
+                        onTap: onPlay,
                       )
-                    : onPlay == null
-                    ? null
-                    : IconButton(
-                        tooltip: '播放',
-                        onPressed: onPlay,
-                        icon: const Icon(Icons.play_arrow_rounded),
-                      ),
+                    : null,
               ),
             ],
           ),

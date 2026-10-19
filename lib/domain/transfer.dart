@@ -1,16 +1,7 @@
 import 'dart:typed_data';
 
-/// How a release's bytes are fetched; also the stored default method.
-enum CacheMethod {
-  bt,
-  pikpak;
-
-  String get label => this == bt ? 'BT' : 'PikPak';
-  CacheMethod get other => this == bt ? pikpak : bt;
-
-  static CacheMethod fromStored(dynamic value) =>
-      value == 'pikpak' ? pikpak : bt;
-}
+/// How a release's bytes are fetched.
+enum CacheMethod { bt, pikpak }
 
 enum DownloadStatus {
   metadata,
@@ -164,6 +155,16 @@ class TransferUnavailable implements Exception {
   final String message;
   @override
   String toString() => message;
+}
+
+/// PikPak's content index, for search results it can deliver at once.
+abstract interface class CloudIndex {
+  /// Signed in and usable now.
+  bool get available;
+
+  /// Whether the index holds a video of the torrent [infoHash], so its
+  /// download starts from PikPak's CDN without a cloud download first.
+  Future<bool> holds(String infoHash);
 }
 
 /// A way of turning a magnet or torrent into local files: BT through

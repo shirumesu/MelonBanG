@@ -62,9 +62,8 @@ class PlayerPage extends StatefulWidget {
   final ValueChanged<Episode> onEpisode;
   final void Function(String id, String? fileId)? onPlayFile;
 
-  /// Plays a chosen resource; the episode is null only for a cached file
-  /// without a chapter.
-  final Future<void> Function(PlayCandidate candidate, Episode? episode)?
+  /// Plays a chosen resource as the episode.
+  final Future<void> Function(PlayCandidate candidate, Episode episode)?
   onPlayCandidate;
 
   /// Continues a resource-sheet search on the resources page.

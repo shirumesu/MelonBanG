@@ -8,7 +8,6 @@ import '../../core/hls_playlist.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../domain/sources.dart';
-import 'title_matching.dart';
 
 class _SourceRead {
   final cancel = RequestCancellation();
@@ -26,7 +25,6 @@ class SourceRegistry extends ChangeNotifier {
   final Map<String, SourceEngineFactory> engines;
   final health = <String, SourceHealth>{};
   final errors = <String, String>{};
-  final probes = <String, List<ProbeStep>>{};
   final _engines = <String, SourceEngine>{};
   final _reads = <String, _SourceRead>{};
   final _cache = <String, ({DateTime expires, List<Object> rows})>{};
@@ -47,11 +45,7 @@ class SourceRegistry extends ChangeNotifier {
   bool get warning => health.entries.any(
     (e) =>
         isEnabled(e.key) &&
-        const [
-          SourceHealth.error,
-          SourceHealth.verification,
-          SourceHealth.partial,
-        ].contains(e.value),
+        const [SourceHealth.error, SourceHealth.verification].contains(e.value),
   );
 
   /// Also covers the PikPak transfer, which shares the Sources page switch.
@@ -69,7 +63,7 @@ class SourceRegistry extends ChangeNotifier {
     final rule = instances.where((e) => e.id == id).firstOrNull;
     if (!isEnabled(id) || rule?.disabled == true) return SourceHealth.disabled;
     if (rule != null && !rule.supported) return SourceHealth.update;
-    return health[id] ?? SourceHealth.unknown;
+    return health[id] ?? SourceHealth.enabled;
   }
 
   Future<void> setEnabled(String id, bool enabled) async {
@@ -145,7 +139,7 @@ class SourceRegistry extends ChangeNotifier {
   }
 
   void succeeded(String id) {
-    health[id] = SourceHealth.ready;
+    health.remove(id);
     errors.remove(id);
     _notify();
   }
@@ -335,172 +329,6 @@ class SourceRegistry extends ChangeNotifier {
     }
     _reads.clear();
     _cache.clear();
-  }
-
-  /// Runs one diagnostic step and records it under [id].
-  Future<T> check<T>(
-    String id,
-    String label,
-    Future<T> Function() action, {
-    String? url,
-    bool engineRequest = false,
-  }) async {
-    final step = ProbeStep(label, url: url);
-    (probes[id] ??= []).add(step);
-    _notify();
-    final clock = Stopwatch()..start();
-    void request() {
-      if (!engineRequest) return;
-      final engine = this.engine(id);
-      step.url = engine.lastRequest?.toString() ?? step.url;
-      step.statusCode = engine.lastStatus;
-    }
-
-    try {
-      final value = await action();
-      step
-        ..status = ProbeStatus.ready
-        ..milliseconds = clock.elapsedMilliseconds;
-      request();
-      _notify();
-      return value;
-    } catch (error) {
-      step
-        ..status = ProbeStatus.error
-        ..milliseconds = clock.elapsedMilliseconds
-        ..error = '$error';
-      request();
-      if (error is ApiException) step.statusCode = error.status;
-      _notify();
-      rethrow;
-    }
-  }
-
-  /// Checks a source end to end with the rule's test subject, or with
-  /// [external] for the PikPak transfer. Results last for this run only.
-  Future<void> probe(
-    String id, {
-    Future<void> Function()? external,
-    String? url,
-  }) async {
-    probes[id] = [];
-    _notify();
-    try {
-      if (external != null) {
-        await check(id, '读取网盘', external, url: url);
-      } else {
-        final rule = instance(id);
-        if (!rule.supported) throw StateError('需要更新应用');
-        switch (rule.kind) {
-          case SourceKind.torrent:
-            await _probeTorrent(rule);
-          case SourceKind.online:
-            await _probeOnline(rule);
-        }
-      }
-      health[id] = SourceHealth.ready;
-      errors.remove(id);
-    } catch (error) {
-      final steps = probes[id]!;
-      errors[id] = '$error';
-      health[id] = error is SourceVerificationRequired
-          ? SourceHealth.verification
-          : steps.any((step) => step.status == ProbeStatus.ready)
-          ? SourceHealth.partial
-          : SourceHealth.error;
-      if (steps.isEmpty || steps.last.status == ProbeStatus.ready) {
-        steps.add(
-          ProbeStep('验证结果')
-            ..status = ProbeStatus.error
-            ..error = '$error',
-        );
-      }
-    }
-    _notify();
-  }
-
-  Future<void> _probeTorrent(SourceInstance rule) async {
-    final rows = await check(
-      rule.id,
-      '搜索 RSS',
-      () => torrent(rule.id).search(rule.testSubject ?? ''),
-      engineRequest: true,
-    );
-    if (rows.isEmpty) throw StateError('RSS 暂无匹配的资源');
-  }
-
-  Future<void> _probeOnline(SourceInstance rule) async {
-    final id = rule.id;
-    final expected = rule.testSubject ?? '';
-    final rows = await check(
-      id,
-      '搜索',
-      () => searchSubjects(id, [expected], refresh: true),
-      url: '${currentDomain(id)}${object(rule.config['search'])['url']}',
-      engineRequest: true,
-    );
-    if (rows.isEmpty) throw StateError('搜索没有结果');
-    final target = normalizeSourceTitle(expected);
-    final site =
-        rows
-            .where((r) => normalizeSourceTitle(r.title) == target)
-            .firstOrNull ??
-        rows.first;
-    final entries = await check(
-      id,
-      '取集数',
-      () async {
-        final entries = await episodes(id, site);
-        if (entries.length < rule.testMinEpisodes) {
-          throw StateError('返回集数少于规则预期');
-        }
-        return entries;
-      },
-      url: '${currentDomain(id)}${object(rule.config['detail'])['url']}',
-      engineRequest: true,
-    );
-    final resolved = await check(
-      id,
-      '解析地址',
-      () => online(id).resolve(entries.first.ref),
-      engineRequest: true,
-    );
-    probes[id]!.last.url = resolved.url;
-    if (resolved.format == StreamFormat.hls) {
-      final manifest = await check(
-        id,
-        '拉取 m3u8',
-        () => fetchPlaylist(
-          api,
-          Uri.parse(resolved.url),
-          resolved.headers,
-          filter: _filtersAds(rule),
-        ),
-        url: resolved.url,
-      );
-      final segment = manifest.$1
-          .split('\n')
-          .where((line) => line.isNotEmpty && !line.startsWith('#'))
-          .firstOrNull;
-      if (segment == null) throw StateError('播放清单没有分片');
-      await check(id, '拉取第一个分片', () async {
-        final response = await api.send(
-          Uri.parse(segment),
-          headers: resolved.headers,
-        );
-        if (response.bodyBytes.isEmpty) throw StateError('分片为空');
-      }, url: segment);
-    } else {
-      await check(
-        id,
-        '读取视频',
-        () => api.send(
-          Uri.parse(resolved.url),
-          headers: {'Range': 'bytes=0-4095'},
-        ),
-        url: resolved.url,
-      );
-    }
   }
 
   @override

@@ -143,9 +143,8 @@ class AppServices {
         storage?.media ?? p.join(dataDirectory!, 'downloads');
     bt = LibtorrentTransfer(store, mediaDirectory);
     pikpakTransfer = PikPakTransfer(store, mediaDirectory, pikpak);
-    downloads = DownloadRepository(store, [bt, pikpakTransfer]);
+    downloads = DownloadRepository([bt, pikpakTransfer]);
     _dispose.add(downloads.close);
-    await downloads.loadPreferences();
     await bt.loadPreferences();
     library = PlaybackLibrary(store, downloads, catalog);
     final preferences = await SharedPreferences.getInstance();
@@ -172,6 +171,7 @@ class AppServices {
       downloads,
       releases,
       sources,
+      pikpakTransfer,
     );
     playback = Playback(library, downloads, danmaku, preferences);
     coordinator = PlaybackCoordinator(
@@ -209,12 +209,8 @@ class AppServices {
   }
 
   /// A separate search, e.g. for the player's resource sheet.
-  ResourceSearchController newResourceSearch() => ResourceSearchController(
-    selection,
-    playback,
-    () => downloadsReady,
-    () => downloads.defaultMethod,
-  );
+  ResourceSearchController newResourceSearch() =>
+      ResourceSearchController(selection, playback, () => downloadsReady);
 
   Future<void> close() => _closing ??= _close();
   Future<void> _close() async {

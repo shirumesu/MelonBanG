@@ -13,11 +13,11 @@ class SourcesPage extends StatefulWidget {
   const SourcesPage({
     super.key,
     required this.registry,
-    required this.onProbePikPak,
+    required this.pikpakAccount,
     required this.onPlay,
   });
   final SourceRegistry registry;
-  final Future<void> Function() onProbePikPak;
+  final Widget pikpakAccount;
   final Future<void> Function(ResolvedStream) onPlay;
   @override
   State<SourcesPage> createState() => _SourcesPageState();
@@ -25,7 +25,6 @@ class SourcesPage extends StatefulWidget {
 
 class _SourcesPageState extends State<SourcesPage> {
   final _update = ActionFeedback(),
-      _probe = ActionFeedback(),
       _runtimeIssue = ActionFeedback(),
       _engineIssue = ActionFeedback();
   var _search = ActionFeedback(), _resolve = ActionFeedback();
@@ -61,7 +60,6 @@ class _SourcesPageState extends State<SourcesPage> {
     _generation++;
     for (final feedback in [
       _update,
-      _probe,
       _search,
       _resolve,
       _runtimeIssue,
@@ -74,29 +72,18 @@ class _SourcesPageState extends State<SourcesPage> {
   }
 
   String label(SourceHealth status) => switch (status) {
-    SourceHealth.ready => '正常',
-    SourceHealth.partial => '部分失败',
+    SourceHealth.enabled => '已启用',
     SourceHealth.error => '失效',
     SourceHealth.verification => '需要验证',
     SourceHealth.update => '需要更新应用',
     SourceHealth.disabled => '已停用',
-    SourceHealth.unknown => '未检查',
   };
   Color color(SourceHealth status) => switch (status) {
-    SourceHealth.ready => mint,
+    SourceHealth.enabled => mint,
     SourceHealth.error => coral,
-    SourceHealth.partial ||
-    SourceHealth.verification ||
-    SourceHealth.update => gold,
-    _ => sky,
+    SourceHealth.verification || SourceHealth.update => gold,
+    SourceHealth.disabled => sky,
   };
-  Color stepColor(ProbeStatus status) => switch (status) {
-    ProbeStatus.ready => mint,
-    ProbeStatus.error => coral,
-    ProbeStatus.loading => sky,
-  };
-  Future<void> _probeSource(String id) =>
-      id == 'pikpak' ? widget.onProbePikPak() : registry.probe(id);
   void _select(String id) {
     _generation++;
     _search.dispose();
@@ -212,25 +199,6 @@ class _SourcesPageState extends State<SourcesPage> {
                             return null;
                           }),
                         ),
-                        FeedbackButton(
-                          feedback: _probe,
-                          label: '全部测试',
-                          runningLabel: '测试中',
-                          successLabel: '测试完成',
-                          icon: Icons.fact_check_outlined,
-                          onPressed: () => _probe.run(() async {
-                            for (final entry in entries.where(
-                              (e) =>
-                                  registry.isEnabled(e.id) &&
-                                  e.instance?.disabled != true &&
-                                  e.instance?.manualOnly != true &&
-                                  e.instance?.supported != false,
-                            )) {
-                              await _probeSource(entry.id);
-                            }
-                            return null;
-                          }),
-                        ),
                       ],
                     ),
                     Text(
@@ -311,15 +279,13 @@ class _SourcesPageState extends State<SourcesPage> {
               selected: selected?.id == entry.id,
               titleTextStyle: Theme.of(context).textTheme.titleSmall,
               title: Text(entry.name),
-              subtitle: registry.status(entry.id) == SourceHealth.unknown
-                  ? null
-                  : Align(
-                      alignment: Alignment.centerLeft,
-                      child: MelonBadge(
-                        label(registry.status(entry.id)),
-                        color: color(registry.status(entry.id)),
-                      ),
-                    ),
+              subtitle: Align(
+                alignment: Alignment.centerLeft,
+                child: MelonBadge(
+                  label(registry.status(entry.id)),
+                  color: color(registry.status(entry.id)),
+                ),
+              ),
               trailing: Switch(
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 value:
@@ -349,12 +315,7 @@ class _SourcesPageState extends State<SourcesPage> {
       children: [
         FeedbackIssue(
           feedback: _runtimeIssue,
-          onRetry: manual
-              ? () => _manualSearch(id)
-              : () => _probe.run(() async {
-                  await _probeSource(id);
-                  return null;
-                }),
+          onRetry: manual ? () => _manualSearch(id) : null,
         ),
         if (narrow)
           Align(
@@ -414,41 +375,9 @@ class _SourcesPageState extends State<SourcesPage> {
             ],
           ),
         ),
-        if (!manual) ...[
-          SectionTitle(
-            title: '测试结果',
-            top: Gap.lg,
-            trailing: FeedbackButton(
-              feedback: _probe,
-              label: '测试此源',
-              runningLabel: '测试中',
-              successLabel: '测试完成',
-              icon: Icons.play_arrow,
-              onPressed: () => _probe.run(() async {
-                await _probeSource(id);
-                return null;
-              }),
-            ),
-          ),
-          if (registry.probes[id] case final steps?)
-            MelonPanel(
-              padding: EdgeInsets.zero,
-              child: Column(
-                children: [
-                  for (var index = 0; index < steps.length; index++) ...[
-                    if (index > 0)
-                      const Divider(
-                        height: 1,
-                        indent: Gap.lg,
-                        endIndent: Gap.lg,
-                      ),
-                    _diagnostic(id, steps[index]),
-                  ],
-                ],
-              ),
-            )
-          else
-            Text('检查搜索和播放是否正常', style: Theme.of(context).textTheme.bodySmall),
+        if (instance == null) ...[
+          const SectionTitle(title: '账户', top: Gap.lg),
+          widget.pikpakAccount,
         ],
         if (online) ...[
           const SectionTitle(title: '手动搜索', top: Gap.lg),
@@ -565,63 +494,6 @@ class _SourcesPageState extends State<SourcesPage> {
       ],
     );
   }
-
-  Widget _diagnostic(String id, ProbeStep step) => ExpansionTile(
-    key: ValueKey('$id:${step.label}:${step.status}'),
-    dense: true,
-    minTileHeight: 44,
-    tilePadding: const EdgeInsets.symmetric(horizontal: Gap.lg),
-    childrenPadding: const EdgeInsets.fromLTRB(Gap.lg, 0, Gap.lg, Gap.md),
-    shape: const Border(),
-    collapsedShape: const Border(),
-    leading: step.status == ProbeStatus.loading
-        ? const SizedBox.square(
-            dimension: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          )
-        : Icon(
-            step.status == ProbeStatus.ready
-                ? Icons.check_circle_outline
-                : Icons.error_outline,
-            size: 18,
-            color: stepColor(step.status),
-          ),
-    title: Row(
-      children: [
-        Expanded(child: Text(step.label)),
-        const SizedBox(width: Gap.sm),
-        Text(
-          '${step.milliseconds ?? '…'} ms${step.statusCode == null ? '' : '  HTTP ${step.statusCode}'}',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      ],
-    ),
-    initiallyExpanded: step.status == ProbeStatus.error,
-    children: [
-      Align(
-        alignment: Alignment.centerLeft,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (step.url != null)
-              SelectableText(
-                step.url!,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            if (step.error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: Gap.sm),
-                child: SelectableText(
-                  step.error!,
-                  style: Theme.of(context).textTheme.bodySmall
-                      ?.copyWith(color: Theme.of(context).colorScheme.error),
-                ),
-              ),
-          ],
-        ),
-      ),
-    ],
-  );
 
   Widget _episodeChoices() => MelonPanel(
     padding: const EdgeInsets.all(Gap.lg),

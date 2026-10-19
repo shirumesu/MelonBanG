@@ -5,6 +5,7 @@ import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
+import '../downloads/download_repository.dart';
 import '../acquisition/resource_metadata.dart';
 import '../acquisition/source_registry.dart';
 import 'play_selection.dart';
@@ -31,22 +32,18 @@ class ResourceSearchState {
   final List<SourceProgress> sources;
 }
 
-/// Searches cached files, online sources and torrent indexes together for a
-/// subject or one of its chapters. Starting a new search or [cancel] cancels
-/// the running one.
+/// Searches online sources, torrent indexes and PikPak's index together for
+/// a subject or one of its chapters. Starting a new search or [cancel]
+/// cancels the running one.
 class ResourceSearchController extends ChangeNotifier {
-  ResourceSearchController(
-    this.selection,
-    this.playback,
-    this.downloadsReady,
-    this.defaultMethod,
-  );
+  ResourceSearchController(this.selection, this.playback, this.downloadsReady);
   final PlaySelectionRepository selection;
   final Playback playback;
 
   /// Completes once restored downloads can accept new tasks.
   final Future<void> Function() downloadsReady;
-  final CacheMethod Function() defaultMethod;
+
+  DownloadRepository get downloads => selection.downloads;
 
   ResourceSearchState state = const ResourceSearchState();
   bool busy = false;
@@ -103,6 +100,7 @@ class ResourceSearchController extends ChangeNotifier {
         subject,
         episode,
         terms: terms,
+        includeDownloads: false,
         cancel: cancellation,
         onlineFirst:
             (subject.airing()
@@ -139,7 +137,7 @@ class ResourceSearchController extends ChangeNotifier {
 
   Future<DownloadTask> enqueue(
     ReleaseCandidate candidate, {
-    CacheMethod? method,
+    required CacheMethod method,
   }) async {
     await downloadsReady();
     return selection.releases.enqueue(candidate, method: method);

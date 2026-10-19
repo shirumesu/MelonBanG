@@ -261,7 +261,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
     final status = current
         ? '正在播放'
         : available
-        ? (task != null && !task.complete ? '可边下边看' : '已缓存')
+        ? (task != null && !task.complete ? '可播放' : '已缓存')
         : task != null
         ? '${taskStatus(task)} ${(task.progress * 100).round()}%'
         : null;
@@ -419,7 +419,7 @@ class _PlayerLibraryPanelState extends State<PlayerLibraryPanel> {
                   ),
                 if (task.playable && files.length == 1)
                   IconButton(
-                    tooltip: progress >= 1 ? '播放' : '边下边看',
+                    tooltip: '播放',
                     onPressed: () => widget.onPlayFile(task.id, files.first.id),
                     icon: const Icon(Icons.play_arrow, size: 18),
                   ),

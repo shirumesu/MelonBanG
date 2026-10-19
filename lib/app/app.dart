@@ -19,7 +19,6 @@ import '../features/playback/resource_search.dart';
 import '../features/playback/resume_controller.dart';
 import '../features/tracking/subject_controller.dart';
 import '../features/tracking/tracking_controller.dart';
-import '../integrations/transfer/pikpak.dart';
 import '../ui/acquisition/downloads_page.dart';
 import '../ui/acquisition/resource_search_view.dart';
 import '../ui/core/action_feedback.dart';
@@ -32,9 +31,9 @@ import '../ui/core/theme.dart';
 import '../ui/discovery/discovery_pages.dart';
 import '../ui/player/player_page.dart';
 import '../ui/settings/bittorrent_settings.dart';
-import '../ui/settings/cache_settings.dart';
 import '../ui/settings/settings_page.dart';
 import '../ui/settings/storage_settings.dart';
+import '../ui/sources/pikpak_account.dart';
 import '../ui/sources/sources_page.dart';
 import '../ui/tracking/subject_page.dart';
 import '../ui/tracking/tracking_page.dart';
@@ -404,15 +403,6 @@ class _MelonAppState extends State<MelonApp>
     if (pending) unawaited(perform(() => resources.search(state.terms!)));
   }
 
-  /// Plays a cached file that has no chapter to associate.
-  Future<void> playCachedFile(PlayCandidate candidate) {
-    final DownloadTarget(:downloadId, :fileId) =
-        candidate.target as DownloadTarget;
-    return coordinator.play(
-      () => service.library.fromDownload(downloadId, fileId: fileId),
-    );
-  }
-
   void rememberSearch(String query) {
     setState(() {
       recentSearches = [
@@ -714,9 +704,8 @@ class _MelonAppState extends State<MelonApp>
     onRetryPreparing: coordinator.retryPreparing,
     onChoosePreparing: coordinator.choosePreparing,
     onEpisode: coordinator.playEpisode,
-    onPlayCandidate: (candidate, episode) => episode == null
-        ? playCachedFile(candidate)
-        : coordinator.playCandidate(candidate, coordinator.subject!, episode),
+    onPlayCandidate: (candidate, episode) =>
+        coordinator.playCandidate(candidate, coordinator.subject!, episode),
     onOpenResources: openResourcePage,
   );
 
@@ -845,13 +834,11 @@ class _MelonAppState extends State<MelonApp>
             'resources:${subject?.id}:${resources.state.episode?.id}',
           ),
           search: resources,
-          onPlay: (candidate, episode) => episode == null
-              ? playCachedFile(candidate)
-              : coordinator.prepare(
-                  subject!,
-                  episode,
-                  () => coordinator.playCandidate(candidate, subject, episode),
-                ),
+          onPlay: (candidate, episode) => coordinator.prepare(
+            subject!,
+            episode,
+            () => coordinator.playCandidate(candidate, subject, episode),
+          ),
         );
       case 'downloads':
         return downloadsSection(
@@ -865,41 +852,32 @@ class _MelonAppState extends State<MelonApp>
           ),
         );
       case 'sources':
-        return SourcesPage(
-          registry: service.sources,
-          onProbePikPak: () => service.sources.probe(
-            'pikpak',
-            url: PikPakTransfer.driveUrl,
-            external: service.pikpakTransfer.checkAccess,
-          ),
-          onPlay: (stream) =>
-              coordinator.play(() async => service.library.online(stream)),
-        );
-      case 'settings':
         final pikpak = service.pikpakTransfer;
         Future<void> changeAccount(Future<void> Function() change) async {
           await change();
           if (mounted) setState(() {});
         }
 
+        return SourcesPage(
+          registry: service.sources,
+          pikpakAccount: PikPakAccount(
+            account: pikpak.accountName,
+            needsAuthorization: pikpak.needsAuthorization,
+            verificationUrl: pikpak.verificationUrl,
+            onUnlock: () => changeAccount(pikpak.unlock),
+            onLogin: (username, password) =>
+                changeAccount(() => pikpak.signIn(username, password)),
+            onLogout: () => changeAccount(pikpak.signOut),
+          ),
+          onPlay: (stream) =>
+              coordinator.play(() async => service.library.online(stream)),
+        );
+      case 'settings':
         return SettingsPage(
           playback: playback,
           personal: personal,
           dark: dark,
           dataDirectory: service.dataDirectory,
-          cacheSettings: downloadsSection(
-            () => CacheSettings(
-              defaultMethod: downloads.defaultMethod,
-              onMethodChanged: downloads.saveCacheMethod,
-              account: pikpak.accountName,
-              needsAuthorization: pikpak.needsAuthorization,
-              verificationUrl: pikpak.verificationUrl,
-              onUnlock: () => changeAccount(pikpak.unlock),
-              onLogin: (username, password) =>
-                  changeAccount(() => pikpak.signIn(username, password)),
-              onLogout: () => changeAccount(pikpak.signOut),
-            ),
-          ),
           storageSettings: StorageSettings(
             readCacheSize: service.cache.size,
             onClearCache: () async {
