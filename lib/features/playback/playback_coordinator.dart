@@ -66,8 +66,10 @@ class PlaybackCoordinator extends ChangeNotifier {
     _subscriptions.add(
       playback.player.stream.buffering.listen((buffering) {
         _bufferDeadline?.cancel();
+        // A transfer stream buffers while its data arrives; that is not a
+        // failing source.
         if (buffering &&
-            _activeCandidate != null &&
+            _activeCandidate?.kind == PlayKind.online &&
             !playback.opening &&
             shell.showingPlayer) {
           _bufferDeadline = Timer(const Duration(seconds: 15), () {
@@ -443,9 +445,11 @@ class PlaybackCoordinator extends ChangeNotifier {
           if (recovery) playback.showNotice('已切换到 ${candidate.sourceLabel}');
           final sessionId = session.id;
           _firstFrameDeadline?.cancel();
-          _firstFrameDeadline = Timer(const Duration(seconds: 15), () {
-            unawaited(_checkFirstFrame(sessionId, request));
-          });
+          if (candidate.kind == PlayKind.online) {
+            _firstFrameDeadline = Timer(const Duration(seconds: 15), () {
+              unawaited(_checkFirstFrame(sessionId, request));
+            });
+          }
         } catch (e) {
           if (request == _selectionRequest) _activeCandidate = candidate;
           failure = e;

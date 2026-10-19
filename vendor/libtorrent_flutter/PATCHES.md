@@ -109,6 +109,14 @@ downloads, including after seeks and trailing-cache eviction. Ephemeral streams
 retain on-demand selection. This prevents streaming from changing the wanted size
 or stopping a normal cache task before every file is complete.
 
+The playback window is a sliding set of deadline pieces from the reader's
+position (about 24 MiB, 8–48 pieces), moved each time the reader enters a piece.
+Upstream set deadlines only after the reader blocked on a missing piece, so
+the swarm idled at every window boundary. Tail probes do not move the window.
+A new stream gives the first two pieces and the last piece deadlines and
+leaves the rest of the file to the window, instead of reserving 8 MiB at each
+end and guessing a startup piece count from the file size.
+
 Cache hits consume the duplicate disk-read result so sequential prefetch does not
 retain every played piece after the trailing cache evicts it. Concurrent HTTP
 readers also wake on cached data when another reader consumes their shared disk

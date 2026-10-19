@@ -881,10 +881,13 @@ struct StreamEngine {
     // readahead fixed at 16MB like TorrServer — port of torrent.go updateRA()
     static constexpr int64_t FIXED_READAHEAD = 16 * 1024 * 1024;
 
-    // 8MB head/tail for container metadata — port of isIdInFileBE's FileRangeNotDelete
-    static constexpr int64_t PROTECT_BYTES = 8 * 1024 * 1024;
-    int head_end_piece;
-    int tail_start_piece;
+    // Pieces ahead of the read head carry deadlines, so the swarm keeps the
+    // playback window full instead of starting a piece when the reader
+    // blocks on it.
+    static constexpr int64_t WINDOW_BYTES = 24 * 1024 * 1024;
+    int window_pieces = 8;
+    int window_head = -1;
+    std::mutex window_mu;
 
     // HTTP server
     std::thread       server_thread;
@@ -928,9 +931,8 @@ struct StreamEngine {
     std::deque<int>  trailing_pieces;
     std::mutex       trailing_mu;
 
-    // adaptive bitrate estimate (bytes/sec) — derived from file size
+    // bitrate estimate (bytes/sec) for buffer_seconds — derived from file size
     float estimated_bitrate_bps = 625000.0f;
-    int   critical_startup_pieces = 2;  // computed at init
 
     std::atomic<bool> active{true};
 
@@ -1261,6 +1263,24 @@ static bool wait_for_piece(StreamEngine* s, int piece, int timeout_ms,
         && s->pieces_have.count(piece) > 0;
 }
 
+// Moves the deadline window to start at [head]. The time-critical picker
+// orders by deadline, so the piece under the reader comes first and the rest
+// keep peer request queues full while it is read.
+static void refresh_window(StreamEngine* s, int head) {
+    std::lock_guard<std::mutex> wlk(s->window_mu);
+    if (head == s->window_head) return;
+    s->window_head = head;
+    std::lock_guard<std::mutex> lk(s->piece_mu);
+    for (int i = 0; i < s->window_pieces && head + i <= s->end_piece; ++i) {
+        int p = head + i;
+        if (s->pieces_have.count(p)) continue;
+        try {
+            s->handle.piece_priority(lt::piece_index_t(p), lt::top_priority);
+            s->handle.set_piece_deadline(lt::piece_index_t(p), i * 100);
+        } catch (...) {}
+    }
+}
+
 // Read piece data directly from libtorrent disk storage.
 // Like lt2http: storage()->readv() — reads downloaded piece data.
 static ReadResult read_piece_data(StreamEngine* s, int piece,
@@ -1408,8 +1428,9 @@ static bool serve_range(StreamEngine* s, TorrReader* reader, socket_t cli,
         int64_t send_end = std::min(range_end, pfend);
         if (send_end < sbeg) { cursor = pfend + 1; continue; }
 
-        // ── lt2http pattern: prioritize current + 2 ahead, then wait ──
-        // Like lt2http's Reader::wait_for_piece → prioritize_pieces(start, start+2)
+        // Container probes near the end must not drag the window there.
+        if (!is_tail) refresh_window(s, p);
+
         bool have_it = false;
         {
             std::lock_guard<std::mutex> lk(s->piece_mu);
@@ -1417,30 +1438,11 @@ static bool serve_range(StreamEngine* s, TorrReader* reader, socket_t cli,
         }
 
         if (!have_it) {
-            // Wider deadline pipeline: current + 16 pieces with stagger.
-            // The deadline picker orders by deadline, so i=0 still gets
-            // priority — the extra entries just keep peer request queues
-            // full so the swarm doesn't idle between piece completions.
-            // (Previous current+2 window was below libtorrent's own
-            //  request pipeline depth → peers sat idle after each piece.)
-            constexpr int PIPELINE_AHEAD = 16;
-            TB_LOG("serve_range: piece=%d not ready, prioritizing p..p+%d", p, PIPELINE_AHEAD);
+            TB_LOG("serve_range: piece=%d not ready", p);
             try {
                 s->handle.piece_priority(lt::piece_index_t(p), lt::top_priority);
                 s->handle.set_piece_deadline(lt::piece_index_t(p), 0);
             } catch (...) {}
-            for (int i = 1; i <= PIPELINE_AHEAD && p + i <= s->end_piece; ++i) {
-                bool have_next = false;
-                { std::lock_guard<std::mutex> lk(s->piece_mu); have_next = s->pieces_have.count(p+i) > 0; }
-                if (!have_next) {
-                    try {
-                        // First two stay at top, rest at priority 6
-                        auto pri = (i <= 2) ? lt::top_priority : lt::download_priority_t(6);
-                        s->handle.piece_priority(lt::piece_index_t(p+i), pri);
-                        s->handle.set_piece_deadline(lt::piece_index_t(p+i), i * 80);
-                    } catch (...) {}
-                }
-            }
 
             // Wait for piece — like lt2http's sleep_for(300ms) polling loop
             // but using condition variable for zero-latency wakeup
@@ -1709,8 +1711,8 @@ static void handle_connection(StreamEngine* s, socket_t cli, int reader_id) {
                                             s->start_piece, s->end_piece);
                 try {
                     // Minimal seek path — just unblock the picker, then let
-                    // serve_range do its normal 16-piece + 80ms gradient on
-                    // the very first piece it processes.
+                    // serve_range move its deadline window on the very first
+                    // piece it processes.
                     //
                     // Previous version did prioritize_pieces(full_vec) +
                     // 4-piece window + 300ms stagger. That fought serve_range
@@ -1724,6 +1726,10 @@ static void handle_connection(StreamEngine* s, socket_t cli, int reader_id) {
                     //      picker pivots NOW, before the first serve_range
                     //      iteration runs (~1ms later)
                     s->handle.clear_piece_deadlines();
+                    {
+                        std::lock_guard<std::mutex> wlk(s->window_mu);
+                        s->window_head = -1;
+                    }
                     s->handle.piece_priority(
                         lt::piece_index_t(seek_piece), lt::top_priority);
                     s->handle.set_piece_deadline(
@@ -2450,15 +2456,10 @@ TORRENT_API lt_stream_id lt_start_stream(lt_session_t session,
                      (int)((s->file_offset + s->file_size - 1) / s->piece_length));
     s->total_pieces = s->end_piece - s->start_piece + 1;
 
-    // head/tail protection boundaries
-    int prot_pieces = (int)((StreamEngine::PROTECT_BYTES + s->piece_length - 1) / s->piece_length);
-    s->head_end_piece  = std::min(s->start_piece + prot_pieces - 1, s->end_piece);
-    s->tail_start_piece = std::max(s->end_piece - prot_pieces + 1, s->start_piece);
+    s->window_pieces = std::clamp(
+        (int)(StreamEngine::WINDOW_BYTES / s->piece_length), 8, 48);
 
-    // ── Adaptive bitrate estimation ──
-    // Estimate media bitrate from file size assuming typical video duration.
-    // This is crude but vastly better than a fixed 5 Mbps for ALL files.
-    // A 1.2GB file ≈ 1.5h movie ≈ ~1.5 MB/s; a 4GB file ≈ 2h movie ≈ ~3.3 MB/s
+    // Media bitrate guessed from file size, for buffer_seconds only.
     {
         float duration_guess;
         if      (s->file_size < 400LL * 1024 * 1024)            duration_guess = 3600.0f;  // <400MB → 1h (episode)
@@ -2467,17 +2468,6 @@ TORRENT_API lt_stream_id lt_start_stream(lt_session_t session,
         else if (s->file_size < 8LL * 1024 * 1024 * 1024)       duration_guess = 7200.0f;  // <8GB → 2h
         else                                                     duration_guess = 9000.0f;  // 8GB+ → 2.5h
         s->estimated_bitrate_bps = (float)s->file_size / duration_guess;
-
-        // Critical startup: target ~2 seconds of video, but at least 1 piece
-        // and at most 5 pieces. For a 4GB file with 4MB pieces and ~3.3MB/s
-        // bitrate, this gives max(1, 6.6/4) = 1-2 pieces instead of 5.
-        int startup_bytes = (int)(s->estimated_bitrate_bps * 2.0f);
-        startup_bytes = std::max(startup_bytes, s->piece_length);
-        s->critical_startup_pieces = std::clamp(startup_bytes / s->piece_length, 1, 5);
-
-        TB_LOG("ADAPTIVE: file_size=%lldMB piece=%dKB bitrate_est=%.0fKB/s critical_pieces=%d",
-               (long long)(s->file_size / (1024*1024)), s->piece_length / 1024,
-               s->estimated_bitrate_bps / 1024.0f, s->critical_startup_pieces);
     }
 
     // ── TorrCache initialization — port of torrstor.NewCache + Cache.Init ──
@@ -2518,33 +2508,21 @@ TORRENT_API lt_stream_id lt_start_stream(lt_session_t session,
         std::vector<lt::download_priority_t> prios(
             (size_t)ti->num_pieces(), s->background_download ? lt::default_priority : lt::dont_download);
 
-        // Critical startup pieces — adaptive count based on bitrate estimate.
-        // These get top_priority + tight deadlines to minimize time-to-first-frame.
-        int crit = s->critical_startup_pieces;
-        for (int p = s->start_piece; p <= std::min(s->start_piece + crit - 1, s->end_piece); ++p)
+        // Container headers come first, then the last piece that holds an
+        // MP4 index or MKV cues. The reader's window follows its position;
+        // a resumed episode seeks away from the head right after probing.
+        const int head_last = std::min(s->start_piece + 1, s->end_piece);
+        for (int p = s->start_piece; p <= head_last; ++p)
             prios[p] = lt::top_priority;
-
-        // Remaining head pieces at lower priority — they'll download after
-        // critical pieces without competing for bandwidth
-        for (int p = s->start_piece + crit; p <= s->head_end_piece; ++p)
-            prios[p] = lt::download_priority_t(4);
-
-        // Tail pieces for moov atom — priority 5 (below head critical,
-        // above remaining head). For large files this prevents tail from
-        // stealing bandwidth that the first frame needs.
-        for (int p = s->tail_start_piece; p <= s->end_piece; ++p)
-            prios[p] = lt::download_priority_t(5);
+        prios[s->end_piece] = lt::top_priority;
 
         handle.prioritize_pieces(prios);
 
-        // Deadlines: critical pieces get tight deadlines (0-100ms),
-        // tail gets pushed back (1000ms) so time-critical picker
-        // strongly favors head over tail.
-        for (int i = 0; i < crit && s->start_piece + i <= s->end_piece; ++i)
+        for (int p = s->start_piece; p <= head_last; ++p)
             handle.set_piece_deadline(
-                lt::piece_index_t(s->start_piece + i), i * 50);
-        for (int p = s->tail_start_piece; p <= s->end_piece; ++p)
-            handle.set_piece_deadline(lt::piece_index_t(p), 1000);
+                lt::piece_index_t(p), (p - s->start_piece) * 100);
+        if (s->end_piece > head_last)
+            handle.set_piece_deadline(lt::piece_index_t(s->end_piece), 300);
 
         // NOW resume — priorities are already set, no random downloads
         handle.resume();
@@ -2570,7 +2548,7 @@ TORRENT_API lt_stream_id lt_start_stream(lt_session_t session,
                 // only pre-load first 2 + tail pieces into read_results
                 // (kept minimal to limit RAM — serve_range reads the rest on demand)
                 bool is_head = (p <= s->start_piece + 1);
-                bool is_tail = (p >= s->tail_start_piece);
+                bool is_tail = (p == s->end_piece);
                 if (is_head || is_tail) {
                     try { handle.read_piece(lt::piece_index_t(p)); } catch (...) {}
                 }

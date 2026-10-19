@@ -153,8 +153,16 @@ class TransferMedia {
   );
 }
 
+/// A transfer cannot fetch this resource; another transfer may.
+class TransferUnavailable implements Exception {
+  const TransferUnavailable(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
+
 /// A way of turning a magnet or torrent into local files: BT through
-/// libtorrent, or PikPak offline download followed by a local copy.
+/// libtorrent, or PikPak reading content it already stores from its CDN.
 abstract interface class Transfer {
   CacheMethod get method;
 

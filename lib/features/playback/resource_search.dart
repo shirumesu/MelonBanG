@@ -137,12 +137,12 @@ class ResourceSearchController extends ChangeNotifier {
     return sources.episodes(candidate.provider, target.chooseFrom!);
   }
 
-  Future<void> enqueue(
+  Future<DownloadTask> enqueue(
     ReleaseCandidate candidate, {
     CacheMethod? method,
   }) async {
     await downloadsReady();
-    await selection.releases.enqueue(candidate, method: method);
+    return selection.releases.enqueue(candidate, method: method);
   }
 
   @override

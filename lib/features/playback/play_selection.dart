@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
@@ -204,23 +205,28 @@ class PlaySelectionRepository {
           : CacheMethod.bt,
     );
     final id = task.id;
-    final deadline = DateTime.now().add(const Duration(seconds: 45));
-    while (DateTime.now().isBefore(deadline)) {
-      cancel?.throwIfCancelled();
-      try {
-        downloads.media(id);
-        return await library.fromDownload(id);
-      } on StateError catch (e) {
-        final current = downloads.snapshot().task(id);
-        if (current == null ||
-            current.status == DownloadStatus.failed ||
-            '$e'.contains('多个视频')) {
-          rethrow;
+    // A magnet plays once its metadata names the files; that takes as long
+    // as the swarm takes, so wait for it rather than for a fixed time.
+    final changes = StreamIterator(downloads.changes.stream);
+    try {
+      while (true) {
+        cancel?.throwIfCancelled();
+        try {
+          downloads.media(id);
+          return await library.fromDownload(id);
+        } on StateError catch (e) {
+          final current = downloads.snapshot().task(id);
+          if (current == null ||
+              current.status == DownloadStatus.failed ||
+              '$e'.contains('多个视频')) {
+            rethrow;
+          }
+          await changes.moveNext();
         }
-        await Future<void>.delayed(const Duration(milliseconds: 500));
       }
+    } finally {
+      await changes.cancel();
     }
-    throw StateError('资源正在获取文件信息，请稍后从缓存列表播放');
   }
 
   void played(int subjectId, PlayCandidate candidate) =>

@@ -9,10 +9,18 @@ import '../../core/credentials.dart';
 import '../../core/json.dart';
 
 class PikPakException implements Exception {
-  const PikPakException(this.message, {this.code = 0, this.status = 0});
+  const PikPakException(
+    this.message, {
+    this.code = 0,
+    this.status = 0,
+    this.reason = '',
+  });
   final String message;
   final int code;
   final int status;
+
+  /// The server's `error` identifier, such as `captcha_invalid`.
+  final String reason;
   @override
   String toString() => message;
 }
@@ -20,6 +28,22 @@ class PikPakException implements Exception {
 class PikPakCaptchaRequired extends PikPakException {
   const PikPakCaptchaRequired(this.url) : super('PikPak 需要网页验证，请完成验证后重试。');
   final Uri url;
+}
+
+/// PikPak does not hold the content of [name].
+class PikPakContentMissing extends PikPakException {
+  const PikPakContentMissing(this.name) : super('PikPak 没有收录 $name');
+  final String name;
+}
+
+/// A leaf file of a torrent in PikPak's content index. A null [gcid] means
+/// PikPak has never stored it.
+class PikPakIndexedFile {
+  const PikPakIndexedFile(this.path, this.size, this.gcid);
+  final String path;
+  final int size;
+  final String? gcid;
+  String get name => path.split('/').last;
 }
 
 /// Native PikPak protocol; account credentials and tokens stay in secure storage.
@@ -54,6 +78,7 @@ class PikPakClient {
   ];
 
   Json? _tokens;
+  Future<String>? _scratch;
   String _deviceId = _newDeviceId();
   String _captchaToken = '';
   DateTime _captchaExpiry = DateTime.fromMillisecondsSinceEpoch(0);
@@ -108,6 +133,7 @@ class PikPakClient {
       if ('${saved['refresh_token'] ?? ''}'.isNotEmpty &&
           '${saved['sub'] ?? ''}'.isNotEmpty) {
         _tokens = saved;
+        _scratch = null;
         _deviceId = '${saved['device_id'] ?? _deviceId}';
       }
     }
@@ -155,6 +181,7 @@ class PikPakClient {
       );
     }
     await _saveTokens(response, username, generation);
+    _scratch = null;
     _needsAuthorization = false;
     _clearCaptcha();
   }
@@ -162,6 +189,7 @@ class PikPakClient {
   Future<void> signOut() async {
     ++_generation;
     _tokens = null;
+    _scratch = null;
     _needsAuthorization = false;
     _clearCaptcha();
     await _write(null);
@@ -350,67 +378,161 @@ class PikPakClient {
     }
   }
 
-  Future<Json> offlineDownload(String magnet) => _request(
-    'POST',
-    '/drive/v1/files',
-    body: {
-      'kind': 'drive#file',
-      'upload_type': 'UPLOAD_TYPE_URL',
-      'folder_type': 'DOWNLOAD',
-      'url': {'url': magnet},
-    },
-  );
-
-  Future<Json> task(String id) =>
-      _request('GET', '/drive/v1/tasks/${Uri.encodeComponent(id)}');
-
-  Future<Json> file(String id) => _request(
-    'GET',
-    '/drive/v1/files/${Uri.encodeComponent(id)}',
-    query: {'usage': 'FETCH'},
-  );
-
-  Future<List<Json>> files(String rootId) async {
-    final root = await file(rootId);
-    if (root['kind'] != 'drive#folder') {
-      return [
-        {...root, 'path': root['name']},
-      ];
-    }
-    final result = <Json>[];
-    Future<void> visit(String id, String prefix) async {
-      var page = '';
-      do {
-        final response = await _request(
-          'GET',
-          '/drive/v1/files',
-          query: {
-            'parent_id': id,
-            'limit': '100',
-            'page_token': page,
-            'filters': jsonEncode({
-              'trashed': {'eq': false},
-            }),
-          },
-        );
-        for (final entry in objects(response['files'])) {
-          final path = '$prefix${entry['name']}';
-          if (entry['kind'] == 'drive#folder') {
-            await visit('${entry['id']}', '$path/');
-          } else {
-            result.add({...entry, 'path': path});
-          }
+  /// The torrent's files as PikPak's content index knows them, without an
+  /// offline task; null when PikPak has never seen the torrent. A torrent
+  /// with one root folder lists paths inside it.
+  Future<List<PikPakIndexedFile>?> resolveMagnet(String magnet) async {
+    final response = await _request(
+      'POST',
+      '/drive/v1/resource/list',
+      body: {'urls': magnet, 'page_size': 500, 'thumbnail_type': 'FROM_HASH'},
+    );
+    final top = objects(object(response['list'])['resources']);
+    final files = <PikPakIndexedFile>[];
+    void collect(List<Json> entries, String prefix) {
+      for (final entry in entries) {
+        final name = '${entry['name'] ?? ''}';
+        if (name.isEmpty) continue;
+        final path = prefix.isEmpty ? name : '$prefix/$name';
+        if (entry['is_dir'] == true) {
+          collect(objects(object(entry['dir'])['resources']), path);
+        } else {
+          final hash = '${object(entry['meta'])['hash'] ?? ''}';
+          files.add(
+            PikPakIndexedFile(
+              path,
+              int.tryParse('${entry['file_size']}') ?? 0,
+              hash.isEmpty ? null : hash.toUpperCase(),
+            ),
+          );
         }
-        page = '${response['next_page_token'] ?? ''}';
-      } while (page.isNotEmpty);
+      }
     }
 
-    await visit(rootId, '');
-    return result;
+    if (top.length == 1 && top.single['is_dir'] == true) {
+      collect(objects(object(top.single['dir'])['resources']), '');
+    } else {
+      collect(top, '');
+    }
+    // An unknown torrent answers one placeholder entry without a hash.
+    return files.any((file) => file.gcid != null) ? files : null;
   }
 
+  /// Free drive space in bytes; null when the account has no limit.
+  Future<int?> freeSpace() async {
+    final quota = object((await _request('GET', '/drive/v1/about'))['quota']);
+    final limit = int.tryParse('${quota['limit']}') ?? 0;
+    if (limit <= 0) return null;
+    return limit - (int.tryParse('${quota['usage']}') ?? 0);
+  }
+
+  /// A signed download link for content PikPak already stores, without
+  /// keeping a drive file: the file is created from its hash in a scratch
+  /// folder and deleted once its link is read. The link outlives the file.
+  /// Each lease is charged against the account's upload allowance.
+  Future<String> lease(PikPakIndexedFile file) async {
+    Future<Json> create() async => object(
+      (await _request(
+        'POST',
+        '/drive/v1/files',
+        body: {
+          'kind': 'drive#file',
+          'name': file.name,
+          'size': '${file.size}',
+          'hash': file.gcid,
+          'upload_type': 'UPLOAD_TYPE_RESUMABLE',
+          'parent_id': await _folder(),
+          'body': {'duration': '', 'width': '', 'height': ''},
+          'objProvider': {'provider': 'UPLOAD_TYPE_UNKNOWN'},
+        },
+      ))['file'],
+    );
+    Json created;
+    try {
+      created = await create();
+    } on PikPakException catch (error) {
+      // The folder was deleted elsewhere; resolving it again recreates it.
+      if (error.status != 404 && !error.reason.contains('not_found')) rethrow;
+      _scratch = null;
+      created = await create();
+    }
+    final id = '${created['id']}';
+    try {
+      // Anything but complete waits for bytes a hash-only create never sends.
+      if (created['phase'] != 'PHASE_TYPE_COMPLETE') {
+        throw PikPakContentMissing(file.name);
+      }
+      final detail = await _request(
+        'GET',
+        '/drive/v1/files/$id',
+        query: {'usage': 'FETCH'},
+      );
+      final original = object(
+        object(detail['links'])['application/octet-stream'],
+      )['url'];
+      return '${original ?? detail['web_content_link']}';
+    } finally {
+      // A delete that does not land is swept with the scratch folder later.
+      _delete([id]).ignore();
+    }
+  }
+
+  static const _scratchName = 'MelonBanG-Temp';
+
+  Future<String> _folder() =>
+      _scratch ??= _scratchFolder().onError<Object>((error, stack) {
+        _scratch = null;
+        Error.throwWithStackTrace(error, stack);
+      });
+
+  /// The scratch folder for leases, emptied of objects an earlier run left
+  /// behind when it stopped between a lease's create and delete.
+  Future<String> _scratchFolder() async {
+    final root = await _request(
+      'GET',
+      '/drive/v1/files',
+      query: {
+        'parent_id': '',
+        'limit': '500',
+        'filters': jsonEncode({
+          'kind': {'eq': 'drive#folder'},
+          'trashed': {'eq': false},
+        }),
+      },
+    );
+    final existing = objects(root['files'])
+        .where((entry) => entry['name'] == _scratchName)
+        .firstOrNull;
+    if (existing == null) {
+      final created = await _request(
+        'POST',
+        '/drive/v1/files',
+        body: {'kind': 'drive#folder', 'name': _scratchName},
+      );
+      return '${object(created['file'])['id']}';
+    }
+    final id = '${existing['id']}';
+    final left = await _request(
+      'GET',
+      '/drive/v1/files',
+      query: {'parent_id': id, 'limit': '500'},
+    );
+    await _delete([
+      for (final entry in objects(left['files'])) '${entry['id']}',
+    ]);
+    return id;
+  }
+
+  Future<void> _delete(List<String> ids) async {
+    if (ids.isEmpty) return;
+    await _request('POST', '/drive/v1/files:batchDelete', body: {'ids': ids});
+  }
+
+  // Code 9 also reports a file in the recycle bin; captcha rejections name
+  // themselves.
   static bool _isCaptchaError(PikPakException error) =>
-      error.code == 9 || error.code == 4002;
+      (error.code == 9 && error.reason.startsWith('captcha')) ||
+      error.code == 4002;
 
   static int _integer(dynamic value, {int fallback = 0}) =>
       value is num ? value.toInt() : int.tryParse('$value') ?? fallback;
@@ -473,6 +595,7 @@ class PikPakClient {
         'PikPak：$message',
         code: code,
         status: response.statusCode,
+        reason: '${result['error'] ?? ''}',
       );
     }
     return result;

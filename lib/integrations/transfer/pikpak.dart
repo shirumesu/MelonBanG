@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -14,23 +14,23 @@ import '../../domain/transfer.dart';
 import 'pikpak_client.dart';
 import 'records.dart';
 
-/// PikPak offline download followed by a local copy. Cloud acquisition and
-/// local cache records have independent lifetimes.
+/// PikPak as a download accelerator: files PikPak already stores are read
+/// from its CDN over several connections into the media cache, and served to
+/// the player from there while they arrive. Nothing stays in the user's
+/// drive; resources PikPak has not stored are BT's.
 class PikPakTransfer implements Transfer {
   PikPakTransfer(
     this.store,
     String directory,
     this.client, {
     http.Client? transferClient,
-    this.pollInterval = const Duration(seconds: 5),
   }) : directory = p.normalize(p.absolute(directory)),
-       _transfer = transferClient ?? http.Client();
+       _http = transferClient ?? http.Client();
 
   final AppStore store;
   final String directory;
   final PikPakClient client;
-  final Duration pollInterval;
-  final http.Client _transfer;
+  final http.Client _http;
   @override
   CacheMethod get method => CacheMethod.pikpak;
   final _changes = StreamController<void>.broadcast();
@@ -39,9 +39,19 @@ class PikPakTransfer implements Transfer {
   final _tasks = <String, Json>{};
   final _adding = <String, Future<Json>>{};
   final _removing = <String, Future<void>>{};
+  final _fetches = <String, _Fetch>{};
+  final _streams = <int, _Fetch>{};
+  final _links = <String, Future<String>>{};
+  final _received = <String, int>{};
   Future<void>? _worker, _writes, _closing;
+  Future<HttpServer>? _server;
   String? _runningId;
-  Completer<void>? _abort, _wake;
+  Completer<void>? _halt;
+  Timer? _ticker;
+  int _ticks = 0;
+  // Distinct from libtorrent's stream ids: the player releases streams by id
+  // across transfers.
+  int _nextStream = 1 << 40;
   bool _closed = false;
 
   @override
@@ -55,9 +65,10 @@ class PikPakTransfer implements Transfer {
         file['path'] = p.join('${task['savePath']}', '${file['relativePath']}');
         return file;
       }).toList();
-      await _reconcileFiles(task);
+      await _reconcile(task);
       _tasks[id] = task;
     }
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     _schedule();
     _emit();
   }
@@ -80,34 +91,29 @@ class PikPakTransfer implements Transfer {
     List<String> releaseGroups = const [],
   }) async {
     _requireOpen();
-    final owner = client.userId;
-    if (!client.isSignedIn || owner == null) {
-      throw StateError('请先在设置中登录 PikPak');
-    }
+    if (!client.isSignedIn) throw StateError('请先在设置中登录 PikPak');
     final fingerprint = magnetInfoHash(magnet);
-    final key = '$owner:$fingerprint';
     return downloadTask(
       await _adding.putIfAbsent(
-        key,
+        fingerprint,
         () =>
             _create(
               magnet.toString(),
-              owner,
               fingerprint,
-              title ?? magnet.queryParameters['dn'] ?? 'PikPak 云端缓存',
+              title ?? magnet.queryParameters['dn'],
               subjectId,
               episodeId,
               coverUrl,
               releaseGroups,
             ).whenComplete(() {
-              _adding.remove(key);
+              _adding.remove(fingerprint);
             }),
       ),
       CacheMethod.pikpak,
     );
   }
 
-  /// PikPak accepts magnets only; the torrent is reduced to its info hash.
+  /// PikPak resolves magnets only; the torrent is reduced to its info hash.
   @override
   Future<DownloadTask> addTorrent(
     Uint8List bytes,
@@ -130,22 +136,18 @@ class PikPakTransfer implements Transfer {
 
   Future<Json> _create(
     String input,
-    String owner,
     String fingerprint,
-    String title,
+    String? title,
     int? subjectId,
     int? episodeId,
     String? coverUrl,
     List<String> releaseGroups,
   ) async {
     coverUrl ??= await cachedCover(store, subjectId);
-    await _removing['$owner:$fingerprint'];
+    await _removing[fingerprint];
     _requireOpen();
     final existing = _tasks.values
-        .where(
-          (task) =>
-              task['ownerId'] == owner && task['fingerprint'] == fingerprint,
-        )
+        .where((task) => task['fingerprint'] == fingerprint)
         .firstOrNull;
     if (existing != null) {
       if (releaseGroups.isNotEmpty &&
@@ -156,31 +158,77 @@ class PikPakTransfer implements Transfer {
       }
       return existing;
     }
+    final indexed = await client.resolveMagnet(input);
+    if (indexed == null) throw const TransferUnavailable('PikPak 未收录该资源');
+    if (indexed.any((file) => _isVideo(file.name) && file.gcid == null)) {
+      throw const TransferUnavailable('PikPak 只收录了该资源的部分视频');
+    }
+    final files = [
+      for (final file in indexed)
+        if (file.gcid != null && file.size > 0) file,
+    ];
+    final video = files.where((file) => _isVideo(file.name)).firstOrNull;
+    if (video == null) throw const TransferUnavailable('PikPak 未收录该资源的视频');
+    // A lease briefly takes the file's size of drive space.
+    final free = await client.freeSpace();
+    final largest = files.map((file) => file.size).reduce(max);
+    if (free != null && free < largest) {
+      throw const TransferUnavailable('PikPak 剩余空间不足以中转该资源');
+    }
+    try {
+      await _lease(video);
+    } on PikPakContentMissing {
+      throw const TransferUnavailable('PikPak 未收录该资源');
+    }
+    _requireOpen();
     final id = newId();
+    final savePath = p.join(directory, id);
+    final used = <String>{};
     final task = <String, dynamic>{
       'id': id,
       'provider': 'pikpak',
-      'ownerId': owner,
       'createdAt': DateTime.now().millisecondsSinceEpoch,
       'kind': 'magnet',
       'input': input,
       'fingerprint': fingerprint,
-      'title': title,
+      'title': title ?? indexed.first.path.split('/').first,
       if (releaseGroups.isNotEmpty)
         'releaseGroups': List<String>.of(releaseGroups),
-      'savePath': p.join(directory, id),
+      'savePath': savePath,
       'subjectId': subjectId,
       'episodeId': episodeId,
       'coverUrl': coverUrl,
       'status': 'queued',
-      'phase': 'cloud',
       'progress': 0.0,
-      'cloudProgress': 0.0,
       'complete': false,
       'manualPaused': false,
       'downloadSpeedBytesPerSecond': 0,
-      'files': <Json>[],
+      'files': [
+        for (final (index, file) in files.indexed)
+          () {
+            var relative = _relativePath(file.path);
+            if (!used.add(relative.toLowerCase())) {
+              relative = p.join('$index', relative);
+              used.add(relative.toLowerCase());
+            }
+            return <String, dynamic>{
+              'id': '$index',
+              'downloadId': id,
+              'name': file.name,
+              'relativePath': relative,
+              'path': p.join(savePath, relative),
+              'size': file.size,
+              'gcid': file.gcid,
+              'ranges': <List<int>>[],
+              'downloadedBytes': 0,
+              'progress': 0.0,
+              'complete': false,
+              'mediaKind': _isVideo(file.name) ? 'video' : 'other',
+            };
+          }(),
+      ],
     };
+    _updateProgress(task);
     _tasks[id] = task;
     await _persist(task);
     _schedule();
@@ -188,337 +236,238 @@ class PikPakTransfer implements Transfer {
     return task;
   }
 
-  bool _owns(Json task) =>
-      client.isSignedIn && client.userId == task['ownerId'];
+  Future<String> _lease(PikPakIndexedFile file) =>
+      _links[file.gcid!] ??= client.lease(file).onError<Object>((error, stack) {
+        _links.remove(file.gcid);
+        Error.throwWithStackTrace(error, stack);
+      });
+
+  Future<String> _link(_Fetch fetch) => _lease(
+    PikPakIndexedFile(
+      '${fetch.file['name']}',
+      fetch.size,
+      '${fetch.file['gcid']}',
+    ),
+  );
+
+  /// Drops [link] once the CDN rejects it, so the next request leases anew.
+  void _expire(_Fetch fetch, Future<String> link) {
+    final gcid = '${fetch.file['gcid']}';
+    if (identical(_links[gcid], link)) _links.remove(gcid);
+  }
+
   bool _active(Json task) =>
       !_closed &&
       identical(_tasks[task['id']], task) &&
       task['manualPaused'] != true &&
-      _owns(task);
+      client.isSignedIn;
 
   void _schedule() {
     if (_closed || _worker != null) return;
     for (final task in _tasks.values) {
       if (task['complete'] == true ||
           task['manualPaused'] == true ||
-          task['status'] == 'failed') {
+          task['status'] == 'failed' ||
+          _fetched(task)) {
         continue;
       }
-      if (!_owns(task)) {
-        task['status'] = 'paused';
-        task['errorMessage'] = '登录创建此缓存的 PikPak 账号后可继续';
-      } else {
+      if (client.isSignedIn) {
         task['status'] = 'queued';
+        task['errorMessage'] = null;
+      } else {
+        task['status'] = 'paused';
+        task['errorMessage'] = '登录 PikPak 后可继续';
       }
     }
     final next = _tasks.values
-        .where(
-          (task) =>
-              _active(task) &&
-              task['complete'] != true &&
-              task['status'] != 'failed',
-        )
+        .where((task) => _active(task) && task['status'] == 'queued')
         .firstOrNull;
     if (next == null) return;
     _runningId = '${next['id']}';
+    _halt = Completer<void>();
     _worker = _run(next).whenComplete(() {
       _worker = null;
       _runningId = null;
-      _abort = null;
+      _halt = null;
       _schedule();
       _emit();
     });
   }
 
   Future<void> _run(Json task) async {
+    final halt = _halt!.future;
     try {
       task['errorMessage'] = null;
-      if (objects(task['files']).isEmpty) await _acquire(task);
-      if (!_active(task)) return;
-      task['phase'] = 'local';
+      await _index(task);
       task['status'] = 'downloading';
-      await _reconcileFiles(task);
-      await _persist(task);
-      if (!_active(task)) return;
       _emit();
       for (final file in (task['files'] as List).cast<Json>()) {
         if (!_active(task)) return;
         if (file['complete'] == true) continue;
-        await _cacheFile(task, file);
+        final fetch = _fetch(task, file);
+        fetch.hold();
+        try {
+          await Future.any([fetch.running ?? Future<void>.value(), halt]);
+        } finally {
+          fetch.release();
+        }
+        if (fetch.error case final error?) throw error;
       }
       if (!_active(task)) return;
-      _updateProgress(task);
-      task['complete'] = true;
-      task['status'] = 'completed';
-      task['progress'] = 1.0;
-      task['downloadSpeedBytesPerSecond'] = 0;
+      _checkComplete(task);
       await _persist(task);
     } catch (error) {
       if (!_active(task)) return;
       task['status'] = 'failed';
       task['errorMessage'] = '$error';
       task['downloadSpeedBytesPerSecond'] = 0;
-      try {
-        await _persist(task);
-      } catch (_) {
-        // The next explicit retry also retries saving the record.
-      }
+      await _persist(task);
     } finally {
-      task['downloadSpeedBytesPerSecond'] = 0;
       _emit();
     }
   }
 
-  Future<void> _acquire(Json task) async {
+  /// Fills content hashes missing from records written before PikPak tasks
+  /// read its content index.
+  Future<void> _index(Json task) async {
+    final files = (task['files'] as List).cast<Json>();
+    if (files.every(
+      (file) => file['complete'] == true || file['gcid'] != null,
+    )) {
+      return;
+    }
     task['status'] = 'metadata';
-    task['phase'] = 'cloud';
     _emit();
-    if (task['cloudTaskId'] == null && task['cloudRootId'] == null) {
-      final result = await client.offlineDownload('${task['input']}');
-      if (!identical(_tasks[task['id']], task)) return;
-      final remote = object(result['task']).isEmpty
-          ? result
-          : object(result['task']);
-      task['cloudTaskId'] = remote['id'];
-      task['cloudRootId'] = remote['file_id'] ?? object(result['file'])['id'];
-      if (task['cloudTaskId'] == null && task['cloudRootId'] == null) {
-        throw StateError('PikPak 未返回云端任务');
-      }
-      await _persist(task);
-      if (!_active(task)) return;
-    }
-    while (_active(task) && task['cloudTaskId'] != null) {
-      final remote = await client.task('${task['cloudTaskId']}');
-      if (!_active(task)) return;
-      final phase = '${remote['phase']}';
-      task['cloudProgress'] = (_integer(remote['progress']) / 100).clamp(
-        0.0,
-        1.0,
-      );
-      task['cloudRootId'] = remote['file_id'] ?? task['cloudRootId'];
-      if (phase == 'PHASE_TYPE_ERROR') {
-        task.remove('cloudTaskId');
-        task.remove('cloudRootId');
-        throw StateError(
-          '${remote['message'] ?? remote['reason'] ?? 'PikPak 云端下载失败'}',
-        );
-      }
-      _emit();
-      if (phase == 'PHASE_TYPE_COMPLETE') break;
-      _wake = Completer<void>();
-      final timer = Timer(pollInterval, () {
-        if (!_wake!.isCompleted) _wake!.complete();
-      });
-      await _wake!.future;
-      timer.cancel();
-      _wake = null;
-    }
-    if (!_active(task)) return;
-    final root = task['cloudRootId'];
-    if (root == null || '$root'.isEmpty) throw StateError('PikPak 云端文件尚未就绪');
-    final leaves = await client.files('$root');
-    if (!_active(task)) return;
-    if (leaves.isEmpty) throw StateError('PikPak 云端任务没有可缓存文件');
-    final usedPaths = <String>{};
-    task['files'] = leaves.map((remote) {
-      final name = '${remote['name'] ?? remote['id']}';
-      var relative = _relativePath('${remote['path'] ?? name}');
-      if (!usedPaths.add(relative.toLowerCase())) {
-        relative = p.join('${remote['id']}', relative);
-        usedPaths.add(relative.toLowerCase());
-      }
-      return <String, dynamic>{
-        'id': '${remote['id']}',
-        'cloudFileId': '${remote['id']}',
-        'downloadId': task['id'],
-        'name': name,
-        'relativePath': relative,
-        'path': p.join('${task['savePath']}', relative),
-        'size': _size(remote['size']),
-        'downloadedBytes': 0,
-        'progress': 0.0,
-        'complete': false,
-        'mediaKind':
-            '${remote['mime_type']}'.startsWith('video/') ||
-                const {
-                  '.mkv',
-                  '.mp4',
-                  '.avi',
-                  '.webm',
-                  '.mov',
-                  '.m4v',
-                  '.ts',
-                  '.wmv',
-                }.contains(p.extension(name).toLowerCase())
-            ? 'video'
-            : 'other',
-      };
-    }).toList();
-    task['cloudProgress'] = 1.0;
-    await _persist(task);
-  }
-
-  Future<void> _cacheFile(Json task, Json file) async {
-    final target = File('${file['path']}');
-    final partial = File('${file['path']}.part');
-    await target.parent.create(recursive: true);
-    var offset = await partial.exists() ? await partial.length() : 0;
-    var declaredSize = _size(file['size']);
-    if (offset == declaredSize) {
-      if (!await partial.exists()) await partial.writeAsBytes([]);
-      await partial.rename(target.path);
-      file['downloadedBytes'] = declaredSize;
-      file['complete'] = true;
-      file['progress'] = 1.0;
-      _updateProgress(task);
-      await _persist(task);
-      return;
-    }
-    if (offset > declaredSize && declaredSize > 0) {
-      await partial.writeAsBytes([]);
-      offset = 0;
-    }
-    final remote = await client.file('${file['cloudFileId']}');
-    if (!_active(task)) return;
-    if (declaredSize < 0) declaredSize = _size(remote['size']);
-    final address = _downloadAddress(remote);
-    _abort = Completer<void>();
-    final request =
-        http.AbortableRequest(
-            'GET',
-            Uri.parse(address),
-            abortTrigger: _abort!.future,
-          )
-          ..headers['Accept'] = 'application/octet-stream'
-          ..headers['Accept-Encoding'] = 'identity';
-    if (offset > 0) request.headers['Range'] = 'bytes=$offset-';
-    final response = await _transfer
-        .send(request)
-        .timeout(
-          const Duration(seconds: 45),
-          onTimeout: () {
-            if (_abort?.isCompleted == false) _abort!.complete();
-            throw TimeoutException('PikPak 文件连接超时，请重试');
-          },
-        );
-    if (!_active(task)) {
-      await response.stream.listen(null).cancel();
-      return;
-    }
-    var expected = declaredSize;
-    if (response.statusCode == 206) {
-      final range = RegExp(r'^bytes (\d+)-(\d+)/(\d+)$')
-          .firstMatch(response.headers['content-range'] ?? '');
-      if (range == null ||
-          int.parse(range[1]!) != offset ||
-          int.parse(range[2]!) + 1 != int.parse(range[3]!) ||
-          (declaredSize >= 0 && int.parse(range[3]!) != declaredSize)) {
-        await response.stream.listen(null).cancel();
-        throw StateError('PikPak 返回的续传范围不匹配，请重试');
-      }
-      expected = int.parse(range[3]!);
-    } else if (response.statusCode == 200) {
-      offset = 0;
-      final length = response.contentLength;
-      if (declaredSize >= 0 && length != null && length != declaredSize) {
-        await response.stream.listen(null).cancel();
-        throw StateError('PikPak 返回的文件大小不匹配');
-      }
-      expected = length ?? declaredSize;
-    } else {
-      await response.stream.listen(null).cancel();
-      throw HttpException('PikPak 文件下载失败（HTTP ${response.statusCode}）');
-    }
-    if (expected < 0) {
-      await response.stream.listen(null).cancel();
-      throw StateError('PikPak 未提供可校验的文件大小');
-    }
-    file['size'] = expected;
-    final sink = partial.openWrite(
-      mode: offset > 0 ? FileMode.append : FileMode.write,
-    );
-    var received = offset, lastBytes = offset, lastTick = 0;
-    final clock = Stopwatch()..start();
-    try {
-      await sink.addStream(
-        response.stream.timeout(const Duration(seconds: 45)).map((bytes) {
-          if (!_active(task)) throw StateError('缓存任务已停止');
-          received += bytes.length;
-          if (received > expected) throw StateError('PikPak 文件内容超出预期大小');
-          file['downloadedBytes'] = received;
-          file['progress'] = received / expected;
-          final now = clock.elapsedMilliseconds;
-          if (now - lastTick >= 500) {
-            task['downloadSpeedBytesPerSecond'] =
-                ((received - lastBytes) * 1000 / (now - lastTick)).round();
-            lastTick = now;
-            lastBytes = received;
-            _updateProgress(task);
-            _emit();
-          }
-          return bytes;
-        }),
-      );
-      await sink.flush();
-    } finally {
-      await sink.close();
-      _abort = null;
-    }
-    if (!_active(task)) return;
-    if (received != expected || await partial.length() != expected) {
-      throw StateError('PikPak 文件尚未完整缓存，可继续下载');
-    }
-    await partial.rename(target.path);
-    file['complete'] = true;
-    file['progress'] = 1.0;
-    _updateProgress(task);
-    await _persist(task);
-    _emit();
-  }
-
-  Future<void> _reconcileFiles(Json task) async {
-    final files = objects(task['files']);
+    final indexed = {
+      for (final file in await client.resolveMagnet('${task['input']}') ?? [])
+        _relativePath(file.path): file.gcid,
+    };
     for (final file in files) {
-      final target = File('${file['path']}'),
-          partial = File('${file['path']}.part');
-      final size = _integer(file['size']);
-      final complete = await target.exists() && await target.length() == size;
-      final bytes = complete
-          ? size
-          : await partial.exists()
-          ? await partial.length()
-          : 0;
-      file['complete'] = complete;
-      file['downloadedBytes'] = bytes;
-      file['progress'] = complete
-          ? 1.0
-          : size > 0
-          ? (bytes / size).clamp(0.0, 1.0)
-          : 0.0;
+      if (file['complete'] == true) continue;
+      file['gcid'] ??=
+          indexed[file['relativePath']] ??
+          (throw StateError('PikPak 已不再收录 ${file['name']}，请改用 BT 下载'));
     }
-    task['files'] = files;
-    task['complete'] =
-        files.isNotEmpty && files.every((file) => file['complete'] == true);
+    await _persist(task);
+  }
+
+  /// Every byte is local; files the player still reads are renamed later.
+  bool _fetched(Json task) => (task['files'] as List).cast<Json>().every(
+    (file) =>
+        file['complete'] == true ||
+        _fetches['${task['id']}/${file['id']}']?.done == true,
+  );
+
+  _Fetch _fetch(Json task, Json file) => _fetches.putIfAbsent(
+    '${task['id']}/${file['id']}',
+    () => _Fetch(this, task, file),
+  );
+
+  /// Renames a fully fetched file once no player connection reads it; an
+  /// open file cannot be renamed on Windows.
+  Future<void> _finish(_Fetch fetch) async {
+    if (!fetch.done ||
+        fetch.running != null ||
+        fetch.readers.isNotEmpty ||
+        fetch.file['complete'] == true ||
+        fetch.finishing != null) {
+      return;
+    }
+    final finishing = File(fetch.partPath).rename(fetch.path);
+    fetch.finishing = finishing;
+    await finishing;
+    fetch.file['complete'] = true;
+    fetch.finishing = null;
+    _checkComplete(fetch.task);
+    await _persist(fetch.task);
+    _emit();
+  }
+
+  void _checkComplete(Json task) {
+    _updateProgress(task);
+    final files = objects(task['files']);
+    if (files.isEmpty || files.any((file) => file['complete'] != true)) return;
+    task['complete'] = true;
+    task['status'] = 'completed';
+    task['progress'] = 1.0;
+    task['downloadSpeedBytesPerSecond'] = 0;
+  }
+
+  void _tick() {
+    if (_closed) return;
+    final active = {
+      for (final fetch in _fetches.values)
+        if (fetch.running != null) fetch.task,
+    };
+    var changed = active.isNotEmpty;
+    for (final task in _tasks.values) {
+      final speed = _received[task['id']] ?? 0;
+      if (task['downloadSpeedBytesPerSecond'] != speed) {
+        task['downloadSpeedBytesPerSecond'] = speed;
+        changed = true;
+      }
+    }
+    _received.clear();
+    if (!changed) return;
+    for (final task in active) {
+      _updateProgress(task);
+    }
+    if (++_ticks % 5 == 0) {
+      for (final task in active) {
+        // A failed save is retried by the next one.
+        _persist(task).ignore();
+      }
+    }
+    _emit();
+  }
+
+  Future<void> _reconcile(Json task) async {
+    for (final file in objects(task['files'])) {
+      final size = _integer(file['size']);
+      if (await File('${file['path']}').exists() &&
+          await File('${file['path']}').length() == size) {
+        file['complete'] = true;
+        file['ranges'] = [
+          [0, size],
+        ];
+        continue;
+      }
+      final partial = File('${file['path']}.part');
+      final length = await partial.exists() ? await partial.length() : 0;
+      file['complete'] = false;
+      file['ranges'] = (_Ranges.fromJson(
+        file['ranges'],
+      )..clip(length)).toJson();
+    }
+    task['files'] = objects(task['files']);
+    task['complete'] = objects(task['files'])
+        .every((file) => file['complete'] == true);
     if (task['complete'] == true) task['status'] = 'completed';
     _updateProgress(task);
   }
 
   void _updateProgress(Json task) {
-    final files = objects(task['files']);
-    final total = files.fold<int>(
-      0,
-      (sum, file) => sum + _integer(file['size']).clamp(0, 1 << 62),
-    );
-    final bytes = files.fold<int>(
-      0,
-      (sum, file) => sum + _integer(file['downloadedBytes']),
-    );
+    var total = 0, bytes = 0;
+    for (final file in (task['files'] as List).cast<Json>()) {
+      final fetch = _fetches['${task['id']}/${file['id']}'];
+      if (fetch != null) file['ranges'] = fetch.have.toJson();
+      final size = _integer(file['size']);
+      final have = _Ranges.fromJson(file['ranges']).total;
+      file['downloadedBytes'] = have;
+      file['progress'] = file['complete'] == true
+          ? 1.0
+          : size > 0
+          ? have / size
+          : 0.0;
+      total += size;
+      bytes += have;
+    }
     task['totalBytes'] = total;
     task['downloadedBytes'] = bytes;
     task['progress'] = task['complete'] == true
         ? 1.0
         : total > 0
-        ? (bytes / total).clamp(0.0, 1.0)
+        ? bytes / total
         : 0.0;
   }
 
@@ -528,10 +477,12 @@ class PikPakTransfer implements Transfer {
     final task = _task(id);
     task['manualPaused'] = true;
     task['status'] = 'paused';
-    await _stop(id);
-    await _reconcileFiles(task);
+    await _stopWorker(id);
     if (task['complete'] != true) task['status'] = 'paused';
+    task['downloadSpeedBytesPerSecond'] = 0;
+    _updateProgress(task);
     await _persist(task);
+    _schedule();
     _emit();
   }
 
@@ -540,13 +491,11 @@ class PikPakTransfer implements Transfer {
     _requireOpen();
     final task = _task(id);
     if (task['complete'] == true) return;
-    if (!_owns(task)) throw StateError('请登录创建此缓存的 PikPak 账号');
     if (_runningId == id) {
       if (task['status'] != 'failed' && task['manualPaused'] != true) return;
       await _worker;
       _requireOpen();
       if (!identical(_tasks[id], task)) throw StateError('下载任务不存在');
-      if (!_owns(task)) throw StateError('请登录创建此缓存的 PikPak 账号');
     }
     task['manualPaused'] = false;
     task['errorMessage'] = null;
@@ -574,21 +523,17 @@ class PikPakTransfer implements Transfer {
     } on PikPakCaptchaRequired catch (error) {
       throw SourceVerificationRequired(error.url.toString());
     }
-    await _accountChanged();
-  }
-
-  Future<void> _accountChanged() async {
     _requireOpen();
-    final running = _runningId;
-    if (running != null && !_owns(_task(running))) await _stop(running);
+    if (_runningId case final running? when !client.isSignedIn) {
+      await _stopWorker(running);
+    }
     _schedule();
     _emit();
   }
 
-  Future<void> _stop(String id) async {
+  Future<void> _stopWorker(String id) async {
     if (_runningId != id) return;
-    if (_abort?.isCompleted == false) _abort!.complete();
-    if (_wake?.isCompleted == false) _wake!.complete();
+    if (_halt?.isCompleted == false) _halt!.complete();
     await _worker;
   }
 
@@ -597,7 +542,7 @@ class PikPakTransfer implements Transfer {
     _requireOpen();
     final task = _tasks[id];
     if (task == null) return Future.value();
-    final key = '${task['ownerId']}:${task['fingerprint']}';
+    final key = '${task['fingerprint']}';
     return _removing.putIfAbsent(
       key,
       () => _remove(task).whenComplete(() {
@@ -609,7 +554,16 @@ class PikPakTransfer implements Transfer {
   Future<void> _remove(Json task) async {
     final id = '${task['id']}';
     _tasks.remove(id);
-    await _stop(id);
+    await _stopWorker(id);
+    final fetches = [
+      for (final entry in _fetches.entries.toList())
+        if (entry.key.startsWith('$id/')) entry.value,
+    ];
+    _streams.removeWhere((_, fetch) => fetches.contains(fetch));
+    for (final fetch in fetches) {
+      _fetches.remove('$id/${fetch.file['id']}');
+      await fetch.close();
+    }
     await _writes;
     await store.remove('pikpak_downloads', id);
     final local = Directory(p.join(directory, id));
@@ -625,13 +579,15 @@ class PikPakTransfer implements Transfer {
     if (fileId == null && videos.length > 1) {
       throw StateError('资源包含多个视频，请在缓存列表中选择具体文件');
     }
-    final file = videos
-        .where((file) => fileId == null || file['id'] == fileId)
+    final file = (task['files'] as List)
+        .cast<Json>()
+        .where(
+          (file) =>
+              file['mediaKind'] == 'video' &&
+              (fileId == null || file['id'] == fileId),
+        )
         .firstOrNull;
-    if (file == null) throw StateError('云端下载完成后即可播放');
-    if (file['complete'] != true && !_owns(task)) {
-      throw StateError('请登录创建此缓存的 PikPak 账号');
-    }
+    if (file == null) throw StateError('资源没有可播放的视频');
     return (task, file, videos.length);
   }
 
@@ -650,36 +606,120 @@ class PikPakTransfer implements Transfer {
   Future<TransferMedia> openMedia(String id, {String? fileId}) async {
     final selected = media(id, fileId: fileId);
     if (!selected.incomplete) return selected;
-    final (_, file, _) = _video(id, fileId);
-    final remote = await client.file('${file['cloudFileId']}');
-    if (!_owns(_task(id))) throw StateError('PikPak 账号已切换，请重新选择文件');
+    final (task, file, _) = _video(id, fileId);
+    final fetch = _fetch(task, file);
+    if (!fetch.done && !client.isSignedIn) throw StateError('请先在设置中登录 PikPak');
+    final server = await (_server ??= HttpServer.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    ).then((server) => server..listen(_serve)));
+    final stream = _nextStream++;
+    _streams[stream] = fetch;
+    fetch.hold();
     await resume(id);
     return selected.streaming(
-      _downloadAddress(remote),
-      headers: {'Accept': 'application/octet-stream'},
+      'http://127.0.0.1:${server.port}/stream/$stream',
+      id: stream,
     );
   }
 
-  static const driveUrl = 'https://api-drive.mypikpak.com/drive/v1/files';
+  Future<void> _serve(HttpRequest request) async {
+    final response = request.response;
+    final stream = int.tryParse(request.uri.pathSegments.lastOrNull ?? '');
+    final fetch = _streams[stream];
+    if (fetch == null) {
+      response.statusCode = HttpStatus.notFound;
+      await response.close();
+      return;
+    }
+    final size = fetch.size;
+    final range = RegExp(r'^bytes=(\d*)-(\d*)')
+        .firstMatch(request.headers.value(HttpHeaders.rangeHeader) ?? '');
+    var start = 0, end = size - 1;
+    if (range != null) {
+      if (range[1]!.isEmpty) {
+        start = max(0, size - int.parse(range[2]!));
+      } else {
+        start = int.parse(range[1]!);
+        if (range[2]!.isNotEmpty) end = min(int.parse(range[2]!), size - 1);
+      }
+    }
+    response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+    if (start >= size) {
+      response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$size');
+      await response.close();
+      return;
+    }
+    response.headers.contentType = ContentType.binary;
+    response.contentLength = end - start + 1;
+    if (range != null) {
+      response.statusCode = HttpStatus.partialContent;
+      response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes $start-$end/$size',
+      );
+    }
+    if (request.method == 'HEAD') {
+      await response.close();
+      return;
+    }
+    // The body is written to the socket itself, so a released stream can
+    // drop it even while the player has stopped reading.
+    response.persistentConnection = false;
+    final socket = await response.detachSocket();
+    final reader = _Reader(stream!, start, socket);
+    fetch.readers.add(reader);
+    socket.listen(
+      null,
+      onDone: () => fetch.closeReader(reader),
+      onError: (Object _) => fetch.closeReader(reader),
+      cancelOnError: true,
+    );
+    try {
+      await fetch.send(reader, end + 1);
+    } on IOException {
+      // The player dropped the connection, as it does on a seek.
+    } finally {
+      socket.destroy();
+      fetch.readers.remove(reader);
+      fetch.arrived();
+      unawaited(_finish(fetch));
+    }
+  }
+
+  @override
+  void releaseStreamsExcept(int? keep) {
+    for (final id in _streams.keys.toList()) {
+      if (id == keep) continue;
+      final fetch = _streams.remove(id)!;
+      for (final reader in fetch.readers.toList()) {
+        if (reader.stream == id) fetch.closeReader(reader);
+      }
+      fetch.release();
+    }
+  }
 
   /// Checks that the signed-in drive answers, for source diagnostics.
+  static const driveUrl = 'https://api-drive.mypikpak.com/drive/v1/about';
+
   Future<void> checkAccess() async {
     if (!client.isSignedIn || client.needsAuthorization) {
       throw StateError('请在设置中登录 PikPak 后重试');
     }
     try {
-      await client.files('');
+      await client.freeSpace();
     } on PikPakCaptchaRequired catch (error) {
       throw SourceVerificationRequired(error.url.toString());
     }
   }
 
-  /// Files are read directly from PikPak; there is no local stream to stop.
-  @override
-  void releaseStreamsExcept(int? keep) {}
-
   Future<void> _persist(Json task) {
-    final saved = object(jsonDecode(jsonEncode(task)));
+    _updateProgress(task);
+    final saved = Map<String, dynamic>.of(task)
+      ..['files'] = [
+        for (final file in objects(task['files'])) {...file},
+      ];
     final writing = (_writes ?? Future<void>.value()).then(
       (_) => store.put('pikpak_downloads', '${task['id']}', saved),
     );
@@ -700,26 +740,42 @@ class PikPakTransfer implements Transfer {
   Future<void> close() => _closing ??= _close();
   Future<void> _close() async {
     _closed = true;
-    if (_runningId != null) await _stop(_runningId!);
+    _ticker?.cancel();
+    if (_runningId != null) await _stopWorker(_runningId!);
     await Future.wait(
       _adding.values.map(
         (value) => value.then<void>((_) {}, onError: (Object _) {}),
       ),
     );
     await Future.wait(_removing.values);
+    _streams.clear();
+    for (final fetch in _fetches.values) {
+      await fetch.close();
+    }
     for (final task in _tasks.values) {
-      await _reconcileFiles(task);
+      task['downloadSpeedBytesPerSecond'] = 0;
       await _persist(task);
     }
     await _writes;
-    _transfer.close();
+    await (await _server)?.close(force: true);
+    _http.close();
     await _changes.close();
   }
 
+  static bool _isVideo(String name) => const {
+    '.mkv',
+    '.mp4',
+    '.avi',
+    '.webm',
+    '.mov',
+    '.m4v',
+    '.ts',
+    '.wmv',
+    '.flv',
+    '.rmvb',
+  }.contains(p.extension(name).toLowerCase());
   static int _integer(dynamic value) =>
       value is num ? value.toInt() : int.tryParse('$value') ?? 0;
-  static int _size(dynamic value) =>
-      value is num ? value.toInt() : int.tryParse('$value') ?? -1;
   static String _relativePath(String raw) => p.joinAll(
     raw
         .replaceAll('\\', '/')
@@ -727,16 +783,414 @@ class PikPakTransfer implements Transfer {
         .where((part) => part.isNotEmpty && part != '.' && part != '..')
         .map((part) => part.replaceAll(RegExp(r'[<>:"|?*\x00-\x1f]'), '_')),
   );
-  static String _downloadAddress(Json file) {
-    final original = object(object(file['links'])['application/octet-stream']);
-    for (final candidate in [original['url'], file['web_content_link']]) {
-      final uri = Uri.tryParse('$candidate');
-      if (uri != null &&
-          const {'https', 'http'}.contains(uri.scheme) &&
-          uri.host.isNotEmpty) {
-        return uri.toString();
+}
+
+/// One file's transfer from the CDN into its `.part` file. Up to eight
+/// connections fetch ranges, chosen from where player connections read and
+/// otherwise in file order; the background download and playback share it.
+class _Fetch {
+  _Fetch(this.transfer, this.task, this.file)
+    : size = PikPakTransfer._integer(file['size']),
+      have = _Ranges.fromJson(file['ranges']);
+
+  /// PikPak refuses a ninth simultaneous connection to one signed link.
+  static const connections = 8;
+
+  /// Requests inside a reader's window stay small, so contiguous data ahead
+  /// of the player grows at the speed of every connection together.
+  static const near = 1 << 20, far = 4 << 20, window = 32 << 20;
+  static const idle = Duration(seconds: 20);
+
+  final PikPakTransfer transfer;
+  final Json task, file;
+  final int size;
+  final _Ranges have;
+  final claims = <_Claim>{};
+  final readers = <_Reader>[];
+  int _holders = 0;
+  Future<void>? running, finishing;
+  Object? error;
+  var _work = Completer<void>(), _data = Completer<void>();
+
+  bool get done => have.covers(size);
+  bool get _wanted => _holders > 0 && !transfer._closed;
+  String get path => '${file['path']}';
+  String get partPath => '$path.part';
+
+  void hold() {
+    _holders++;
+    if (running != null) return;
+    if (done) {
+      unawaited(transfer._finish(this));
+      return;
+    }
+    error = null;
+    running = _run().whenComplete(() {
+      running = null;
+      arrived();
+      unawaited(transfer._finish(this));
+    });
+  }
+
+  void release() {
+    if (--_holders == 0) _stop();
+  }
+
+  void _stop() {
+    for (final claim in claims) {
+      claim.abort();
+    }
+    _wake();
+  }
+
+  /// Stops fetching and drops every player connection.
+  Future<void> close() async {
+    _holders = 0;
+    for (final reader in readers.toList()) {
+      closeReader(reader);
+    }
+    _stop();
+    await running;
+    while (readers.isNotEmpty) {
+      await _data.future;
+    }
+  }
+
+  void closeReader(_Reader reader) {
+    reader.closed = true;
+    reader.socket.destroy();
+    arrived();
+  }
+
+  void _fail(Object failure) {
+    error ??= failure;
+    for (final claim in claims) {
+      claim.abort();
+    }
+    arrived();
+    _wake();
+  }
+
+  void _wake() {
+    final work = _work;
+    _work = Completer<void>();
+    work.complete();
+  }
+
+  /// Wakes readers waiting for data, a stop or a failure.
+  void arrived() {
+    final data = _data;
+    _data = Completer<void>();
+    data.complete();
+  }
+
+  Future<void> _run() async {
+    await Directory(p.dirname(path)).create(recursive: true);
+    await File(partPath).create();
+    await Future.wait([for (var i = 0; i < connections; i++) _worker()]);
+  }
+
+  /// One connection. A connection that keeps failing for about fifteen
+  /// seconds without receiving data fails the fetch; a refusal from the API
+  /// fails it at once.
+  Future<void> _worker() async {
+    var failures = 0;
+    while (_wanted && !done && error == null) {
+      final claim = _pick();
+      if (claim == null) {
+        await _work.future;
+        continue;
+      }
+      claims.add(claim);
+      final start = claim.cursor;
+      try {
+        await _download(claim);
+        failures = 0;
+      } on http.RequestAbortedException {
+        // Stopped, or handed to a reader that seeked elsewhere.
+      } on PikPakException catch (failure) {
+        _fail(failure);
+      } catch (failure) {
+        if (claim.cursor > start) failures = 0;
+        if (!_wanted || error != null) break;
+        if (++failures >= 6) {
+          _fail(failure);
+          break;
+        }
+        await Future<void>.delayed(Duration(seconds: min(failures, 4)));
+      } finally {
+        claims.remove(claim);
+        _wake();
       }
     }
-    throw StateError('PikPak 未提供原始文件下载地址');
+    _wake();
   }
+
+  Future<void> _download(_Claim claim) async {
+    final link = transfer._link(this);
+    final url = await link;
+    if (!_wanted || claim.cursor >= claim.end) return;
+    final request =
+        http.AbortableRequest(
+            'GET',
+            Uri.parse(url),
+            abortTrigger: claim.aborted.future,
+          )
+          ..headers['Range'] = 'bytes=${claim.cursor}-${claim.end - 1}'
+          ..headers['Accept-Encoding'] = 'identity';
+    final response = await transfer._http
+        .send(request)
+        .timeout(
+          idle,
+          onTimeout: () {
+            claim.abort();
+            throw TimeoutException('PikPak 文件连接超时');
+          },
+        );
+    if (const {401, 403, 410}.contains(response.statusCode)) {
+      await response.stream.listen(null).cancel();
+      transfer._expire(this, link);
+      throw const HttpException('PikPak 下载链接已失效');
+    }
+    if (response.statusCode != HttpStatus.partialContent ||
+        !(response.headers['content-range'] ?? '').startsWith(
+          'bytes ${claim.cursor}-',
+        )) {
+      await response.stream.listen(null).cancel();
+      throw HttpException('PikPak 文件下载失败（HTTP ${response.statusCode}）');
+    }
+    final output = await File(partPath).open(mode: FileMode.append);
+    try {
+      await output.setPosition(claim.cursor);
+      await for (final bytes in response.stream.timeout(idle)) {
+        final length = min(bytes.length, claim.end - claim.cursor);
+        if (length > 0) {
+          await output.writeFrom(bytes, 0, length);
+          have.add(claim.cursor, claim.cursor + length);
+          claim.cursor += length;
+          transfer._received.update(
+            '${task['id']}',
+            (value) => value + length,
+            ifAbsent: () => length,
+          );
+          arrived();
+        }
+        if (claim.cursor >= claim.end || !_wanted) break;
+      }
+    } finally {
+      await output.close();
+    }
+    if (_wanted && claim.cursor < claim.end) {
+      throw const HttpException('PikPak 连接提前结束');
+    }
+  }
+
+  /// The next range to fetch: where a reader waits, then the windows ahead
+  /// of readers, newest first, then the rest of the file from the newest
+  /// reader on.
+  _Claim? _pick() {
+    for (final reader in readers.reversed) {
+      final waiting = reader.waiting;
+      if (waiting == null) continue;
+      final claim = claims
+          .where((claim) => claim.cursor <= waiting && waiting < claim.end)
+          .firstOrNull;
+      if (claim == null) return _claim(waiting, near);
+      if (waiting - claim.cursor > near) {
+        claim.end = waiting;
+        return _claim(waiting, near);
+      }
+    }
+    for (final reader in readers.reversed) {
+      final start = _gap(reader.position, min(reader.position + window, size));
+      if (start != null) return _claim(start, near);
+    }
+    final from = readers.lastOrNull?.position ?? 0;
+    final start = _gap(from, size) ?? _gap(0, from);
+    return start == null ? null : _claim(start, far);
+  }
+
+  int? _gap(int from, int limit) {
+    var offset = from;
+    while (offset < limit) {
+      final covered = have.endFrom(offset);
+      if (covered > offset) {
+        offset = covered;
+        continue;
+      }
+      final claim = claims
+          .where((claim) => claim.cursor <= offset && offset < claim.end)
+          .firstOrNull;
+      if (claim == null) return offset;
+      offset = claim.end;
+    }
+    return null;
+  }
+
+  _Claim _claim(int start, int length) {
+    var end = min(start + length, size);
+    end = min(end, have.nextStart(start) ?? end);
+    for (final claim in claims) {
+      if (claim.cursor > start && claim.cursor < end) end = claim.cursor;
+    }
+    return _Claim(start, end);
+  }
+
+  /// Bytes from [offset] up to the end of the data held, waiting until it
+  /// arrives; null once the reader is closed or the fetch stopped.
+  Future<int?> _readable(_Reader reader, int offset) async {
+    while (true) {
+      if (reader.closed || error != null) return null;
+      final end = have.endFrom(offset);
+      if (end > offset) {
+        reader.waiting = null;
+        return end;
+      }
+      if (running == null && !done) return null;
+      if (reader.waiting != offset) {
+        reader.waiting = offset;
+        _preempt(offset);
+        _wake();
+      }
+      await _data.future;
+    }
+  }
+
+  /// Hands the connection furthest from [offset] to it when every
+  /// connection is busy and none will reach it soon.
+  void _preempt(int offset) {
+    if (claims.length < connections ||
+        claims.any(
+          (claim) =>
+              claim.cursor <= offset &&
+              offset < claim.end &&
+              offset - claim.cursor <= near,
+        )) {
+      return;
+    }
+    bool ahead(_Claim claim) => readers.any(
+      (reader) =>
+          claim.cursor >= reader.position &&
+          claim.cursor < reader.position + window,
+    );
+    final victims = claims.where((claim) => !ahead(claim)).toList()
+      ..sort(
+        (a, b) =>
+            (b.cursor - offset).abs().compareTo((a.cursor - offset).abs()),
+      );
+    victims.firstOrNull?.abort();
+  }
+
+  /// Writes bytes up to [end] to the reader's socket as they arrive.
+  Future<void> send(_Reader reader, int end) async {
+    await finishing;
+    final input = await File(file['complete'] == true ? path : partPath).open();
+    try {
+      var offset = reader.position;
+      while (offset < end) {
+        final readable = await _readable(reader, offset);
+        if (readable == null) return;
+        final length = min(min(readable, end) - offset, 512 * 1024);
+        await input.setPosition(offset);
+        reader.socket.add(await input.read(length));
+        await reader.socket.flush();
+        offset += length;
+        reader.position = offset;
+      }
+    } finally {
+      await input.close();
+    }
+  }
+}
+
+class _Claim {
+  _Claim(this.cursor, this.end);
+
+  /// The next byte this connection writes; [end] may be cut short while it
+  /// runs.
+  int cursor, end;
+  final aborted = Completer<void>();
+  void abort() {
+    if (!aborted.isCompleted) aborted.complete();
+  }
+}
+
+/// A player connection reading from [position].
+class _Reader {
+  _Reader(this.stream, this.position, this.socket);
+  final int stream;
+  final Socket socket;
+  int position;
+  int? waiting;
+  bool closed = false;
+}
+
+/// Sorted, disjoint byte ranges, each `[start, end)`.
+class _Ranges {
+  _Ranges.fromJson(dynamic value) {
+    for (final range in value is List ? value : const []) {
+      if (range case [final int start, final int end]) add(start, end);
+    }
+  }
+
+  final _starts = <int>[], _ends = <int>[];
+
+  void add(int start, int end) {
+    if (end <= start) return;
+    var i = 0;
+    while (i < _starts.length && _ends[i] < start) {
+      i++;
+    }
+    var j = i;
+    while (j < _starts.length && _starts[j] <= end) {
+      start = min(start, _starts[j]);
+      end = max(end, _ends[j]);
+      j++;
+    }
+    _starts.replaceRange(i, j, [start]);
+    _ends.replaceRange(i, j, [end]);
+  }
+
+  /// The end of the range holding [offset], or [offset] when none does.
+  int endFrom(int offset) {
+    for (var i = 0; i < _starts.length; i++) {
+      if (_starts[i] > offset) break;
+      if (offset < _ends[i]) return _ends[i];
+    }
+    return offset;
+  }
+
+  /// The start of the first range after [offset].
+  int? nextStart(int offset) {
+    for (final start in _starts) {
+      if (start > offset) return start;
+    }
+    return null;
+  }
+
+  bool covers(int size) =>
+      size == 0 || (_starts.length == 1 && _starts[0] == 0 && _ends[0] >= size);
+
+  int get total {
+    var sum = 0;
+    for (var i = 0; i < _starts.length; i++) {
+      sum += _ends[i] - _starts[i];
+    }
+    return sum;
+  }
+
+  void clip(int length) {
+    for (var i = _starts.length - 1; i >= 0; i--) {
+      if (_starts[i] >= length) {
+        _starts.removeAt(i);
+        _ends.removeAt(i);
+      } else if (_ends[i] > length) {
+        _ends[i] = length;
+      }
+    }
+  }
+
+  List<List<int>> toJson() => [
+    for (var i = 0; i < _starts.length; i++) [_starts[i], _ends[i]],
+  ];
 }

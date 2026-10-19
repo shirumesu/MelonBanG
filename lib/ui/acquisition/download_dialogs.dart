@@ -1,18 +1,13 @@
 import 'package:flutter/material.dart';
 
 class RemoveDownloadDialog extends StatelessWidget {
-  const RemoveDownloadDialog({
-    super.key,
-    required this.title,
-    this.cloud = false,
-  });
+  const RemoveDownloadDialog({super.key, required this.title});
   final String title;
-  final bool cloud;
 
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: const Text('移除缓存？'),
-    content: Text('将移除下载任务及本机缓存文件：$title${cloud ? '\nPikPak 云端文件会保留。' : ''}'),
+    content: Text('将移除下载任务及本机缓存文件：$title'),
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context, false),

@@ -65,13 +65,19 @@ class DownloadRepository {
     if (uri?.scheme != 'magnet') {
       throw const FormatException('磁力链接缺少有效的 BT info hash');
     }
-    return _transfer(method ?? defaultMethod).addMagnet(
+    Future<DownloadTask> add(CacheMethod method) => _transfer(method).addMagnet(
       uri!,
       subjectId: subjectId,
       episodeId: episodeId,
       coverUrl: coverUrl,
       releaseGroups: releaseGroups,
     );
+    try {
+      return await add(method ?? defaultMethod);
+    } on TransferUnavailable {
+      // Only PikPak declines a resource; BT fetches it from the swarm.
+      return add(CacheMethod.bt);
+    }
   }
 
   Future<DownloadTask> addTorrent(
@@ -85,14 +91,20 @@ class DownloadRepository {
   }) async {
     await ready;
     if (bytes.isEmpty) throw const FormatException('种子文件为空');
-    return _transfer(method ?? defaultMethod).addTorrent(
-      bytes,
-      name,
-      subjectId: subjectId,
-      episodeId: episodeId,
-      coverUrl: coverUrl,
-      releaseGroups: releaseGroups,
-    );
+    Future<DownloadTask> add(CacheMethod method) =>
+        _transfer(method).addTorrent(
+          bytes,
+          name,
+          subjectId: subjectId,
+          episodeId: episodeId,
+          coverUrl: coverUrl,
+          releaseGroups: releaseGroups,
+        );
+    try {
+      return await add(method ?? defaultMethod);
+    } on TransferUnavailable {
+      return add(CacheMethod.bt);
+    }
   }
 
   Future<void> pause(String id) async {
