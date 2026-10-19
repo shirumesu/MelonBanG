@@ -38,6 +38,7 @@ DownloadTask downloadTask(Json task, CacheMethod method) {
       dhtNodes: count('dhtNodes'),
     ),
     files: objects(task['files']).map(downloadFile).toList(),
+    cloudProgress: (task['cloudProgress'] as num?)?.toDouble(),
   );
 }
 

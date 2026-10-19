@@ -272,10 +272,10 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           downloadPhases[downloadKey(candidate, task.method)] =
               ResourceDownloadPhase.added;
         });
-        if (task.method != method) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('PikPak 未收录该资源，已改用 BT 下载')),
-          );
+        if (controller.selection.releases.downloads.fallbacks[task.id]
+            case final reason? when task.method != method) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('$reason，已改用 BT 下载')));
         }
       }
     } catch (error) {
