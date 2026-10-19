@@ -12,6 +12,9 @@ class DownloadRepository {
   final List<Transfer> transfers;
   CacheMethod defaultMethod = CacheMethod.bt;
   final changes = StreamController<TransferSnapshot>.broadcast();
+
+  /// Why a task added for another method went to BT, by task id.
+  final fallbacks = <String, String>{};
   final _subscriptions = <StreamSubscription<void>>[];
   Future<void>? _restoring, _closing;
   bool _closed = false;
@@ -74,9 +77,9 @@ class DownloadRepository {
     );
     try {
       return await add(method ?? defaultMethod);
-    } on TransferUnavailable {
+    } on TransferUnavailable catch (error) {
       // Only PikPak declines a resource; BT fetches it from the swarm.
-      return add(CacheMethod.bt);
+      return _fallback(add, error);
     }
   }
 
@@ -102,9 +105,18 @@ class DownloadRepository {
         );
     try {
       return await add(method ?? defaultMethod);
-    } on TransferUnavailable {
-      return add(CacheMethod.bt);
+    } on TransferUnavailable catch (error) {
+      return _fallback(add, error);
     }
+  }
+
+  Future<DownloadTask> _fallback(
+    Future<DownloadTask> Function(CacheMethod) add,
+    TransferUnavailable error,
+  ) async {
+    final task = await add(CacheMethod.bt);
+    fallbacks[task.id] = error.message;
+    return task;
   }
 
   Future<void> pause(String id) async {

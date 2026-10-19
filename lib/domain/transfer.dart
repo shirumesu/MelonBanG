@@ -78,6 +78,7 @@ class DownloadTask {
     this.seedStop,
     this.swarm = const SwarmStats(),
     this.files = const [],
+    this.cloudProgress,
   });
   final String id, title;
   final CacheMethod method;
@@ -91,6 +92,10 @@ class DownloadTask {
   final SeedStop? seedStop;
   final SwarmStats swarm;
   final List<DownloadFile> files;
+
+  /// How far PikPak's servers have downloaded the resource into the drive,
+  /// while they still do.
+  final double? cloudProgress;
 
   bool get complete => progress >= 1;
   bool get cloud => method == CacheMethod.pikpak;

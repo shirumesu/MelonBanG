@@ -2,6 +2,8 @@ import '../../domain/transfer.dart';
 
 /// Status text.
 String downloadStatus(DownloadTask task) => switch (task.status) {
+  DownloadStatus.metadata when task.cloudProgress != null =>
+    'PikPak 云端下载 ${(task.cloudProgress! * 100).floor()}%',
   DownloadStatus.metadata when task.cloud => '读取 PikPak 收录信息',
   DownloadStatus.downloading when task.cloud => '下载中',
   DownloadStatus.metadata => '获取种子信息',

@@ -14,10 +14,12 @@ import '../../domain/transfer.dart';
 import 'pikpak_client.dart';
 import 'records.dart';
 
-/// PikPak as a download accelerator: files PikPak already stores are read
-/// from its CDN over several connections into the media cache, and served to
-/// the player from there while they arrive. Nothing stays in the user's
-/// drive; resources PikPak has not stored are BT's.
+/// PikPak as a download accelerator: files are read from its CDN over
+/// several connections into the media cache, and served to the player from
+/// there while they arrive. Content PikPak already stores is leased without
+/// a drive file; other resources are downloaded by PikPak's servers into the
+/// drive first, and that copy is deleted once the local copy is complete.
+/// Resources PikPak refuses to download are BT's.
 class PikPakTransfer implements Transfer {
   PikPakTransfer(
     this.store,
@@ -158,32 +160,21 @@ class PikPakTransfer implements Transfer {
       }
       return existing;
     }
-    final indexed = await client.resolveMagnet(input);
-    if (indexed == null) throw const TransferUnavailable('PikPak 未收录该资源');
-    if (indexed.any((file) => _isVideo(file.name) && file.gcid == null)) {
-      throw const TransferUnavailable('PikPak 只收录了该资源的部分视频');
-    }
-    final files = [
-      for (final file in indexed)
-        if (file.gcid != null && file.size > 0) file,
-    ];
-    final video = files.where((file) => _isVideo(file.name)).firstOrNull;
-    if (video == null) throw const TransferUnavailable('PikPak 未收录该资源的视频');
-    // A lease briefly takes the file's size of drive space.
-    final free = await client.freeSpace();
-    final largest = files.map((file) => file.size).reduce(max);
-    if (free != null && free < largest) {
-      throw const TransferUnavailable('PikPak 剩余空间不足以中转该资源');
-    }
-    try {
-      await _lease(video);
-    } on PikPakContentMissing {
-      throw const TransferUnavailable('PikPak 未收录该资源');
+    final files = await _indexed(input);
+    String? cloudTaskId;
+    if (files == null) {
+      try {
+        cloudTaskId = await client.offline(input);
+      } on PikPakCaptchaRequired {
+        rethrow;
+      } on PikPakException catch (error) {
+        // Out of drive space or offline downloads for the day.
+        throw TransferUnavailable(error.message);
+      }
     }
     _requireOpen();
     final id = newId();
     final savePath = p.join(directory, id);
-    final used = <String>{};
     final task = <String, dynamic>{
       'id': id,
       'provider': 'pikpak',
@@ -191,7 +182,7 @@ class PikPakTransfer implements Transfer {
       'kind': 'magnet',
       'input': input,
       'fingerprint': fingerprint,
-      'title': title ?? indexed.first.path.split('/').first,
+      'title': title ?? files?.first.path.split('/').first ?? fingerprint,
       if (releaseGroups.isNotEmpty)
         'releaseGroups': List<String>.of(releaseGroups),
       'savePath': savePath,
@@ -203,30 +194,11 @@ class PikPakTransfer implements Transfer {
       'complete': false,
       'manualPaused': false,
       'downloadSpeedBytesPerSecond': 0,
-      'files': [
-        for (final (index, file) in files.indexed)
-          () {
-            var relative = _relativePath(file.path);
-            if (!used.add(relative.toLowerCase())) {
-              relative = p.join('$index', relative);
-              used.add(relative.toLowerCase());
-            }
-            return <String, dynamic>{
-              'id': '$index',
-              'downloadId': id,
-              'name': file.name,
-              'relativePath': relative,
-              'path': p.join(savePath, relative),
-              'size': file.size,
-              'gcid': file.gcid,
-              'ranges': <List<int>>[],
-              'downloadedBytes': 0,
-              'progress': 0.0,
-              'complete': false,
-              'mediaKind': _isVideo(file.name) ? 'video' : 'other',
-            };
-          }(),
-      ],
+      'cloudTaskId': ?cloudTaskId,
+      'files': _records(id, savePath, [
+        for (final file in files ?? const <PikPakIndexedFile>[])
+          (path: file.path, size: file.size, gcid: file.gcid, cloudId: null),
+      ]),
     };
     _updateProgress(task);
     _tasks[id] = task;
@@ -236,24 +208,94 @@ class PikPakTransfer implements Transfer {
     return task;
   }
 
+  /// The files of [input] PikPak can lease now; null when its servers have
+  /// to download the resource first.
+  Future<List<PikPakIndexedFile>?> _indexed(String input) async {
+    final indexed = await client.resolveMagnet(input);
+    if (indexed == null ||
+        indexed.any((file) => _isVideo(file.name) && file.gcid == null)) {
+      return null;
+    }
+    final files = [
+      for (final file in indexed)
+        if (file.gcid != null && file.size > 0) file,
+    ];
+    final video = files.where((file) => _isVideo(file.name)).firstOrNull;
+    if (video == null) throw const TransferUnavailable('该资源没有视频文件');
+    // A lease briefly takes the file's size of drive space.
+    final free = await client.freeSpace();
+    final largest = files.map((file) => file.size).reduce(max);
+    if (free != null && free < largest) {
+      throw const TransferUnavailable('PikPak 剩余空间不足以中转该资源');
+    }
+    try {
+      await _lease(video);
+    } on PikPakContentMissing {
+      return null;
+    }
+    return files;
+  }
+
+  List<Json> _records(
+    String id,
+    String savePath,
+    List<({String path, int size, String? gcid, String? cloudId})> files,
+  ) {
+    final used = <String>{};
+    return [
+      for (final (index, file) in files.indexed)
+        () {
+          var relative = _relativePath(file.path);
+          if (!used.add(relative.toLowerCase())) {
+            relative = p.join('$index', relative);
+            used.add(relative.toLowerCase());
+          }
+          final name = file.path.split('/').last;
+          return <String, dynamic>{
+            'id': '$index',
+            'downloadId': id,
+            'name': name,
+            'relativePath': relative,
+            'path': p.join(savePath, relative),
+            'size': file.size,
+            'gcid': ?file.gcid,
+            'cloudFileId': ?file.cloudId,
+            'ranges': <List<int>>[],
+            'downloadedBytes': 0,
+            'progress': 0.0,
+            'complete': false,
+            'mediaKind': _isVideo(name) ? 'video' : 'other',
+          };
+        }(),
+    ];
+  }
+
   Future<String> _lease(PikPakIndexedFile file) =>
-      _links[file.gcid!] ??= client.lease(file).onError<Object>((error, stack) {
-        _links.remove(file.gcid);
+      _cached(file.gcid!, () => client.lease(file));
+
+  Future<String> _cached(String key, Future<String> Function() link) =>
+      _links[key] ??= link().onError<Object>((error, stack) {
+        _links.remove(key);
         Error.throwWithStackTrace(error, stack);
       });
 
-  Future<String> _link(_Fetch fetch) => _lease(
-    PikPakIndexedFile(
-      '${fetch.file['name']}',
-      fetch.size,
-      '${fetch.file['gcid']}',
+  /// Files of the drive copy read their own link; leased files share one
+  /// per content hash.
+  Future<String> _link(_Fetch fetch) => switch (fetch.file['cloudFileId']) {
+    final String id => _cached(id, () => client.link(id)),
+    _ => _lease(
+      PikPakIndexedFile(
+        '${fetch.file['name']}',
+        fetch.size,
+        '${fetch.file['gcid']}',
+      ),
     ),
-  );
+  };
 
-  /// Drops [link] once the CDN rejects it, so the next request leases anew.
+  /// Drops [link] once the CDN rejects it, so the next request reads anew.
   void _expire(_Fetch fetch, Future<String> link) {
-    final gcid = '${fetch.file['gcid']}';
-    if (identical(_links[gcid], link)) _links.remove(gcid);
+    final key = '${fetch.file['cloudFileId'] ?? fetch.file['gcid']}';
+    if (identical(_links[key], link)) _links.remove(key);
   }
 
   bool _active(Json task) =>
@@ -298,7 +340,10 @@ class PikPakTransfer implements Transfer {
     final halt = _halt!.future;
     try {
       task['errorMessage'] = null;
-      await _index(task);
+      if (objects(task['files']).isEmpty) {
+        await _acquire(task, halt);
+        if (!_active(task)) return;
+      }
       task['status'] = 'downloading';
       _emit();
       for (final file in (task['files'] as List).cast<Json>()) {
@@ -327,36 +372,64 @@ class PikPakTransfer implements Transfer {
     }
   }
 
-  /// Fills content hashes missing from records written before PikPak tasks
-  /// read its content index.
-  Future<void> _index(Json task) async {
-    final files = (task['files'] as List).cast<Json>();
-    if (files.every(
-      (file) => file['complete'] == true || file['gcid'] != null,
-    )) {
-      return;
-    }
+  /// Waits for PikPak's servers to download the resource into the drive,
+  /// then records the drive copy's files.
+  Future<void> _acquire(Json task, Future<void> halt) async {
     task['status'] = 'metadata';
+    task['cloudProgress'] = 0.0;
     _emit();
-    final indexed = {
-      for (final file in await client.resolveMagnet('${task['input']}') ?? [])
-        _relativePath(file.path): file.gcid,
-    };
-    for (final file in files) {
-      if (file['complete'] == true) continue;
-      file['gcid'] ??=
-          indexed[file['relativePath']] ??
-          (throw StateError('PikPak 已不再收录 ${file['name']}，请改用 BT 下载'));
+    // A failed cloud download is submitted again when the task resumes.
+    final cloudTaskId =
+        '${task['cloudTaskId'] ??= await client.offline('${task['input']}')}';
+    await _persist(task);
+    Json remote;
+    while (true) {
+      remote = await client.offlineTask(cloudTaskId);
+      if (!_active(task)) return;
+      if (remote['phase'] == 'PHASE_TYPE_ERROR') {
+        task.remove('cloudTaskId');
+        task.remove('cloudProgress');
+        client.deleteOffline(cloudTaskId).ignore();
+        throw StateError(
+          'PikPak 云端下载失败：${remote['message'] ?? remote['phase']}',
+        );
+      }
+      task['cloudProgress'] = (_integer(remote['progress']) / 100).clamp(
+        0.0,
+        1.0,
+      );
+      _emit();
+      if (remote['phase'] == 'PHASE_TYPE_COMPLETE') break;
+      await Future.any([
+        Future<void>.delayed(const Duration(seconds: 3)),
+        halt,
+      ]);
+      if (!_active(task)) return;
+    }
+    final files = await client.files('${remote['file_id']}');
+    if (!_active(task)) return;
+    task.remove('cloudProgress');
+    task['files'] = _records('${task['id']}', '${task['savePath']}', [
+      for (final file in files)
+        if (file.size > 0)
+          (path: file.path, size: file.size, gcid: null, cloudId: file.id),
+    ]);
+    if (objects(task['files']).isEmpty) {
+      throw StateError('PikPak 云端下载没有可缓存的文件');
     }
     await _persist(task);
   }
 
   /// Every byte is local; files the player still reads are renamed later.
-  bool _fetched(Json task) => (task['files'] as List).cast<Json>().every(
-    (file) =>
-        file['complete'] == true ||
-        _fetches['${task['id']}/${file['id']}']?.done == true,
-  );
+  bool _fetched(Json task) {
+    final files = (task['files'] as List).cast<Json>();
+    return files.isNotEmpty &&
+        files.every(
+          (file) =>
+              file['complete'] == true ||
+              _fetches['${task['id']}/${file['id']}']?.done == true,
+        );
+  }
 
   _Fetch _fetch(Json task, Json file) => _fetches.putIfAbsent(
     '${task['id']}/${file['id']}',
@@ -391,6 +464,10 @@ class PikPakTransfer implements Transfer {
     task['status'] = 'completed';
     task['progress'] = 1.0;
     task['downloadSpeedBytesPerSecond'] = 0;
+    // The drive copy only fed the local one.
+    if (task.remove('cloudTaskId') case final String cloud) {
+      client.deleteOffline(cloud).ignore();
+    }
   }
 
   void _tick() {
@@ -439,9 +516,9 @@ class PikPakTransfer implements Transfer {
         file['ranges'],
       )..clip(length)).toJson();
     }
-    task['files'] = objects(task['files']);
-    task['complete'] = objects(task['files'])
-        .every((file) => file['complete'] == true);
+    final files = task['files'] = objects(task['files']);
+    task['complete'] =
+        files.isNotEmpty && files.every((file) => file['complete'] == true);
     if (task['complete'] == true) task['status'] = 'completed';
     _updateProgress(task);
   }
@@ -555,6 +632,10 @@ class PikPakTransfer implements Transfer {
     final id = '${task['id']}';
     _tasks.remove(id);
     await _stopWorker(id);
+    if (task['cloudTaskId'] case final String cloud when client.isSignedIn) {
+      // Also cancels a cloud download still running.
+      client.deleteOffline(cloud).ignore();
+    }
     final fetches = [
       for (final entry in _fetches.entries.toList())
         if (entry.key.startsWith('$id/')) entry.value,

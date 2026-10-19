@@ -46,6 +46,14 @@ class PikPakIndexedFile {
   String get name => path.split('/').last;
 }
 
+/// A file in the drive, with its path below the folder it was listed from.
+class PikPakDriveFile {
+  const PikPakDriveFile(this.id, this.path, this.size);
+  final String id, path;
+  final int size;
+  String get name => path.split('/').last;
+}
+
 /// Native PikPak protocol; account credentials and tokens stay in secure storage.
 class PikPakClient {
   PikPakClient(this.credentials, {http.Client? httpClient})
@@ -462,19 +470,94 @@ class PikPakClient {
       if (created['phase'] != 'PHASE_TYPE_COMPLETE') {
         throw PikPakContentMissing(file.name);
       }
-      final detail = await _request(
-        'GET',
-        '/drive/v1/files/$id',
-        query: {'usage': 'FETCH'},
-      );
-      final original = object(
-        object(detail['links'])['application/octet-stream'],
-      )['url'];
-      return '${original ?? detail['web_content_link']}';
+      return await link(id);
     } finally {
       // A delete that does not land is swept with the scratch folder later.
       _delete([id]).ignore();
     }
+  }
+
+  /// A signed download link for the drive file [id].
+  Future<String> link(String id) async {
+    final detail = await _request(
+      'GET',
+      '/drive/v1/files/${Uri.encodeComponent(id)}',
+      query: {'usage': 'FETCH'},
+    );
+    final original = object(
+      object(detail['links'])['application/octet-stream'],
+    )['url'];
+    return '${original ?? detail['web_content_link']}';
+  }
+
+  /// Has PikPak's servers download [magnet] into the drive; returns the
+  /// offline task's id.
+  Future<String> offline(String magnet) async {
+    final result = await _request(
+      'POST',
+      '/drive/v1/files',
+      body: {
+        'kind': 'drive#file',
+        'upload_type': 'UPLOAD_TYPE_URL',
+        'folder_type': 'DOWNLOAD',
+        'url': {'url': magnet},
+      },
+    );
+    return '${object(result['task'])['id']}';
+  }
+
+  Future<Json> offlineTask(String id) =>
+      _request('GET', '/drive/v1/tasks/${Uri.encodeComponent(id)}');
+
+  /// Deletes an offline task together with the files it produced.
+  Future<void> deleteOffline(String id) => _request(
+    'DELETE',
+    '/drive/v1/tasks',
+    query: {'task_ids': id, 'delete_files': 'true'},
+  );
+
+  /// The leaf files below drive file [rootId], or the file itself.
+  Future<List<PikPakDriveFile>> files(String rootId) async {
+    final root = await _request(
+      'GET',
+      '/drive/v1/files/${Uri.encodeComponent(rootId)}',
+    );
+    PikPakDriveFile leaf(Json entry, String path) => PikPakDriveFile(
+      '${entry['id']}',
+      path,
+      int.tryParse('${entry['size']}') ?? 0,
+    );
+    if (root['kind'] != 'drive#folder') return [leaf(root, '${root['name']}')];
+    final result = <PikPakDriveFile>[];
+    Future<void> visit(String id, String prefix) async {
+      var page = '';
+      do {
+        final response = await _request(
+          'GET',
+          '/drive/v1/files',
+          query: {
+            'parent_id': id,
+            'limit': '500',
+            'page_token': page,
+            'filters': jsonEncode({
+              'trashed': {'eq': false},
+            }),
+          },
+        );
+        for (final entry in objects(response['files'])) {
+          final path = '$prefix${entry['name']}';
+          if (entry['kind'] == 'drive#folder') {
+            await visit('${entry['id']}', '$path/');
+          } else {
+            result.add(leaf(entry, path));
+          }
+        }
+        page = '${response['next_page_token'] ?? ''}';
+      } while (page.isNotEmpty);
+    }
+
+    await visit(rootId, '');
+    return result;
   }
 
   static const _scratchName = 'MelonBanG-Temp';
