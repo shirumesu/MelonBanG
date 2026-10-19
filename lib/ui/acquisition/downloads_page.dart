@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
@@ -9,6 +11,7 @@ import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'download_dialogs.dart';
 import 'download_labels.dart';
+import 'download_task_widgets.dart';
 
 class DownloadsPage extends StatefulWidget {
   const DownloadsPage({
@@ -30,27 +33,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
   String filter = '全部';
   String statusFilter = '全部状态';
   final expanded = <String>{};
-  StateSetter? _refreshFileDialog;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.downloads.snapshot.addListener(_refreshFiles);
-  }
-
-  @override
-  void dispose() {
-    widget.downloads.snapshot.removeListener(_refreshFiles);
-    super.dispose();
-  }
-
-  void _refreshFiles() {
-    if (_refreshFileDialog != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _refreshFileDialog?.call(() {});
-      });
-    }
-  }
 
   Future<void> _perform(Future<void> Function() action) async {
     try {
@@ -94,9 +76,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   void _toggle(DownloadTask task) =>
       _perform(() => widget.downloads.toggle(task));
-
-  void _stopSeeding(DownloadTask task) =>
-      _perform(() => widget.downloads.stopSeeding(task.id));
 
   @override
   Widget build(BuildContext context) => ValueListenableBuilder(
@@ -203,22 +182,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   Widget _task(BuildContext context, DownloadTask task) {
     final id = task.id;
-    final progress = task.progress.clamp(0.0, 1.0);
-    final complete = task.complete;
-    final cloud = task.cloud;
-    final status = task.status;
     final swarm = task.swarm;
-    final canStop =
-        complete &&
-        (status == DownloadStatus.seeding || status == DownloadStatus.queued);
-    final canResume =
-        status == DownloadStatus.paused ||
-        status == DownloadStatus.failed ||
-        (status == DownloadStatus.completed && task.seedingStopped);
-    final stoppedByPolicy = status == DownloadStatus.completed && !canResume;
     final files = task.files;
-    final videos = task.videos;
-    final playable = task.playable && videos.isNotEmpty;
     final scheme = Theme.of(context).colorScheme;
     final details = expanded.contains(id);
     return MelonPanel(
@@ -256,64 +221,13 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       ),
                     ),
                     const SizedBox(height: 7),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 5,
-                      children: [
-                        MelonBadge(
-                          downloadStatus(task),
-                          color: status == DownloadStatus.failed
-                              ? coral
-                              : complete
-                              ? sky
-                              : mint,
-                        ),
-                        if (cloud) const MelonBadge('PikPak', color: sky),
-                        if (!complete &&
-                            !(cloud && status == DownloadStatus.metadata)) ...[
-                          Text(
-                            '${(progress * 100).toStringAsFixed(0)}%',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                          Text(
-                            '↓ ${transferRate(task.downloadSpeed)}',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
-                      ],
-                    ),
-                    if (!complete)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: LinearProgressIndicator(
-                          value: progress,
-                          minHeight: 4,
-                          borderRadius: BorderRadius.circular(99),
-                          backgroundColor: scheme.surfaceContainerLow,
-                        ),
-                      ),
+                    DownloadTaskStatus(task: task),
                   ],
                 ),
               ),
               const SizedBox(width: 12),
-              if (complete || playable)
-                FilledButton.icon(
-                  onPressed: playable
-                      ? () => videos.length > 1
-                            ? _showFiles(context, id)
-                            : widget.onPlay(id, null)
-                      : null,
-                  icon: const Icon(Icons.play_arrow_rounded, size: 19),
-                  label: Text(videos.length > 1 ? '选择文件' : '播放'),
-                ),
-              if (!complete)
-                IconButton(
-                  tooltip: canResume ? '继续' : '暂停',
-                  onPressed: () => _toggle(task),
-                  icon: Icon(
-                    canResume ? Icons.play_arrow_rounded : Icons.pause_rounded,
-                  ),
-                ),
+              DownloadPlayButton(task: task, onPlay: widget.onPlay),
+              DownloadToggleButton(task: task, onToggle: _toggle),
               IconButton(
                 tooltip: details ? '收起详情' : '详情',
                 onPressed: () => setState(
@@ -347,13 +261,13 @@ class _DownloadsPageState extends State<DownloadsPage> {
             const SizedBox(height: 8),
             _stats(context, [
               '↓ ${transferRate(task.downloadSpeed)}',
-              if (!cloud) ...[
+              if (task.seeds) ...[
                 '↑ ${transferRate(task.uploadSpeed)}',
                 '${swarm.peers} 个连接',
                 '分享率 ${task.totalBytes > 0 ? (task.uploadedBytes / task.totalBytes).toStringAsFixed(2) : '0.00'}',
               ],
             ]),
-            if (!cloud && !complete && swarm.trackers != null) ...[
+            if (task.seeds && !task.complete && swarm.trackers != null) ...[
               const SizedBox(height: 6),
               _stats(context, [
                 '发现 ${swarm.knownPeers ?? 0} 个节点',
@@ -362,8 +276,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     ? 'DHT 已关闭'
                     : 'DHT ${swarm.dhtNodes ?? 0} 个节点',
               ]),
-              if ((status == DownloadStatus.metadata ||
-                      status == DownloadStatus.downloading) &&
+              if ((task.status == DownloadStatus.metadata ||
+                      task.status == DownloadStatus.downloading) &&
                   swarm.peers == 0)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
@@ -379,7 +293,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   ),
                 ),
             ],
-            if (!cloud && complete) ...[
+            if (task.seeds && task.complete) ...[
               const SizedBox(height: 6),
               _stats(context, [
                 '已上传 ${(task.uploadedBytes / 1048576).toStringAsFixed(1)} MiB',
@@ -393,30 +307,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
               children: [
                 if (files.isNotEmpty)
                   TextButton.icon(
-                    onPressed: () => _showFiles(context, id),
+                    onPressed: () =>
+                        _perform(() => widget.downloads.reveal(task)),
                     icon: const Icon(Icons.folder_open_outlined, size: 17),
-                    label: const Text('查看文件'),
-                  ),
-                if (!cloud && complete && status != DownloadStatus.checking)
-                  TextButton.icon(
-                    onPressed: stoppedByPolicy
-                        ? null
-                        : canStop
-                        ? () => _stopSeeding(task)
-                        : () => _toggle(task),
-                    icon: Icon(
-                      canStop
-                          ? Icons.stop_circle_outlined
-                          : Icons.play_arrow_rounded,
-                      size: 17,
-                    ),
-                    label: Text(
-                      canStop
-                          ? '停止做种'
-                          : stoppedByPolicy
-                          ? '已按做种设置停止'
-                          : '继续做种',
-                    ),
+                    label: Text(Platform.isMacOS ? '在访达中显示' : '在资源管理器中显示'),
                   ),
                 TextButton.icon(
                   onPressed: () => _remove(task),
@@ -439,73 +333,4 @@ class _DownloadsPageState extends State<DownloadsPage> {
         Text(value, style: Theme.of(context).textTheme.bodySmall),
     ],
   );
-
-  Future<void> _showFiles(BuildContext context, String id) async {
-    try {
-      await showDialog<void>(
-        context: context,
-        builder: (context) => StatefulBuilder(
-          builder: (context, refresh) {
-            _refreshFileDialog = refresh;
-            final task = widget.downloads.snapshot.value.task(id);
-            final files = task?.files ?? const <DownloadFile>[];
-            return AlertDialog(
-              title: Text(task == null ? '任务已移除' : '任务文件'),
-              content: SizedBox(
-                width: 560,
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: files.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final file = files[index];
-                    final playable =
-                        task != null && file.video && task.playable;
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        file.video
-                            ? Icons.video_file_outlined
-                            : Icons.insert_drive_file_outlined,
-                        size: 20,
-                      ),
-                      title: Text(
-                        file.name,
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      subtitle: Text(
-                        file.progress >= 1
-                            ? '${(file.size / 1048576).toStringAsFixed(1)} MiB'
-                            : '${(file.size / 1048576).toStringAsFixed(1)} MiB  ${(file.progress * 100).toStringAsFixed(0)}%',
-                      ),
-                      trailing: !file.video
-                          ? null
-                          : IconButton(
-                              tooltip: '播放',
-                              onPressed: playable
-                                  ? () {
-                                      Navigator.pop(context);
-                                      widget.onPlay(id, file.id);
-                                    }
-                                  : null,
-                              icon: const Icon(Icons.play_arrow, size: 20),
-                            ),
-                    );
-                  },
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('关闭'),
-                ),
-              ],
-            );
-          },
-        ),
-      );
-    } finally {
-      _refreshFileDialog = null;
-    }
-  }
 }

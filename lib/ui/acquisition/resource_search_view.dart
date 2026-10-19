@@ -243,10 +243,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         null => null,
       };
 
-  Future<void> download(
-    PlayCandidate candidate,
-    ReleaseCandidate release,
-  ) async {
+  Future<void> download(PlayCandidate candidate) async {
     final id = candidate.id;
     if (adding.contains(id) || taskOf(candidate) != null) return;
     final method = candidate.kind == PlayKind.pikpak
@@ -257,7 +254,13 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       downloadErrors.remove(id);
     });
     try {
-      final task = await controller.enqueue(release, method: method);
+      final task = await switch (candidate.target) {
+        ReleaseTarget(candidate: final release) => controller.enqueue(
+          release,
+          method: method,
+        ),
+        _ => controller.saveOnline(candidate),
+      };
       if (mounted) {
         setState(() => downloadTasks[id] = task.id);
         if (controller.downloads.fallbacks[task.id] case final reason?
@@ -1080,16 +1083,16 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                             _ => null,
                           },
                           download: switch (candidate.target) {
-                            ReleaseTarget(candidate: final release) =>
-                              (wide) => ResourceDownloadButton(
-                                adding: adding.contains(candidate.id),
-                                task: taskOf(candidate),
-                                failed: downloadErrors.containsKey(
-                                  candidate.id,
-                                ),
-                                showLabel: wide,
-                                onPressed: () => download(candidate, release),
-                              ),
+                            ReleaseTarget() ||
+                            OnlineTarget(
+                              ref: _?,
+                            ) => (wide) => ResourceDownloadButton(
+                              adding: adding.contains(candidate.id),
+                              task: taskOf(candidate),
+                              failed: downloadErrors.containsKey(candidate.id),
+                              showLabel: wide,
+                              onPressed: () => download(candidate),
+                            ),
                             _ => null,
                           },
                         ),

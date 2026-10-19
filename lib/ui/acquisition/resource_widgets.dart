@@ -77,7 +77,8 @@ class _ResourceAction extends StatelessWidget {
   );
 }
 
-/// Downloads a torrent into the cache; once added it follows that task.
+/// Downloads a torrent or online entry into the cache; once added it
+/// follows that task.
 class ResourceDownloadButton extends StatelessWidget {
   const ResourceDownloadButton({
     super.key,
@@ -239,7 +240,7 @@ const resourceGroupColumnWidth = 120.0;
 const resourceSizeColumnWidth = 76.0;
 const resourceDateColumnWidth = 84.0;
 
-/// Width of the action columns: download (torrents) and play.
+/// Width of the action columns: download and play.
 double resourceActionsWidth({required bool wide}) =>
     resourceDownloadWidth(labelled: wide) +
     _actionGap +
@@ -272,7 +273,7 @@ class ResourceResultRow extends StatelessWidget {
   /// Annotations that need attention, such as match certainty or health.
   final List<String> warnings;
 
-  /// The download button of a torrent, given whether the row is wide.
+  /// The download button, given whether the row is wide.
   final Widget Function(bool wide)? download;
 
   /// Null when the row cannot be played from here.

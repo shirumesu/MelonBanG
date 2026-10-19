@@ -1,9 +1,11 @@
+import 'dart:io';
+
 import '../catalog.dart';
 import '../../core/json.dart';
 import '../../core/store.dart';
 import '../../domain/transfer.dart';
 
-/// Decodes a stored task record; BT and PikPak share these field names.
+/// Decodes a stored task record; every transfer shares these field names.
 DownloadTask downloadTask(Json task, CacheMethod method) {
   int? count(String key) =>
       task.containsKey(key) ? number(task[key]).toInt() : null;
@@ -39,7 +41,27 @@ DownloadTask downloadTask(Json task, CacheMethod method) {
     ),
     files: objects(task['files']).map(downloadFile).toList(),
     cloudProgress: (task['cloudProgress'] as num?)?.toDouble(),
+    source: task['source'] as String?,
   );
+}
+
+/// A finished task whose files were all deleted outside the app; its record
+/// goes with them. A missing [directory], such as an unplugged drive, deletes
+/// nothing.
+Future<bool> deletedOutside(Json task, String directory) async {
+  final files = objects(task['files']);
+  if (task['complete'] != true ||
+      files.isEmpty ||
+      !await Directory(directory).exists()) {
+    return false;
+  }
+  for (final file in files) {
+    final path = '${file['path']}';
+    if (await File(path).exists() || await File('$path.part').exists()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 DownloadFile downloadFile(Json file) => DownloadFile(

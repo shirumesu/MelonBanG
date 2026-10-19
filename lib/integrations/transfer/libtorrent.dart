@@ -14,10 +14,11 @@ import 'records.dart';
 
 /// BT through libtorrent: queueing, seeding policy and streaming of
 /// incomplete files.
-class LibtorrentTransfer implements Transfer {
+class LibtorrentTransfer implements TorrentTransfer {
   LibtorrentTransfer(this.store, String directory)
     : directory = p.normalize(p.absolute(directory));
   final AppStore store;
+  @override
   final String directory;
   @override
   CacheMethod get method => CacheMethod.bt;
@@ -87,6 +88,12 @@ class LibtorrentTransfer implements Transfer {
       (a, b) => number(a['createdAt']).compareTo(number(b['createdAt'])),
     );
     for (final task in restored) {
+      if (await deletedOutside(task, directory)) {
+        await _discard(task);
+        final folder = Directory('${task['savePath']}');
+        if (await folder.exists()) await folder.delete(recursive: true);
+        continue;
+      }
       task['coverUrl'] ??= await cachedCover(store, task['subjectId'] as int?);
       task['manualPaused'] ??= task['status'] == 'paused';
       if (!settings.resumeOnStartup) task['manualPaused'] = true;
@@ -595,15 +602,20 @@ class LibtorrentTransfer implements Transfer {
     _uploaded.remove(id);
     _fileReadAt.remove(id);
     _schedule();
+    await _discard(task);
+    _emit();
+  }
+
+  /// Deletes a task's record and its metadata.
+  Future<void> _discard(Json task) async {
     await _writes;
-    await store.remove('downloads', id);
+    await store.remove('downloads', '${task['id']}');
     final metadata =
         task['metadataPath'] ??
         (task['kind'] == 'torrent' ? task['input'] : null);
     if (metadata != null && await File('$metadata').exists()) {
       await File('$metadata').delete();
     }
-    _emit();
   }
 
   void _requireOpen() {

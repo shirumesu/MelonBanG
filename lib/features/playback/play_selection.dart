@@ -105,11 +105,17 @@ class PlaySelectionRepository {
           PlayCandidate(
             kind: !media.incomplete
                 ? PlayKind.local
-                : task.cloud
-                ? PlayKind.pikpak
-                : PlayKind.bt,
+                : switch (task.method) {
+                    CacheMethod.bt => PlayKind.bt,
+                    CacheMethod.pikpak => PlayKind.pikpak,
+                    CacheMethod.online => PlayKind.online,
+                  },
             provider: task.method.name,
-            providerLabel: task.cloud ? 'PikPak' : 'BT 缓存',
+            providerLabel: switch (task.method) {
+              CacheMethod.bt => 'BT 缓存',
+              CacheMethod.pikpak => 'PikPak',
+              CacheMethod.online => task.source ?? '在线缓存',
+            },
             title: task.title,
             line: info.sourceGroups.join(' & '),
             quality: info.quality,
@@ -147,7 +153,8 @@ class PlaySelectionRepository {
     // Torrents by info hash: checked against the index, and held there.
     final checked = <String>{}, held = <String>{};
     final cloudChecks = <Future<void>>[];
-    var cloudDone = 0, cloudFailed = 0, cloudRunning = 0;
+    // Lookups at a time; a page of results at once would flood the API.
+    var cloudDone = 0, cloudFailed = 0, cloudSlots = 8;
     String? cloudIssue;
     final cloudTurns = <Completer<void>>[];
     var sourcesDone = false;
@@ -174,13 +181,14 @@ class PlaySelectionRepository {
       String hash,
       int order,
     ) async {
-      // A few lookups at a time; a page of results would flood the API.
-      if (cloudRunning >= 4) {
+      // A finished lookup hands its slot to the next waiting one.
+      if (cloudSlots == 0) {
         final turn = Completer<void>();
         cloudTurns.add(turn);
         await turn.future;
+      } else {
+        cloudSlots--;
       }
-      cloudRunning++;
       try {
         if (cancel?.isCancelled != true && await cloud.holds(hash)) {
           held.add(hash);
@@ -190,8 +198,11 @@ class PlaySelectionRepository {
         cloudFailed++;
         cloudIssue = '$error';
       } finally {
-        cloudRunning--;
-        if (cloudTurns.isNotEmpty) cloudTurns.removeAt(0).complete();
+        if (cloudTurns.isNotEmpty) {
+          cloudTurns.removeAt(0).complete();
+        } else {
+          cloudSlots++;
+        }
         cloudDone++;
         reportCloud();
       }

@@ -1,7 +1,17 @@
 import 'dart:typed_data';
 
-/// How a release's bytes are fetched.
-enum CacheMethod { bt, pikpak }
+import 'sources.dart';
+
+/// How a task's bytes are fetched: a release over BT or through PikPak, or
+/// an online source's stream.
+enum CacheMethod {
+  bt('BT'),
+  pikpak('PikPak'),
+  online('在线');
+
+  const CacheMethod(this.label);
+  final String label;
+}
 
 enum DownloadStatus {
   metadata,
@@ -16,6 +26,9 @@ enum DownloadStatus {
 
 /// Why a finished BT task no longer seeds.
 enum SeedStop { manual, ratio, time, disabled }
+
+/// What a task's pause/resume control does now.
+enum TaskToggle { pause, resume, stopSeeding, resumeSeeding }
 
 class DownloadFile {
   const DownloadFile({
@@ -70,6 +83,7 @@ class DownloadTask {
     this.swarm = const SwarmStats(),
     this.files = const [],
     this.cloudProgress,
+    this.source,
   });
   final String id, title;
   final CacheMethod method;
@@ -88,8 +102,30 @@ class DownloadTask {
   /// while they still do.
   final double? cloudProgress;
 
+  /// The online source and line an online download saves.
+  final String? source;
+
   bool get complete => progress >= 1;
   bool get cloud => method == CacheMethod.pikpak;
+
+  /// Only BT tasks share what they downloaded.
+  bool get seeds => method == CacheMethod.bt;
+
+  /// Null while verifying, once a finished PikPak or online task is done,
+  /// and when the seeding settings stopped a finished BT task.
+  TaskToggle? get toggle {
+    final resumable =
+        status == DownloadStatus.paused ||
+        status == DownloadStatus.failed ||
+        (status == DownloadStatus.completed && seedingStopped);
+    if (status == DownloadStatus.checking) return null;
+    if (!complete) return resumable ? TaskToggle.resume : TaskToggle.pause;
+    if (!seeds) return null;
+    if (resumable) return TaskToggle.resumeSeeding;
+    return status == DownloadStatus.seeding || status == DownloadStatus.queued
+        ? TaskToggle.stopSeeding
+        : null;
+  }
 
   /// Files can be opened unless the task is verifying or has failed.
   bool get playable =>
@@ -124,10 +160,23 @@ class TransferMedia {
     this.streamUrl,
     this.headers,
     this.streamId,
+    this.audioPath,
+    this.danmaku,
+    this.online,
   });
   final DownloadFile file;
   final bool incomplete;
   final int? subjectId, episodeId;
+
+  /// The separate audio track of a saved online stream.
+  final String? audioPath;
+
+  /// The danmaku the saved online stream supplied, as (provider, locator).
+  final (String, String)? danmaku;
+
+  /// Set by [Transfer.openMedia] while an online download is incomplete: the
+  /// entry plays from its source meanwhile.
+  final ResolvedStream? online;
 
   /// Set by [Transfer.openMedia] when an incomplete file has to be streamed.
   final String? streamUrl;
@@ -146,6 +195,14 @@ class TransferMedia {
     streamUrl: url,
     headers: headers,
     streamId: id,
+  );
+
+  TransferMedia playingOnline(ResolvedStream stream) => TransferMedia(
+    file: file,
+    incomplete: incomplete,
+    subjectId: subjectId,
+    episodeId: episodeId,
+    online: stream,
   );
 }
 
@@ -167,16 +224,38 @@ abstract interface class CloudIndex {
   Future<bool> holds(String infoHash);
 }
 
-/// A way of turning a magnet or torrent into local files: BT through
-/// libtorrent, or PikPak reading content it already stores from its CDN.
+/// The owner of one method's download tasks.
 abstract interface class Transfer {
   CacheMethod get method;
 
+  /// Where the tasks' files are saved.
+  String get directory;
+
   /// Fires whenever [tasks] may have changed.
   Stream<void> get changes;
+
+  /// Restores saved tasks; finished tasks whose files were all deleted from
+  /// disk are removed.
   Future<void> initialize();
   List<DownloadTask> tasks();
   bool contains(String id);
+  Future<void> pause(String id);
+  Future<void> resume(String id);
+  Future<void> remove(String id);
+
+  /// The task's video, or the [fileId] one; throws [StateError] when none can
+  /// be played yet.
+  TransferMedia media(String id, {String? fileId});
+  Future<TransferMedia> openMedia(String id, {String? fileId});
+
+  /// Stops media streams opened by [openMedia], except [keep].
+  void releaseStreamsExcept(int? keep);
+  Future<void> close();
+}
+
+/// A way of turning a magnet or torrent into local files: BT through
+/// libtorrent, or PikPak reading content it already stores from its CDN.
+abstract interface class TorrentTransfer implements Transfer {
   Future<DownloadTask> addMagnet(
     Uri magnet, {
     String? title,
@@ -193,16 +272,17 @@ abstract interface class Transfer {
     String? coverUrl,
     List<String> releaseGroups,
   });
-  Future<void> pause(String id);
-  Future<void> resume(String id);
-  Future<void> remove(String id);
+}
 
-  /// The task's video, or the [fileId] one; throws [StateError] when none can
-  /// be played yet.
-  TransferMedia media(String id, {String? fileId});
-  Future<TransferMedia> openMedia(String id, {String? fileId});
-
-  /// Stops media streams opened by [openMedia], except [keep].
-  void releaseStreamsExcept(int? keep);
-  Future<void> close();
+/// Saves online entries: HLS segments or direct files, read again from the
+/// source whenever its links expire.
+abstract interface class OnlineTransfer implements Transfer {
+  Future<DownloadTask> addOnline(
+    StreamRef ref, {
+    required String title,
+    required String source,
+    int? subjectId,
+    int? episodeId,
+    String? coverUrl,
+  });
 }

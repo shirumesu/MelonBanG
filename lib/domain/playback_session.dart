@@ -32,10 +32,12 @@ class PlaybackSession {
   final StreamFormat? format;
   final String? playlist;
 
-  /// Online streams only; an external audio track played with [url].
+  /// An external audio track played with [url]: an online stream's, or the
+  /// saved copy of one.
   final String? audioUrl;
 
-  /// A danmaku locator supplied by the stream, as (provider, locator).
+  /// A danmaku locator supplied by the stream or its saved copy, as
+  /// (provider, locator).
   final (String, String)? danmaku;
 
   /// Local path of a downloaded file.
