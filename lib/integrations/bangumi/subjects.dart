@@ -90,6 +90,7 @@ class BangumiSubjects {
           'type': 'main',
           'sort': number(episode['ep']) > 0 ? episode['ep'] : episode['sort'],
           'ep': episode['ep'],
+          'absolute': episode['sort'],
           'name': episode['name'],
           'nameCn': ?_text(episode['name_cn']),
           'airdate': ?_text(episode['airdate']),

@@ -15,6 +15,11 @@ class ResourceTitleInfo {
     this.quality,
     this.episodeLabel,
     this.episodeConflict = false,
+    this.episode,
+    this.absoluteEpisode,
+    this.season,
+    this.credit,
+    this.series,
   });
 
   final String title, displayTitle;
@@ -30,6 +35,21 @@ class ResourceTitleInfo {
 
   /// Subtitle languages ([resourceLanguages]) and forms ([resourceSubtitleForms]).
   final Set<String> languages, subtitleForms;
+
+  /// The number of a single-episode release as written, and the number in
+  /// parentheses some groups add across seasons: `03(51)`.
+  final double? episode, absoluteEpisode;
+
+  /// The season the title names: 第二季, S2, 2nd Season.
+  final int? season;
+
+  /// The leading bracket crediting the release: `[北宇治字幕组]`.
+  final String? credit;
+
+  /// What releases of one series by one group share across episodes: the
+  /// credited group, season, quality, subtitles, encoding and platform. Null
+  /// for batches and titles without a credited group or episode.
+  final String? series;
 }
 
 /// Filter vocabularies, in display order.
@@ -53,6 +73,39 @@ final _languagePatterns = {
 
 RegExp _token(String pattern) =>
     RegExp('(?<![a-z0-9])(?:$pattern)(?![a-z0-9])', caseSensitive: false);
+
+final _numerals = {
+  for (final (i, c) in '一二三四五六七八九十'.split('').indexed) c: i + 1,
+};
+final _seasons = [
+  RegExp(r'第([一二三四五六七八九十]|\d{1,2})[季期]'),
+  _token(r'S(\d{1,2})(?:E\d{1,3})?'),
+  RegExp(
+    r'(\d{1,2})(?:st|nd|rd|th)\s+Season|Season\s*(\d{1,2})',
+    caseSensitive: false,
+  ),
+];
+
+/// The season [text] names, such as 第二季, 第3期, S2 or 2nd Season.
+int? resourceSeason(String text) {
+  final normalized = ChineseHelper.convertToSimplifiedChinese(text);
+  for (final pattern in _seasons) {
+    if (pattern.firstMatch(normalized) case final match?) {
+      final value = match
+          .groups([1, if (match.groupCount > 1) 2])
+          .nonNulls
+          .first;
+      return int.tryParse(value) ?? _numerals[value];
+    }
+  }
+  return null;
+}
+
+// Streaming platforms releases are ripped from; two rips of one episode by
+// one group differ by them.
+final _platform = _token(
+  r'ABEMA|Baha|B-Global|Bilibili|CR|Crunchyroll|NF|Netflix|AMZN|CATCHPLAY|Disney\+?|U-NEXT|iQIYI|Viu|KKTV|MUSE|Hulu|YouTube',
+);
 
 final _brackets = RegExp(r'\[([^\]]+)\]|【([^】]+)】|〖([^〗]+)〗');
 final _sourceQuality = RegExp(
@@ -152,6 +205,7 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
       : <String>[];
 
   String? episodeLabel;
+  double? episode, absoluteEpisode;
   var episodeConflict = false;
   final range = RegExp(
     r'(?:[\[【〖|]\s*第?)(\d{1,3})\s*[-–~～]\s*(\d{1,3})(?:话|集)?(?:\s*\+\s*SP[x×]?(\d+))?',
@@ -173,19 +227,24 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
       r'\bS(\d{1,2})E(\d{1,3})\b',
       caseSensitive: false,
     ).firstMatch(normalized);
+    // [12] [第12话] [03(51)] [12 END], " - 12", " - 03(51) " and EP12.
     final single =
         RegExp(
-              r'[\[【〖]\s*(?:第)?(\d{1,3})(?:话|集|\s*[-–]\s*[^\d]|\s*[\]】〗])|\s-\s(\d{1,3})(?:\((\d{1,4})\))?(?=\s|$)',
+              r'[\[【〖]\s*第?(\d{1,3}(?:\.5)?)(?:\((\d{1,4})\))?(?:话|集|(?:\s*(?:v\d|END|完))?(?:\s*[\]】〗]|\s*[-–]\s*[^\d]))|\s-\s?(\d{1,3}(?:\.5)?)(?:\((\d{1,4})\))?(?:\s*(?:v\d|END|完))?(?=[\s\[(【]|$)|(?<![a-z])EP\s?(\d{1,3})(?!\d)',
+              caseSensitive: false,
             )
             .allMatches(normalized)
             .where((match) => match.start != first?.start)
             .firstOrNull;
     if (seasonEpisode != null) {
       episodeLabel = 'S${seasonEpisode.group(1)} 第 ${seasonEpisode.group(2)} 话';
+      episode = double.parse(seasonEpisode.group(2)!);
     } else if (single != null) {
-      episodeLabel = single.group(3) == null
-          ? '第 ${single.group(1) ?? single.group(2)} 话'
-          : '${single.group(2)}(${single.group(3)})';
+      final number = single.group(1) ?? single.group(3) ?? single.group(5)!;
+      final across = single.group(2) ?? single.group(4);
+      episode = double.parse(number);
+      absoluteEpisode = across == null ? null : double.parse(across);
+      episodeLabel = across == null ? '第 $number 话' : '$number($across)';
     } else if (_token('MOVIE').hasMatch(normalized) ||
         normalized.contains('剧场版')) {
       episodeLabel = '剧场版';
@@ -226,6 +285,24 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
   );
   display = display.replaceAll(RegExp(r'\s+'), ' ').trim();
   if (display.isEmpty) display = title;
+  final season = resourceSeason(normalized);
+  final credit =
+      prefix == null ||
+          _technical.hasMatch(ChineseHelper.convertToSimplifiedChinese(prefix))
+      ? null
+      : prefix.trim();
+  final series = episode == null || credit == null || credit.isEmpty
+      ? null
+      : [
+          ChineseHelper.convertToSimplifiedChinese(credit).toLowerCase(),
+          season ?? '',
+          quality ?? '',
+          [...languages, ...subtitleForms, ...labels.toSet()].toList()..sort(),
+          {
+            for (final match in _platform.allMatches(normalized))
+              match.group(0)!.toUpperCase(),
+          }.toList()..sort(),
+        ].join('|');
   return ResourceTitleInfo(
     title: title,
     displayTitle: display,
@@ -239,6 +316,11 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
     titleCredits: titleCredits,
     episodeLabel: episodeLabel,
     episodeConflict: episodeConflict,
+    episode: episode,
+    absoluteEpisode: absoluteEpisode,
+    season: season,
+    credit: credit,
+    series: series,
   );
 }
 

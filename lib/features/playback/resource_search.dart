@@ -146,12 +146,18 @@ class ResourceSearchController extends ChangeNotifier {
     return sources.episodes(candidate.provider, target.chooseFrom!);
   }
 
+  /// Adds a torrent as [episode], by default the shown chapter.
   Future<DownloadTask> enqueue(
     ReleaseCandidate candidate, {
     required CacheMethod method,
+    Episode? episode,
   }) async {
     await downloadsReady();
-    return selection.releases.enqueue(candidate, method: method);
+    return selection.releases.enqueue(
+      candidate,
+      method: method,
+      episodeId: episode?.id,
+    );
   }
 
   /// Saves an online entry as [episode], by default the shown chapter.

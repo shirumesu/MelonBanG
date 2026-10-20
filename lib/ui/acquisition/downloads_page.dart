@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../domain/catalog.dart';
 import '../../domain/transfer.dart';
 import '../../features/downloads/downloads_controller.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
@@ -23,6 +24,8 @@ class DownloadsPage extends StatefulWidget {
     required this.onError,
     required this.subjectOf,
     required this.onPlaySubject,
+    required this.hasProgress,
+    required this.onOpenSubject,
   });
   final DownloadsController downloads;
   final VoidCallback onExplore;
@@ -34,6 +37,10 @@ class DownloadsPage extends StatefulWidget {
 
   /// Plays a subject's cache from where it was left.
   final Future<void> Function(Subject) onPlaySubject;
+
+  /// Whether an episode of the subject was played before.
+  final Future<bool> Function(int id) hasProgress;
+  final ValueChanged<int> onOpenSubject;
   @override
   State<DownloadsPage> createState() => _DownloadsPageState();
 }
@@ -43,12 +50,16 @@ class _DownloadsPageState extends State<DownloadsPage> {
   String statusFilter = '全部状态';
   final expanded = <String>{};
   final subjects = <int, Subject>{};
+  final played = <int>{};
   final _requested = <int>{};
 
   void _loadSubject(int id) {
     if (!_requested.add(id)) return;
     widget.subjectOf(id).then((subject) {
       if (mounted) setState(() => subjects[id] = subject);
+    }, onError: (_) {});
+    widget.hasProgress(id).then((value) {
+      if (value && mounted) setState(() => played.add(id));
     }, onError: (_) {});
   }
 
@@ -283,31 +294,20 @@ class _DownloadsPageState extends State<DownloadsPage> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    width: 58,
-                    height: 78,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: SubjectCover(
-                        url: subject?.coverUrl ?? ordered.first.coverUrl,
-                        title: title,
-                        id: subjectId,
-                      ),
-                    ),
+                  _SubjectCoverLink(
+                    url: subject?.coverUrl ?? ordered.first.coverUrl,
+                    title: title,
+                    id: subjectId,
+                    onOpen: () => widget.onOpenSubject(subjectId),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        _SubjectTitleLink(
+                          title: title,
+                          onOpen: () => widget.onOpenSubject(subjectId),
                         ),
                         const SizedBox(height: 7),
                         Wrap(
@@ -328,13 +328,15 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   ),
                   const SizedBox(width: 12),
                   Tooltip(
-                    message: playable == null
-                        ? '还没有可以播放的视频'
-                        : '从上次看到的地方继续，没有记录时从第一话开始',
+                    message: playable == null ? '还没有可以播放的视频' : '',
                     child: FilledButton.icon(
                       onPressed: onPlay,
                       icon: const Icon(Icons.play_arrow_rounded, size: 19),
-                      label: const Text('播放'),
+                      label: Text(
+                        played.contains(subjectId) && onPlay != null
+                            ? '继续播放'
+                            : '播放',
+                      ),
                     ),
                   ),
                   IconButton(
@@ -489,31 +491,26 @@ class _DownloadsPageState extends State<DownloadsPage> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: 58,
-                height: 78,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: SubjectCover(
-                    url: task.coverUrl,
-                    title: task.title,
-                    id: task.subjectId ?? 0,
-                  ),
-                ),
+              _SubjectCoverLink(
+                url: task.coverUrl,
+                title: task.title,
+                id: task.subjectId ?? 0,
+                onOpen: switch (task.subjectId) {
+                  final id? => () => widget.onOpenSubject(id),
+                  null => null,
+                },
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      task.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    _SubjectTitleLink(
+                      title: task.title,
+                      onOpen: switch (task.subjectId) {
+                        final id? => () => widget.onOpenSubject(id),
+                        null => null,
+                      },
                     ),
                     const SizedBox(height: 7),
                     DownloadTaskStatus(task: task),
@@ -636,4 +633,103 @@ class _DownloadsPageState extends State<DownloadsPage> {
         Text(value, style: Theme.of(context).textTheme.bodySmall),
     ],
   );
+}
+
+/// A cache entry's cover; with a subject it opens the detail page, showing
+/// so on hover inside the cover.
+class _SubjectCoverLink extends StatefulWidget {
+  const _SubjectCoverLink({
+    required this.url,
+    required this.title,
+    required this.id,
+    required this.onOpen,
+  });
+  final String? url;
+  final String title;
+  final int id;
+  final VoidCallback? onOpen;
+
+  @override
+  State<_SubjectCoverLink> createState() => _SubjectCoverLinkState();
+}
+
+class _SubjectCoverLinkState extends State<_SubjectCoverLink> {
+  bool hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final cover = SizedBox(
+      width: 58,
+      height: 78,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            SubjectCover(url: widget.url, title: widget.title, id: widget.id),
+            if (widget.onOpen != null)
+              AnimatedOpacity(
+                opacity: hovered ? 1 : 0,
+                duration: motionDuration(context, 150),
+                child: const ColoredBox(
+                  color: Color(0x66000000),
+                  child: Icon(
+                    Icons.info_outline_rounded,
+                    size: 22,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (widget.onOpen == null) return cover;
+    return Tooltip(
+      message: '番剧详情',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => hovered = true),
+        onExit: (_) => setState(() => hovered = false),
+        child: GestureDetector(onTap: widget.onOpen, child: cover),
+      ),
+    );
+  }
+}
+
+/// A cache entry's title; with a subject it opens the detail page and is
+/// underlined on hover.
+class _SubjectTitleLink extends StatefulWidget {
+  const _SubjectTitleLink({required this.title, required this.onOpen});
+  final String title;
+  final VoidCallback? onOpen;
+
+  @override
+  State<_SubjectTitleLink> createState() => _SubjectTitleLinkState();
+}
+
+class _SubjectTitleLinkState extends State<_SubjectTitleLink> {
+  bool hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Text(
+      widget.title,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        color: hovered ? Theme.of(context).colorScheme.primary : null,
+        decoration: hovered ? TextDecoration.underline : null,
+      ),
+    );
+    if (widget.onOpen == null) return text;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => hovered = true),
+      onExit: (_) => setState(() => hovered = false),
+      child: GestureDetector(onTap: widget.onOpen, child: text),
+    );
+  }
 }

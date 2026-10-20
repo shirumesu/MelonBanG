@@ -49,6 +49,7 @@ class PlayerSidePanel extends StatefulWidget {
     required this.onPlayFile,
     required this.onToggleTask,
     required this.onMarkEpisode,
+    required this.onOpenSubject,
     required this.onError,
   });
   final Playback playback;
@@ -66,6 +67,7 @@ class PlayerSidePanel extends StatefulWidget {
   final void Function(String id, String? fileId) onPlayFile;
   final Future<void> Function(DownloadTask) onToggleTask;
   final Future<void> Function(Episode episode, bool watched) onMarkEpisode;
+  final ValueChanged<Subject> onOpenSubject;
   final ValueChanged<Object> onError;
 
   @override
@@ -73,8 +75,6 @@ class PlayerSidePanel extends StatefulWidget {
 }
 
 class _PlayerSidePanelState extends State<PlayerSidePanel> {
-  bool marking = false;
-
   Episode? get current => switch ((widget.subject, widget.session)) {
     (final subject?, PlaybackSession(:final episodeId?)) => subject.episode(
       episodeId,
@@ -83,13 +83,10 @@ class _PlayerSidePanelState extends State<PlayerSidePanel> {
   };
 
   Future<void> mark(Episode episode, bool watched) async {
-    setState(() => marking = true);
     try {
       await widget.onMarkEpisode(episode, watched);
     } catch (e) {
       widget.onError(e);
-    } finally {
-      if (mounted) setState(() => marking = false);
     }
   }
 
@@ -134,13 +131,9 @@ class _PlayerSidePanelState extends State<PlayerSidePanel> {
                     ],
                   ),
                 ),
-                if (episode != null) ...[
+                if (subject != null && linked) ...[
                   const SizedBox(width: Gap.sm),
-                  _MarkButton(
-                    watched: episode.watched,
-                    busy: marking,
-                    onPressed: () => mark(episode, !episode.watched),
-                  ),
+                  _DetailButton(onPressed: () => widget.onOpenSubject(subject)),
                 ],
               ],
             ),
@@ -194,37 +187,26 @@ String episodeLabel(Episode episode) => episode.title == '未命名'
     ? '第 ${episode.number} 话'
     : '第 ${episode.number} 话  ${episode.title}';
 
-class _MarkButton extends StatelessWidget {
-  const _MarkButton({
-    required this.watched,
-    required this.busy,
-    required this.onPressed,
-  });
-  final bool watched, busy;
+/// Leaves the player for the subject's detail page.
+class _DetailButton extends StatelessWidget {
+  const _DetailButton({required this.onPressed});
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Tooltip(
-      message: watched ? '标为未看' : '标为看过',
-      child: TextButton.icon(
-        style: TextButton.styleFrom(
-          minimumSize: const Size(0, 30),
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          backgroundColor: watched
-              ? scheme.primaryContainer
-              : scheme.surfaceContainerHigh,
-          foregroundColor: watched
-              ? scheme.onPrimaryContainer
-              : scheme.onSurface,
-          shape: const RoundedRectangleBorder(borderRadius: badgeBorderRadius),
-          textStyle: const TextStyle(fontSize: 12),
-        ),
-        onPressed: busy ? null : onPressed,
-        icon: const Icon(Icons.check_rounded, size: 15),
-        label: Text(watched ? '已看过' : '标为看过'),
+    return TextButton.icon(
+      style: TextButton.styleFrom(
+        minimumSize: const Size(0, 30),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        backgroundColor: scheme.surfaceContainerHigh,
+        foregroundColor: scheme.onSurface,
+        shape: const RoundedRectangleBorder(borderRadius: badgeBorderRadius),
+        textStyle: const TextStyle(fontSize: 12),
       ),
+      onPressed: onPressed,
+      icon: const Icon(Icons.info_outline_rounded, size: 15),
+      label: const Text('番剧详情'),
     );
   }
 }

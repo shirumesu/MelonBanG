@@ -234,6 +234,11 @@ String resourceDateLabel(TorrentRelease release) {
   return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 }
 
+/// Site release groups, else the group the title credits.
+String resourceGroupLabel(ResourceTitleInfo info) => info.sourceGroups.isEmpty
+    ? info.credit ?? ''
+    : info.sourceGroups.join(' & ');
+
 // Shared by the resource table header and its rows.
 const resourceTableWidth = 760.0;
 const resourceGroupColumnWidth = 120.0;
@@ -288,7 +293,7 @@ class ResourceResultRow extends StatelessWidget {
     builder: (context, constraints) {
       final wide = constraints.maxWidth >= resourceTableWidth;
       final scheme = Theme.of(context).colorScheme;
-      final groups = info.sourceGroups.join(' & ');
+      final groups = resourceGroupLabel(info);
       final (group, size, date) = switch (candidate.target) {
         ReleaseTarget(candidate: ReleaseCandidate(:final release)) => (
           groups.isEmpty ? '—' : groups,
@@ -573,4 +578,226 @@ class ResourceResultRow extends StatelessWidget {
           .showSnackBar(const SnackBar(content: Text('无法打开发布页')));
     }
   }
+}
+
+/// The heading of one group's single-episode releases of a series on one
+/// site: the episodes it covers and shared tags, the newest release and the
+/// combined size. Tapping it shows the releases; its action downloads a
+/// range of them.
+class ResourceSeriesRow extends StatelessWidget {
+  const ResourceSeriesRow({
+    super.key,
+    required this.candidate,
+    required this.info,
+    required this.title,
+    required this.coverage,
+    required this.size,
+    required this.date,
+    required this.expanded,
+    required this.onExpand,
+    this.warnings = const [],
+    this.recommended = false,
+    this.added = false,
+    this.onBatch,
+  });
+
+  /// The best release, which supplies the kind, site and tags.
+  final PlayCandidate candidate;
+  final ResourceTitleInfo info;
+  final String title, coverage, size, date;
+  final bool expanded, recommended;
+  final VoidCallback onExpand;
+  final List<String> warnings;
+
+  /// Every episode it holds was added from here.
+  final bool added;
+
+  /// Null when none of its episodes belongs to the subject.
+  final VoidCallback? onBatch;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final wide = constraints.maxWidth >= resourceTableWidth;
+      final scheme = Theme.of(context).colorScheme;
+      final small = Theme.of(context).textTheme.bodySmall;
+      final group = resourceGroupLabel(info);
+      final source = candidate.providerLabel ?? candidate.provider;
+      Widget tag(String text, {Color? background, Color? foreground}) =>
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: background ?? scheme.surfaceContainerLow,
+              borderRadius: const BorderRadius.all(Radius.circular(5)),
+            ),
+            child: Text(
+              text,
+              style: small?.copyWith(
+                fontSize: 11,
+                color: foreground,
+                fontWeight: foreground == null ? null : FontWeight.w700,
+              ),
+            ),
+          );
+      final foreground = onBatch == null
+          ? scheme.onSurface.withValues(alpha: .38)
+          : added
+          ? scheme.primary
+          : scheme.onSurface;
+      return InkWell(
+        onTap: onExpand,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 1, right: 2),
+                          child: Tooltip(
+                            message: expanded ? '收起' : '展开各集',
+                            child: AnimatedRotation(
+                              turns: expanded ? .25 : 0,
+                              duration: motionDuration(context, 150),
+                              child: Icon(
+                                Icons.chevron_right,
+                                size: 16,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 18),
+                      child: Wrap(
+                        spacing: 5,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (recommended)
+                            Tooltip(
+                              message: '综合画质、字幕和大小推荐',
+                              child: tag(
+                                '推荐',
+                                background: scheme.primary,
+                                foreground: scheme.onPrimary,
+                              ),
+                            ),
+                          tag(
+                            candidate.kind.label,
+                            background: scheme.secondaryContainer,
+                          ),
+                          tag(
+                            coverage,
+                            background: scheme.primaryContainer,
+                            foreground: scheme.onPrimaryContainer,
+                          ),
+                          for (final label in info.labels) tag(label),
+                          for (final warning in warnings)
+                            tag(
+                              warning,
+                              background: scheme.tertiaryContainer,
+                              foreground: scheme.onTertiaryContainer,
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (!wide)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 18, top: 5),
+                        child: Text(
+                          [
+                            group,
+                            size,
+                            date,
+                            source,
+                          ].where((e) => e.isNotEmpty && e != '—').join('  '),
+                          style: small,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (wide) ...[
+                const SizedBox(width: Gap.md),
+                SizedBox(
+                  width: resourceGroupColumnWidth,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        group.isEmpty ? '—' : group,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: small?.copyWith(color: scheme.onSurface),
+                      ),
+                      Text(source, style: small?.copyWith(fontSize: 10)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Gap.md),
+                SizedBox(
+                  width: resourceSizeColumnWidth,
+                  child: Text(
+                    size,
+                    style: small?.copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: Gap.md),
+                SizedBox(
+                  width: resourceDateColumnWidth,
+                  child: Text(
+                    date,
+                    style: small?.copyWith(
+                      fontSize: 11,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(width: Gap.sm),
+              _ResourceAction(
+                icon: Icon(
+                  added ? Icons.download_done_rounded : Icons.download_rounded,
+                  size: 18,
+                  color: foreground,
+                ),
+                label: wide ? (added ? '已添加' : '批量下载') : null,
+                tooltip: onBatch == null
+                    ? '没有对应本作的剧集'
+                    : added
+                    ? '已全部加入缓存'
+                    : '选择集数批量下载',
+                width: resourceActionsWidth(wide: wide),
+                background: scheme.surfaceContainerHigh,
+                foreground: foreground,
+                onTap: onBatch,
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }
