@@ -46,6 +46,13 @@ typedef _Member = (
   Episode? episode,
 );
 
+/// An entry of an upload or site subject, with the episode it plays as.
+typedef _Part = (
+  PlayCandidate candidate,
+  SourceEpisode entry,
+  Episode? episode,
+);
+
 /// One row of the list: a result, or a series of single-episode releases
 /// shown as one expandable entry.
 class _Entry {
@@ -112,7 +119,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   final downloadTasks = <String, String>{};
   StreamSubscription<TransferSnapshot>? downloadChanges;
   final annotations = <String, ResourceTitleInfo>{};
-  final entries = <String, Future<List<SourceEpisode>>>{};
+  // Entries of online subjects, by candidate id.
+  final parts = <String, Future<List<SourceEpisode>>>{};
 
   _Family kind = _Family.all;
   bool includeUnknown = false, searching = false;
@@ -124,6 +132,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   ResourceSearchState get state => controller.state;
   Subject? get subject => state.subject;
   Episode? get episode => state.episode;
+  Episode? get searched => state.searched;
   bool get searchBusy => controller.busy || searching;
 
   @override
@@ -222,7 +231,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     if (searchBusy) return;
     setState(() {
       searching = true;
-      entries.clear();
+      parts.clear();
     });
     try {
       await controller.search(
@@ -273,7 +282,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         null => null,
       };
 
-  /// Downloads [candidate] as [episode], by default the shown chapter.
+  /// Downloads [candidate] as [episode], by default the searched one.
   Future<void> download(PlayCandidate candidate, {Episode? episode}) async {
     final id = candidate.id;
     if (adding.contains(id) || taskOf(candidate) != null) return;
@@ -414,168 +423,68 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     if (candidate.health < 0) '最近播放失败',
   ];
 
-  /// Entries of an upload or site subject, grouped by line; each plays as
-  /// the shown chapter or, for a whole-subject search, the matching one.
-  Widget entryPicker(PlayCandidate parent) {
-    final upload = (parent.target as OnlineTarget).chooseFrom!;
-    final small = Theme.of(context).textTheme.bodySmall;
-    return FutureBuilder<List<SourceEpisode>>(
-      future: entries[parent.id] ??= controller.entries(parent),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Row(
-            children: [
-              Text(
-                '读取失败：${snapshot.error}',
-                style: small?.copyWith(
-                  color: Theme.of(context).colorScheme.error,
-                ),
-              ),
-              TextButton(
-                onPressed: () => setState(() => entries.remove(parent.id)),
-                child: const Text('重试'),
-              ),
-            ],
-          );
-        }
-        final rows = snapshot.data;
-        if (rows == null) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: Gap.sm),
-            child: SizedBox(
-              width: 160,
-              child: LinearProgressIndicator(minHeight: 2),
-            ),
-          );
-        }
-        if (rows.isEmpty) return Text('没有可播放的条目', style: small);
-        final lines =
-            <String, List<(PlayCandidate, SourceEpisode, Episode?)>>{};
-        for (final row in rows) {
-          (lines[row.line] ??= []).add((
-            onlinePartCandidate(parent, upload, row),
-            row,
-            episode ??
-                subject?.episodes
-                    .where((e) => sourceEpisodeMatches(row.label, e))
-                    .firstOrNull,
-          ));
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final MapEntry(key: line, value: items) in lines.entries) ...[
-              entryLineHeader(
-                lines.length > 1 && line.isNotEmpty ? line : null,
-                items,
-              ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  for (final (candidate, item, target) in items)
-                    entryButton(candidate, item, target),
-                ],
-              ),
-            ],
-          ],
-        );
-      },
-    );
-  }
-
-  /// A line's name, when there are several, and an action downloading every
-  /// entry of it that matches a chapter.
-  Widget entryLineHeader(
-    String? line,
-    List<(PlayCandidate, SourceEpisode, Episode?)> items,
+  /// Entries of an upload or site subject by line; each plays as the
+  /// searched episode or, for a whole-subject search, the one its label
+  /// names.
+  Map<String, List<_Part>> linesOf(
+    PlayCandidate parent,
+    List<SourceEpisode> rows,
   ) {
-    // Matched by label even under a chapter, where every entry plays as it.
-    final options = <int, PlayCandidate>{
-      for (final (candidate, item, _) in items)
-        if (subject?.episodes
-                .where((e) => sourceEpisodeMatches(item.label, e))
-                .firstOrNull
-            case final episode?)
-          episode.id: candidate,
-    };
-    return Padding(
-      padding: const EdgeInsets.only(top: Gap.xs, bottom: Gap.xs),
-      child: Row(
-        children: [
-          if (line != null)
-            Flexible(
-              child: Text(
-                line,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          if (line != null) const SizedBox(width: Gap.sm),
-          if (options.length > 1)
-            TextButton.icon(
-              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-              onPressed: () => downloadRange(
-                options,
-                title: line ?? items.first.$1.title,
-                source: items.first.$1.sourceLabel,
-              ),
-              icon: const Icon(Icons.download_rounded, size: 16),
-              label: const Text('批量下载'),
-            ),
-        ],
-      ),
-    );
+    final upload = (parent.target as OnlineTarget).chooseFrom!;
+    final lines = <String, List<_Part>>{};
+    for (final row in rows) {
+      (lines[row.line] ??= []).add((
+        onlinePartCandidate(parent, upload, row),
+        row,
+        searched ??
+            subject?.episodes
+                .where((e) => sourceEpisodeMatches(row.label, e))
+                .firstOrNull,
+      ));
+    }
+    return lines;
   }
 
-  /// Plays the entry as its chapter; the trailing action downloads it.
-  Widget entryButton(
-    PlayCandidate candidate,
-    SourceEpisode item,
-    Episode? target,
-  ) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Tooltip(
-        message: target == null
-            ? '没有对应的集数'
-            : ['作为第 ${target.number} 话播放', ?item.description].join('  '),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 260),
-          child: OutlinedButton(
-            style: OutlinedButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              minimumSize: const Size(44, 32),
-            ),
-            onPressed: target == null || opening != null
-                ? null
-                : () => play(candidate, target),
-            child: opening == candidate.id
-                ? const SizedBox.square(
-                    dimension: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Text(
-                    item.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-          ),
-        ),
-      ),
-      if (target != null) ...[
-        const SizedBox(width: 2),
-        ResourceDownloadButton(
-          adding: adding.contains(candidate.id),
-          task: taskOf(candidate),
-          failed: downloadErrors.containsKey(candidate.id),
-          onPressed: () => download(candidate, episode: target),
-        ),
-      ],
-    ],
-  );
+  /// Episode ids of a line with the first entry holding each.
+  static Map<int, PlayCandidate> lineOptions(List<_Part> items) => {
+    for (final (candidate, _, target) in items.reversed)
+      if (target != null) target.id: candidate,
+  };
+
+  /// Reads an online subject's entries and downloads a range of the line
+  /// holding the most episodes; a failed read shows in its expanded row.
+  Future<void> downloadOnline(PlayCandidate parent) async {
+    final id = parent.id;
+    final future = parts[id] ??= controller.entries(parent);
+    setState(() {});
+    final List<SourceEpisode> rows;
+    try {
+      rows = await future;
+    } catch (_) {
+      if (mounted) changeForm(() => expandedTitles.add(id));
+      return;
+    }
+    if (!mounted) return;
+    final lines = linesOf(parent, rows).entries.toList()
+      ..sort(
+        (a, b) => lineOptions(b.value).length - lineOptions(a.value).length,
+      );
+    final options = lines.isEmpty
+        ? const <int, PlayCandidate>{}
+        : lineOptions(lines.first.value);
+    if (options.isEmpty) {
+      changeForm(() => expandedTitles.add(id));
+      return;
+    }
+    await downloadRange(
+      options,
+      title: parent.title,
+      source: [
+        parent.sourceLabel,
+        if (lines.length > 1) lines.first.key,
+      ].join(' · '),
+    );
+  }
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -656,7 +565,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     // Without an episode term, one group's single-episode releases of a
     // series on one site form an entry; releases holding none of the
     // subject's episodes, such as an earlier season's, follow the rest.
-    final grouping = state.terms?.episodeKeyword.trim().isEmpty ?? false;
+    final grouping = state.terms != null && searched == null;
     final entries = <_Entry>[], unmatched = <_Entry>[];
     final bySeries = <String, _Entry>{};
     for (final (candidate, info) in visible) {
@@ -689,7 +598,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     Widget resultRow(_Member member) {
       final (candidate, info, target) = member;
       final expanded = expandedTitles.contains(candidate.id);
-      final chapter = target ?? episode;
+      final chapter = target ?? searched;
       return ResourceArrival(
         child: ResourceResultRow(
           candidate: candidate,
@@ -712,12 +621,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
               ? () => play(candidate, chapter!)
               : null,
           error: downloadErrors[candidate.id],
-          details: switch (candidate.target) {
-            OnlineTarget(chooseFrom: _?) when expanded => entryPicker(
-              candidate,
-            ),
-            _ => null,
-          },
           download: switch (candidate.target) {
             ReleaseTarget() ||
             OnlineTarget(ref: _?) => (wide) => ResourceDownloadButton(
@@ -730,6 +633,52 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             _ => null,
           },
         ),
+      );
+    }
+
+    /// A release of an expanded series, showing what sets it apart.
+    Widget memberRow(_Member member, bool wide) {
+      final (candidate, info, target) = member;
+      final release = (candidate.target as ReleaseTarget).candidate.release;
+      final expanded = expandedTitles.contains(candidate.id);
+      return ResourceEpisodeRow(
+        label: target == null
+            ? info.episodeLabel!
+            : '第 ${target.number.padLeft(2, '0')} 话',
+        wide: wide,
+        title: info.title,
+        detailUrl: release.detailUrl,
+        expanded: expanded,
+        onExpand: () => changeForm(() {
+          if (!expandedTitles.remove(candidate.id)) {
+            expandedTitles.add(candidate.id);
+          }
+        }),
+        notes: [
+          if (target != null && target.sort != info.episode)
+            '标题为${info.episodeLabel}',
+        ],
+        warnings: [...info.warnings, ...warningsOf(candidate)],
+        size: resourceSizeLabel(release),
+        date: resourceDateLabel(release),
+        error: downloadErrors[candidate.id],
+        download: ResourceDownloadButton(
+          adding: adding.contains(candidate.id),
+          task: taskOf(candidate),
+          failed: downloadErrors.containsKey(candidate.id),
+          showLabel: wide,
+          onPressed: () => download(candidate, episode: target),
+        ),
+        play: playable(candidate, target)
+            ? ResourcePlayButton(
+                onPressed: opening == null
+                    ? () => play(candidate, target!)
+                    : null,
+                instant: candidate.instant,
+                playing: opening == candidate.id,
+                showLabel: wide,
+              )
+            : null,
       );
     }
 
@@ -773,6 +722,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
               candidate: best,
               info: info,
               title: _seriesTitle(info),
+              group: resourceGroupLabel(info),
               coverage: '第 ${episodeSpans(each.keys)} 话',
               size: bytes.isEmpty
                   ? '—'
@@ -786,42 +736,222 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
               }),
               recommended: best.id == recommendedId,
               warnings: [if (options.isEmpty) '未对应本作剧集'],
-              added:
-                  options.isNotEmpty &&
-                  options.values.every(
-                    (candidate) => taskOf(candidate) != null,
-                  ),
-              onBatch: options.isEmpty
-                  ? null
-                  : () => downloadRange(
-                      options,
-                      title: [
-                        resourceGroupLabel(info),
-                        _seriesTitle(info),
-                      ].where((e) => e.isNotEmpty).join('  '),
-                      source: [
-                        best.providerLabel ?? best.provider,
-                        ?info.quality,
-                        ...info.languages,
-                        ...info.subtitleForms,
-                      ].join(' · '),
+              action: (wide) => ResourceBatchButton(
+                showLabel: wide,
+                added:
+                    options.isNotEmpty &&
+                    options.values.every(
+                      (candidate) => taskOf(candidate) != null,
                     ),
+                onPressed: options.isEmpty
+                    ? null
+                    : () => downloadRange(
+                        options,
+                        title: [
+                          resourceGroupLabel(info),
+                          _seriesTitle(info),
+                        ].where((e) => e.isNotEmpty).join('  '),
+                        source: [
+                          best.providerLabel ?? best.provider,
+                          ?info.quality,
+                          ...info.languages,
+                          ...info.subtitleForms,
+                        ].join(' · '),
+                      ),
+              ),
             ),
           ),
           if (expanded)
-            ColoredBox(
-              color: Theme.of(context).colorScheme.surfaceContainerLow,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final member in members) ...[
-                    const Divider(height: 1, indent: 16, endIndent: 16),
-                    resultRow(member),
-                  ],
-                ],
-              ),
+            ResourceEpisodePanel(
+              rows: (wide) => [
+                for (final member in members) memberRow(member, wide),
+              ],
             ),
         ],
+      );
+    }
+
+    /// An online subject: its entries, read when first needed, are its
+    /// episodes, by line.
+    Widget onlineRow(_Member member) {
+      final (candidate, info, _) = member;
+      final id = candidate.id;
+      final expanded = expandedTitles.contains(id);
+      final future = expanded
+          ? parts[id] ??= controller.entries(candidate)
+          : parts[id];
+      final small = Theme.of(context).textTheme.bodySmall;
+      return FutureBuilder<List<SourceEpisode>>(
+        future: future,
+        builder: (context, snapshot) {
+          final rows = snapshot.data;
+          final lines = rows == null ? null : linesOf(candidate, rows);
+          final matched = {
+            for (final items in lines?.values ?? const <List<_Part>>[])
+              for (final (_, _, target) in items) ?target?.sort,
+          };
+          final options = lines?.values
+              .map(lineOptions)
+              .fold(
+                <int, PlayCandidate>{},
+                (a, b) => b.length > a.length ? b : a,
+              );
+          Widget line(String name, List<_Part> items) {
+            final options = lineOptions(items);
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(26, 4, 8, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      name.isEmpty ? '默认线路' : name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: small?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                  if (searched == null && options.length > 1)
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: () => downloadRange(
+                        options,
+                        title: candidate.title,
+                        source: [candidate.sourceLabel, name].join(' · '),
+                      ),
+                      icon: const Icon(Icons.download_rounded, size: 16),
+                      label: const Text('批量下载'),
+                    ),
+                ],
+              ),
+            );
+          }
+
+          Widget part(_Part part, bool wide) {
+            final (entry, item, target) = part;
+            return ResourceEpisodeRow(
+              label: item.label,
+              wide: wide,
+              notes: [
+                if (searched != null) '作为第 ${searched!.number} 话',
+                ?item.description,
+              ],
+              warnings: [if (target == null) '未对应本作剧集'],
+              error: downloadErrors[entry.id],
+              download: target == null
+                  ? null
+                  : ResourceDownloadButton(
+                      adding: adding.contains(entry.id),
+                      task: taskOf(entry),
+                      failed: downloadErrors.containsKey(entry.id),
+                      showLabel: wide,
+                      onPressed: () => download(entry, episode: target),
+                    ),
+              play: target == null
+                  ? null
+                  : ResourcePlayButton(
+                      onPressed: opening == null
+                          ? () => play(entry, target)
+                          : null,
+                      instant: true,
+                      playing: opening == entry.id,
+                      showLabel: wide,
+                    ),
+            );
+          }
+
+          Widget notice(Widget child) => Padding(
+            padding: const EdgeInsets.fromLTRB(26, 8, 8, 8),
+            child: child,
+          );
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ResourceArrival(
+                child: ResourceSeriesRow(
+                  candidate: candidate,
+                  info: info,
+                  title: info.displayTitle,
+                  group: candidate.line,
+                  coverage: rows == null
+                      ? null
+                      : searched == null && matched.isNotEmpty
+                      ? '第 ${episodeSpans(matched)} 话'
+                      : '${rows.length} 个条目',
+                  notes: notesOf(candidate),
+                  warnings: warningsOf(candidate),
+                  recommended: id == recommendedId,
+                  expanded: expanded,
+                  onExpand: () => changeForm(() {
+                    if (!expandedTitles.remove(id)) expandedTitles.add(id);
+                  }),
+                  action: searched != null
+                      ? null
+                      : (wide) => ResourceBatchButton(
+                          showLabel: wide,
+                          loading:
+                              future != null &&
+                              snapshot.connectionState != ConnectionState.done,
+                          added:
+                              options != null &&
+                              options.isNotEmpty &&
+                              options.values.every(
+                                (part) => taskOf(part) != null,
+                              ),
+                          onPressed: options != null && options.isEmpty
+                              ? null
+                              : () => downloadOnline(candidate),
+                        ),
+                ),
+              ),
+              if (expanded)
+                ResourceEpisodePanel(
+                  rows: (wide) => [
+                    if (snapshot.hasError)
+                      notice(
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                '读取失败：${snapshot.error}',
+                                style: small?.copyWith(
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => setState(() => parts.remove(id)),
+                              child: const Text('重试'),
+                            ),
+                          ],
+                        ),
+                      )
+                    else if (rows == null)
+                      notice(
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: SizedBox(
+                            width: 160,
+                            child: LinearProgressIndicator(minHeight: 2),
+                          ),
+                        ),
+                      )
+                    else if (rows.isEmpty)
+                      notice(Text('没有可播放的条目', style: small))
+                    else
+                      for (final MapEntry(key: name, value: items)
+                          in lines!.entries) ...[
+                        if (lines.length > 1) line(name, items),
+                        for (final item in items) part(item, wide),
+                      ],
+                  ],
+                ),
+            ],
+          );
+        },
       );
     }
 
@@ -846,6 +976,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final background = Material.of(context).color!;
+    final shownEpisode = state.terms == null ? episode : searched;
     final includedAliases = aliases.where((name) => !excluded.contains(name));
     final aliasMenu = MelonFilterMenu<String>(
       key: const ValueKey('resource-aliases-toggle'),
@@ -908,9 +1039,9 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
-                  if (episode != null) ...[
+                  if (shownEpisode != null) ...[
                     const SizedBox(height: 2),
-                    Text('第 ${episode!.number} 话', style: small),
+                    Text('第 ${shownEpisode.number} 话', style: small),
                   ],
                 ],
               ),
@@ -1377,7 +1508,18 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                         const Divider(height: 1, indent: 16, endIndent: 16),
                       entry.series
                           ? seriesRow(entry)
-                          : resultRow(entry.members.single),
+                          : switch (entry.members.single) {
+                              final member &&
+                                  (
+                                    PlayCandidate(
+                                      target: OnlineTarget(chooseFrom: _?),
+                                    ),
+                                    _,
+                                    _,
+                                  ) =>
+                                onlineRow(member),
+                              final member => resultRow(member),
+                            },
                     ],
                   ),
                 ),

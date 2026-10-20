@@ -136,6 +136,24 @@ Episode? releaseEpisode(Subject subject, ResourceTitleInfo info) {
   return episodes.where((e) => e.sort == number).firstOrNull;
 }
 
+/// Whether a release may hold [episode]: a single-episode release must be
+/// it, a batch must span it within or across seasons, and a special needs a
+/// special. Titles stating no episode may hold any.
+bool releaseMayHold(Subject subject, Episode episode, ResourceTitleInfo info) {
+  if (info.episode != null) {
+    return releaseEpisode(subject, info)?.id == episode.id;
+  }
+  final label = info.episodeLabel;
+  if (label == null || label == '剧场版') return true;
+  if (label.startsWith('特别篇')) return !episode.main;
+  final range = RegExp(r'^(\d+)–(\d+)').firstMatch(label)!;
+  bool within(double? number) =>
+      number != null &&
+      number >= int.parse(range[1]!) &&
+      number <= int.parse(range[2]!);
+  return within(episode.sort) || within(episode.absolute);
+}
+
 /// Openings/endings, soundtracks and songs, audio tracks, recaps, tutorials and
 /// merchandise reuse a title without holding an episode.
 final _notEpisode = RegExp(

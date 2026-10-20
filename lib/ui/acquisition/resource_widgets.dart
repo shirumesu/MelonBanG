@@ -157,6 +157,95 @@ class ResourceDownloadButton extends StatelessWidget {
   }
 }
 
+/// Plays a result as its chapter; a torrent is added to the cache first.
+class ResourcePlayButton extends StatelessWidget {
+  const ResourcePlayButton({
+    super.key,
+    required this.onPressed,
+    required this.instant,
+    this.playing = false,
+    this.showLabel = false,
+  });
+  final VoidCallback? onPressed;
+  final bool instant, playing, showLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return _ResourceAction(
+      icon: playing
+          ? Padding(
+              padding: const EdgeInsets.all(2),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: scheme.onPrimary,
+              ),
+            )
+          : Icon(Icons.play_arrow_rounded, size: 18, color: scheme.onPrimary),
+      label: showLabel ? (playing ? '打开中' : '播放') : null,
+      tooltip: instant || playing ? '播放' : '播放，同时下载到本机',
+      width: resourcePlayWidth(labelled: showLabel),
+      background: scheme.primary,
+      foreground: scheme.onPrimary,
+      onTap: onPressed,
+    );
+  }
+}
+
+/// Downloads a chosen range of a series' episodes.
+class ResourceBatchButton extends StatelessWidget {
+  const ResourceBatchButton({
+    super.key,
+    required this.onPressed,
+    this.added = false,
+    this.loading = false,
+    this.showLabel = false,
+  });
+
+  /// Null when none of the episodes belongs to the subject.
+  final VoidCallback? onPressed;
+
+  /// Every episode was added from here; [loading] reads the entries first.
+  final bool added, loading, showLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final foreground = onPressed == null
+        ? scheme.onSurface.withValues(alpha: .38)
+        : added
+        ? scheme.primary
+        : scheme.onSurface;
+    return _ResourceAction(
+      icon: loading
+          ? Padding(
+              padding: const EdgeInsets.all(2),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: foreground,
+              ),
+            )
+          : Icon(
+              added ? Icons.download_done_rounded : Icons.download_rounded,
+              size: 18,
+              color: foreground,
+            ),
+      label: showLabel ? (added ? '已添加' : '批量下载') : null,
+      tooltip: loading
+          ? '正在读取集数'
+          : onPressed == null
+          ? '没有对应本作的剧集'
+          : added
+          ? '已全部加入缓存'
+          : '选择集数批量下载',
+      width: resourceActionsWidth(wide: showLabel),
+      background: scheme.surfaceContainerHigh,
+      foreground: foreground,
+      onTap: loading ? null : onPressed,
+    );
+  }
+}
+
 /// Per-site status line: "动漫花园 12 条 · 蜜柑计划 搜索中 2/5".
 String resourceProviderStatus(SourceProgress source) => switch (source.status) {
   SearchStatus.loading => '搜索中 ${source.completed}/${source.total}',
@@ -265,7 +354,6 @@ class ResourceResultRow extends StatelessWidget {
     this.onPlay,
     this.playing = false,
     this.error,
-    this.details,
   });
   final PlayCandidate candidate;
   final ResourceTitleInfo info;
@@ -284,9 +372,6 @@ class ResourceResultRow extends StatelessWidget {
   /// Null when the row cannot be played from here.
   final VoidCallback? onPlay;
   final String? error;
-
-  /// Shown below the original title when expanded, e.g. entries to choose.
-  final Widget? details;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -471,7 +556,6 @@ class ResourceResultRow extends StatelessWidget {
                                       ),
                                       label: const Text('打开发布页'),
                                     ),
-                                  ?details,
                                 ],
                               ),
                             )
@@ -536,28 +620,11 @@ class ResourceResultRow extends StatelessWidget {
               SizedBox(
                 width: resourcePlayWidth(labelled: wide),
                 child: playing || onPlay != null
-                    ? _ResourceAction(
-                        icon: playing
-                            ? Padding(
-                                padding: const EdgeInsets.all(2),
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: scheme.onPrimary,
-                                ),
-                              )
-                            : Icon(
-                                Icons.play_arrow_rounded,
-                                size: 18,
-                                color: scheme.onPrimary,
-                              ),
-                        label: wide ? (playing ? '打开中' : '播放') : null,
-                        tooltip: candidate.instant || playing
-                            ? '播放'
-                            : '播放，同时下载到本机',
-                        width: resourcePlayWidth(labelled: wide),
-                        background: scheme.primary,
-                        foreground: scheme.onPrimary,
-                        onTap: onPlay,
+                    ? ResourcePlayButton(
+                        onPressed: onPlay,
+                        instant: candidate.instant,
+                        playing: playing,
+                        showLabel: wide,
                       )
                     : null,
               ),
@@ -567,53 +634,76 @@ class ResourceResultRow extends StatelessWidget {
       );
     },
   );
+}
 
-  Future<void> _openSource(BuildContext context, String url) async {
-    try {
-      final uri = Uri.parse(url);
-      if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
-    } catch (_) {}
-    if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('无法打开发布页')));
-    }
+Future<void> _openSource(BuildContext context, String url) async {
+  try {
+    final uri = Uri.parse(url);
+    if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
+  } catch (_) {}
+  if (context.mounted) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('无法打开发布页')));
   }
 }
 
-/// The heading of one group's single-episode releases of a series on one
-/// site: the episodes it covers and shared tags, the newest release and the
-/// combined size. Tapping it shows the releases; its action downloads a
-/// range of them.
+Widget _tag(
+  BuildContext context,
+  String text, {
+  Color? background,
+  Color? foreground,
+}) => Container(
+  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+  decoration: BoxDecoration(
+    color: background ?? Theme.of(context).colorScheme.surfaceContainerLow,
+    borderRadius: const BorderRadius.all(Radius.circular(5)),
+  ),
+  child: Text(
+    text,
+    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+      fontSize: 11,
+      color: foreground,
+      fontWeight: foreground == null ? null : FontWeight.w700,
+    ),
+  ),
+);
+
+/// The heading of a series: one group's single-episode releases of it on
+/// one site, or an online site subject. It shows the episodes it covers and
+/// the tags they share, so its episodes list only what sets them apart.
+/// Tapping it shows the episodes; its action downloads a range of them.
 class ResourceSeriesRow extends StatelessWidget {
   const ResourceSeriesRow({
     super.key,
     required this.candidate,
     required this.info,
     required this.title,
-    required this.coverage,
-    required this.size,
-    required this.date,
+    required this.group,
     required this.expanded,
     required this.onExpand,
+    this.coverage,
+    this.size = '—',
+    this.date = '—',
+    this.notes = const [],
     this.warnings = const [],
     this.recommended = false,
-    this.added = false,
-    this.onBatch,
+    this.action,
   });
 
-  /// The best release, which supplies the kind, site and tags.
+  /// The best release or the site subject, which supplies the kind, site
+  /// and tags.
   final PlayCandidate candidate;
   final ResourceTitleInfo info;
-  final String title, coverage, size, date;
+  final String title, group, size, date;
+
+  /// The episodes it covers, once known.
+  final String? coverage;
   final bool expanded, recommended;
   final VoidCallback onExpand;
-  final List<String> warnings;
+  final List<String> notes, warnings;
 
-  /// Every episode it holds was added from here.
-  final bool added;
-
-  /// Null when none of its episodes belongs to the subject.
-  final VoidCallback? onBatch;
+  /// The batch download button, given whether the row is wide.
+  final Widget Function(bool wide)? action;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -621,29 +711,7 @@ class ResourceSeriesRow extends StatelessWidget {
       final wide = constraints.maxWidth >= resourceTableWidth;
       final scheme = Theme.of(context).colorScheme;
       final small = Theme.of(context).textTheme.bodySmall;
-      final group = resourceGroupLabel(info);
       final source = candidate.providerLabel ?? candidate.provider;
-      Widget tag(String text, {Color? background, Color? foreground}) =>
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: background ?? scheme.surfaceContainerLow,
-              borderRadius: const BorderRadius.all(Radius.circular(5)),
-            ),
-            child: Text(
-              text,
-              style: small?.copyWith(
-                fontSize: 11,
-                color: foreground,
-                fontWeight: foreground == null ? null : FontWeight.w700,
-              ),
-            ),
-          );
-      final foreground = onBatch == null
-          ? scheme.onSurface.withValues(alpha: .38)
-          : added
-          ? scheme.primary
-          : scheme.onSurface;
       return InkWell(
         onTap: onExpand,
         child: Padding(
@@ -696,24 +764,31 @@ class ResourceSeriesRow extends StatelessWidget {
                           if (recommended)
                             Tooltip(
                               message: '综合画质、字幕和大小推荐',
-                              child: tag(
+                              child: _tag(
+                                context,
                                 '推荐',
                                 background: scheme.primary,
                                 foreground: scheme.onPrimary,
                               ),
                             ),
-                          tag(
+                          _tag(
+                            context,
                             candidate.kind.label,
                             background: scheme.secondaryContainer,
                           ),
-                          tag(
-                            coverage,
-                            background: scheme.primaryContainer,
-                            foreground: scheme.onPrimaryContainer,
-                          ),
-                          for (final label in info.labels) tag(label),
+                          if (coverage != null)
+                            _tag(
+                              context,
+                              coverage!,
+                              background: scheme.primaryContainer,
+                              foreground: scheme.onPrimaryContainer,
+                            ),
+                          for (final label in info.labels) _tag(context, label),
+                          for (final note in notes)
+                            _tag(context, note, background: Colors.transparent),
                           for (final warning in warnings)
-                            tag(
+                            _tag(
+                              context,
                               warning,
                               background: scheme.tertiaryContainer,
                               foreground: scheme.onTertiaryContainer,
@@ -777,22 +852,9 @@ class ResourceSeriesRow extends StatelessWidget {
                 ),
               ],
               const SizedBox(width: Gap.sm),
-              _ResourceAction(
-                icon: Icon(
-                  added ? Icons.download_done_rounded : Icons.download_rounded,
-                  size: 18,
-                  color: foreground,
-                ),
-                label: wide ? (added ? '已添加' : '批量下载') : null,
-                tooltip: onBatch == null
-                    ? '没有对应本作的剧集'
-                    : added
-                    ? '已全部加入缓存'
-                    : '选择集数批量下载',
+              SizedBox(
                 width: resourceActionsWidth(wide: wide),
-                background: scheme.surfaceContainerHigh,
-                foreground: foreground,
-                onTap: onBatch,
+                child: action?.call(wide),
               ),
             ],
           ),
@@ -800,4 +862,216 @@ class ResourceSeriesRow extends StatelessWidget {
       );
     },
   );
+}
+
+/// The episodes of an expanded series, inset under its title on a tinted
+/// panel whose rows keep the table's columns.
+class ResourceEpisodePanel extends StatelessWidget {
+  const ResourceEpisodePanel({super.key, required this.rows});
+
+  /// The rows, given whether the table is wide.
+  final List<Widget> Function(bool wide) rows;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => Padding(
+      padding: const EdgeInsets.fromLTRB(26, 0, 8, 10),
+      child: Material(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: const BorderRadius.all(Radius.circular(10)),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: rows(constraints.maxWidth >= resourceTableWidth),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// One episode of an expanded series: its number and what sets it apart,
+/// with the table's size and date columns and actions. Tapping it shows the
+/// original title when it has one.
+class ResourceEpisodeRow extends StatelessWidget {
+  const ResourceEpisodeRow({
+    super.key,
+    required this.label,
+    required this.wide,
+    this.title,
+    this.detailUrl,
+    this.expanded = false,
+    this.onExpand,
+    this.notes = const [],
+    this.warnings = const [],
+    this.size = '',
+    this.date = '',
+    this.download,
+    this.play,
+    this.error,
+  });
+  final String label;
+  final bool wide, expanded;
+
+  /// The original title and release page, shown when expanded.
+  final String? title, detailUrl;
+  final VoidCallback? onExpand;
+  final List<String> notes, warnings;
+  final String size, date;
+  final Widget? download, play;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final small = Theme.of(context).textTheme.bodySmall;
+    final meta = [size, date].where((e) => e.isNotEmpty && e != '—');
+    Widget cell(double width, String text, {double? fontSize}) => SizedBox(
+      width: width,
+      height: 34,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          text,
+          style: small?.copyWith(
+            fontSize: fontSize,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      ),
+    );
+    return InkWell(
+      onTap: title == null ? null : onExpand,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 34),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 18,
+                          child: onExpand == null || title == null
+                              ? null
+                              : Tooltip(
+                                  message: expanded ? '收起' : '显示原标题',
+                                  child: AnimatedRotation(
+                                    turns: expanded ? .25 : 0,
+                                    duration: motionDuration(context, 150),
+                                    child: Icon(
+                                      Icons.chevron_right,
+                                      size: 16,
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                        ),
+                        Text(
+                          label,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Wrap(
+                            spacing: 5,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              for (final note in notes)
+                                _tag(
+                                  context,
+                                  note,
+                                  background: Colors.transparent,
+                                ),
+                              for (final warning in warnings)
+                                _tag(
+                                  context,
+                                  warning,
+                                  background: scheme.tertiaryContainer,
+                                  foreground: scheme.onTertiaryContainer,
+                                ),
+                              if (!wide && meta.isNotEmpty)
+                                Text(meta.join('  '), style: small),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  AnimatedSize(
+                    duration: motionDuration(context),
+                    alignment: Alignment.topLeft,
+                    curve: Curves.easeOutCubic,
+                    child: expanded && title != null
+                        ? Padding(
+                            padding: const EdgeInsets.only(left: 18, bottom: 4),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SelectableText(
+                                  title!,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                if (detailUrl != null)
+                                  TextButton.icon(
+                                    style: TextButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                    ),
+                                    onPressed: () =>
+                                        _openSource(context, detailUrl!),
+                                    icon: const Icon(
+                                      Icons.open_in_new,
+                                      size: 13,
+                                    ),
+                                    label: const Text('打开发布页'),
+                                  ),
+                              ],
+                            ),
+                          )
+                        : const SizedBox(width: double.infinity),
+                  ),
+                  if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 18, bottom: 4),
+                      child: Text(
+                        error!,
+                        style: small?.copyWith(color: scheme.error),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (wide) ...[
+              const SizedBox(width: Gap.md + resourceGroupColumnWidth + Gap.md),
+              cell(resourceSizeColumnWidth, size),
+              const SizedBox(width: Gap.md),
+              cell(resourceDateColumnWidth, date, fontSize: 11),
+            ],
+            const SizedBox(width: Gap.sm),
+            SizedBox(
+              width: resourceDownloadWidth(labelled: wide),
+              child: download,
+            ),
+            const SizedBox(width: _actionGap),
+            SizedBox(
+              width: resourcePlayWidth(labelled: wide),
+              child: play,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
