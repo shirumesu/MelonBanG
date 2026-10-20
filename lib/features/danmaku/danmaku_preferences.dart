@@ -136,12 +136,8 @@ class DanmakuPreferences extends ChangeNotifier {
     );
   }
 
-  /// Comments that pass mode/colour/filter rules, shifted by their source's
-  /// offset and sorted by time.
-  List<DanmakuComment> visible(
-    List<DanmakuComment> comments,
-    Map<String, double> offsets,
-  ) {
+  /// Comments that pass mode/colour/filter rules, in time order.
+  List<DanmakuComment> visible(List<DanmakuComment> comments) {
     final result = <DanmakuComment>[];
     for (final item in comments) {
       if ((item.mode == DanmakuMode.scroll && !scroll) ||
@@ -151,9 +147,8 @@ class DanmakuPreferences extends ChangeNotifier {
       }
       if (!colorful && item.color != 0xffffff) continue;
       if (filters.any((rule) => rule.matches(item.text))) continue;
-      result.add(item.shifted(offsets[item.source] ?? 0));
+      result.add(item);
     }
-    result.sort((a, b) => a.time.compareTo(b.time));
     return result;
   }
 }

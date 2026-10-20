@@ -24,8 +24,16 @@ abstract interface class PlaybackShell {
   /// Lets the user pick a source for [episode]; null when dismissed.
   Future<PlayCandidate?> chooseCandidate(Subject subject, Episode episode);
 
-  /// Opens the full resource search for [episode].
+  /// Opens resource search for [episode]: the player's own sheet while the
+  /// player shows, else the resources page.
   Future<void> openResources(Subject subject, Episode episode);
+}
+
+/// A chosen source that could not be played; nothing else is tried for it.
+class PlaybackFailure {
+  const PlaybackFailure(this.reason, this.episode);
+  final String reason;
+  final Episode episode;
 }
 
 /// The player route opened before a session starts: an episode whose source
@@ -82,8 +90,9 @@ class PreparingPlayback {
   );
 }
 
-/// Selects a source, opens it, checks for a first frame, recovers or switches
-/// sources, and prepares autoplay. Request tickets and cancellation keep
+/// Selects a source, opens it, checks for a first frame, refreshes a failed
+/// online address once, and prepares autoplay. A source that still fails
+/// stops with its reason; another one is never picked in its place. Request tickets and cancellation keep
 /// superseded work from reaching the player.
 class PlaybackCoordinator extends ChangeNotifier {
   PlaybackCoordinator(
@@ -123,7 +132,12 @@ class PlaybackCoordinator extends ChangeNotifier {
               _longBufferCount = 0;
             }
             _lastLongBuffer = now;
-            if (++_longBufferCount >= 2) {
+            if (++_longBufferCount < 2) return;
+            // A fresh address often ends the stall; past that the stream
+            // keeps going and the choice of another source stays the user's.
+            if (_onlineRefreshed) {
+              playback.showNotice('一直在缓冲，可以在侧栏换个资源');
+            } else {
               unawaited(_recover('播放反复长时间缓冲'));
             }
           });
@@ -141,6 +155,9 @@ class PlaybackCoordinator extends ChangeNotifier {
   /// Subject of the player route, with its episode list.
   Subject? subject;
   PreparingPlayback? preparing;
+
+  /// Why the chosen source stopped while a video is open.
+  PlaybackFailure? failure;
   int _preparingTicket = 0;
   Future<void> Function()? _retryPreparing;
   final _subscriptions = <StreamSubscription<dynamic>>[];
@@ -148,20 +165,26 @@ class PlaybackCoordinator extends ChangeNotifier {
   (String, String)? _watchedSession;
   Future<void>? _closing;
   bool _closed = false;
-  int _selectionRequest = 0, _playbackRequest = 0, _fallbackCount = 0;
+  int _selectionRequest = 0, _playbackRequest = 0;
   RequestCancellation _selectionCancel = RequestCancellation();
   PlayCandidate? _activeCandidate;
   Subject? _candidateSubject;
   Episode? _candidateEpisode;
-  List<PlayCandidate> _choices = [];
   bool _recovering = false, _onlineRefreshed = false;
   Timer? _firstFrameDeadline, _bufferDeadline;
   int _longBufferCount = 0;
   DateTime? _lastLongBuffer;
 
+  /// The source last chosen for playback, shown beside the video.
+  PlayCandidate? get activeCandidate => _activeCandidate;
+
   int _nextSelection() {
     _selectionCancel.cancel();
     _selectionCancel = RequestCancellation();
+    if (failure != null) {
+      failure = null;
+      notifyListeners();
+    }
     return ++_selectionRequest;
   }
 
@@ -197,9 +220,33 @@ class PlaybackCoordinator extends ChangeNotifier {
     }
     _watchedSession = key;
     final write = _perform(
-      () => tracking.setEpisode(subjectId, episodeId, EpisodeStatus.watched),
+      () => _setEpisode(subjectId, episodeId, EpisodeStatus.watched),
     );
     _operations = Future.wait([_operations, write]).then((_) {});
+  }
+
+  /// Marks [episode] of the player's subject watched or unwatched.
+  Future<void> markEpisode(Episode episode, bool watched) => _setEpisode(
+    episode.subjectId,
+    episode.id,
+    watched ? EpisodeStatus.watched : EpisodeStatus.unwatched,
+  );
+
+  Future<void> _setEpisode(
+    int subjectId,
+    int episodeId,
+    EpisodeStatus status,
+  ) async {
+    await tracking.setEpisode(subjectId, episodeId, status);
+    final current = subject;
+    if (_closed || current?.id != subjectId) return;
+    subject = current!.copyWith(
+      episodes: [
+        for (final episode in current.episodes)
+          episode.id == episodeId ? episode.withStatus(status) : episode,
+      ],
+    );
+    notifyListeners();
   }
 
   /// Drops pending selection, checks and autoplay.
@@ -376,10 +423,13 @@ class PlaybackCoordinator extends ChangeNotifier {
       final cached = local.where(
         (candidate) => candidate.kind == PlayKind.local,
       );
-      if (cached.isNotEmpty) {
-        await playCandidate(cached.first, item, episode);
-        return;
+      // A cache that cannot open is reported rather than replaced by
+      // another source.
+      if (cached.isEmpty) {
+        throw StateError('第 ${episode.number} 话的缓存暂时无法播放');
       }
+      await playCandidate(cached.first, item, episode);
+      return;
     }
     playback.showNotice('正在查找第 ${episode.number} 话资源');
     final choices = await _candidates(
@@ -394,6 +444,7 @@ class PlaybackCoordinator extends ChangeNotifier {
         _failPreparing(_preparingTicket, '没有找到可以直接播放的资源');
         return;
       }
+      playback.showNotice('第 ${episode.number} 话没有能直接播放的资源');
       await shell.openResources(item, episode);
       return;
     }
@@ -401,7 +452,7 @@ class PlaybackCoordinator extends ChangeNotifier {
       await chooseSource(item, episode);
       return;
     }
-    await playCandidate(choices.first, item, episode, choices: choices);
+    await playCandidate(choices.first, item, episode);
   }
 
   /// Plays [episode]'s cache when it has one, otherwise lets the user pick a
@@ -446,9 +497,14 @@ class PlaybackCoordinator extends ChangeNotifier {
     await prepare(item, episode, () => selectEpisode(item, episode));
   }
 
-  /// Lets the user pick a source for [episode] and plays it.
+  /// Lets the user pick a source for [episode] and plays it; in a playing
+  /// player that is its own resource sheet.
   Future<void> chooseSource(Subject item, Episode episode) async {
     cancel();
+    if (shell.showingPlayer && preparing == null && playback.uri != null) {
+      await shell.openResources(item, episode);
+      return;
+    }
     final chosen = await shell.chooseCandidate(item, episode);
     if (_closed) return;
     if (chosen != null) {
@@ -493,6 +549,14 @@ class PlaybackCoordinator extends ChangeNotifier {
 
   void retryPreparing() => unawaited(_perform(_retryPreparing!));
 
+  /// Plays the failed source again.
+  void retryFailure() {
+    final candidate = _activeCandidate;
+    final item = _candidateSubject, episode = _candidateEpisode;
+    if (candidate == null || item == null || episode == null) return;
+    unawaited(_perform(() => playCandidate(candidate, item, episode)));
+  }
+
   void choosePreparing() {
     final PreparingPlayback(:subject, :episode) = preparing!;
     unawaited(_perform(() => chooseSource(subject!, episode!)));
@@ -522,7 +586,6 @@ class PlaybackCoordinator extends ChangeNotifier {
     PlayCandidate candidate,
     Subject item,
     Episode episode, {
-    List<PlayCandidate>? choices,
     bool recovery = false,
     Duration? recoveryPosition,
   }) async {
@@ -532,8 +595,6 @@ class PlaybackCoordinator extends ChangeNotifier {
       playback.cancelAutoplay();
       _candidateSubject = item;
       _candidateEpisode = episode;
-      _choices = choices ?? [];
-      _fallbackCount = 0;
       _onlineRefreshed = false;
       _longBufferCount = 0;
       _lastLongBuffer = null;
@@ -579,7 +640,6 @@ class PlaybackCoordinator extends ChangeNotifier {
           await playback.open(session);
           if (playback.error != null) throw StateError(playback.error!);
           selection.played(item.id, candidate);
-          if (recovery) playback.showNotice('已切换到 ${candidate.sourceLabel}');
           final sessionId = session.id;
           _firstFrameDeadline?.cancel();
           if (candidate.kind == PlayKind.online) {
@@ -624,10 +684,11 @@ class PlaybackCoordinator extends ChangeNotifier {
     await _recover('15 秒内未产生视频画面');
   }
 
-  /// Re-resolves a failed online address once, then tries up to three
-  /// instant alternatives, preferring the same provider.
+  /// Re-resolves a failed online address once, then stops with [reason].
+  /// Another source is never picked on the user's behalf: it may be one they
+  /// did not want.
   Future<void> _recover(String reason) async {
-    var failed = _activeCandidate;
+    final failed = _activeCandidate;
     final item = _candidateSubject, episode = _candidateEpisode;
     if (_recovering ||
         failed == null ||
@@ -638,71 +699,22 @@ class PlaybackCoordinator extends ChangeNotifier {
     }
     _recovering = true;
     final request = _selectionRequest;
-    final cancellation = _selectionCancel;
-    var searchedAlternatives = false;
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
     try {
-      final saved = await library.progress(item.id, episode.id);
-      final position =
-          playback.session?.subjectId == item.id &&
-              playback.session?.episodeId == episode.id
-          ? playback.player.state.position
-          : Duration(milliseconds: ((saved?.position ?? 0) * 1000).round());
-      while (!_closed && request == _selectionRequest) {
-        selection.failed(failed!);
-        if (failed.kind == PlayKind.online && !_onlineRefreshed) {
-          _onlineRefreshed = true;
-          playback.showNotice('正在刷新播放地址');
-          try {
-            await playCandidate(
-              failed,
-              item,
-              episode,
-              recovery: true,
-              recoveryPosition: position,
-            );
-            if (playback.error == null) return;
-          } catch (error) {
-            reason = '$error';
-          }
-        }
-        if (_fallbackCount >= 3) break;
-        List<PlayCandidate> healthyChoices() => _choices
-            .where(
-              (candidate) =>
-                  candidate.instant &&
-                  !candidate.possibleMatch &&
-                  candidate.id != failed!.id &&
-                  candidate.health >= 0,
-            )
-            .toList();
-        var alternatives = healthyChoices();
-        if (alternatives.isEmpty && !searchedAlternatives) {
-          searchedAlternatives = true;
-          _choices = await _candidates(
-            item,
-            episode,
-            instantOnly: true,
-            useContinuity: true,
-            cancel: cancellation,
-          );
-          alternatives = healthyChoices();
-        }
-        final alternative =
-            alternatives
-                .where((candidate) => candidate.provider == failed!.provider)
-                .firstOrNull ??
-            alternatives.firstOrNull;
-        if (_closed || request != _selectionRequest) return;
-        if (alternative == null) break;
-        _choices.removeWhere((candidate) => candidate.id == failed!.id);
-        failed = alternative;
-        _fallbackCount++;
-        _onlineRefreshed = false;
+      selection.failed(failed);
+      if (failed.kind == PlayKind.online && !_onlineRefreshed) {
+        _onlineRefreshed = true;
+        final saved = await library.progress(item.id, episode.id);
+        final position =
+            playback.session?.subjectId == item.id &&
+                playback.session?.episodeId == episode.id
+            ? playback.player.state.position
+            : Duration(milliseconds: ((saved?.position ?? 0) * 1000).round());
+        playback.showNotice('正在刷新播放地址');
         try {
           await playCandidate(
-            alternative,
+            failed,
             item,
             episode,
             recovery: true,
@@ -714,17 +726,38 @@ class PlaybackCoordinator extends ChangeNotifier {
         }
       }
       if (!_closed && request == _selectionRequest) {
-        await playback.player.pause();
-        playback.showNotice('没有其他能直接播放的资源，请手动选择');
-        playback.showResourceFailure(episode);
-        shell.showError(reason);
-        if (!shell.showingPlayer) await chooseSource(item, episode);
+        _fail(item, episode, failed, reason);
       }
     } catch (e) {
       if (!_closed && request == _selectionRequest) shell.showError(e);
     } finally {
       _recovering = false;
     }
+  }
+
+  /// Stops on [candidate]'s failure: a preparing or empty player shows it
+  /// with retry and source choice, an open video pauses under it.
+  void _fail(
+    Subject item,
+    Episode episode,
+    PlayCandidate candidate,
+    String reason,
+  ) {
+    reason = reason.replaceFirst('Bad state: ', '');
+    _retryPreparing = () =>
+        prepare(item, episode, () => playCandidate(candidate, item, episode));
+    if (preparing == null && playback.uri == null) {
+      _preparingTicket++;
+      subject = item;
+      preparing = PreparingPlayback.episode(item, episode);
+    }
+    if (preparing != null) {
+      _failPreparing(_preparingTicket, reason);
+      return;
+    }
+    unawaited(playback.player.pause());
+    failure = PlaybackFailure(reason, episode);
+    notifyListeners();
   }
 
   /// The next aired main episode and how it would play; never starts a new
@@ -780,7 +813,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     return AutoplayTarget(
       episode: next,
       sourceLabel: choices.first.sourceLabel,
-      play: () => playCandidate(choices.first, item, next, choices: choices),
+      play: () => playCandidate(choices.first, item, next),
     );
   }
 
@@ -792,6 +825,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     _preparingTicket++;
     subject = null;
     preparing = null;
+    failure = null;
     notifyListeners();
     if (subjectId == null) return;
     unawaited(

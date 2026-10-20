@@ -553,6 +553,12 @@ abstract interface class SubjectCommunitySource {
 
   /// The full BBCode of a review, whose listing holds only its start.
   Future<String> blog(int entryId);
+
+  /// An episode's comments, oldest first, each with its replies.
+  Future<List<TopicPost>> episodeComments(
+    int episodeId, {
+    bool refresh = false,
+  });
   Future<List<Subject>> relations(int subjectId, {bool refresh = false});
 }
 

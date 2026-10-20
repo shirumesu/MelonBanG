@@ -34,22 +34,12 @@ class DanmakuComment {
   final double time;
   final String text;
 
-  /// Provider id; offsets and merging keep sources apart.
+  /// Provider id; merging keeps sources apart.
   final String source;
   final DanmakuMode mode;
 
   /// 0xRRGGBB.
   final int color;
-
-  DanmakuComment shifted(double seconds) => seconds == 0
-      ? this
-      : DanmakuComment(
-          time + seconds,
-          text,
-          source: source,
-          mode: mode,
-          color: color,
-        );
 }
 
 /// `#rrggbb`, or null.

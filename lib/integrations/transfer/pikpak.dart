@@ -19,7 +19,8 @@ import 'records.dart';
 /// there while they arrive. Content PikPak already stores is leased without
 /// a drive file; other resources are downloaded by PikPak's servers into the
 /// drive first, and that copy is deleted once the local copy is complete.
-/// Resources PikPak refuses to download are BT's.
+/// Resources PikPak refuses to download fail with the reason; switching to BT
+/// is the user's choice.
 class PikPakTransfer implements TorrentTransfer, CloudIndex {
   PikPakTransfer(
     this.store,

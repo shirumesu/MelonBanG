@@ -237,6 +237,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 for (final (i, (action, keys)) in const [
                   ('播放 / 暂停', 'Space / K / 单击画面'),
                   ('后退 / 前进 5 秒', '← / →'),
+                  ('3 倍速快进', '按住 →'),
                   ('跳到 0%–90%', '0–9'),
                   ('回到开头', 'Home'),
                   ('上一帧 / 下一帧', ', / .'),
@@ -244,7 +245,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   ('音量', '↑ / ↓'),
                   ('静音', 'M'),
                   ('弹幕开关', 'D'),
-                  ('关灯', 'L'),
                   ('全屏', 'F / F11 / 双击画面'),
                   ('退出全屏', 'Esc'),
                 ].indexed) ...[

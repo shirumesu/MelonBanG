@@ -53,7 +53,10 @@ class _MelonAppState extends State<MelonApp>
     implements PlaybackShell {
   final messages = GlobalKey<ScaffoldMessengerState>();
   final navigation = GlobalKey<NavigatorState>();
-  final playerPageKey = GlobalKey();
+  final playerPageKey = GlobalKey<PlayerPageState>();
+
+  /// The player's side panel; null until the player picks a default.
+  final playerPanel = ValueNotifier<bool?>(null);
   final search = TextEditingController();
   final searchFocus = FocusNode(debugLabel: 'Catalogue search');
   final pageStorage = PageStorageBucket();
@@ -73,9 +76,6 @@ class _MelonAppState extends State<MelonApp>
   /// The player starts with the sidebar collapsed so the video gets the width;
   /// toggling it there does not change the other pages.
   bool playerSidebarVisible = false;
-
-  /// "关灯" in the light theme darkens only the player; remembered across runs.
-  bool playerLightsOff = false;
 
   AppServices get service => widget.service;
   Playback get playback => service.playback;
@@ -100,16 +100,10 @@ class _MelonAppState extends State<MelonApp>
         _ => false,
       };
 
-  void setPlayerLights(bool off) {
-    setState(() => playerLightsOff = off);
-    unawaited(widget.preferences.setBool('player-lights-off', off));
-  }
-
   @override
   void initState() {
     super.initState();
     dark = widget.preferences.getBool('dark') ?? false;
-    playerLightsOff = widget.preferences.getBool('player-lights-off') ?? false;
     recentSearches = widget.preferences.getStringList('recentSearches') ?? [];
     windowManager.addListener(this);
     unawaited(windowManager.setPreventClose(true));
@@ -323,9 +317,20 @@ class _MelonAppState extends State<MelonApp>
     setState(() => route = 'player');
   }
 
+  /// A playing player searches in its own sheet instead of leaving for the
+  /// resources page.
   @override
-  Future<void> openResources(Subject subject, Episode episode) async =>
+  Future<void> openResources(Subject subject, Episode episode) async {
+    final player = playerPageKey.currentState;
+    if (route == 'player' &&
+        player != null &&
+        coordinator.preparing == null &&
+        playback.uri != null) {
+      player.findResources(episode);
+    } else {
       findResources(subject, episode: episode);
+    }
+  }
 
   @override
   Future<PlayCandidate?> chooseCandidate(Subject item, Episode episode) async {
@@ -550,6 +555,7 @@ class _MelonAppState extends State<MelonApp>
     }
     homeFeedback.dispose();
     syncFeedback.dispose();
+    playerPanel.dispose();
     search.dispose();
     searchFocus.dispose();
     windowManager.removeListener(this);
@@ -585,10 +591,10 @@ class _MelonAppState extends State<MelonApp>
               goBack,
         },
         child: Builder(
-          // One animated theme for the whole window: entering the player or
-          // switching its lights fades between light and dark.
+          // One animated theme for the whole window: switching it fades
+          // between light and dark.
           builder: (context) => AnimatedTheme(
-            data: appTheme(dark || (route == 'player' && playerLightsOff)),
+            data: appTheme(dark),
             duration: motionDuration(context, 300),
             curve: Curves.easeInOut,
             child: Scaffold(
@@ -609,6 +615,13 @@ class _MelonAppState extends State<MelonApp>
                         }
                       }),
                       onToggleTheme: () => setDark(!dark),
+                      panelOpen:
+                          route == 'player' &&
+                              ready &&
+                              coordinator.preparing == null &&
+                              playback.uri != null
+                          ? playerPanel
+                          : null,
                       search: search,
                       searchFocusNode: searchFocus,
                       onSearch: (query) => searchSubjects(query: query),
@@ -705,8 +718,12 @@ class _MelonAppState extends State<MelonApp>
     downloads: downloads,
     onPlayFile: playDownload,
     onFullScreenChanged: setFullScreen,
-    lightsOff: dark ? null : playerLightsOff,
-    onLightsChanged: setPlayerLights,
+    panelOpen: playerPanel,
+    community: service.community,
+    source: coordinator.activeCandidate,
+    failure: coordinator.failure,
+    onRetryFailure: coordinator.retryFailure,
+    onMarkEpisode: coordinator.markEpisode,
     subject: coordinator.subject,
     preparing: coordinator.preparing,
     onRetryPreparing: coordinator.retryPreparing,

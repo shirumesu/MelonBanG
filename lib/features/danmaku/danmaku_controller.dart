@@ -19,8 +19,8 @@ class DanmakuSourceState {
   List<DanmakuCandidate> candidates = const [];
 }
 
-/// The current session's danmaku: per-source state, merged comments and
-/// source offsets. Each load holds a per-source ticket; a newer load or a new
+/// The current session's danmaku: per-source state and merged comments.
+/// Each load holds a per-source ticket; a newer load or a new
 /// session discards older results.
 class DanmakuController extends ChangeNotifier {
   DanmakuController(this.repository, this.preferences) {
@@ -30,18 +30,17 @@ class DanmakuController extends ChangeNotifier {
   final DanmakuPreferences preferences;
   DanmakuTarget? _target;
   List<DanmakuSourceState> sources = [];
-  Map<String, double> offsets = {};
 
   /// Enabled sources' comments, merged by time.
   List<DanmakuComment> comments = const [];
 
-  /// [comments] after preferences and offsets.
+  /// [comments] after preferences.
   List<DanmakuComment> visible = const [];
   final _comments = <String, List<DanmakuComment>>{};
   final _loads = <String, Object>{};
 
   /// Starts a session with each provider's saved default enable state.
-  Future<void> begin(DanmakuTarget target) async {
+  void begin(DanmakuTarget target) {
     _target = target;
     _comments.clear();
     _loads.clear();
@@ -53,18 +52,7 @@ class DanmakuController extends ChangeNotifier {
           enabled: preferences.sourceEnabled(provider.id),
         ),
     ];
-    offsets = {};
     _merge();
-    final key = target.offsetKey;
-    if (key == null) return;
-    try {
-      final saved = await repository.offsets(key);
-      if (!identical(_target, target)) return;
-      offsets = saved;
-      _refresh();
-    } catch (_) {
-      /* Keep playback usable if danmaku offset storage fails. */
-    }
   }
 
   /// Loads every enabled automatic source: the stream's own locator, then a
@@ -199,14 +187,6 @@ class DanmakuController extends ChangeNotifier {
     preferences.setProvider(provider, enabled);
   }
 
-  Future<void> setOffset(String provider, double seconds) async {
-    final key = _target?.offsetKey;
-    if (key == null) return;
-    offsets = {...offsets, provider: seconds};
-    _refresh();
-    await repository.saveOffset(key, provider, seconds);
-  }
-
   /// Linear multiway merge of the enabled sources' sorted lists.
   void _merge() {
     final lists = [
@@ -233,7 +213,7 @@ class DanmakuController extends ChangeNotifier {
   }
 
   void _refresh() {
-    visible = preferences.visible(comments, offsets);
+    visible = preferences.visible(comments);
     notifyListeners();
   }
 
