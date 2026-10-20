@@ -189,6 +189,30 @@ class PlaybackLibrary {
     return available;
   }
 
+  /// The episode of [subjectId] that played last, with its saved progress.
+  Future<({int episodeId, EpisodeProgress progress})?> lastPlayed(
+    int subjectId,
+  ) async {
+    final page = await store.entries(
+      'playback_progress',
+      idPrefix: '$subjectId:',
+      limit: 1,
+    );
+    for (final MapEntry(:key, :value) in page.entries) {
+      final episodeId = int.tryParse(key.split(':').last);
+      if (episodeId == null) continue;
+      return (
+        episodeId: episodeId,
+        progress: (
+          position: number(value['positionSeconds']),
+          duration: number(value['durationSeconds']),
+          completed: value['completed'] == true,
+        ),
+      );
+    }
+    return null;
+  }
+
   /// Subjects by when an episode of theirs last played, most recent first.
   Future<List<int>> playedSubjects() async => {
     for (final key in (await store.entries('playback_progress')).keys)
