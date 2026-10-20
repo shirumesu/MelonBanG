@@ -11,8 +11,9 @@ import 'page_widgets.dart';
 import 'motion.dart';
 import 'theme.dart';
 
-/// Missing or loading artwork: the "invisible" Akkarin line drawing tinted
-/// to the theme, so empty slots stay neutral instead of adding colour.
+/// A missing or loading portrait of a character or person: the "invisible"
+/// Akkarin line drawing tinted to the theme, so empty slots stay neutral
+/// instead of adding colour.
 class ArtPlaceholder extends StatelessWidget {
   const ArtPlaceholder({super.key, this.label = ''});
   final String label;
@@ -26,14 +27,41 @@ class ArtPlaceholder extends StatelessWidget {
       image: true,
       child: ColoredBox(
         color: scheme.surfaceContainerHigh,
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Center(
-            child: Image.asset(
-              'assets/images/akkarin.png',
-              color: line,
-              fit: BoxFit.contain,
-              excludeFromSemantics: true,
+        child: FractionallySizedBox(
+          widthFactor: .8,
+          heightFactor: .8,
+          child: Image.asset(
+            'assets/images/akkarin.png',
+            color: line,
+            fit: BoxFit.contain,
+            excludeFromSemantics: true,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A subject cover that is missing, still loading or failed to load: one
+/// picture-off glyph on the neutral surface.
+class CoverPlaceholder extends StatelessWidget {
+  const CoverPlaceholder({super.key, this.label = ''});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      label: label.isEmpty ? '暂无封面' : label,
+      image: true,
+      child: ColoredBox(
+        color: scheme.surfaceContainerHigh,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Center(
+            child: Icon(
+              Icons.hide_image_outlined,
+              size: (constraints.biggest.shortestSide * .3).clamp(14, 44),
+              color: scheme.onSurfaceVariant.withValues(alpha: .45),
             ),
           ),
         ),
@@ -841,7 +869,7 @@ class _SubjectCoverState extends State<SubjectCover> {
     final id = widget.id;
     final title = widget.title;
     final address = _address;
-    final fallback = ArtPlaceholder(label: title);
+    final fallback = CoverPlaceholder(label: title);
     return AnimatedSwitcher(
       duration: motionDuration(context),
       child: address == null

@@ -1476,18 +1476,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                 child: ArtPlaceholder(label: label),
               ),
             )
-          : ColoredBox(
-              color: Theme.of(context).colorScheme.surfaceContainerHigh,
-              child: Center(
-                child: Icon(
-                  character
-                      ? Icons.face_outlined
-                      : Icons.person_outline_rounded,
-                  size: math.min(width, height) * .5,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
+          : ArtPlaceholder(label: label),
     );
     Widget preview(Widget image) {
       if (!character || url == null) return image;
@@ -1555,8 +1544,9 @@ class _SubjectDetailState extends State<_SubjectDetail> {
               : CachedImage(
                   url: url,
                   cacheWidth: imageDecodeWidth(context, width),
-                  fit: character ? BoxFit.contain : BoxFit.cover,
-                  alignment: character ? Alignment.topCenter : Alignment.center,
+                  // Filled without distortion; tall portraits keep the face.
+                  fit: BoxFit.cover,
+                  alignment: Alignment.topCenter,
                   frameBuilder: (_, child, frame, synchronous) =>
                       frame == null && !synchronous
                       ? placeholder('正在加载头像')

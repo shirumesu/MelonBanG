@@ -20,6 +20,7 @@ class ResourceTitleInfo {
     this.season,
     this.credit,
     this.series,
+    this.subtitles = '',
   });
 
   final String title, displayTitle;
@@ -47,9 +48,13 @@ class ResourceTitleInfo {
   final String? credit;
 
   /// What releases of one series by one group share across episodes: the
-  /// credited group, season, quality, subtitles, encoding and platform. Null
-  /// for batches and titles without a credited group or episode.
+  /// credited group, season, quality, encoding and platform. Null for
+  /// batches and titles without a credited group or episode.
   final String? series;
+
+  /// The subtitle languages, forms and wording the title states, empty when
+  /// it states none; a series' releases share it where stated.
+  final String subtitles;
 }
 
 /// Filter vocabularies, in display order.
@@ -184,12 +189,13 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
   final subtitle = RegExp(
     r'(?:内封)?(?:简繁日|简繁|简日|繁日|简体中文|繁体中文|简体|繁体|简中|繁中|粤日)(?:中文)?(?:双语|多语)?(?:内封|内嵌|外挂)?(?:字幕)?',
   );
-  labels.addAll(subtitle.allMatches(normalized).map((m) => m.group(0)!));
-  if (!subtitle.hasMatch(normalized)) {
-    for (final language in ['CHS', 'CHT', 'GB', 'BIG5', 'VOSTFR']) {
-      if (_token(language).hasMatch(normalized)) labels.add(language);
-    }
-  }
+  final subtitleLabels = [
+    ...subtitle.allMatches(normalized).map((m) => m.group(0)!),
+    if (!subtitle.hasMatch(normalized))
+      for (final language in ['CHS', 'CHT', 'GB', 'BIG5', 'VOSTFR'])
+        if (_token(language).hasMatch(normalized)) language,
+  ];
+  labels.addAll(subtitleLabels);
   final blocks = _brackets.allMatches(title).toList();
   final first = blocks.firstOrNull;
   final prefix = first != null && title.substring(0, first.start).trim().isEmpty
@@ -297,7 +303,8 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
           ChineseHelper.convertToSimplifiedChinese(credit).toLowerCase(),
           season ?? '',
           quality ?? '',
-          [...languages, ...subtitleForms, ...labels.toSet()].toList()..sort(),
+          labels.where((e) => !subtitleLabels.contains(e)).toSet().toList()
+            ..sort(),
           {
             for (final match in _platform.allMatches(normalized))
               match.group(0)!.toUpperCase(),
@@ -321,28 +328,35 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
     season: season,
     credit: credit,
     series: series,
+    subtitles: ([
+      ...languages,
+      ...subtitleForms,
+      ...subtitleLabels.toSet(),
+    ]..sort()).join('|'),
   );
 }
 
-/// Each non-empty selection must overlap the title's confirmed annotations;
-/// unconfirmed annotations pass only when [includeUnknown] is set.
-bool matchesResourceSelection(
+/// What a title leaves unstated of the selections: each non-empty selection
+/// must overlap its annotations or find none stated. Null when it fails one;
+/// otherwise the names of the selections it states nothing for, so such
+/// titles can follow confirmed ones.
+List<String>? resourceSelectionGaps(
   ResourceTitleInfo info, {
   Set<String> qualities = const {},
   Set<String> groups = const {},
   Set<String> languages = const {},
   Set<String> subtitleForms = const {},
-  bool includeUnknown = false,
 }) {
-  bool matches(Set<String> selected, Iterable<String> values) =>
-      selected.isEmpty ||
-      values.any(selected.contains) ||
-      (includeUnknown && values.isEmpty);
-  return matches(
-        qualities,
-        info.quality == null ? const [] : [info.quality!],
-      ) &&
-      matches(groups, info.sourceGroups) &&
-      matches(languages, info.languages) &&
-      matches(subtitleForms, info.subtitleForms);
+  final gaps = <String>{};
+  for (final (name, selected, values) in [
+    ('画质', qualities, [?info.quality]),
+    ('字幕组', groups, info.sourceGroups),
+    ('字幕', languages, info.languages),
+    ('字幕', subtitleForms, info.subtitleForms),
+  ]) {
+    if (selected.isEmpty || values.any(selected.contains)) continue;
+    if (values.isNotEmpty) return null;
+    gaps.add(name);
+  }
+  return gaps.toList();
 }
