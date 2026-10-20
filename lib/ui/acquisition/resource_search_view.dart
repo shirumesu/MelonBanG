@@ -18,6 +18,7 @@ import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
+import 'resource_batch_dialog.dart';
 import 'resource_widgets.dart';
 
 /// The kind segment, like the Sources page groups: online entries, torrents
@@ -37,6 +38,35 @@ enum _Family {
     _ => torrent,
   };
 }
+
+/// A result, with the episode a whole-subject search matched it to.
+typedef _Member = (
+  PlayCandidate candidate,
+  ResourceTitleInfo info,
+  Episode? episode,
+);
+
+/// One row of the list: a result, or a series of single-episode releases
+/// shown as one expandable entry.
+class _Entry {
+  _Entry(this.key, this.members);
+  final String key;
+  final List<_Member> members;
+  bool get series => members.length > 1;
+  String get id => series ? key : members.single.$1.id;
+}
+
+/// The display title of a series, without the episode of its release.
+String _seriesTitle(ResourceTitleInfo info) => info.displayTitle
+    .replaceFirst(
+      RegExp(
+        r'\s-\s?\d{1,3}(?:\.5)?(?:\(\d{1,4}\))?(?:\s*(?:v\d|END|完))?(?=\s|$)|(?<![a-z])EP\s?\d{1,3}(?:\s*END)?|\bS\d{1,2}E\d{1,3}\b|(?<=^|\s)\d{1,3}\(\d{1,4}\)(?=\s|$)',
+        caseSensitive: false,
+      ),
+      ' ',
+    )
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
 
 /// The resource search shared by the resources page, the player's resource
 /// sheet and the source picker: a search form, pinned local filters and one
@@ -243,8 +273,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         null => null,
       };
 
-  /// Downloads [candidate]; an online entry is saved as [episode], by
-  /// default the shown chapter.
+  /// Downloads [candidate] as [episode], by default the shown chapter.
   Future<void> download(PlayCandidate candidate, {Episode? episode}) async {
     final id = candidate.id;
     if (adding.contains(id) || taskOf(candidate) != null) return;
@@ -260,6 +289,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         ReleaseTarget(candidate: final release) => controller.enqueue(
           release,
           method: method,
+          episode: episode,
         ),
         _ => controller.saveOnline(candidate, episode: episode),
       };
@@ -276,8 +306,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     }
   }
 
-  bool playable(PlayCandidate candidate) =>
-      episode != null &&
+  bool playable(PlayCandidate candidate, Episode? target) =>
+      target != null &&
       switch (candidate.target) {
         DownloadTarget() => false,
         OnlineTarget(:final chooseFrom) => chooseFrom == null,
@@ -319,6 +349,38 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       }
     } finally {
       if (mounted) setState(() => opening = null);
+    }
+  }
+
+  /// Lets the user choose a range of [options], episode ids of the subject
+  /// with the result that holds each, and downloads them in order.
+  Future<void> downloadRange(
+    Map<int, PlayCandidate> options, {
+    required String title,
+    required String source,
+  }) async {
+    final subject = this.subject!;
+    final chosen = await showResourceBatchDialog(
+      context,
+      title: title,
+      source: source,
+      episodes: subject.episodes,
+      available: options.keys.toSet(),
+      added: {
+        for (final MapEntry(key: id, value: candidate) in options.entries)
+          if (adding.contains(candidate.id) || taskOf(candidate) != null) id,
+      },
+      cached: {
+        for (final task in controller.downloads.snapshot().forSubject(
+          subject.id,
+        ))
+          ?task.episodeId,
+      },
+    );
+    if (chosen == null || !mounted) return;
+    for (final episode in chosen) {
+      await download(options[episode.id]!, episode: episode);
+      if (!mounted) return;
     }
   }
 
@@ -428,13 +490,15 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     String? line,
     List<(PlayCandidate, SourceEpisode, Episode?)> items,
   ) {
-    final pending = [
-      for (final (candidate, _, target) in items)
-        if (target != null &&
-            !adding.contains(candidate.id) &&
-            taskOf(candidate) == null)
-          (candidate, target),
-    ];
+    // Matched by label even under a chapter, where every entry plays as it.
+    final options = <int, PlayCandidate>{
+      for (final (candidate, item, _) in items)
+        if (subject?.episodes
+                .where((e) => sourceEpisodeMatches(item.label, e))
+                .firstOrNull
+            case final episode?)
+          episode.id: candidate,
+    };
     return Padding(
       padding: const EdgeInsets.only(top: Gap.xs, bottom: Gap.xs),
       child: Row(
@@ -449,17 +513,16 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
               ),
             ),
           if (line != null) const SizedBox(width: Gap.sm),
-          if (pending.length > 1)
+          if (options.length > 1)
             TextButton.icon(
               style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-              onPressed: () async {
-                for (final (candidate, target) in pending) {
-                  await download(candidate, episode: target);
-                  if (!mounted) return;
-                }
-              },
+              onPressed: () => downloadRange(
+                options,
+                title: line ?? items.first.$1.title,
+                source: items.first.$1.sourceLabel,
+              ),
               icon: const Icon(Icons.download_rounded, size: 16),
-              label: Text('下载 ${pending.length} 集'),
+              label: const Text('批量下载'),
             ),
         ],
       ),
@@ -590,6 +653,178 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     final recommendedId = recommended == null || recommended.possibleMatch
         ? null
         : recommended.id;
+    // Without an episode term, one group's single-episode releases of a
+    // series on one site form an entry; releases holding none of the
+    // subject's episodes, such as an earlier season's, follow the rest.
+    final grouping = state.terms?.episodeKeyword.trim().isEmpty ?? false;
+    final entries = <_Entry>[], unmatched = <_Entry>[];
+    final bySeries = <String, _Entry>{};
+    for (final (candidate, info) in visible) {
+      final release = grouping && candidate.target is ReleaseTarget;
+      final target = release ? releaseEpisode(subject!, info) : null;
+      final member = (candidate, info, target);
+      final rest = release && info.episode != null && target == null
+          ? unmatched
+          : entries;
+      final key = switch (info.series) {
+        final series? when release =>
+          'series:${candidate.kind.name}:${candidate.provider}:'
+              '${target != null}:$series',
+        _ => null,
+      };
+      if (bySeries[key] case final entry?) {
+        entry.members.add(member);
+      } else {
+        final entry = _Entry(key ?? candidate.id, [member]);
+        rest.add(entry);
+        if (key != null) bySeries[key] = entry;
+      }
+    }
+    entries.addAll(unmatched);
+    bool belongs(_Member member) =>
+        !grouping ||
+        member.$3 != null ||
+        member.$2.episode == null ||
+        member.$1.target is! ReleaseTarget;
+    Widget resultRow(_Member member) {
+      final (candidate, info, target) = member;
+      final expanded = expandedTitles.contains(candidate.id);
+      final chapter = target ?? episode;
+      return ResourceArrival(
+        child: ResourceResultRow(
+          candidate: candidate,
+          info: info,
+          expanded: expanded,
+          onExpand: () => changeForm(() {
+            if (!expandedTitles.remove(candidate.id)) {
+              expandedTitles.add(candidate.id);
+            }
+          }),
+          notes: [
+            ...notesOf(candidate),
+            if (target != null && target.sort != info.episode)
+              '对应第 ${target.number} 话',
+          ],
+          warnings: [...warningsOf(candidate), if (!belongs(member)) '未对应本作剧集'],
+          recommended: candidate.id == recommendedId,
+          playing: opening == candidate.id,
+          onPlay: playable(candidate, chapter) && opening == null
+              ? () => play(candidate, chapter!)
+              : null,
+          error: downloadErrors[candidate.id],
+          details: switch (candidate.target) {
+            OnlineTarget(chooseFrom: _?) when expanded => entryPicker(
+              candidate,
+            ),
+            _ => null,
+          },
+          download: switch (candidate.target) {
+            ReleaseTarget() ||
+            OnlineTarget(ref: _?) => (wide) => ResourceDownloadButton(
+              adding: adding.contains(candidate.id),
+              task: taskOf(candidate),
+              failed: downloadErrors.containsKey(candidate.id),
+              showLabel: wide,
+              onPressed: () => download(candidate, episode: target),
+            ),
+            _ => null,
+          },
+        ),
+      );
+    }
+
+    Widget seriesRow(_Entry entry) {
+      final (best, info, _) = entry.members.first;
+      final members = [...entry.members]
+        ..sort(
+          (a, b) => (a.$3?.sort ?? a.$2.episode!).compareTo(
+            b.$3?.sort ?? b.$2.episode!,
+          ),
+        );
+      // The best-ranked release of each episode.
+      final options = <int, PlayCandidate>{
+        for (final (candidate, _, target) in entry.members.reversed)
+          if (target != null) target.id: candidate,
+      };
+      final each = <double, PlayCandidate>{
+        for (final (candidate, info, target) in entry.members.reversed)
+          target?.sort ?? info.episode!: candidate,
+      };
+      final bytes = [
+        for (final candidate in each.values)
+          if (candidate.target case ReleaseTarget(
+            candidate: ReleaseCandidate(:final release),
+          ))
+            releaseBytes(release),
+      ].nonNulls;
+      final dates = [
+        for (final (candidate, _, _) in entry.members)
+          if (candidate.target case ReleaseTarget(
+            candidate: ReleaseCandidate(:final release),
+          ))
+            resourceDateLabel(release),
+      ].where((date) => date != '—').toList()..sort();
+      final expanded = expandedTitles.contains(entry.key);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ResourceArrival(
+            child: ResourceSeriesRow(
+              candidate: best,
+              info: info,
+              title: _seriesTitle(info),
+              coverage: '第 ${episodeSpans(each.keys)} 话',
+              size: bytes.isEmpty
+                  ? '—'
+                  : resourceBytesLabel(bytes.reduce((a, b) => a + b)),
+              date: dates.lastOrNull ?? '—',
+              expanded: expanded,
+              onExpand: () => changeForm(() {
+                if (!expandedTitles.remove(entry.key)) {
+                  expandedTitles.add(entry.key);
+                }
+              }),
+              recommended: best.id == recommendedId,
+              warnings: [if (options.isEmpty) '未对应本作剧集'],
+              added:
+                  options.isNotEmpty &&
+                  options.values.every(
+                    (candidate) => taskOf(candidate) != null,
+                  ),
+              onBatch: options.isEmpty
+                  ? null
+                  : () => downloadRange(
+                      options,
+                      title: [
+                        resourceGroupLabel(info),
+                        _seriesTitle(info),
+                      ].where((e) => e.isNotEmpty).join('  '),
+                      source: [
+                        best.providerLabel ?? best.provider,
+                        ?info.quality,
+                        ...info.languages,
+                        ...info.subtitleForms,
+                      ].join(' · '),
+                    ),
+            ),
+          ),
+          if (expanded)
+            ColoredBox(
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final member in members) ...[
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    resultRow(member),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      );
+    }
+
     final providersFailed =
         sources.isNotEmpty &&
         sources.every((e) => e.status == SearchStatus.error) &&
@@ -830,6 +1065,22 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
+                if (state.terms != null && !grouping) ...[
+                  const SizedBox(width: Gap.sm),
+                  Tooltip(
+                    message: '清空集数重新搜索，按字幕组归类后选择集数下载',
+                    child: TextButton.icon(
+                      onPressed: searchBusy
+                          ? null
+                          : () {
+                              episodeQuery.clear();
+                              search();
+                            },
+                      icon: const Icon(Icons.download_rounded, size: 17),
+                      label: const Text('批量下载'),
+                    ),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: Gap.sm),
@@ -1003,11 +1254,11 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
           sliver: SliverList.builder(
-            itemCount: visible.length + 2,
+            itemCount: entries.length + 2,
             // Rows keep their state when new results reorder the list.
             findChildIndexCallback: (key) {
-              final index = visible.indexWhere(
-                (entry) => key == ValueKey(entry.$1.id),
+              final index = entries.indexWhere(
+                (entry) => key == ValueKey(entry.id),
               );
               return index < 0 ? null : index + 1;
             },
@@ -1066,7 +1317,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                               ),
                       );
               }
-              if (index == visible.length + 1) {
+              if (index == entries.length + 1) {
                 final emptyKind = matching.isNotEmpty;
                 return (visible.isEmpty &&
                         (allProvidersExcluded ||
@@ -1105,63 +1356,28 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                     : const SizedBox.shrink();
               }
               final i = index - 1;
-              final (candidate, info) = visible[i];
-              final expanded = expandedTitles.contains(candidate.id);
+              final entry = entries[i];
               return LayoutBuilder(
-                key: ValueKey(candidate.id),
+                key: ValueKey(entry.id),
                 builder: (context, constraints) => Material(
                   color: scheme.surface,
                   borderRadius: BorderRadius.vertical(
                     top: i == 0 && constraints.maxWidth < resourceTableWidth
                         ? panelBorderRadius.topLeft
                         : Radius.zero,
-                    bottom: i == visible.length - 1
+                    bottom: i == entries.length - 1
                         ? panelBorderRadius.bottomLeft
                         : Radius.zero,
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       if (i > 0)
                         const Divider(height: 1, indent: 16, endIndent: 16),
-                      ResourceArrival(
-                        child: ResourceResultRow(
-                          candidate: candidate,
-                          info: info,
-                          expanded: expanded,
-                          onExpand: () => changeForm(() {
-                            if (!expandedTitles.remove(candidate.id)) {
-                              expandedTitles.add(candidate.id);
-                            }
-                          }),
-                          notes: notesOf(candidate),
-                          warnings: warningsOf(candidate),
-                          recommended: candidate.id == recommendedId,
-                          playing: opening == candidate.id,
-                          onPlay: playable(candidate) && opening == null
-                              ? () => play(candidate, episode!)
-                              : null,
-                          error: downloadErrors[candidate.id],
-                          details: switch (candidate.target) {
-                            OnlineTarget(chooseFrom: _?) when expanded =>
-                              entryPicker(candidate),
-                            _ => null,
-                          },
-                          download: switch (candidate.target) {
-                            ReleaseTarget() ||
-                            OnlineTarget(
-                              ref: _?,
-                            ) => (wide) => ResourceDownloadButton(
-                              adding: adding.contains(candidate.id),
-                              task: taskOf(candidate),
-                              failed: downloadErrors.containsKey(candidate.id),
-                              showLabel: wide,
-                              onPressed: () => download(candidate),
-                            ),
-                            _ => null,
-                          },
-                        ),
-                      ),
+                      entry.series
+                          ? seriesRow(entry)
+                          : resultRow(entry.members.single),
                     ],
                   ),
                 ),

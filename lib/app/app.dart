@@ -292,19 +292,35 @@ class _MelonAppState extends State<MelonApp>
     }
   }
 
-  Future<void> openSubject(Subject item) async {
+  /// Opens [item]'s detail page; unless [remember] is false, back returns
+  /// to the current page.
+  Future<void> openSubject(Subject item, {bool remember = true}) async {
     if (item.id <= 0) {
       showError('这部番暂时没有详情');
       return;
     }
     leavePlayer();
-    if (route != 'subject' || subjects.id != item.id) rememberLocation();
+    if (remember && (route != 'subject' || subjects.id != item.id)) {
+      rememberLocation();
+    }
     nextNavigation();
     setState(() => route = 'subject');
     final opening = subjects.open(item);
     unawaited(perform(refreshPlaybackAvailability));
     if (discovery.calendar.isEmpty) unawaited(perform(discovery.loadCalendar));
     await perform(() => opening);
+  }
+
+  /// The player's detail entry: back to the detail page the player was
+  /// opened from, otherwise to a new one; back from it skips the stopped
+  /// player.
+  void openPlayerSubject(Subject item) {
+    final previous = history.lastOrNull;
+    if (previous?.route == 'subject' && previous?.subject?.id == item.id) {
+      goBack();
+      return;
+    }
+    unawaited(openSubject(item, remember: false));
   }
 
   @override
@@ -724,6 +740,7 @@ class _MelonAppState extends State<MelonApp>
     failure: coordinator.failure,
     onRetryFailure: coordinator.retryFailure,
     onMarkEpisode: coordinator.markEpisode,
+    onOpenSubject: openPlayerSubject,
     subject: coordinator.subject,
     preparing: coordinator.preparing,
     onRetryPreparing: coordinator.retryPreparing,
@@ -879,6 +896,15 @@ class _MelonAppState extends State<MelonApp>
                 await service.catalog.cached(id) ??
                 await service.catalog.subject(id, forPlayback: true),
             onPlaySubject: coordinator.continueCache,
+            hasProgress: (id) async =>
+                await service.library.lastPlayed(id) != null,
+            onOpenSubject: (id) => unawaited(
+              perform(
+                () async => openSubject(
+                  await service.catalog.cached(id) ?? Subject(id: id),
+                ),
+              ),
+            ),
           ),
         );
       case 'sources':

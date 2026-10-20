@@ -196,10 +196,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                   time: communityDate(entry.time),
                   details: [
                     if (segment == 'comments' && entry.score > 0)
-                      Text(
-                        '★ ${entry.score}',
-                        style: small?.copyWith(color: gold),
-                      ),
+                      _ScoreStars(entry.score),
                     if (segment == 'comments')
                       if (collectionLabels[entry.status] case final status?)
                         Text(status, style: small),
@@ -295,10 +292,11 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
             Row(
               children: [
                 Text('我的评分 ', style: small),
-                Text(
-                  score > 0 ? '★ $score ${scoreLabels[score]}' : '未评分',
-                  style: score > 0 ? scoreStyle : small,
-                ),
+                if (score > 0) ...[
+                  _ScoreStars(score),
+                  Text('  ${scoreLabels[score]}', style: scoreStyle),
+                ] else
+                  Text('未评分', style: small),
                 const Spacer(),
                 TextButton(
                   onPressed: _commentFeedback.busy
@@ -345,7 +343,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
           Row(
             children: [
               Text('我', style: small?.copyWith(fontWeight: FontWeight.w700)),
-              if (score > 0) Text('  ★ $score', style: scoreStyle),
+              if (score > 0) ...[const SizedBox(width: 8), _ScoreStars(score)],
               Text('  ${collectionLabels[status] ?? ''}', style: small),
               const Spacer(),
               TextButton(
@@ -1385,4 +1383,41 @@ TextSpan bbcodeSpan(BuildContext context, String raw) {
   }
   if (!image) add(text.substring(start));
   return TextSpan(children: spans);
+}
+
+/// A 1–10 score as five stars in half steps, as Bangumi shows comments.
+class _ScoreStars extends StatelessWidget {
+  const _ScoreStars(this.score);
+  final int score;
+
+  @override
+  Widget build(BuildContext context) {
+    final empty = Theme.of(context).colorScheme.surfaceContainerHighest;
+    const size = 14.0;
+    return Tooltip(
+      message: '$score 分 ${scoreLabels[score]}',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var star = 1; star <= 5; star++)
+            Stack(
+              children: [
+                Icon(Icons.star_rounded, size: size, color: empty),
+                ClipRect(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: (score / 2 - star + 1).clamp(0.0, 1.0),
+                    child: const Icon(
+                      Icons.star_rounded,
+                      size: size,
+                      color: gold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
 }

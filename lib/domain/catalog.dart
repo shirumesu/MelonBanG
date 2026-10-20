@@ -128,6 +128,7 @@ class Episode {
     required this.id,
     required this.subjectId,
     required this.sort,
+    this.absolute,
     this.main = true,
     this.name,
     this.nameCn,
@@ -140,6 +141,7 @@ class Episode {
     id: _int(value['episodeId']) ?? 0,
     subjectId: _int(value['subjectId']) ?? 0,
     sort: _double(value['ep'] ?? value['sort']) ?? 0,
+    absolute: _double(value['absolute']),
     main: const [null, 0, 'main'].contains(value['type']),
     name: _text(value['name']),
     nameCn: _text(value['nameCn']) ?? _text(value['displayName']),
@@ -152,6 +154,10 @@ class Episode {
 
   final int id, subjectId;
   final double sort;
+
+  /// Bangumi's number across seasons (`sort`), which releases of a sequel
+  /// often use instead of [sort]: season 2 episode 1 can be episode 29.
+  final double? absolute;
   final bool main;
   final String? name, nameCn, airDate;
   final int? durationSeconds;
@@ -168,6 +174,7 @@ class Episode {
     id: id,
     subjectId: subjectId,
     sort: sort,
+    absolute: absolute,
     main: main,
     name: name,
     nameCn: nameCn,

@@ -106,6 +106,36 @@ bool sourceEpisodeMatches(String label, Episode episode) {
   return double.tryParse(match[1]!) == episode.sort;
 }
 
+/// The episode of [subject] a single-episode release holds. Releases of a
+/// sequel number it within the season (`第三季 - 03`) or across seasons
+/// (`[51]`, `03(51)`); a release without a season counts across seasons
+/// there, since it is more likely an earlier season's. A release naming
+/// another season holds none.
+Episode? releaseEpisode(Subject subject, ResourceTitleInfo info) {
+  final number = info.episode;
+  if (number == null) return null;
+  final episodes = subject.episodes.where((e) => e.main);
+  final sequel = episodes.any(
+    (e) => e.absolute != null && e.absolute != e.sort,
+  );
+  final season =
+      [
+        subject.title,
+        ?subject.name,
+        ?subject.nameCn,
+      ].map(resourceSeason).nonNulls.firstOrNull ??
+      (sequel ? null : 1);
+  if (info.season != null && season != null && info.season != season) {
+    return null;
+  }
+  final across = info.absoluteEpisode ?? number;
+  if (sequel) {
+    final match = episodes.where((e) => e.absolute == across).firstOrNull;
+    if (match != null || info.season == null) return match;
+  }
+  return episodes.where((e) => e.sort == number).firstOrNull;
+}
+
 /// Openings/endings, soundtracks and songs, audio tracks, recaps, tutorials and
 /// merchandise reuse a title without holding an episode.
 final _notEpisode = RegExp(

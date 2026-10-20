@@ -51,6 +51,7 @@ class PlayerPage extends StatefulWidget {
     this.failure,
     this.onRetryFailure,
     required this.onMarkEpisode,
+    required this.onOpenSubject,
   });
   final Playback playback;
   final ResourceSearchController Function() newResourceSearch;
@@ -87,6 +88,7 @@ class PlayerPage extends StatefulWidget {
   final PlaybackFailure? failure;
   final VoidCallback? onRetryFailure;
   final Future<void> Function(Episode episode, bool watched) onMarkEpisode;
+  final ValueChanged<Subject> onOpenSubject;
   @override
   State<PlayerPage> createState() => PlayerPageState();
 }
@@ -576,6 +578,7 @@ class PlayerPageState extends State<PlayerPage> {
                             onPlayFile: widget.onPlayFile ?? (_, _) {},
                             onToggleTask: widget.downloads.toggle,
                             onMarkEpisode: widget.onMarkEpisode,
+                            onOpenSubject: widget.onOpenSubject,
                             onError: widget.onError,
                           ),
                         ),
