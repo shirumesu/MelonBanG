@@ -12,6 +12,8 @@ class BangumiPrivateClient implements SubjectCommunitySource {
   @override
   AccountProfile? get profile => account.profile;
   final _rows = <String, ({DateTime savedAt, List<Json> rows, int total})>{};
+  final _episodeComments =
+      <String, ({DateTime savedAt, List<TopicPost> posts})>{};
 
   Future<dynamic> _request(String path) async {
     final user = account.userId;
@@ -128,6 +130,49 @@ class BangumiPrivateClient implements SubjectCommunitySource {
   @override
   Future<String> blog(int entryId) async =>
       '${object(await _request('/p1/blogs/$entryId'))['content'] ?? ''}';
+
+  @override
+  Future<List<TopicPost>> episodeComments(
+    int episodeId, {
+    bool refresh = false,
+  }) async {
+    final key = '${account.userId}:$episodeId';
+    final cached = _episodeComments[key];
+    if (!refresh &&
+        cached != null &&
+        DateTime.now().difference(cached.savedAt) <
+            const Duration(minutes: 5)) {
+      return cached.posts;
+    }
+    final posts = [
+      for (final row in objects(
+        await _request('/p1/episodes/$episodeId/comments'),
+      ))
+        if (_commentShown(row)) _comment(row),
+    ];
+    _episodeComments[key] = (savedAt: DateTime.now(), posts: posts);
+    return posts;
+  }
+
+  /// Deleted comments stay only to hold their replies.
+  bool _commentShown(Json row) =>
+      '${row['content'] ?? ''}'.trim().isNotEmpty ||
+      objects(row['replies']).any(_commentShown);
+
+  TopicPost _comment(Json row) {
+    final user = object(row['user']);
+    return TopicPost(
+      id: number(row['id']).toInt(),
+      author: '${user['nickname'] ?? user['username'] ?? '未知用户'}',
+      avatarUrl: coverAddress(object(user['avatar'])['medium']),
+      time: number(row['createdAt']).toInt(),
+      content: '${row['content'] ?? ''}',
+      replies: [
+        for (final reply in objects(row['replies']))
+          if (_commentShown(reply)) _comment(reply),
+      ],
+    );
+  }
 
   TopicPost _post(Json row) {
     final user = object(row['creator']);

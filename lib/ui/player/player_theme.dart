@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
 
-/// Player tweaks on top of the shell theme, which is dark when the app is
-/// dark or the player's lights are off.
+/// Player tweaks on top of the shell theme; the side panel follows the app's
+/// light or dark theme.
 ThemeData playerTheme([ThemeData? theme]) {
   final base = theme ?? appTheme(true);
   final scheme = base.colorScheme;
@@ -29,22 +29,60 @@ ThemeData playerTheme([ThemeData? theme]) {
       thumbColor: scheme.primary,
       inactiveTrackColor: scheme.onSurface.withValues(alpha: .18),
     ),
-    segmentedButtonTheme: SegmentedButtonThemeData(
-      style: ButtonStyle(
-        side: const WidgetStatePropertyAll(BorderSide.none),
-        foregroundColor: WidgetStateProperty.resolveWith(
-          (states) => states.contains(WidgetState.selected)
-              ? scheme.primary
-              : scheme.onSurfaceVariant,
+  );
+}
+
+/// Popovers and menus that float over the video: dark and neutral in either
+/// theme, with white for the selection instead of the mint accent.
+const overlaySurface = Color(0xf21e2229);
+
+ThemeData overlayTheme() {
+  final base = appTheme(true);
+  final scheme = base.colorScheme.copyWith(
+    primary: Colors.white,
+    onPrimary: const Color(0xff15181d),
+    surface: overlaySurface,
+    onSurface: Colors.white,
+    onSurfaceVariant: Colors.white70,
+    surfaceContainerLow: Colors.white.withValues(alpha: .08),
+    surfaceContainerHigh: Colors.white.withValues(alpha: .12),
+    outlineVariant: Colors.white24,
+  );
+  return base.copyWith(
+    colorScheme: scheme,
+    sliderTheme: base.sliderTheme.copyWith(
+      trackHeight: 3,
+      activeTrackColor: Colors.white,
+      inactiveTrackColor: Colors.white24,
+      thumbColor: Colors.white,
+      overlayColor: Colors.white12,
+      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+      showValueIndicator: ShowValueIndicator.never,
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected)
+            ? const Color(0xff15181d)
+            : Colors.white70,
+      ),
+      trackColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected)
+            ? Colors.white
+            : Colors.white12,
+      ),
+      trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+    ),
+    menuTheme: const MenuThemeData(
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(overlaySurface),
+        surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
+        padding: WidgetStatePropertyAll(EdgeInsets.all(6)),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: controlBorderRadius),
         ),
-        backgroundColor: WidgetStateProperty.resolveWith(
-          (states) => states.contains(WidgetState.selected)
-              ? scheme.primary.withValues(alpha: .14)
-              : scheme.surfaceContainerLow,
-        ),
+        elevation: WidgetStatePropertyAll(8),
       ),
     ),
   );
 }
-
-enum PlayerMenu { danmaku, settings }

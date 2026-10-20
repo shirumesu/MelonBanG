@@ -18,6 +18,47 @@ class MainFlutterWindow: NSWindow {
     }
 
     super.awakeFromNib()
+
+    // AppKit puts the window buttons back after resizing, full screen and
+    // style changes; centre them again each time.
+    for name in [
+      NSWindow.didResizeNotification,
+      NSWindow.didEndLiveResizeNotification,
+      NSWindow.didExitFullScreenNotification,
+      NSWindow.didBecomeKeyNotification,
+      NSWindow.didBecomeMainNotification,
+    ] {
+      NotificationCenter.default.addObserver(
+        forName: name, object: self, queue: .main
+      ) { [weak self] _ in self?.centerWindowButtons() }
+    }
+    centerWindowButtons()
+  }
+
+  /// Flutter draws a 44-point title bar; AppKit centres the window buttons
+  /// on its default 28-point one, which leaves them above the bar's other
+  /// controls. Grow the button container to the bar and centre the buttons,
+  /// spaced like a unified toolbar inside the 78 points Flutter leaves them.
+  private func centerWindowButtons() {
+    guard !styleMask.contains(.fullScreen),
+      let close = standardWindowButton(.closeButton),
+      let titlebar = close.superview,
+      let container = titlebar.superview
+    else { return }
+    let height: CGFloat = 44
+    var frame = container.frame
+    frame.size.height = height
+    frame.origin.y = self.frame.height - height
+    container.frame = frame
+    titlebar.frame = container.bounds
+    let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+    for (index, type) in buttons.enumerated() {
+      guard let button = standardWindowButton(type) else { continue }
+      button.setFrameOrigin(NSPoint(
+        x: 20 + CGFloat(index) * 20,
+        y: ((height - button.frame.height) / 2).rounded()
+      ))
+    }
   }
 
   private static func handleCredentials(_ call: FlutterMethodCall, result: FlutterResult) {

@@ -15,7 +15,7 @@ class AppStore {
       await databaseFactoryFfi.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 4,
+          version: 5,
           onUpgrade: (db, oldVersion, _) async {
             if (oldVersion < 2) await _createIndexes(db);
             if (oldVersion < 3) {
@@ -26,6 +26,10 @@ class AppStore {
               );
               await db.execute('UPDATE cached_images SET accessed=saved');
               await _createImageAccessIndex(db);
+            }
+            // Danmaku source offsets were removed with their controls.
+            if (oldVersion < 5) {
+              await db.execute('DROP TABLE IF EXISTS danmaku_offsets');
             }
           },
           onCreate: (db, _) async {

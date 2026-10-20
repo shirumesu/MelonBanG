@@ -206,7 +206,8 @@ class TransferMedia {
   );
 }
 
-/// A transfer cannot fetch this resource; another transfer may.
+/// A transfer cannot fetch this resource. It is reported, not retried with
+/// another transfer the user did not choose.
 class TransferUnavailable implements Exception {
   const TransferUnavailable(this.message);
   final String message;

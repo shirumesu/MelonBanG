@@ -62,7 +62,8 @@ class Playback extends ChangeNotifier {
     );
     _subscriptions.add(
       player.stream.rate.listen((rate) {
-        if (opening) return;
+        // A held fast-forward is temporary and never becomes the saved rate.
+        if (opening || _boosting) return;
         _savedRate = rate;
         _rateWrite?.cancel();
         _rateWrite = Timer(
@@ -113,8 +114,8 @@ class Playback extends ChangeNotifier {
   Timer? _timer, _volumeWrite, _rateWrite, _autoplayTimer;
   late final PlaybackPreferences settings;
   double _savedRate = 1;
-  bool frameStepping = false;
-  bool _manualSubtitle = false, _manualAudio = false;
+  bool frameStepping = false, _boosting = false;
+  bool _manualSubtitle = false;
   bool _scoredSubtitle = false, _scoredAudio = false;
   int danmakuRevision = 0, _autoplayTicket = 0;
   String? _completedSession;
@@ -136,17 +137,12 @@ class Playback extends ChangeNotifier {
     notifyListeners();
   }
 
-  void showResourceFailure(Episode episode) {
-    cancelAutoplay(notify: false);
-    autoplayEndEpisode = episode;
-    autoplayMessage = '第 ${episode.number} 话暂无可直接播放的资源';
-    notifyListeners();
-  }
-
   bool opening = false;
   bool _closed = false;
   bool get danmakuEnabled => danmaku.preferences.enabled;
-  double subtitleDelay = 0;
+
+  /// The open file's OP and ED, found in its embedded chapters.
+  OpeningEnding? openingEnding;
 
   Future<void> _openQueue = Future.value();
   Future<void> _frameQueue = Future.value();
@@ -188,13 +184,13 @@ class Playback extends ChangeNotifier {
     preferences.update(() => preferences.enabled = !preferences.enabled);
   }
 
-  Future<void> offsetSubtitle(double delta) async {
-    cancelAutoplay();
-    subtitleDelay += delta;
-    final platform = player.platform;
-    if (platform is NativePlayer) {
-      await platform.setProperty('sub-delay', '$subtitleDelay');
-    }
+  /// Plays at 3× while [on], as when → is held, then returns to the chosen
+  /// rate.
+  Future<void> boost(bool on) async {
+    if (on == _boosting) return;
+    _boosting = on;
+    if (on) cancelAutoplay();
+    await player.setRate(on ? 3 : _savedRate);
   }
 
   Future<void> open(PlaybackSession next) {
@@ -212,7 +208,8 @@ class Playback extends ChangeNotifier {
     autoplayEndEpisode = null;
     autoplayMessage = null;
     frameStepping = false;
-    _manualSubtitle = _manualAudio = _scoredSubtitle = _scoredAudio = false;
+    _manualSubtitle = _scoredSubtitle = _scoredAudio = false;
+    openingEnding = null;
     opening = true;
     error = null;
     notifyListeners();
@@ -221,7 +218,6 @@ class Playback extends ChangeNotifier {
       session = next;
       final danmakuTarget = DanmakuTarget(
         matchKey: next.path ?? next.resumeKey,
-        offsetKey: next.progressKey,
         embedded: next.danmaku,
         subjectId: next.subjectId,
         episodeId: next.episodeId,
@@ -229,8 +225,7 @@ class Playback extends ChangeNotifier {
         fileSize: next.fileSize,
         remote: next.remote || next.streamId != null,
       );
-      await danmaku.begin(danmakuTarget);
-      subtitleDelay = 0;
+      danmaku.begin(danmakuTarget);
       uri = next.url;
       final playlist = next.playlist;
       final platform = player.platform;
@@ -256,7 +251,6 @@ class Playback extends ChangeNotifier {
         }
         await platform.setProperty('sub-auto', 'fuzzy');
         await platform.setProperty('sub-ass-override', 'no');
-        await platform.setProperty('sub-delay', '0');
         await platform.setProperty(
           'slang',
           languageCodes(settings.subtitleLanguage),
@@ -295,6 +289,7 @@ class Playback extends ChangeNotifier {
       await _preferTracks(player.state.tracks);
       downloads.releaseStreamsExcept(next.streamId);
       await player.play();
+      unawaited(_readChapters(next.id));
       if (!_closed && !next.standalone) {
         unawaited(
           danmaku.autoMatch(
@@ -365,12 +360,6 @@ class Playback extends ChangeNotifier {
     await player.setSubtitleTrack(track);
   }
 
-  Future<void> selectAudio(AudioTrack track) async {
-    cancelAutoplay();
-    _manualAudio = true;
-    await player.setAudioTrack(track);
-  }
-
   Future<void> _preferTracks(Tracks tracks) async {
     final id = session?.id;
     if (id == null) return;
@@ -412,7 +401,7 @@ class Playback extends ChangeNotifier {
         }
       }
     }
-    if (!_manualAudio && !_scoredAudio) {
+    if (!_scoredAudio) {
       final candidates = tracks.audio
           .where((track) => track.id != 'auto' && track.id != 'no')
           .toList();
@@ -432,11 +421,45 @@ class Playback extends ChangeNotifier {
                   selected.language,
                   selected.title,
                 ) &&
-            session?.id == id &&
-            !_manualAudio) {
+            session?.id == id) {
           await player.setAudioTrack(best);
         }
       }
+    }
+  }
+
+  /// Reads the file's chapters once its duration is known; most BD and
+  /// fansub MKVs carry them, online streams rarely do.
+  Future<void> _readChapters(String sessionId) async {
+    final platform = player.platform;
+    if (platform is! NativePlayer) return;
+    try {
+      final duration = player.state.duration > Duration.zero
+          ? player.state.duration
+          : await player.stream.duration
+                .firstWhere((value) => value > Duration.zero)
+                .timeout(const Duration(seconds: 30));
+      final count =
+          int.tryParse(await platform.getProperty('chapter-list/count')) ?? 0;
+      final chapters = <({String title, double start})>[];
+      for (var i = 0; i < count; i++) {
+        final start = double.tryParse(
+          await platform.getProperty('chapter-list/$i/time'),
+        );
+        if (start == null) continue;
+        chapters.add((
+          title: await platform.getProperty('chapter-list/$i/title'),
+          start: start,
+        ));
+      }
+      if (_closed || session?.id != sessionId) return;
+      openingEnding = OpeningEnding.find(
+        chapters,
+        duration.inMilliseconds / 1000,
+      );
+      if (openingEnding != null) notifyListeners();
+    } catch (_) {
+      // Without chapters there are no OP/ED marks.
     }
   }
 
@@ -585,4 +608,65 @@ class AutoplayTarget {
   final String sourceLabel;
   final Future<void> Function() play;
   final bool unavailable;
+}
+
+/// A chapter's span in seconds.
+typedef ChapterSpan = ({double start, double end});
+
+/// The OP and ED chapters of a file, either of which may be missing.
+class OpeningEnding {
+  const OpeningEnding({this.opening, this.ending});
+  final ChapterSpan? opening, ending;
+
+  static final _openingName = RegExp(
+    r'^\s*(op\b|op\d|opening|オープニング|片头|序曲)',
+    caseSensitive: false,
+  );
+  static final _endingName = RegExp(
+    r'^\s*(ed\b|ed\d|ending|エンディング|片尾)',
+    caseSensitive: false,
+  );
+
+  /// Chapters named as OP/ED; without names, a chapter of the usual song
+  /// length (80–95 s, or 55–65 s for 10–20 minute episodes) in the first or
+  /// last part of the episode, as Animeko does.
+  static OpeningEnding? find(
+    List<({String title, double start})> chapters,
+    double duration,
+  ) {
+    if (chapters.length < 2 || duration <= 0) return null;
+    final sorted = [...chapters]..sort((a, b) => a.start.compareTo(b.start));
+    final spans = [
+      for (final (index, chapter) in sorted.indexed)
+        (
+          title: chapter.title,
+          span: (
+            start: chapter.start,
+            end: index + 1 < sorted.length ? sorted[index + 1].start : duration,
+          ),
+        ),
+    ];
+    ChapterSpan? named(RegExp name) => spans
+        .where((chapter) => name.hasMatch(chapter.title))
+        .firstOrNull
+        ?.span;
+    var opening = named(_openingName), ending = named(_endingName);
+    if (opening == null && ending == null) {
+      final (low, high) = duration > 20 * 60
+          ? (80.0, 95.0)
+          : duration > 10 * 60
+          ? (55.0, 65.0)
+          : (0.0, 0.0);
+      bool song(ChapterSpan span) =>
+          span.end - span.start >= low && span.end - span.start <= high;
+      final songs = [
+        for (final chapter in spans)
+          if (high > 0 && song(chapter.span)) chapter.span,
+      ];
+      opening = songs.where((span) => span.start < duration * .4).firstOrNull;
+      ending = songs.where((span) => span.start > duration * .6).lastOrNull;
+    }
+    if (opening == null && ending == null) return null;
+    return OpeningEnding(opening: opening, ending: ending);
+  }
 }

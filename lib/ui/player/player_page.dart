@@ -45,8 +45,12 @@ class PlayerPage extends StatefulWidget {
     this.onPlayFile,
     this.onPlayCandidate,
     this.onOpenResources,
-    this.lightsOff,
-    this.onLightsChanged,
+    required this.panelOpen,
+    required this.community,
+    this.source,
+    this.failure,
+    this.onRetryFailure,
+    required this.onMarkEpisode,
   });
   final Playback playback;
   final ResourceSearchController Function() newResourceSearch;
@@ -71,28 +75,38 @@ class PlayerPage extends StatefulWidget {
   /// Continues a resource-sheet search on the resources page.
   final void Function(ResourceSearchController search)? onOpenResources;
 
-  /// Null when the app theme is already dark and there are no lights to switch.
-  final bool? lightsOff;
-  final ValueChanged<bool>? onLightsChanged;
+  /// Whether the side panel shows; null until the first layout picks a
+  /// default from the width. The title bar toggles it too.
+  final ValueNotifier<bool?> panelOpen;
+  final SubjectCommunitySource community;
+
+  /// The source chosen for the session, when one was.
+  final PlayCandidate? source;
+
+  /// Why the chosen source stopped; the video stays paused under it.
+  final PlaybackFailure? failure;
+  final VoidCallback? onRetryFailure;
+  final Future<void> Function(Episode episode, bool watched) onMarkEpisode;
   @override
-  State<PlayerPage> createState() => _PlayerPageState();
+  State<PlayerPage> createState() => PlayerPageState();
 }
 
-class _PlayerPageState extends State<PlayerPage> {
+class PlayerPageState extends State<PlayerPage> {
   final focus = FocusNode();
   final menuCloseFocus = FocusNode();
-  final menuFocusNodes = {
-    for (final menu in PlayerMenu.values) menu: FocusNode(),
-  };
+  final danmakuMenuFocus = FocusNode();
 
-  /// Null until the first layout picks a default from the window width.
-  bool? panel;
-  bool controls = true, panelBeforeImmersive = true;
+  bool controls = true;
   bool controlsHovered = false, controlsFocused = false, controlsPopup = false;
   bool resourcesOpen = false;
   int? resourceEpisode;
-  PlayerMenu? menu;
-  PlayerMenu lastMenu = PlayerMenu.settings;
+  bool danmakuMenu = false;
+  PlayerPanelTab panelTab = PlayerPanelTab.episodes;
+
+  /// → held past [_boostDelay] plays at 3× until released; a tap seeks.
+  Timer? boostTimer;
+  bool boosting = false;
+  static const _boostDelay = Duration(milliseconds: 300);
 
   /// Position shown instead of the player's while dragging or seeking.
   double? dragging;
@@ -110,6 +124,7 @@ class _PlayerPageState extends State<PlayerPage> {
     super.initState();
     sessionId = playback.session?.id;
     playback.addListener(refresh);
+    widget.panelOpen.addListener(refresh);
     playingSubscription = player.stream.playing.listen((_) => reveal());
   }
 
@@ -120,16 +135,9 @@ class _PlayerPageState extends State<PlayerPage> {
       resourcesOpen = false;
       resourceEpisode = null;
     }
-    final wasImmersive = oldWidget.fullScreen || oldWidget.windowFullScreen;
-    if (!wasImmersive && immersive) {
-      panelBeforeImmersive = panel ?? true;
-      panel = false;
-    } else if (wasImmersive && !immersive) {
-      panel = panelBeforeImmersive;
-    }
     if (oldWidget.fullScreen != widget.fullScreen ||
         oldWidget.windowFullScreen != widget.windowFullScreen) {
-      menu = null;
+      danmakuMenu = false;
       controls = true;
       // Shell changes reparent the player; restore focus after it reattaches.
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -149,7 +157,7 @@ class _PlayerPageState extends State<PlayerPage> {
       sessionId = next;
       dragging = null;
       seekTicket++;
-      menu = null;
+      danmakuMenu = false;
     }
     setState(() {});
   }
@@ -157,13 +165,14 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   void dispose() {
     playback.removeListener(refresh);
+    widget.panelOpen.removeListener(refresh);
     playback.cancelAutoplay(notify: false);
     unawaited(playingSubscription?.cancel());
+    boostTimer?.cancel();
+    if (boosting) unawaited(playback.boost(false));
     focus.dispose();
     menuCloseFocus.dispose();
-    for (final node in menuFocusNodes.values) {
-      node.dispose();
-    }
+    danmakuMenuFocus.dispose();
     hideTimer?.cancel();
     feedbackTimer?.cancel();
     super.dispose();
@@ -177,7 +186,7 @@ class _PlayerPageState extends State<PlayerPage> {
       if (mounted &&
           player.state.playing &&
           dragging == null &&
-          menu == null &&
+          !danmakuMenu &&
           !controlsHovered &&
           !controlsFocused &&
           !controlsPopup &&
@@ -196,65 +205,95 @@ class _PlayerPageState extends State<PlayerPage> {
     });
   }
 
-  void toggleLights() {
-    playback.cancelAutoplay();
-    final off = widget.lightsOff;
-    if (off == null) return;
-    widget.onLightsChanged?.call(!off);
-    showFeedback(off ? '已开灯' : '已关灯');
-  }
-
-  void togglePanel() {
-    playback.cancelAutoplay();
-    setState(() => panel = !(panel ?? false));
+  /// Opens the side panel on [tab].
+  void showPanel(PlayerPanelTab tab) {
+    setState(() {
+      panelTab = tab;
+      danmakuMenu = false;
+    });
+    widget.panelOpen.value = true;
     focus.requestFocus();
     reveal();
   }
 
-  /// The next episode by order, with whether it can be played right away.
-  (Episode, bool)? get nextEpisode {
+  void startBoost() {
+    if (playback.uri == null || playback.opening) return;
+    setState(() => boosting = true);
+    unawaited(playback.boost(true));
+    reveal();
+  }
+
+  void endBoost() {
+    boostTimer?.cancel();
+    if (!boosting) return;
+    setState(() => boosting = false);
+    unawaited(playback.boost(false));
+  }
+
+  /// A tap of → seeks 5 seconds on release; holding it plays at 3×.
+  KeyEventResult handleRight(KeyEvent event) {
+    if (event is KeyUpEvent) {
+      if (boosting) {
+        endBoost();
+      } else if (boostTimer?.isActive ?? false) {
+        boostTimer!.cancel();
+        unawaited(seekRelative(5));
+        reveal();
+      }
+      return KeyEventResult.handled;
+    }
+    final keyboard = HardwareKeyboard.instance;
+    if (danmakuMenu ||
+        keyboard.isControlPressed ||
+        keyboard.isMetaPressed ||
+        keyboard.isAltPressed ||
+        keyboard.isShiftPressed) {
+      return KeyEventResult.ignored;
+    }
+    if (event is KeyDownEvent) {
+      boostTimer?.cancel();
+      boostTimer = Timer(_boostDelay, startBoost);
+    }
+    return KeyEventResult.handled;
+  }
+
+  /// The next episode by order.
+  Episode? get nextEpisode {
     final episodes = widget.subject?.episodes ?? const <Episode>[];
     final index = episodes.indexWhere(
       (e) => e.id == playback.session?.episodeId,
     );
     if (index < 0 || index + 1 >= episodes.length) return null;
-    final next = episodes[index + 1];
-    final tasks = widget.downloads.snapshot.value.forSubject(
-      widget.subject?.id,
-    );
-    return (next, playableTask(tasks, next.id) != null);
+    return episodes[index + 1];
   }
 
-  void toggleMenu(PlayerMenu value) {
+  void toggleMenu() {
     playback.cancelAutoplay();
     resourcesOpen = false;
-    if (menu == value) {
+    if (danmakuMenu) {
       closeMenu();
       return;
     }
-    setState(() {
-      menu = value;
-      lastMenu = value;
-    });
+    setState(() => danmakuMenu = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && menu == value) menuCloseFocus.requestFocus();
+      if (mounted && danmakuMenu) menuCloseFocus.requestFocus();
     });
     reveal();
   }
 
   void closeMenu() {
-    final trigger = menuFocusNodes[menu];
-    setState(() => menu = null);
-    (trigger ?? focus).requestFocus();
+    setState(() => danmakuMenu = false);
+    danmakuMenuFocus.requestFocus();
     reveal();
   }
 
+  /// Opens the resource sheet over the video for [episode].
   void findResources(Episode? episode) {
     playback.cancelAutoplay();
     setState(() {
       resourceEpisode = episode?.id;
       resourcesOpen = true;
-      menu = null;
+      danmakuMenu = false;
     });
     reveal();
   }
@@ -330,12 +369,14 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   KeyEventResult handleKey(FocusNode node, KeyEvent event) {
+    if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      return handleRight(event);
+    }
     // Held arrows repeat seeks and volume steps like other players.
     if (event is! KeyDownEvent &&
         !(event is KeyRepeatEvent &&
             const [
               LogicalKeyboardKey.arrowLeft,
-              LogicalKeyboardKey.arrowRight,
               LogicalKeyboardKey.arrowUp,
               LogicalKeyboardKey.arrowDown,
             ].contains(event.logicalKey))) {
@@ -348,7 +389,7 @@ class _PlayerPageState extends State<PlayerPage> {
       return KeyEventResult.ignored;
     }
     if (keyboard.isShiftPressed) {
-      if (menu != null ||
+      if (danmakuMenu ||
           !const [
             LogicalKeyboardKey.period,
             LogicalKeyboardKey.comma,
@@ -370,7 +411,7 @@ class _PlayerPageState extends State<PlayerPage> {
       closeResources();
       return KeyEventResult.handled;
     }
-    if (menu != null) {
+    if (danmakuMenu) {
       if (event.logicalKey == LogicalKeyboardKey.escape) {
         closeMenu();
         return KeyEventResult.handled;
@@ -392,8 +433,6 @@ class _PlayerPageState extends State<PlayerPage> {
       unawaited(
         seekTo(player.state.duration.inMilliseconds / 1000 * (digit % 10) / 10),
       );
-    } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-      unawaited(seekRelative(5));
     } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
       unawaited(seekRelative(-5));
     } else if (event.logicalKey == LogicalKeyboardKey.keyF ||
@@ -413,9 +452,6 @@ class _PlayerPageState extends State<PlayerPage> {
       unawaited(changeVolume(5));
     } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
       unawaited(changeVolume(-5));
-    } else if (event.logicalKey == LogicalKeyboardKey.keyL &&
-        widget.lightsOff != null) {
-      toggleLights();
     } else if (event.logicalKey == LogicalKeyboardKey.keyD) {
       playback.toggleDanmaku();
       showFeedback(playback.danmakuEnabled ? '弹幕已开启' : '弹幕已关闭');
@@ -427,6 +463,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Future<void> stepFrame(bool forward) async {
+    reveal();
     try {
       final position = await playback.stepFrame(forward);
       if (!mounted) return;
@@ -443,14 +480,8 @@ class _PlayerPageState extends State<PlayerPage> {
     }
   }
 
-  String get title {
-    final subject = widget.subject;
-    if (subject == null) return playback.session?.title ?? '播放器';
-    final episode = subject.episodes
-        .where((e) => e.id == playback.session?.episodeId)
-        .firstOrNull;
-    return '${subject.title}${episode == null ? '' : ' · 第 ${episode.number} 话'}';
-  }
+  Episode? get episode =>
+      widget.subject?.episode(playback.session?.episodeId ?? -1);
 
   @override
   Widget build(BuildContext context) => Theme(
@@ -491,10 +522,16 @@ class _PlayerPageState extends State<PlayerPage> {
     }
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Open the episode list by default only when the video keeps room.
-        final showPanel = panel ??= constraints.maxWidth >= 1080;
-        final panelWidth = constraints.maxWidth < 900 ? 296.0 : 336.0;
-        final libraryWidth = math.min(panelWidth, constraints.maxWidth * .45);
+        // Open the panel by default only when the video keeps room; it stays
+        // out of the way in immersive modes and returns after them.
+        final wide = constraints.maxWidth >= 1080;
+        if (widget.panelOpen.value == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            widget.panelOpen.value ??= wide;
+          });
+        }
+        final showPanel = !immersive && (widget.panelOpen.value ?? wide);
+        final libraryWidth = sidePanelWidth(constraints.maxWidth);
         final videoWidth =
             constraints.maxWidth - (showPanel ? libraryWidth : 0);
         final transportInset = videoWidth < 680 ? 136.0 : 108.0;
@@ -525,19 +562,22 @@ class _PlayerPageState extends State<PlayerPage> {
                         width: libraryWidth,
                         child: ValueListenableBuilder<TransferSnapshot>(
                           valueListenable: widget.downloads.snapshot,
-                          builder: (context, downloads, _) =>
-                              PlayerLibraryPanel(
-                                key: ValueKey(playback.session?.subjectId),
-                                onToggleTask: widget.downloads.toggle,
-                                subjectId: playback.session?.subjectId,
-                                subject: widget.subject,
-                                episodeId: playback.session?.episodeId,
-                                title: playback.session?.title ?? '播放器',
-                                downloads: downloads,
-                                onEpisode: widget.onEpisode,
-                                onFindResources: findResources,
-                                onPlayFile: widget.onPlayFile ?? (_, _) {},
-                              ),
+                          builder: (context, downloads, _) => PlayerSidePanel(
+                            playback: playback,
+                            community: widget.community,
+                            subject: widget.subject,
+                            session: playback.session,
+                            source: widget.source,
+                            downloads: downloads,
+                            tab: panelTab,
+                            onTab: (tab) => setState(() => panelTab = tab),
+                            onEpisode: widget.onEpisode,
+                            onFindResources: findResources,
+                            onPlayFile: widget.onPlayFile ?? (_, _) {},
+                            onToggleTask: widget.downloads.toggle,
+                            onMarkEpisode: widget.onMarkEpisode,
+                            onError: widget.onError,
+                          ),
                         ),
                       ),
                     ),
@@ -609,13 +649,20 @@ class _PlayerPageState extends State<PlayerPage> {
 
   Widget video(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
+      final narrow = constraints.maxWidth < 680;
+      final transportInset = narrow ? 136.0 : 108.0;
+      final failure = widget.failure?.reason ?? playback.error;
       return Focus(
         focusNode: focus,
         autofocus: true,
         onKeyEvent: handleKey,
+        onFocusChange: (focused) {
+          // A key released elsewhere never reaches us; stop the 3× there.
+          if (!focused) endBoost();
+        },
         child: MouseRegion(
           onHover: (_) => reveal(),
-          cursor: controls || menu != null
+          cursor: controls || danmakuMenu
               ? SystemMouseCursors.basic
               : SystemMouseCursors.none,
           child: Stack(
@@ -624,12 +671,14 @@ class _PlayerPageState extends State<PlayerPage> {
               GestureDetector(
                 onTap: () {
                   playback.cancelAutoplay();
-                  if (menu != null) {
+                  if (danmakuMenu) {
                     closeMenu();
                     return;
                   }
                   focus.requestFocus();
-                  if (playback.uri != null && !playback.opening) {
+                  if (playback.uri != null &&
+                      !playback.opening &&
+                      widget.failure == null) {
                     showFeedback(player.state.playing ? '暂停' : '播放');
                     unawaited(playback.playOrPause());
                   }
@@ -649,7 +698,8 @@ class _PlayerPageState extends State<PlayerPage> {
                 stream: player.stream.buffering,
                 initialData: player.state.buffering,
                 builder: (_, snapshot) =>
-                    playback.opening || snapshot.data == true
+                    (playback.opening || snapshot.data == true) &&
+                        failure == null
                     ? ValueListenableBuilder(
                         valueListenable: widget.downloads.snapshot,
                         builder: (context, downloads, _) => _BufferingStatus(
@@ -663,16 +713,17 @@ class _PlayerPageState extends State<PlayerPage> {
                       )
                     : const SizedBox.shrink(),
               ),
-              if (playback.error != null)
+              if (failure != null)
                 Center(
-                  child: Container(
-                    constraints: const BoxConstraints(maxWidth: 440),
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(playback.error!),
+                  child: _FailureCard(
+                    reason: failure,
+                    onRetry: widget.failure == null
+                        ? null
+                        : widget.onRetryFailure,
+                    onChoose: widget.subject == null
+                        ? null
+                        : () =>
+                              findResources(widget.failure?.episode ?? episode),
                   ),
                 ),
               StreamBuilder<bool>(
@@ -686,9 +737,9 @@ class _PlayerPageState extends State<PlayerPage> {
                         playing.data == false &&
                         buffering.data != true &&
                         !playback.opening &&
-                        playback.error == null &&
+                        failure == null &&
                         !playback.frameStepping &&
-                        menu == null;
+                        !danmakuMenu;
                     return Center(
                       child: IgnorePointer(
                         ignoring: !paused,
@@ -703,7 +754,7 @@ class _PlayerPageState extends State<PlayerPage> {
                               shape: const CircleBorder(),
                               clipBehavior: Clip.antiAlias,
                               child: IconButton(
-                                tooltip: '播放（空格）',
+                                tooltip: '播放 (Space)',
                                 iconSize: 40,
                                 padding: const EdgeInsets.all(14),
                                 color: Colors.white,
@@ -729,7 +780,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 child: IgnorePointer(
                   child: Center(
                     child: AnimatedOpacity(
-                      opacity: feedback == null ? 0 : 1,
+                      opacity: feedback == null && !boosting ? 0 : 1,
                       duration: motionDuration(context, 150),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -740,14 +791,27 @@ class _PlayerPageState extends State<PlayerPage> {
                           color: Color(0xb3000000),
                           borderRadius: controlBorderRadius,
                         ),
-                        child: Text(
-                          feedback ?? '',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                            fontFeatures: [FontFeature.tabularFigures()],
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (boosting) ...[
+                              const Icon(
+                                Icons.fast_forward_rounded,
+                                size: 18,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: Gap.sm),
+                            ],
+                            Text(
+                              boosting ? '3× 快进中' : feedback ?? '',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                fontFeatures: [FontFeature.tabularFigures()],
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -761,7 +825,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 right: 0,
                 child: IgnorePointer(
                   child: AnimatedOpacity(
-                    opacity: controls || menu != null ? 1 : 0,
+                    opacity: controls || danmakuMenu ? 1 : 0,
                     duration: motionDuration(context),
                     curve: Curves.easeOutCubic,
                     child: Container(
@@ -778,28 +842,54 @@ class _PlayerPageState extends State<PlayerPage> {
                           colors: [Color(0x99000000), Colors.transparent],
                         ),
                       ),
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          shadows: [
-                            Shadow(color: Colors.black54, blurRadius: 6),
-                          ],
-                        ),
+                      child: _Title(
+                        title:
+                            widget.subject?.title ??
+                            playback.session?.title ??
+                            '播放器',
+                        episode: episode,
                       ),
                     ),
                   ),
                 ),
               ),
+              if (playback.openingEnding case final marks?)
+                StreamBuilder<Duration>(
+                  stream: player.stream.position,
+                  initialData: player.state.position,
+                  builder: (_, position) {
+                    final now = position.data!.inMilliseconds / 1000;
+                    // Offered until a few seconds before the song ends.
+                    bool inside(ChapterSpan? span) =>
+                        span != null && now >= span.start && now < span.end - 3;
+                    final (label, target) = inside(marks.opening)
+                        ? ('跳过片头', marks.opening!.end)
+                        : inside(marks.ending)
+                        ? ('跳过片尾', marks.ending!.end)
+                        : (null, 0.0);
+                    if (label == null || failure != null) {
+                      return const SizedBox.shrink();
+                    }
+                    return AnimatedPositioned(
+                      duration: motionDuration(context),
+                      curve: Curves.easeOutCubic,
+                      right: pageGutter,
+                      bottom: controls ? transportInset : pageGutter,
+                      child: _SkipButton(
+                        label: label,
+                        onPressed: () {
+                          showFeedback(label);
+                          unawaited(seekTo(target));
+                        },
+                      ),
+                    );
+                  },
+                ),
               if (playback.autoplayTarget != null ||
                   playback.autoplayMessage != null)
                 Positioned(
                   right: 20,
-                  bottom: constraints.maxWidth < 680 ? 150 : 112,
+                  bottom: transportInset + 4,
                   child: Material(
                     color: Theme.of(context).colorScheme.surface,
                     borderRadius: BorderRadius.circular(12),
@@ -851,11 +941,11 @@ class _PlayerPageState extends State<PlayerPage> {
                 right: 0,
                 bottom: 0,
                 child: ExcludeFocus(
-                  excluding: !controls && menu == null,
+                  excluding: !controls && !danmakuMenu,
                   child: IgnorePointer(
-                    ignoring: !controls && menu == null,
+                    ignoring: !controls && !danmakuMenu,
                     child: AnimatedOpacity(
-                      opacity: controls || menu != null ? 1 : 0,
+                      opacity: controls || danmakuMenu ? 1 : 0,
                       duration: motionDuration(context),
                       curve: Curves.easeOutCubic,
                       child: MouseRegion(
@@ -877,7 +967,9 @@ class _PlayerPageState extends State<PlayerPage> {
                             playback: playback,
                             fullScreen: widget.fullScreen,
                             windowFullScreen: widget.windowFullScreen,
-                            menu: menu,
+                            danmakuMenuOpen: danmakuMenu,
+                            danmakuMenuFocus: danmakuMenuFocus,
+                            onDanmakuMenu: toggleMenu,
                             dragging: dragging,
                             onDragStart: (value) {
                               playback.cancelAutoplay();
@@ -888,24 +980,12 @@ class _PlayerPageState extends State<PlayerPage> {
                             onDragChanged: (value) =>
                                 setState(() => dragging = value),
                             onDragEnd: seekTo,
-                            menuFocusNodes: menuFocusNodes,
-                            panelOpen: panel ?? false,
-                            onTogglePanel: togglePanel,
-                            lightsOff: widget.lightsOff,
-                            onToggleLights: toggleLights,
                             onFeedback: showFeedback,
-                            nextLabel: switch (nextEpisode) {
-                              null => null,
-                              (final next, _) => '下一话（第 ${next.number} 话）',
-                            },
+                            onStepFrame: (forward) =>
+                                unawaited(stepFrame(forward)),
                             onNext: switch (nextEpisode) {
                               null => null,
-                              (final next, true) => () => widget.onEpisode(
-                                next,
-                              ),
-                              (final next, false) => () => widget.onEpisode(
-                                next,
-                              ),
+                              final next => () => widget.onEpisode(next),
                             },
                             onPopupChanged: (value) {
                               controlsPopup = value;
@@ -914,7 +994,6 @@ class _PlayerPageState extends State<PlayerPage> {
                             onReveal: reveal,
                             onFullscreen: fullscreen,
                             onWindowFullScreen: windowFullscreen,
-                            onMenu: toggleMenu,
                           ),
                         ),
                       ),
@@ -925,13 +1004,13 @@ class _PlayerPageState extends State<PlayerPage> {
               Positioned(
                 key: const ValueKey('player-menu'),
                 right: 12,
-                bottom: constraints.maxWidth < 680 ? 136 : 108,
+                bottom: transportInset,
                 child: ExcludeFocus(
-                  excluding: menu == null,
+                  excluding: !danmakuMenu,
                   child: IgnorePointer(
-                    ignoring: menu == null,
+                    ignoring: !danmakuMenu,
                     child: TweenAnimationBuilder<double>(
-                      tween: Tween(end: menu == null ? 0 : 1),
+                      tween: Tween(end: danmakuMenu ? 1 : 0),
                       duration: motionDuration(context),
                       curve: Curves.easeOutCubic,
                       builder: (_, value, child) => Offstage(
@@ -949,7 +1028,7 @@ class _PlayerPageState extends State<PlayerPage> {
                         ),
                       ),
                       child: SizedBox(
-                        width: math.min(300, constraints.maxWidth - 24),
+                        width: math.min(312, constraints.maxWidth - 24),
                         child: ConstrainedBox(
                           constraints: BoxConstraints(
                             maxHeight: math.max(
@@ -957,12 +1036,14 @@ class _PlayerPageState extends State<PlayerPage> {
                               constraints.maxHeight - 160,
                             ),
                           ),
-                          child: PlayerSettings(
+                          child: DanmakuQuickSettings(
                             closeFocusNode: menuCloseFocus,
-                            playback: playback,
-                            menu: lastMenu,
+                            preferences: playback.danmaku.preferences,
                             onClose: closeMenu,
-                            onError: widget.onError,
+                            // The panel is hidden in immersive modes.
+                            onOpenSources: immersive
+                                ? null
+                                : () => showPanel(PlayerPanelTab.danmaku),
                           ),
                         ),
                       ),
@@ -975,6 +1056,142 @@ class _PlayerPageState extends State<PlayerPage> {
         ),
       );
     },
+  );
+}
+
+/// The subject's name, then the episode in a quieter style.
+class _Title extends StatelessWidget {
+  const _Title({required this.title, this.episode});
+  final String title;
+  final Episode? episode;
+
+  @override
+  Widget build(BuildContext context) {
+    const shadow = [Shadow(color: Colors.black54, blurRadius: 6)];
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: title,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+          ),
+          if (episode case final episode?)
+            TextSpan(
+              text: '   ${episodeLabel(episode)}',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.white.withValues(alpha: .75),
+              ),
+            ),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(color: Colors.white, shadows: shadow),
+    );
+  }
+}
+
+/// Why playback stopped, with retrying the same source or choosing another.
+class _FailureCard extends StatelessWidget {
+  const _FailureCard({required this.reason, this.onRetry, this.onChoose});
+  final String reason;
+  final VoidCallback? onRetry, onChoose;
+
+  @override
+  Widget build(BuildContext context) {
+    final buttonStyle = OutlinedButton.styleFrom(
+      foregroundColor: Colors.white,
+      backgroundColor: Colors.white.withValues(alpha: .08),
+      side: BorderSide(color: Colors.white.withValues(alpha: .3)),
+    );
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 420),
+      margin: const EdgeInsets.all(Gap.xl),
+      padding: const EdgeInsets.all(Gap.xl),
+      decoration: const BoxDecoration(
+        color: overlaySurface,
+        borderRadius: panelBorderRadius,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.error_outline_rounded,
+            color: Colors.white70,
+            size: 28,
+          ),
+          const SizedBox(height: Gap.md),
+          Text(
+            reason.replaceFirst('Bad state: ', ''),
+            textAlign: TextAlign.center,
+            maxLines: 6,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+          ),
+          if (onRetry != null || onChoose != null) ...[
+            const SizedBox(height: Gap.lg),
+            Wrap(
+              spacing: Gap.sm,
+              runSpacing: Gap.sm,
+              alignment: WrapAlignment.center,
+              children: [
+                if (onRetry != null)
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: const Color(0xff15181d),
+                    ),
+                    onPressed: onRetry,
+                    child: const Text('重试'),
+                  ),
+                if (onChoose != null)
+                  OutlinedButton(
+                    style: buttonStyle,
+                    onPressed: onChoose,
+                    child: const Text('选择其他资源'),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Jumps past the OP or ED the file's chapters mark.
+class _SkipButton extends StatelessWidget {
+  const _SkipButton({required this.label, required this.onPressed});
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: overlaySurface,
+    borderRadius: controlBorderRadius,
+    child: InkWell(
+      borderRadius: controlBorderRadius,
+      onTap: onPressed,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.keyboard_double_arrow_right_rounded,
+              size: 18,
+              color: Colors.white,
+            ),
+          ],
+        ),
+      ),
+    ),
   );
 }
 
@@ -1008,7 +1225,7 @@ String? _swarmHint(DownloadTask? task) {
       (dhtNodes ?? 0) == 0) {
     return '连不上任何 Tracker 和 DHT 节点。开着代理软件时，请让 MelonBanG 直连';
   }
-  return '冷门资源找到节点可能要很久，可以在选集里换一个资源';
+  return '冷门资源找到节点可能要很久，可以在侧栏换个资源';
 }
 
 /// Shown over the video while it opens or buffers; a streamed download adds
@@ -1030,7 +1247,10 @@ class _BufferingStatus extends StatelessWidget {
         children: [
           const SizedBox.square(
             dimension: 28,
-            child: CircularProgressIndicator(strokeWidth: 2.5),
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: Colors.white,
+            ),
           ),
           const SizedBox(height: Gap.md),
           Text(

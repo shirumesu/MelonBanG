@@ -263,14 +263,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         ),
         _ => controller.saveOnline(candidate, episode: episode),
       };
-      if (mounted) {
-        setState(() => downloadTasks[id] = task.id);
-        if (controller.downloads.fallbacks[task.id] case final reason?
-            when task.method != method) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('$reason，已改用 BT 下载')));
-        }
-      }
+      if (mounted) setState(() => downloadTasks[id] = task.id);
     } catch (error) {
       if (mounted) {
         setState(
@@ -782,14 +775,15 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                     style: small?.copyWith(color: scheme.error),
                   ),
                 ),
-                TextButton(
+                TextButton.icon(
                   onPressed: () => launchUrl(
                     Uri.parse(
                       rule.website ?? sourceRegistry.currentDomain(rule.id),
                     ),
                     mode: LaunchMode.externalApplication,
                   ),
-                  child: const Text('打开站点'),
+                  icon: const Icon(Icons.open_in_new, size: 15),
+                  label: const Text('打开站点'),
                 ),
               ],
             ),

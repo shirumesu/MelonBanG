@@ -193,7 +193,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                   ),
                 _PostMeta(
                   name: name,
-                  time: _date(entry.time),
+                  time: communityDate(entry.time),
                   details: [
                     if (segment == 'comments' && entry.score > 0)
                       Text(
@@ -721,7 +721,8 @@ class _SubjectRelationsState extends State<SubjectRelations> {
 
 const _postText = TextStyle(fontSize: 13, height: 1.6);
 
-String _date(int? seconds) {
+/// A post's date as YYYY-MM-DD, or empty without one.
+String communityDate(int? seconds) {
   if (seconds == null || seconds <= 0) return '';
   final time = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
   return '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
@@ -900,7 +901,11 @@ class _ClampedTextState extends State<_ClampedText>
         );
         TextSpan ending(TextSpan shown) => TextSpan(
           style: style,
-          children: [shown, const TextSpan(text: '…'), link],
+          children: [
+            shown,
+            const TextSpan(text: '…'),
+            link,
+          ],
         );
         var text = ending(widget.span);
         final whole = layout(text);
@@ -987,7 +992,7 @@ class _ReviewState extends State<_Review> with AutomaticKeepAliveClientMixin {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SelectableText.rich(
-            _bbcode(context, content.data!),
+            bbcodeSpan(context, content.data!),
             style: _postText,
           ),
           TextButton(
@@ -1004,7 +1009,7 @@ class _ReviewState extends State<_Review> with AutomaticKeepAliveClientMixin {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _ClampedText.plain(
-          _bbcode(context, summary).toPlainText(),
+          bbcodeSpan(context, summary).toPlainText(),
           maxLines: 3,
           truncated: widget.summary.runes.length >= _summaryLimit,
           onExpand: _toggle,
@@ -1083,7 +1088,7 @@ class _TopicThreadState extends State<_TopicThread>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (posts.firstOrNull case final first?)
-          _ClampedText.rich(_bbcode(context, first.content), maxLines: 4),
+          _ClampedText.rich(bbcodeSpan(context, first.content), maxLines: 4),
         if (floors.isNotEmpty)
           Container(
             key: _replies,
@@ -1306,7 +1311,7 @@ class _PostTile extends StatelessWidget {
               children: [
                 _PostMeta(
                   name: post.author,
-                  time: _date(post.time),
+                  time: communityDate(post.time),
                   details: [Text(label, style: small)],
                 ),
                 const SizedBox(height: 2),
@@ -1314,7 +1319,7 @@ class _PostTile extends StatelessWidget {
                   Text('（内容已删除）', style: small)
                 else
                   _ClampedText.rich(
-                    _bbcode(context, post.content),
+                    bbcodeSpan(context, post.content),
                     maxLines: 6,
                   ),
               ],
@@ -1334,7 +1339,7 @@ final _bbcodeTags = RegExp(
 /// Bangumi BBCode as styled text: bold, italic, underline and strike keep
 /// their look, spoilers stay blacked out, quotes are muted, images become
 /// [图片], and other tags and stickers are dropped.
-TextSpan _bbcode(BuildContext context, String raw) {
+TextSpan bbcodeSpan(BuildContext context, String raw) {
   final scheme = Theme.of(context).colorScheme;
   final text = raw.replaceAll('\r\n', '\n').trim();
   final open = <String, int>{};

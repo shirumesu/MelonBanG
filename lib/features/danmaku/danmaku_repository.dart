@@ -1,6 +1,5 @@
 import 'package:path/path.dart' as p;
 
-import '../../core/json.dart';
 import '../acquisition/resource_metadata.dart';
 import '../../core/store.dart';
 import '../../domain/catalog.dart';
@@ -10,7 +9,6 @@ import '../../domain/danmaku.dart';
 class DanmakuTarget {
   const DanmakuTarget({
     this.matchKey,
-    this.offsetKey,
     this.embedded,
     this.subjectId,
     this.episodeId,
@@ -22,9 +20,6 @@ class DanmakuTarget {
   /// Saved manual matches: file path, or the stable online resume key.
   final String? matchKey;
 
-  /// Source offsets: resume key, or the media URL.
-  final String? offsetKey;
-
   /// A locator supplied by the stream itself, as (provider, locator).
   final (String, String)? embedded;
   final int? subjectId, episodeId;
@@ -35,7 +30,7 @@ class DanmakuTarget {
   final bool remote;
 }
 
-/// Danmaku providers plus their persisted manual matches and source offsets.
+/// Danmaku providers plus their persisted manual matches.
 class DanmakuRepository {
   DanmakuRepository(this.store, this.catalog, this.matchers, this.local);
   final AppStore store;
@@ -44,7 +39,6 @@ class DanmakuRepository {
   /// Automatic sources in display order.
   final List<DanmakuMatcher> matchers;
   final DanmakuProvider local;
-  Future<void>? _offsetTable;
 
   DanmakuProvider provider(String id) => id == local.id ? local : matcher(id);
   DanmakuMatcher matcher(String id) =>
@@ -56,35 +50,6 @@ class DanmakuRepository {
 
   Future<void> saveLocator(String key, String provider, String locator) =>
       store.put('danmaku_matches', '$key:$provider', {'locator': locator});
-
-  Future<void> _ensureOffsetTable() => _offsetTable ??= store.database.execute(
-    'CREATE TABLE IF NOT EXISTS danmaku_offsets (resume_key TEXT NOT NULL, source TEXT NOT NULL, seconds REAL NOT NULL, PRIMARY KEY(resume_key,source))',
-  );
-
-  Future<Map<String, double>> offsets(String key) async {
-    try {
-      await _ensureOffsetTable();
-      final rows = await store.database.query(
-        'danmaku_offsets',
-        where: 'resume_key=?',
-        whereArgs: [key],
-      );
-      return {
-        for (final row in rows) '${row['source']}': number(row['seconds']),
-      };
-    } catch (_) {
-      _offsetTable = null;
-      rethrow;
-    }
-  }
-
-  Future<void> saveOffset(String key, String provider, double seconds) async {
-    await _ensureOffsetTable();
-    await store.database.rawInsert(
-      'INSERT OR REPLACE INTO danmaku_offsets (resume_key,source,seconds) VALUES (?,?,?)',
-      [key, provider, seconds],
-    );
-  }
 
   Future<DanmakuEpisode> episode(DanmakuTarget target) async {
     final subjectId = target.subjectId;
