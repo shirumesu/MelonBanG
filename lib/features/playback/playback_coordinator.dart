@@ -404,6 +404,48 @@ class PlaybackCoordinator extends ChangeNotifier {
     await playCandidate(choices.first, item, episode, choices: choices);
   }
 
+  /// Plays [episode]'s cache when it has one, otherwise lets the user pick a
+  /// source.
+  Future<void> openEpisode(Subject item, Episode episode) async {
+    if ((await library.playableEpisodes(item.id)).contains(episode.id)) {
+      await prepare(item, episode, () => selectEpisode(item, episode));
+    } else {
+      await chooseSource(item, episode);
+    }
+  }
+
+  /// Plays [item]'s cache from where it was left: the last played episode
+  /// while unfinished, else the first cached episode after it, else the first
+  /// cached one. An episode played to the automatic watched mark counts as
+  /// finished.
+  Future<void> continueCache(Subject item) async {
+    final available = await library.playableEpisodes(item.id);
+    final last = await library.lastPlayed(item.id);
+    final episodes = item.episodes;
+    final cached = [
+      for (final (index, episode) in episodes.indexed)
+        if (available.contains(episode.id)) index,
+    ];
+    if (cached.isEmpty) throw StateError('没有可以播放的缓存');
+    var start = cached.first;
+    if (last case (:final episodeId, :final progress)) {
+      final played = episodes.indexWhere((e) => e.id == episodeId);
+      final finished =
+          progress.completed ||
+          (playback.settings.autoMarkWatched &&
+              progress.duration > 0 &&
+              progress.position >= progress.duration * .8);
+      if (played >= 0) {
+        start = cached.firstWhere(
+          (index) => finished ? index > played : index >= played,
+          orElse: () => cached.first,
+        );
+      }
+    }
+    final episode = episodes[start];
+    await prepare(item, episode, () => selectEpisode(item, episode));
+  }
+
   /// Lets the user pick a source for [episode] and plays it.
   Future<void> chooseSource(Subject item, Episode episode) async {
     cancel();

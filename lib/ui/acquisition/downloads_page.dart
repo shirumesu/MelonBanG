@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
+import '../../domain/catalog.dart';
 import '../../domain/transfer.dart';
 import '../../features/downloads/downloads_controller.dart';
 import '../core/page_widgets.dart';
@@ -20,11 +21,19 @@ class DownloadsPage extends StatefulWidget {
     required this.onExplore,
     required this.onPlay,
     required this.onError,
+    required this.subjectOf,
+    required this.onPlaySubject,
   });
   final DownloadsController downloads;
   final VoidCallback onExplore;
   final void Function(String, String?) onPlay;
   final ValueChanged<Object> onError;
+
+  /// The subject a group of tasks belongs to, for its title and episodes.
+  final Future<Subject> Function(int id) subjectOf;
+
+  /// Plays a subject's cache from where it was left.
+  final Future<void> Function(Subject) onPlaySubject;
   @override
   State<DownloadsPage> createState() => _DownloadsPageState();
 }
@@ -33,6 +42,15 @@ class _DownloadsPageState extends State<DownloadsPage> {
   String filter = '全部';
   String statusFilter = '全部状态';
   final expanded = <String>{};
+  final subjects = <int, Subject>{};
+  final _requested = <int>{};
+
+  void _loadSubject(int id) {
+    if (!_requested.add(id)) return;
+    widget.subjectOf(id).then((subject) {
+      if (mounted) setState(() => subjects[id] = subject);
+    }, onError: (_) {});
+  }
 
   Future<void> _perform(Future<void> Function() action) async {
     try {
@@ -97,8 +115,23 @@ class _DownloadsPageState extends State<DownloadsPage> {
       return category && status;
     }).toList();
     final speed = tasks.fold<int>(0, (sum, t) => sum + t.downloadSpeed);
-    final active = visible.where((t) => !t.complete).toList();
-    final cached = visible.where((t) => t.complete).toList();
+    // A subject's tasks, however they were cached, form one entry.
+    final entries = <List<DownloadTask>>[];
+    final bySubject = <int, List<DownloadTask>>{};
+    for (final task in visible) {
+      if (task.subjectId case final id?) {
+        if (bySubject[id] case final entry?) {
+          entry.add(task);
+          continue;
+        }
+        entries.add(bySubject[id] = [task]);
+      } else {
+        entries.add([task]);
+      }
+    }
+    bool complete(List<DownloadTask> entry) => entry.every((t) => t.complete);
+    final active = entries.where((e) => !complete(e)).toList();
+    final cached = entries.where(complete).toList();
     return PageScroll(
       children: [
         SectionTitle(
@@ -164,7 +197,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 itemCount: group.$2.length,
                 itemBuilder: (context, index) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
-                  child: _task(context, group.$2[index]),
+                  child: _entry(context, group.$2[index]),
                 ),
               ),
             ),
@@ -180,10 +213,272 @@ class _DownloadsPageState extends State<DownloadsPage> {
     );
   }
 
+  Widget _entry(BuildContext context, List<DownloadTask> tasks) {
+    if (tasks.length == 1) return _task(context, tasks.single);
+    final subjectId = tasks.first.subjectId!;
+    _loadSubject(subjectId);
+    return _group(context, subjects[subjectId], subjectId, tasks);
+  }
+
+  /// [tasks] in episode order; tasks of unknown episodes keep their order
+  /// at the end.
+  List<DownloadTask> _ordered(Subject? subject, List<DownloadTask> tasks) {
+    if (subject == null) return tasks;
+    final order = {
+      for (final (index, episode) in subject.episodes.indexed)
+        episode.id: index,
+    };
+    final indexed = tasks.indexed.toList()
+      ..sort((a, b) {
+        final byEpisode = (order[a.$2.episodeId] ?? order.length).compareTo(
+          order[b.$2.episodeId] ?? order.length,
+        );
+        return byEpisode != 0 ? byEpisode : a.$1.compareTo(b.$1);
+      });
+    return [for (final (_, task) in indexed) task];
+  }
+
+  void _playFirst(DownloadTask task) => task.videos.length > 1
+      ? chooseDownloadVideo(context, task, widget.onPlay)
+      : widget.onPlay(task.id, task.videos.single.id);
+
+  /// One subject's tasks: playing continues where it was left, and the
+  /// entry expands into a compact row per task.
+  Widget _group(
+    BuildContext context,
+    Subject? subject,
+    int subjectId,
+    List<DownloadTask> tasks,
+  ) {
+    final key = 'subject:$subjectId';
+    final open = expanded.contains(key);
+    final ordered = _ordered(subject, tasks);
+    final scheme = Theme.of(context).colorScheme;
+    final small = Theme.of(context).textTheme.bodySmall;
+    final done = tasks.where((t) => t.complete).length;
+    final failed = tasks.where((t) => t.status == DownloadStatus.failed).length;
+    final ongoing = tasks.length - done - failed;
+    final speed = tasks.fold<int>(0, (sum, t) => sum + t.downloadSpeed);
+    final playable = ordered.where((t) => playBlocked(t) == null).firstOrNull;
+    final episodes = {
+      for (final episode in subject?.episodes ?? []) episode.id,
+    };
+    final VoidCallback? onPlay = playable == null
+        ? null
+        : subject != null && tasks.any((t) => episodes.contains(t.episodeId))
+        ? () => _perform(() => widget.onPlaySubject(subject))
+        : () => _playFirst(playable);
+    final title = subject?.title ?? ordered.first.title;
+    return MelonPanel(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            customBorder: CardTheme.of(context).shape,
+            onTap: () =>
+                setState(() => open ? expanded.remove(key) : expanded.add(key)),
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 58,
+                    height: 78,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: SubjectCover(
+                        url: subject?.coverUrl ?? ordered.first.coverUrl,
+                        title: title,
+                        id: subjectId,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 7),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 5,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            if (done > 0) MelonBadge('已缓存 $done', color: sky),
+                            if (ongoing > 0) MelonBadge('进行中 $ongoing'),
+                            if (failed > 0)
+                              MelonBadge('需要重试 $failed', color: coral),
+                            if (speed > 0)
+                              Text('↓ ${transferRate(speed)}', style: small),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Tooltip(
+                    message: playable == null
+                        ? '还没有可以播放的视频'
+                        : '从上次看到的地方继续，没有记录时从第一话开始',
+                    child: FilledButton.icon(
+                      onPressed: onPlay,
+                      icon: const Icon(Icons.play_arrow_rounded, size: 19),
+                      label: const Text('播放'),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: open ? '收起' : '展开剧集',
+                    onPressed: () => setState(
+                      () => open ? expanded.remove(key) : expanded.add(key),
+                    ),
+                    icon: Icon(
+                      open
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (open) ...[
+            Divider(height: 1, color: scheme.outlineVariant),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final task in ordered)
+                    _episodeRow(context, subject, task),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// A compact row for one task of a group; clicking it shows its details.
+  Widget _episodeRow(
+    BuildContext context,
+    Subject? subject,
+    DownloadTask task,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    final small = Theme.of(context).textTheme.bodySmall;
+    final episode = switch (task.episodeId) {
+      final id? => subject?.episode(id),
+      null => null,
+    };
+    final label = switch (episode) {
+      final episode? when episode.main => '第 ${episode.number} 话',
+      final episode? => 'SP${episode.number}',
+      null when task.videos.length > 1 => '合集',
+      null => '—',
+    };
+    final details = expanded.contains(task.id);
+    final progress = task.progress.clamp(0.0, 1.0);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => setState(
+            () => details ? expanded.remove(task.id) : expanded.add(task.id),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 2, 0, 2),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 66,
+                  child: Text(label, style: const TextStyle(fontSize: 13)),
+                ),
+                Expanded(
+                  child: Text(
+                    task.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: small,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                if (downloadOrigin(task) case final origin?) ...[
+                  MelonBadge(origin, color: sky),
+                  const SizedBox(width: 6),
+                ],
+                MelonBadge(
+                  downloadStatus(task),
+                  color: task.status == DownloadStatus.failed
+                      ? coral
+                      : task.complete
+                      ? sky
+                      : mint,
+                ),
+                if (!task.complete && task.cloudProgress == null)
+                  SizedBox(
+                    width: 44,
+                    child: Text(
+                      '${(progress * 100).toStringAsFixed(0)}%',
+                      textAlign: TextAlign.end,
+                      style: small,
+                    ),
+                  ),
+                const SizedBox(width: 4),
+                DownloadToggleButton(task: task, onToggle: _toggle, size: 18),
+                DownloadPlayButton(
+                  task: task,
+                  onPlay: widget.onPlay,
+                  compact: true,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (!task.complete)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(74, 0, 8, 4),
+            child: LinearProgressIndicator(
+              value: task.cloudProgress ?? progress,
+              minHeight: 2,
+              borderRadius: BorderRadius.circular(99),
+              backgroundColor: scheme.surfaceContainerLow,
+            ),
+          ),
+        if ((task.errorMessage ?? task.persistenceError) case final issue?)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(74, 0, 8, 6),
+            child: Text(
+              issue,
+              style: TextStyle(color: scheme.error, fontSize: 12),
+            ),
+          ),
+        if (details)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(74, 4, 8, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _details(context, task),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _task(BuildContext context, DownloadTask task) {
     final id = task.id;
-    final swarm = task.swarm;
-    final files = task.files;
     final scheme = Theme.of(context).colorScheme;
     final details = expanded.contains(id);
     return MelonPanel(
@@ -251,78 +546,86 @@ class _DownloadsPageState extends State<DownloadsPage> {
             ),
           if (details) ...[
             const Divider(height: 28),
-            if (files.isNotEmpty)
-              Text(
-                files.length == 1
-                    ? files.single.name
-                    : '${files.first.name} 等 ${files.length} 个文件',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            const SizedBox(height: 8),
-            _stats(context, [
-              '↓ ${transferRate(task.downloadSpeed)}',
-              if (task.seeds) ...[
-                '↑ ${transferRate(task.uploadSpeed)}',
-                '${swarm.peers} 个连接',
-                '分享率 ${task.totalBytes > 0 ? (task.uploadedBytes / task.totalBytes).toStringAsFixed(2) : '0.00'}',
-              ],
-            ]),
-            if (task.seeds && !task.complete && swarm.trackers != null) ...[
-              const SizedBox(height: 6),
-              _stats(context, [
-                '发现 ${swarm.knownPeers ?? 0} 个节点',
-                'Tracker ${swarm.workingTrackers ?? 0}/${swarm.trackers} 可用',
-                (swarm.dhtNodes ?? 0) < 0
-                    ? 'DHT 已关闭'
-                    : 'DHT ${swarm.dhtNodes ?? 0} 个节点',
-              ]),
-              if ((task.status == DownloadStatus.metadata ||
-                      task.status == DownloadStatus.downloading) &&
-                  swarm.peers == 0)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    (swarm.knownPeers ?? 0) > 0
-                        ? '已发现节点，正在连接'
-                        : (swarm.failedTrackers ?? 0) > 0 &&
-                              (swarm.workingTrackers ?? 0) == 0 &&
-                              (swarm.dhtNodes ?? 0) <= 0
-                        ? '没有找到下载节点，请检查网络是否允许 BT，或换一个资源'
-                        : '正在寻找下载节点，做种的人少时会比较慢',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-            ],
-            if (task.seeds && task.complete) ...[
-              const SizedBox(height: 6),
-              _stats(context, [
-                '已上传 ${(task.uploadedBytes / 1048576).toStringAsFixed(1)} MiB',
-                '做种 ${(task.seedSeconds / 60).floor()} 分钟',
-              ]),
-            ],
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                if (files.isNotEmpty)
-                  TextButton.icon(
-                    onPressed: () =>
-                        _perform(() => widget.downloads.reveal(task)),
-                    icon: const Icon(Icons.folder_open_outlined, size: 17),
-                    label: Text(Platform.isMacOS ? '在访达中显示' : '在资源管理器中显示'),
-                  ),
-                TextButton.icon(
-                  onPressed: () => _remove(task),
-                  icon: const Icon(Icons.delete_outline, size: 17),
-                  label: const Text('移除任务与缓存'),
-                ),
-              ],
-            ),
+            ..._details(context, task),
           ],
         ],
       ),
     );
+  }
+
+  /// Files, transfer counters and actions of [task], shown on request.
+  List<Widget> _details(BuildContext context, DownloadTask task) {
+    final swarm = task.swarm;
+    final files = task.files;
+    return [
+      if (files.isNotEmpty)
+        Text(
+          files.length == 1
+              ? files.single.name
+              : '${files.first.name} 等 ${files.length} 个文件',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      const SizedBox(height: 8),
+      _stats(context, [
+        '↓ ${transferRate(task.downloadSpeed)}',
+        if (task.seeds) ...[
+          '↑ ${transferRate(task.uploadSpeed)}',
+          '${swarm.peers} 个连接',
+          '分享率 ${task.totalBytes > 0 ? (task.uploadedBytes / task.totalBytes).toStringAsFixed(2) : '0.00'}',
+        ],
+      ]),
+      if (task.seeds && !task.complete && swarm.trackers != null) ...[
+        const SizedBox(height: 6),
+        _stats(context, [
+          '发现 ${swarm.knownPeers ?? 0} 个节点',
+          'Tracker ${swarm.workingTrackers ?? 0}/${swarm.trackers} 可用',
+          (swarm.dhtNodes ?? 0) < 0
+              ? 'DHT 已关闭'
+              : 'DHT ${swarm.dhtNodes ?? 0} 个节点',
+        ]),
+        if ((task.status == DownloadStatus.metadata ||
+                task.status == DownloadStatus.downloading) &&
+            swarm.peers == 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              (swarm.knownPeers ?? 0) > 0
+                  ? '已发现节点，正在连接'
+                  : (swarm.failedTrackers ?? 0) > 0 &&
+                        (swarm.workingTrackers ?? 0) == 0 &&
+                        (swarm.dhtNodes ?? 0) <= 0
+                  ? '没有找到下载节点，请检查网络是否允许 BT，或换一个资源'
+                  : '正在寻找下载节点，做种的人少时会比较慢',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+      ],
+      if (task.seeds && task.complete) ...[
+        const SizedBox(height: 6),
+        _stats(context, [
+          '已上传 ${(task.uploadedBytes / 1048576).toStringAsFixed(1)} MiB',
+          '做种 ${(task.seedSeconds / 60).floor()} 分钟',
+        ]),
+      ],
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          if (files.isNotEmpty)
+            TextButton.icon(
+              onPressed: () => _perform(() => widget.downloads.reveal(task)),
+              icon: const Icon(Icons.folder_open_outlined, size: 17),
+              label: Text(Platform.isMacOS ? '在访达中显示' : '在资源管理器中显示'),
+            ),
+          TextButton.icon(
+            onPressed: () => _remove(task),
+            icon: const Icon(Icons.delete_outline, size: 17),
+            label: const Text('移除任务与缓存'),
+          ),
+        ],
+      ),
+    ];
   }
 
   Widget _stats(BuildContext context, List<String> values) => Wrap(

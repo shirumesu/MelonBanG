@@ -37,6 +37,7 @@ class SubjectPage extends StatelessWidget {
     required this.community,
     required this.onFindResources,
     required this.onPlayEpisode,
+    required this.onOpenEpisode,
     required this.onOpenSubject,
     required this.onError,
   });
@@ -49,6 +50,9 @@ class SubjectPage extends StatelessWidget {
   final SubjectCommunitySource community;
   final ValueChanged<Episode?> onFindResources;
   final ValueChanged<Episode> onPlayEpisode;
+
+  /// An episode cell clicked: plays its cache, or lets the user pick a source.
+  final ValueChanged<Episode> onOpenEpisode;
   final ValueChanged<Subject> onOpenSubject;
   final ValueChanged<Object> onError;
 
@@ -77,6 +81,7 @@ class SubjectPage extends StatelessWidget {
         },
         onFindResources: onFindResources,
         onPlayEpisode: onPlayEpisode,
+        onOpenEpisode: onOpenEpisode,
         onOpenSubject: onOpenSubject,
       );
     },
@@ -91,6 +96,7 @@ class _SubjectDetail extends StatefulWidget {
     required this.onSaveEpisodes,
     required this.onFindResources,
     required this.onPlayEpisode,
+    required this.onOpenEpisode,
     required this.onOpenSubject,
     this.resume,
     this.airings = const [],
@@ -112,7 +118,7 @@ class _SubjectDetail extends StatefulWidget {
   final Future<void> Function(CollectionChange) onSaveCollection;
   final Future<void> Function(List<int>, EpisodeStatus) onSaveEpisodes;
   final ValueChanged<Episode?> onFindResources;
-  final ValueChanged<Episode> onPlayEpisode;
+  final ValueChanged<Episode> onPlayEpisode, onOpenEpisode;
   final ValueChanged<Subject> onOpenSubject;
   @override
   State<_SubjectDetail> createState() => _SubjectDetailState();
@@ -884,6 +890,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             nextId: next?.id,
             statusOf: _episodeStatus,
             aired: _aired,
+            onSelect: widget.onOpenEpisode,
             onOpen: (episode) => widget.onFindResources(episode),
             onPlay: widget.onPlayEpisode,
             onMark: (values, status) =>
@@ -1876,8 +1883,8 @@ class _ReleaseCountdownState extends State<_ReleaseCountdown> {
   }
 }
 
-/// All episodes as numbered cells. Click opens the episode's resources,
-/// right-click offers more, and a long press marks; while still pressed,
+/// All episodes as numbered cells. Click plays the episode's cache or opens
+/// its resources, right-click offers more, and a long press marks; while still pressed,
 /// dragging selects the range from the pressed cell to the pointer, so
 /// dragging back shrinks it. Releasing well outside the cells, the right
 /// button or Escape cancels the pending mark.
@@ -1887,6 +1894,7 @@ class _EpisodeGrid extends StatefulWidget {
     required this.nextId,
     required this.statusOf,
     required this.aired,
+    required this.onSelect,
     required this.onOpen,
     required this.onPlay,
     required this.onMark,
@@ -1899,7 +1907,7 @@ class _EpisodeGrid extends StatefulWidget {
 
   final EpisodeStatus Function(Episode) statusOf;
   final bool Function(Episode) aired;
-  final ValueChanged<Episode> onOpen, onPlay;
+  final ValueChanged<Episode> onSelect, onOpen, onPlay;
   final void Function(List<Episode> episodes, EpisodeStatus status) onMark;
   final ValueChanged<Episode?> onHover;
 
@@ -2089,7 +2097,7 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
             button: true,
             label:
                 '第 ${episode.number} 话 ${watched ? '已看' : (aired ? '未看' : '未更新')}',
-            onTap: () => widget.onOpen(episode),
+            onTap: () => widget.onSelect(episode),
             child: AnimatedContainer(
               duration: motionDuration(context, 120),
               width: width,
@@ -2157,7 +2165,7 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
                         (recognizer) => recognizer
                           ..onTapUp = (details) {
                             final index = indexAt(details.localPosition);
-                            if (index != null) widget.onOpen(visible[index]);
+                            if (index != null) widget.onSelect(visible[index]);
                           }
                           ..onSecondaryTapUp = (details) {
                             final index = indexAt(details.localPosition);
@@ -2237,7 +2245,7 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
                   ),
                   if (hint == null)
                     Tooltip(
-                      message: '点击查看资源\n长按标为已看，按住拖动可选多话\n右键查看更多操作',
+                      message: '点击播放已缓存的一话，未缓存时选择资源\n长按标为已看，按住拖动可选多话\n右键查看更多操作',
                       child: Icon(
                         Icons.help_outline_rounded,
                         size: 14,

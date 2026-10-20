@@ -832,6 +832,9 @@ class _MelonAppState extends State<MelonApp>
               ),
             );
           },
+          onOpenEpisode: (episode) => unawaited(
+            perform(() => coordinator.openEpisode(subjects.subject!, episode)),
+          ),
           onOpenSubject: openSubject,
           onError: showError,
         );
@@ -855,6 +858,10 @@ class _MelonAppState extends State<MelonApp>
             onExplore: () => navigate('home'),
             onError: showError,
             onPlay: playDownload,
+            subjectOf: (id) async =>
+                await service.catalog.cached(id) ??
+                await service.catalog.subject(id, forPlayback: true),
+            onPlaySubject: coordinator.continueCache,
           ),
         );
       case 'sources':
