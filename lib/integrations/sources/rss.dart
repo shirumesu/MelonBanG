@@ -7,6 +7,7 @@ import 'package:xml/xml.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../domain/sources.dart';
+import '../../domain/torrent_identity.dart';
 
 /// Torrent index sites read through RSS search feeds. An optional `metadata`
 /// step names a known page parser that adds release groups and sizes.
@@ -78,11 +79,39 @@ class RssEngine implements TorrentSourceEngine {
         yield await _parse(dmhyMetadata, await page(uri), uri);
       case 'mikan':
         final series = await _parse(mikanSeriesPages, await page(uri), uri);
-        // Publish each series page as it arrives.
+        // Publish each series as it arrives. Its page names the groups but
+        // shows a group's latest 15 releases; its feed holds every release,
+        // while the search feed stops at 100 (2026-10-21: a whole-subject
+        // search of 二十世纪电气目录 lost a group's first two episodes).
         yield* Stream.fromFutures(
-          series.map(
-            (address) async => _parse(_mikan, await page(address), address),
-          ),
+          series.map((address) async {
+            final feed = address.resolve(
+              '/RSS/Bangumi?bangumiId=${address.pathSegments.last}',
+            );
+            final listed = page(address)
+                .then((body) => _parse(_mikan, body, address));
+            final complete = shared
+                .putIfAbsent(
+                  feed,
+                  () => _read(
+                    feed,
+                    step,
+                    'application/rss+xml,application/xml,text/xml',
+                    cancel: cancel,
+                  ),
+                )
+                .then((body) => _parse(_rss, body, feed));
+            final groups = {
+              for (final row in await listed) torrentIdentity(row.locator): row,
+            };
+            return [
+              for (final row in await complete)
+                switch (groups[torrentIdentity(row.locator)]) {
+                  final known? => row.enrich(known),
+                  null => row,
+                },
+            ];
+          }),
         );
       default:
         throw FormatException('不支持的资源页解析：${step['parser']}');

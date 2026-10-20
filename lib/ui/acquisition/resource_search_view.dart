@@ -123,7 +123,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   final parts = <String, Future<List<SourceEpisode>>>{};
 
   _Family kind = _Family.all;
-  bool includeUnknown = false, searching = false;
+  bool searching = false;
   String? opening;
   PageStorageBucket? storage;
   bool formRestored = false, restoringForm = false;
@@ -188,7 +188,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     groups.addAll(strings(form['sourceGroups']));
     languages.addAll(strings(form['languages']));
     subtitleForms.addAll(strings(form['subtitleForms']));
-    includeUnknown = form['includeUnknown'] as bool? ?? false;
     excluded.addAll(strings(form['excluded']));
     excludedProviders.addAll(strings(form['excludedProviders']));
     expandedTitles.addAll(strings(form['expandedTitles']));
@@ -205,7 +204,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       'sourceGroups': groups.toList(),
       'languages': languages.toList(),
       'subtitleForms': subtitleForms.toList(),
-      'includeUnknown': includeUnknown,
       'excluded': excluded.toList(),
       'excludedProviders': excludedProviders.toList(),
       'expandedTitles': expandedTitles.toList(),
@@ -259,7 +257,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     for (final set in [qualities, groups, languages, subtitleForms]) {
       set.clear();
     }
-    includeUnknown = false;
     excludedProviders.clear();
     kind = _Family.all;
   });
@@ -507,19 +504,27 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     final fromShownProviders = annotated
         .where((entry) => providerShown(entry.$1))
         .toList();
-    final matching = fromShownProviders
-        .where(
-          (entry) => matchesResourceSelection(
-            entry.$2,
-            qualities: qualities,
-            groups: groups,
-            languages: languages,
-            subtitleForms: subtitleForms,
-            includeUnknown: includeUnknown,
-          ),
-        )
-        .toList();
+    // Results stating nothing for a selection stay, after confirmed ones.
+    final gaps = <String, List<String>>{
+      for (final (candidate, info) in fromShownProviders)
+        candidate.id: ?resourceSelectionGaps(
+          info,
+          qualities: qualities,
+          groups: groups,
+          languages: languages,
+          subtitleForms: subtitleForms,
+        ),
+    };
+    final matching = [
+      for (final confirmed in [true, false])
+        for (final entry in fromShownProviders)
+          if (gaps[entry.$1.id]?.isEmpty == confirmed) entry,
+    ];
     final visible = matching.where((entry) => kindShown(entry.$1)).toList();
+    List<String> unstated(PlayCandidate candidate) => [
+      if (gaps[candidate.id]! case final missing when missing.isNotEmpty)
+        '未标明${missing.join('、')}',
+    ];
     // Option counts cover results of the shown sites and kind, before other
     // filters; kind counts cover every other filter.
     Map<String, int> tally(Iterable<String> Function(ResourceTitleInfo) of) {
@@ -568,18 +573,43 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     final grouping = state.terms != null && searched == null;
     final entries = <_Entry>[], unmatched = <_Entry>[];
     final bySeries = <String, _Entry>{};
+    final targets = {
+      for (final (candidate, info) in visible)
+        if (grouping && candidate.target is ReleaseTarget)
+          candidate.id: releaseEpisode(subject!, info),
+    };
+    String? seriesOf(PlayCandidate candidate, ResourceTitleInfo info) =>
+        switch (info.series) {
+          final series? when targets.containsKey(candidate.id) =>
+            'series:${candidate.kind.name}:${candidate.provider}:'
+                '${targets[candidate.id] != null}:$series',
+          _ => null,
+        };
+    // Groups word subtitles differently across episodes (`ASSx2` against
+    // `[简繁内封字幕]`), so a release stating none joins the series' only
+    // stated subtitles.
+    final stated = <String, Set<String>>{};
     for (final (candidate, info) in visible) {
-      final release = grouping && candidate.target is ReleaseTarget;
-      final target = release ? releaseEpisode(subject!, info) : null;
+      if (seriesOf(candidate, info) case final series?
+          when info.subtitles.isNotEmpty) {
+        (stated[series] ??= {}).add(info.subtitles);
+      }
+    }
+    for (final (candidate, info) in visible) {
+      final release = targets.containsKey(candidate.id);
+      final target = targets[candidate.id];
       final member = (candidate, info, target);
       final rest = release && info.episode != null && target == null
           ? unmatched
           : entries;
-      final key = switch (info.series) {
-        final series? when release =>
-          'series:${candidate.kind.name}:${candidate.provider}:'
-              '${target != null}:$series',
-        _ => null,
+      final key = switch (seriesOf(candidate, info)) {
+        final series? => switch (stated[series]) {
+          final subtitles?
+              when info.subtitles.isEmpty && subtitles.length == 1 =>
+            '$series:${subtitles.single}',
+          _ => '$series:${info.subtitles}',
+        },
+        null => null,
       };
       if (bySeries[key] case final entry?) {
         entry.members.add(member);
@@ -611,6 +641,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           }),
           notes: [
             ...notesOf(candidate),
+            ...unstated(candidate),
             if (target != null && target.sort != info.episode)
               '对应第 ${target.number} 话',
           ],
@@ -735,6 +766,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 }
               }),
               recommended: best.id == recommendedId,
+              notes: unstated(best),
               warnings: [if (options.isEmpty) '未对应本作剧集'],
               action: (wide) => ResourceBatchButton(
                 showLabel: wide,
@@ -881,7 +913,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       : searched == null && matched.isNotEmpty
                       ? '第 ${episodeSpans(matched)} 话'
                       : '${rows.length} 个条目',
-                  notes: notesOf(candidate),
+                  notes: [...notesOf(candidate), ...unstated(candidate)],
                   warnings: warningsOf(candidate),
                   recommended: id == recommendedId,
                   expanded: expanded,
@@ -971,7 +1003,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           languages,
           subtitleForms,
         ].any((e) => e.isNotEmpty) ||
-        includeUnknown ||
         excludedProviders.isNotEmpty;
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
@@ -1340,18 +1371,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       ],
                     ),
                   ]) ...[menu, const SizedBox(width: Gap.sm)],
-                  Tooltip(
-                    message: '同时显示没有标明画质、字幕组或字幕的资源',
-                    child: FilterChip(
-                      label: const Text('含未标明'),
-                      selected: includeUnknown,
-                      backgroundColor: scheme.surfaceContainerHigh,
-                      showCheckmark: true,
-                      checkmarkColor: scheme.primary,
-                      onSelected: (value) =>
-                          changeForm(() => includeUnknown = value),
-                    ),
-                  ),
                   if (filtered) ...[
                     const SizedBox(width: Gap.xs),
                     TextButton(

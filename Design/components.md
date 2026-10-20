@@ -17,7 +17,8 @@
 | 组件 | 用法 |
 | --- | --- |
 | `SubjectCover` | 所有封面图都用它：加载中和缺图时显示 `ArtPlaceholder` |
-| `ArtPlaceholder` | 封面和角色立绘的统一占位：中性底色上按主题着色的“透明阿卡林”线稿，不用彩色渐变，避免空位抢颜色。几乎纯色（如 Bangumi 的空白上传）的图片也按缺失处理 |
+| `ArtPlaceholder` | 人物（角色、声优、制作人员）头像的统一占位：中性底色上按主题着色的“透明阿卡林”线稿，占位框的 80%，不用彩色渐变，避免空位抢颜色 |
+| `CoverPlaceholder` | 番剧封面没有、未加载完或加载失败时的统一占位：`surfaceContainerHigh` 底色上一个淡色 `hide_image` 图标（随尺寸缩放，14–44px）。几乎纯色（如 Bangumi 的空白上传）的封面也按缺失处理 |
 | `SubjectPoster` | 竖版海报卡，番名压在封面底部；`badge` 用于“今日更新”这类强调标签 |
 | `SubjectPosters` | 网格（搜索结果、追番）或横栏（`horizontal: true`） |
 | `HorizontalPosters` | 横向滚动栏，悬停边缘时出现翻页按钮；可混排不同卡片 |
@@ -44,7 +45,7 @@
 | `MelonSegmentedControl` | 2–5 个互斥选项，例如画质、收藏状态 |
 | `MelonChoiceMenu` | 选项较多或较长的单选，例如设置里的下拉 |
 | `MelonFilterMenu` | 可多选的筛选下拉：按钮写“名称 · 已选摘要”，有筛选时用主色容器填充；菜单里每项带勾选框和结果数，勾选后菜单不关闭，底部给“清除” |
-| `FilterChip` | 单个布尔开关，例如“含未标明” |
+| `FilterChip` | 单个布尔开关，例如“本周更新” |
 | `Switch` | 布尔设置 |
 
 资源站筛选：菜单里每个站显示结果数或“搜索中 2/5”；搜索失败或部分名称失败时，文字用 tertiary 黄色，按钮上同时出现警示图标。

@@ -1,3 +1,5 @@
+import 'package:pinyin/pinyin.dart';
+
 import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../domain/torrent_identity.dart';
@@ -16,7 +18,8 @@ class ReleaseSearch {
 
   /// Each keyword/source pair publishes through [onUpdate] as soon as its RSS
   /// arrives; optional metadata pages enrich results later and never discard
-  /// usable downloads.
+  /// usable downloads. Releases they list beyond a search feed's limit join
+  /// when their title holds every word of the keyword.
   Future<ReleaseSearchResult> search(
     int subjectId,
     String keyword, {
@@ -74,6 +77,16 @@ class ReleaseSearch {
             if (candidate != null) {
               candidates[identity] = candidate.withRelease(
                 candidate.release.enrich(row),
+              );
+            } else if (_mentions(row.title, name)) {
+              candidates[identity] = ReleaseCandidate(
+                candidateId: newId(),
+                sourceId: source.id,
+                sourceName: source.name,
+                release: row,
+                subjectId: subjectId,
+                episodeId: episodeId,
+                coverUrl: coverUrl,
               );
             }
           }
@@ -175,4 +188,16 @@ class ReleaseSearch {
       releaseGroups: release.releaseGroups,
     );
   }
+}
+
+/// Whether [title] holds every word of [keyword], as the site search matched
+/// it, ignoring case and script.
+bool _mentions(String title, String keyword) {
+  String fold(String text) =>
+      ChineseHelper.convertToSimplifiedChinese(text).toLowerCase();
+  final text = fold(title);
+  return fold(keyword)
+      .split(RegExp(r'\s+'))
+      .where((e) => e.isNotEmpty)
+      .every(text.contains);
 }
