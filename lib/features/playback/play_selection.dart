@@ -15,6 +15,7 @@ import '../../domain/transfer.dart';
 import '../acquisition/online_candidates.dart';
 import '../acquisition/release_search.dart';
 import '../acquisition/source_registry.dart';
+import '../acquisition/title_matching.dart';
 import '../downloads/download_repository.dart';
 import 'playback_library.dart';
 
@@ -208,19 +209,28 @@ class PlaySelectionRepository {
       }
     }
 
+    // For one episode, releases stating other episodes are left out.
+    bool holds(ReleaseCandidate candidate) =>
+        episode == null ||
+        releaseMayHold(
+          subject,
+          episode,
+          describeResource(candidate.release.title),
+        );
     void addReleases(ReleaseSearchResult result) {
       if (onProgress != null) result.sources.forEach(onProgress);
       add([
-        for (final (index, candidate) in result.candidates.indexed) ...[
-          releaseCandidate(candidate, index),
-          if (held.contains(torrentIdentity(candidate.release.locator)))
-            releaseCandidate(candidate, index, kind: PlayKind.pikpak),
-        ],
+        for (final (index, candidate) in result.candidates.indexed)
+          if (holds(candidate)) ...[
+            releaseCandidate(candidate, index),
+            if (held.contains(torrentIdentity(candidate.release.locator)))
+              releaseCandidate(candidate, index, kind: PlayKind.pikpak),
+          ],
       ]);
       if (!searchCloud) return;
       for (final (index, candidate) in result.candidates.indexed) {
         final hash = torrentIdentity(candidate.release.locator);
-        if (_infoHash.hasMatch(hash) && checked.add(hash)) {
+        if (holds(candidate) && _infoHash.hasMatch(hash) && checked.add(hash)) {
           cloudChecks.add(checkCloud(candidate, hash, index));
         }
       }

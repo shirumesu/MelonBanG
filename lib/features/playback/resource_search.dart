@@ -18,6 +18,7 @@ class ResourceSearchState {
   const ResourceSearchState({
     this.subject,
     this.episode,
+    this.searched,
     this.terms,
     this.candidates = const [],
     this.sources = const [],
@@ -27,6 +28,10 @@ class ResourceSearchState {
   /// The chapter playback and downloads associate with; null searches the
   /// whole subject.
   final Episode? episode;
+
+  /// The episode the terms name ([keywordEpisode]); null searches the whole
+  /// subject.
+  final Episode? searched;
 
   /// Terms of the latest search; null before the first one.
   final ResourceTerms? terms;
@@ -80,6 +85,7 @@ class ResourceSearchController extends ChangeNotifier {
     final cancellation = _cancel = RequestCancellation();
     final ticket = ++_ticket;
     final episode = state.episode;
+    final searched = keywordEpisode(subject, terms.episodeKeyword, episode);
     var candidates = const <PlayCandidate>[];
     final progress = <String, SourceProgress>{};
     Timer? pending;
@@ -90,6 +96,7 @@ class ResourceSearchController extends ChangeNotifier {
       state = ResourceSearchState(
         subject: subject,
         episode: episode,
+        searched: searched,
         terms: terms,
         candidates: candidates,
         sources: progress.values.toList(),
@@ -108,7 +115,7 @@ class ResourceSearchController extends ChangeNotifier {
     try {
       candidates = await selection.candidates(
         subject,
-        episode,
+        searched,
         terms: terms,
         includeDownloads: false,
         cancel: cancellation,
@@ -146,7 +153,7 @@ class ResourceSearchController extends ChangeNotifier {
     return sources.episodes(candidate.provider, target.chooseFrom!);
   }
 
-  /// Adds a torrent as [episode], by default the shown chapter.
+  /// Adds a torrent as [episode], by default the searched one.
   Future<DownloadTask> enqueue(
     ReleaseCandidate candidate, {
     required CacheMethod method,
@@ -160,7 +167,7 @@ class ResourceSearchController extends ChangeNotifier {
     );
   }
 
-  /// Saves an online entry as [episode], by default the shown chapter.
+  /// Saves an online entry as [episode], by default the searched one.
   Future<DownloadTask> saveOnline(
     PlayCandidate candidate, {
     Episode? episode,
@@ -172,7 +179,7 @@ class ResourceSearchController extends ChangeNotifier {
       title: candidate.title,
       source: candidate.sourceLabel,
       subjectId: subject?.id,
-      episodeId: (episode ?? state.episode)?.id,
+      episodeId: (episode ?? state.searched)?.id,
       coverUrl: subject?.coverUrl,
     );
   }
