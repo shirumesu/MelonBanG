@@ -5,6 +5,7 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
+#include <tlhelp32.h>
 
 #include <memory>
 #include <optional>
@@ -85,15 +86,32 @@ std::optional<std::string> PickFolder(HWND owner, const std::wstring& initial) {
   return result;
 }
 
-bool IsRunning(const std::wstring& executable) {
-  // The image of a running executable cannot be opened for exclusive access.
-  HANDLE file = CreateFileW(executable.c_str(), GENERIC_READ, 0, nullptr,
-                            OPEN_EXISTING, 0, nullptr);
-  if (file == INVALID_HANDLE_VALUE) {
-    return GetLastError() == ERROR_SHARING_VIOLATION;
+// Whether any process runs an executable from inside [directory]: the app,
+// or anything it started from there. A running image can still be opened for
+// reading, so the process list is the reliable check.
+bool RunningIn(std::wstring directory) {
+  while (!directory.empty() && directory.back() == L'\\') directory.pop_back();
+  const std::wstring prefix = directory + L"\\";
+  HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  PROCESSENTRY32W entry{sizeof(entry)};
+  bool found = false;
+  for (BOOL more = Process32FirstW(snapshot, &entry); more && !found;
+       more = Process32NextW(snapshot, &entry)) {
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+                                 entry.th32ProcessID);
+    if (!process) continue;
+    wchar_t path[MAX_PATH];
+    DWORD size = MAX_PATH;
+    found = QueryFullProcessImageNameW(process, 0, path, &size) &&
+            size > prefix.size() &&
+            CompareStringOrdinal(path, static_cast<int>(prefix.size()),
+                                 prefix.c_str(),
+                                 static_cast<int>(prefix.size()),
+                                 TRUE) == CSTR_EQUAL;
+    CloseHandle(process);
   }
-  CloseHandle(file);
-  return false;
+  CloseHandle(snapshot);
+  return found;
 }
 
 HRESULT CreateShortcut(const std::wstring& link, const std::wstring& target,
@@ -177,7 +195,7 @@ void RegisterSetupChannel(flutter::BinaryMessenger* messenger, HWND window) {
       result->Success(folder ? EncodableValue(*folder) : EncodableValue());
     } else if (method == "isRunning") {
       result->Success(
-          EncodableValue(IsRunning(Wide(Argument(*arguments, "executable")))));
+          EncodableValue(RunningIn(Wide(Argument(*arguments, "directory")))));
     } else if (method == "createShortcut") {
       const HRESULT created = CreateShortcut(
           Wide(Argument(*arguments, "link")),

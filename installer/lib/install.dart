@@ -76,7 +76,7 @@ class Installer {
   }) async {
     final executable = p.join(location, 'melonbang.exe');
     if ((await _channel.invokeMethod<bool>('isRunning', {
-      'executable': executable,
+      'directory': location,
     }))!) {
       throw const InstallError('MelonBanG 正在运行，请先关闭它再安装');
     }

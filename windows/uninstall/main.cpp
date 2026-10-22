@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <tlhelp32.h>
 
 #include <string>
 
@@ -47,16 +48,32 @@ std::wstring InstalledDirectory() {
   return value;
 }
 
-bool Running(const std::wstring& app_dir) {
-  // The image of a running executable cannot be opened for exclusive access.
-  HANDLE file = CreateFileW((app_dir + L"\\melonbang.exe").c_str(),
-                            GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0,
-                            nullptr);
-  if (file == INVALID_HANDLE_VALUE) {
-    return GetLastError() == ERROR_SHARING_VIOLATION;
+// Whether any process runs an executable from inside [directory]: the app,
+// or anything it started from there. A running image can still be opened for
+// reading, so the process list is the reliable check.
+bool RunningIn(std::wstring directory) {
+  while (!directory.empty() && directory.back() == L'\\') directory.pop_back();
+  const std::wstring prefix = directory + L"\\";
+  HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  PROCESSENTRY32W entry{sizeof(entry)};
+  bool found = false;
+  for (BOOL more = Process32FirstW(snapshot, &entry); more && !found;
+       more = Process32NextW(snapshot, &entry)) {
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+                                 entry.th32ProcessID);
+    if (!process) continue;
+    wchar_t path[MAX_PATH];
+    DWORD size = MAX_PATH;
+    found = QueryFullProcessImageNameW(process, 0, path, &size) &&
+            size > prefix.size() &&
+            CompareStringOrdinal(path, static_cast<int>(prefix.size()),
+                                 prefix.c_str(),
+                                 static_cast<int>(prefix.size()),
+                                 TRUE) == CSTR_EQUAL;
+    CloseHandle(process);
   }
-  CloseHandle(file);
-  return false;
+  CloseHandle(snapshot);
+  return found;
 }
 
 bool RemoveTree(const std::wstring& path) {
@@ -109,7 +126,7 @@ int Uninstall(const std::wstring& app_dir) {
                   kTitle, MB_ICONQUESTION | MB_YESNO) != IDYES) {
     return 0;
   }
-  while (Running(app_dir)) {
+  while (RunningIn(app_dir)) {
     if (MessageBoxW(nullptr, L"MelonBanG 正在运行，请先关闭它再继续。", kTitle,
                     MB_ICONWARNING | MB_RETRYCANCEL) != IDRETRY) {
       return 0;
