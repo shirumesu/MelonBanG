@@ -219,6 +219,9 @@ void RegisterSetupChannel(flutter::BinaryMessenger* messenger, HWND window) {
         result->Error("register", "无法写入已安装应用列表",
                       EncodableValue(static_cast<int>(status)));
       }
+    } else if (method == "unregister") {
+      RegDeleteTreeW(HKEY_CURRENT_USER, kUninstallKey);
+      result->Success();
     } else if (method == "open") {
       ShellExecuteW(window, L"open", Wide(Argument(*arguments, "target")).c_str(),
                     nullptr, nullptr, SW_SHOWNORMAL);

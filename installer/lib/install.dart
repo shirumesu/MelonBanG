@@ -6,16 +6,34 @@ import 'package:path/path.dart' as p;
 
 const appVersion = String.fromEnvironment('MELONBANG_VERSION');
 
-/// Bytes the installed program takes, measured when the package was built.
-const installedSize = int.fromEnvironment('MELONBANG_INSTALLED_SIZE');
+const channel = MethodChannel('melonbang/setup');
 
-const _channel = MethodChannel('melonbang/setup');
+final tar = p.join(Platform.environment['SystemRoot']!, 'System32', 'tar.exe');
 
 Future<void> openLink(String target) =>
-    _channel.invokeMethod('open', {'target': target});
-Future<void> startDrag() => _channel.invokeMethod('startDrag');
-Future<void> minimize() => _channel.invokeMethod('minimize');
-Future<void> closeWindow() => _channel.invokeMethod('close');
+    channel.invokeMethod('open', {'target': target});
+Future<void> startDrag() => channel.invokeMethod('startDrag');
+Future<void> minimize() => channel.invokeMethod('minimize');
+Future<void> closeWindow() => channel.invokeMethod('close');
+
+Future<Map<String, String>> folders() async =>
+    (await channel.invokeMapMethod<String, String>('folders'))!;
+
+Future<bool> isRunning(String directory) async =>
+    (await channel.invokeMethod<bool>('isRunning', {'directory': directory}))!;
+
+/// Registers the program's rounded font from its [directory] of font files.
+Future<void> loadFonts(String directory) async {
+  final loader = FontLoader('Resource Han Rounded');
+  for (final weight in ['Regular', 'Bold']) {
+    loader.addFont(
+      File(p.join(directory, 'ResourceHanRoundedCN-$weight.ttf'))
+          .readAsBytes()
+          .then(ByteData.sublistView),
+    );
+  }
+  await loader.load();
+}
 
 /// A problem shown to the person installing.
 class InstallError implements Exception {
@@ -34,19 +52,40 @@ class Installer {
       Installer(arguments[arguments.indexOf('--payload') + 1]);
 
   final String payload;
-  static final _tar = p.join(
-    Platform.environment['SystemRoot']!,
-    'System32',
-    'tar.exe',
-  );
 
-  Future<Map<String, String>> _folders() async =>
-      (await _channel.invokeMapMethod<String, String>('folders'))!;
+  /// Unpacks the program's fonts beside the archive, in the bootstrapper's
+  /// temporary directory, and returns their folder.
+  Future<String> fonts() async {
+    final directory = p.dirname(payload);
+    final unpacked = await Process.run(tar, [
+      '-xf',
+      payload,
+      '-C',
+      directory,
+      'data/flutter_assets/assets/fonts',
+    ]);
+    if (unpacked.exitCode != 0) throw StateError('${unpacked.stderr}');
+    return p.join(directory, 'data', 'flutter_assets', 'assets', 'fonts');
+  }
+
+  /// The archive's entries and the bytes they take once unpacked.
+  late final Future<({int entries, int bytes})> contents = () async {
+    // bsdtar lists "mode links owner group size date name".
+    final listing = await Process.run(tar, ['-tvf', payload]);
+    final lines = const LineSplitter().convert('${listing.stdout}');
+    return (
+      entries: lines.length,
+      bytes: lines.fold(
+        0,
+        (sum, line) => sum + int.parse(line.trim().split(RegExp(r'\s+'))[4]),
+      ),
+    );
+  }();
 
   /// The current installation, or the per-user programs folder.
   Future<String> defaultLocation() async =>
-      await _channel.invokeMethod<String>('installedLocation') ??
-      p.join((await _folders())['localAppData']!, 'Programs', 'MelonBanG');
+      await channel.invokeMethod<String>('installedLocation') ??
+      p.join((await folders())['localAppData']!, 'Programs', 'MelonBanG');
 
   Future<String?> pick(String current) async {
     var initial = current;
@@ -54,7 +93,7 @@ class Installer {
         p.dirname(initial) != initial) {
       initial = p.dirname(initial);
     }
-    final picked = await _channel.invokeMethod<String>('pickFolder', {
+    final picked = await channel.invokeMethod<String>('pickFolder', {
       'initial': initial,
     });
     return picked == null ? null : target(picked);
@@ -84,9 +123,7 @@ class Installer {
     required void Function(double progress, String file) onProgress,
   }) async {
     final executable = p.join(location, 'melonbang.exe');
-    if ((await _channel.invokeMethod<bool>('isRunning', {
-      'directory': location,
-    }))!) {
+    if (await isRunning(location)) {
       throw const InstallError('MelonBanG 正在运行，请先关闭它再安装');
     }
     try {
@@ -101,9 +138,8 @@ class Installer {
     final pending = Directory(p.join(location, '.pending'));
     if (await pending.exists()) await pending.delete(recursive: true);
 
-    final listing = await Process.run(_tar, ['-tf', payload]);
-    final total = const LineSplitter().convert('${listing.stdout}').length;
-    final extracting = await Process.start(_tar, [
+    final (:entries, :bytes) = await contents;
+    final extracting = await Process.start(tar, [
       '-xvf',
       payload,
       '-C',
@@ -117,21 +153,21 @@ class Installer {
             .transform(const LineSplitter())) {
       // bsdtar reports each extracted entry as "x <path>".
       if (!line.startsWith('x ')) continue;
-      onProgress(++done / total, line.substring(2));
+      onProgress(++done / entries, line.substring(2));
     }
     await output;
     if (await extracting.exitCode != 0) {
       throw const InstallError('解压程序文件失败，请重新运行安装程序');
     }
 
-    final folders = await _folders();
+    final places = await folders();
     for (final (wanted, folder) in [
-      (desktop, folders['desktop']!),
-      (startMenu, folders['programs']!),
+      (desktop, places['desktop']!),
+      (startMenu, places['programs']!),
     ]) {
       final link = p.join(folder, 'MelonBanG.lnk');
       if (wanted) {
-        await _channel.invokeMethod('createShortcut', {
+        await channel.invokeMethod('createShortcut', {
           'link': link,
           'target': executable,
           'directory': location,
@@ -140,10 +176,10 @@ class Installer {
         await File(link).delete();
       }
     }
-    await _channel.invokeMethod('register', {
+    await channel.invokeMethod('register', {
       'location': location,
       'version': appVersion,
-      'sizeKb': installedSize ~/ 1024,
+      'sizeKb': bytes ~/ 1024,
     });
   }
 
