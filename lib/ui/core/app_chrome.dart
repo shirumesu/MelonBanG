@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../features/update/app_update.dart';
 import 'motion.dart';
 import 'account_avatar.dart';
 import 'theme.dart';
@@ -23,6 +24,8 @@ class AppTitleBar extends StatelessWidget {
     this.backLabel = '返回',
     this.immersive = false,
     this.panelOpen,
+    this.update,
+    this.onRestartToUpdate,
   });
   final String backLabel;
 
@@ -35,6 +38,10 @@ class AppTitleBar extends StatelessWidget {
   final FocusNode searchFocusNode;
   final ValueChanged<String> onSearch;
   final List<String> recentSearches;
+
+  /// Offers a restart while a downloaded update waits to be installed.
+  final AppUpdate? update;
+  final VoidCallback? onRestartToUpdate;
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +73,26 @@ class AppTitleBar extends StatelessWidget {
                   ),
                 ],
                 const Spacer(),
+                if (!immersive && update != null)
+                  ListenableBuilder(
+                    listenable: update!,
+                    builder: (context, _) => update!.phase == UpdatePhase.ready
+                        ? Tooltip(
+                            message: '新版本 ${update!.readyVersion} 已下载',
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: Gap.xs),
+                              child: FilledButton.tonalIcon(
+                                onPressed: onRestartToUpdate,
+                                style: FilledButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                icon: const Icon(Icons.restart_alt, size: 16),
+                                label: const Text('重启以更新'),
+                              ),
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
                 if (!immersive)
                   IconButton(
                     tooltip: '切换主题',

@@ -7,7 +7,9 @@ import '../core/page_widgets.dart';
 import '../core/theme.dart';
 import '../core/selection_controls.dart';
 import '../../features/playback/playback.dart';
+import '../../features/update/app_update.dart';
 import '../player/danmaku_preferences_editor.dart';
+import 'update_settings.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
@@ -19,6 +21,8 @@ class SettingsPage extends StatefulWidget {
     required this.onAccountAction,
     required this.onCancelSignIn,
     required this.onThemeChanged,
+    required this.update,
+    required this.onRestartToUpdate,
     this.onSync,
     this.playback,
     this.storageSettings,
@@ -34,19 +38,29 @@ class SettingsPage extends StatefulWidget {
   final Widget bitTorrentSettings;
   final VoidCallback onAccountAction, onCancelSignIn;
   final ValueChanged<bool> onThemeChanged;
+  final AppUpdate update;
+  final VoidCallback onRestartToUpdate;
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
 class _SettingsPageState extends State<SettingsPage> {
   int selected = 0;
-  List<String> get categories => ['账户与同步', '界面与外观', '播放', '下载与做种', '应用数据'];
+  List<String> get categories => [
+    '账户与同步',
+    '界面与外观',
+    '播放',
+    '下载与做种',
+    '应用数据',
+    '更新与关于',
+  ];
   List<IconData> get icons => [
     Icons.person_outline,
     Icons.palette_outlined,
     Icons.play_circle_outline,
     Icons.swap_vert,
     Icons.folder_outlined,
+    Icons.info_outline,
   ];
 
   TrackingController get personal => widget.personal;
@@ -290,6 +304,10 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ],
         ],
+      ),
+      UpdateSettings(
+        update: widget.update,
+        onRestart: widget.onRestartToUpdate,
       ),
     ],
   );

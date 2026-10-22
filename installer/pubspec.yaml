@@ -1,0 +1,20 @@
+name: melonbang_setup
+description: "MelonBanG Windows installer."
+publish_to: 'none'
+# The version comes from the app's pubspec through --build-name.
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  path: ^1.9.1
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/akkarin.png

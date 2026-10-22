@@ -10,6 +10,7 @@ import '../../core/network.dart';
 import '../../core/credentials.dart';
 import '../../core/service_configuration.dart';
 import '../../core/store.dart';
+import '../melon_api/bangumi_token.dart';
 
 class AccountRepository implements Account {
   AccountRepository(
@@ -87,7 +88,6 @@ class AccountRepository implements Account {
     }
     return {
       'clientId': configuration.bangumiClientId.trim(),
-      'clientSecret': configuration.bangumiClientSecret.trim(),
       'redirectUri': uri.toString(),
     };
   }
@@ -201,16 +201,11 @@ class AccountRepository implements Account {
   }
 
   Future<Json> _token(Json config, Map<String, String> grant) async {
-    final token = await api.map(
-      Uri.https('bgm.tv', '/oauth/access_token'),
-      method: 'POST',
-      body: <String, String>{
-        ...grant,
-        'client_id': '${config['clientId']}',
-        'client_secret': '${config['clientSecret']}',
-        'redirect_uri': '${config['redirectUri']}',
-      },
-    );
+    final token = await requestBangumiToken(api, {
+      ...grant,
+      'client_id': '${config['clientId']}',
+      'redirect_uri': '${config['redirectUri']}',
+    });
     if (token['access_token'] is! String) throw StateError('登录令牌无效');
     return {
       ...token,

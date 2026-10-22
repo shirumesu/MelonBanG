@@ -1,5 +1,4 @@
 param(
-  [switch]$Archive,
   [switch]$Development,
   [string]$ConfigurationFile = '.env.service.json'
 )
@@ -8,7 +7,8 @@ $projectDirectory = Split-Path $PSScriptRoot
 $flutterCommand = if ($env:FLUTTER_ROOT) { Join-Path $env:FLUTTER_ROOT 'bin/flutter.bat' } else { 'flutter' }
 Push-Location $projectDirectory
 try {
-  $buildArguments = @('build', 'windows', '--release')
+  $version = (Select-String -LiteralPath 'pubspec.yaml' -Pattern '^version:\s*([^+\s]+)').Matches[0].Groups[1].Value
+  $buildArguments = @('build', 'windows', '--release', "--dart-define=MELONBANG_VERSION=$version")
   if (Test-Path -LiteralPath $ConfigurationFile) {
     try {
       $configuration = Get-Content -LiteralPath $ConfigurationFile -Raw | ConvertFrom-Json
@@ -19,7 +19,7 @@ try {
       throw 'Service configuration must be a JSON object.'
     }
     if (-not $Development) {
-      foreach ($key in @('BANGUMI_CLIENT_ID', 'BANGUMI_CLIENT_SECRET', 'DANDANPLAY_APP_ID', 'DANDANPLAY_APP_SECRET')) {
+      foreach ($key in @('BANGUMI_CLIENT_ID', 'DANDANPLAY_APP_ID', 'DANDANPLAY_APP_SECRET')) {
         $value = $configuration.PSObject.Properties[$key].Value
         if ($value -isnot [string] -or [string]::IsNullOrWhiteSpace($value)) {
           throw "Missing build setting $key. Fill $ConfigurationFile or use -Development for a build with optional services disabled."
@@ -35,6 +35,16 @@ try {
   & $flutterCommand @buildArguments
   if ($LASTEXITCODE -ne 0) { throw 'Windows build failed.' }
   $releaseDirectory = Join-Path $projectDirectory 'build/windows/x64/runner/Release'
+  # The app and its plugins link the MSVC runtime dynamically; ship it so a
+  # system without the Visual C++ Redistributable can start the app.
+  $visualStudio = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+  $redistribution = Get-ChildItem -LiteralPath "$visualStudio\VC\Redist\MSVC" -Directory |
+    Where-Object Name -Match '^\d+(\.\d+)+$' | Sort-Object { [version]$_.Name } | Select-Object -Last 1
+  $runtimeDirectory = Get-ChildItem -LiteralPath (Join-Path $redistribution.FullName 'x64') -Directory -Filter 'Microsoft.VC*.CRT' | Select-Object -First 1
+  foreach ($runtime in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+    Copy-Item -LiteralPath (Join-Path $runtimeDirectory.FullName $runtime) -Destination $releaseDirectory
+  }
+  Copy-Item -LiteralPath (Join-Path $projectDirectory 'LICENSE') -Destination $releaseDirectory
   Copy-Item -LiteralPath (Join-Path $projectDirectory 'THIRD_PARTY.md') -Destination $releaseDirectory
   $licensesDirectory = Join-Path $releaseDirectory 'licenses'
   New-Item -ItemType Directory -Force $licensesDirectory | Out-Null
@@ -47,10 +57,6 @@ try {
     if (Test-Path -LiteralPath $nativeLicense) {
       Copy-Item -LiteralPath $nativeLicense -Destination (Join-Path $licensesDirectory ($_.Name + '.txt'))
     }
-  }
-  if ($Archive) {
-    New-Item -ItemType Directory -Force 'dist' | Out-Null
-    Compress-Archive -Path (Join-Path $releaseDirectory '*') -DestinationPath 'dist/melonbang-windows-x64.zip' -Force
   }
   Write-Output (Join-Path $releaseDirectory 'melonbang.exe')
 } finally { Pop-Location }

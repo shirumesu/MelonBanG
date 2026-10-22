@@ -5,6 +5,7 @@ analyzer:
     - build/**
     - windows/flutter/ephemeral/**
     - vendor/**
+    - installer/**
     - temp/**
     - windows/**
     - macos/**
