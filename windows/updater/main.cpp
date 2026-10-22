@@ -96,11 +96,21 @@ DWORD Swap(const Options& options, const std::wstring& backup,
   return 0;
 }
 
-void RecordVersion(const std::wstring& version) {
+// Updates the installed apps entry when it belongs to [app_dir]; a portable
+// copy updated beside an installed one leaves that entry alone.
+void RecordVersion(const std::wstring& app_dir, const std::wstring& version) {
+  wchar_t location[MAX_PATH];
+  DWORD size = sizeof(location);
+  if (RegGetValueW(HKEY_CURRENT_USER, kUninstallKey, L"InstallLocation",
+                   RRF_RT_REG_SZ, nullptr, location, &size) != ERROR_SUCCESS ||
+      CompareStringOrdinal(location, -1, app_dir.c_str(), -1, TRUE) !=
+          CSTR_EQUAL) {
+    return;
+  }
   HKEY key;
   if (RegOpenKeyExW(HKEY_CURRENT_USER, kUninstallKey, 0, KEY_SET_VALUE,
                     &key) != ERROR_SUCCESS) {
-    return;  // A portable copy has no uninstall entry.
+    return;
   }
   RegSetValueExW(key, L"DisplayVersion", 0, REG_SZ,
                  reinterpret_cast<const BYTE*>(version.c_str()),
@@ -181,7 +191,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ wchar_t*,
                                  L"\n下次退出 MelonBanG 时会再试。";
     MessageBoxW(nullptr, message.c_str(), kTitle, MB_ICONWARNING);
   } else {
-    RecordVersion(options.version);
+    RecordVersion(options.app_dir, options.version);
     RemoveTree(pending);
   }
   if (options.restart) Launch(options.app_dir);

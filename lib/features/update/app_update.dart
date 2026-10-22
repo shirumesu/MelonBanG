@@ -133,9 +133,14 @@ class AppUpdate extends ChangeNotifier {
         throw StateError('解压失败：${unpacked.stderr}'.trim());
       }
       await archive.delete();
-      await _readyMarker.writeAsString(
+      // Renamed into place so an interrupted write never leaves a marker
+      // that the next start cannot read.
+      final marker = File('${_readyMarker.path}.tmp');
+      await marker.writeAsString(
         jsonEncode({'version': release.version}),
+        flush: true,
       );
+      await marker.rename(_readyMarker.path);
       readyVersion = release.version;
       phase = UpdatePhase.ready;
     } on FileSystemException catch (e) {
@@ -158,19 +163,22 @@ class AppUpdate extends ChangeNotifier {
         }
         final digest = _DigestSink();
         final hashing = sha256.startChunkedConversion(digest);
-        final sink = target.openWrite();
+        final output = await target.open(mode: FileMode.write);
         var received = 0;
-        await for (final chunk in response.stream) {
-          sink.add(chunk);
-          hashing.add(chunk);
-          received += chunk.length;
-          final percent = file.size == 0 ? 0 : received * 100 ~/ file.size;
-          if (percent != (progress * 100).floor()) {
-            progress = percent / 100;
-            notifyListeners();
+        try {
+          await for (final chunk in response.stream) {
+            await output.writeFrom(chunk);
+            hashing.add(chunk);
+            received += chunk.length;
+            final percent = file.size == 0 ? 0 : received * 100 ~/ file.size;
+            if (percent != (progress * 100).floor()) {
+              progress = percent / 100;
+              notifyListeners();
+            }
           }
+        } finally {
+          await output.close();
         }
-        await sink.close();
         hashing.close();
         if (received != file.size || '${digest.value}' != file.sha256) {
           throw StateError('更新包校验失败');
