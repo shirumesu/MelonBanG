@@ -7,8 +7,10 @@ param(
   # PEM private key for the manifest signature; without it the release cannot
   # be offered to the in-app updater.
   [string]$SigningKey,
-  [string]$Makensis = 'makensis',
-  [string]$OpenSsl = 'openssl'
+  # Standard NSIS install (winget install NSIS.NSIS) and the OpenSSL bundled
+  # with Git for Windows, on developer machines and GitHub runners alike.
+  [string]$Makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe",
+  [string]$OpenSsl = "$env:ProgramFiles\Git\usr\bin\openssl.exe"
 )
 $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path $PSScriptRoot

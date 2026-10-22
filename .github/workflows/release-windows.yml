@@ -61,8 +61,7 @@ jobs:
           try {
             [IO.File]::WriteAllText($configurationPath, $env:MELONBANG_SERVICES_JSON)
             [IO.File]::WriteAllText($keyPath, $env:MELONBANG_UPDATE_SIGNING_KEY)
-            ./scripts/package.ps1 -ConfigurationFile $configurationPath -SigningKey $keyPath `
-              -Makensis "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+            ./scripts/package.ps1 -ConfigurationFile $configurationPath -SigningKey $keyPath
           } finally {
             Remove-Item -LiteralPath $configurationPath, $keyPath -Force -ErrorAction SilentlyContinue
           }
