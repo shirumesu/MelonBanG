@@ -67,6 +67,9 @@ class _MelonAppState extends State<MelonApp>
   String route = 'home', selectedSection = 'home';
   bool dark = false, ready = false, fullScreen = false;
   bool closing = false, sidebarVisible = true, windowFullScreen = false;
+
+  /// Relaunch once the prepared update has been swapped in on exit.
+  bool restartForUpdate = false;
   String? startError;
   List<String> recentSearches = [];
   Listenable? _controllers;
@@ -134,6 +137,7 @@ class _MelonAppState extends State<MelonApp>
       );
       setState(() => ready = true);
       unawaited(perform(pullProgress));
+      if (service.update.autoCheck) unawaited(perform(service.update.check));
       await Future.wait([
         discovery.loadHome().then((issue) {
           if (issue != null) showError(issue);
@@ -500,6 +504,9 @@ class _MelonAppState extends State<MelonApp>
     } finally {
       try {
         await service.close();
+        if (ready) {
+          await service.update.applyOnExit(restart: restartForUpdate);
+        }
       } finally {
         // Use WM_CLOSE so the runner destroys its view before leaving the message
         // loop. windowManager.destroy posts WM_QUIT directly on Windows.
@@ -507,6 +514,11 @@ class _MelonAppState extends State<MelonApp>
         await windowManager.close();
       }
     }
+  }
+
+  void restartToUpdate() {
+    restartForUpdate = true;
+    unawaited(windowManager.close());
   }
 
   @override
@@ -643,6 +655,8 @@ class _MelonAppState extends State<MelonApp>
                       onSearch: (query) => searchSubjects(query: query),
                       recentSearches: recentSearches,
                       onClearRecentSearches: clearRecentSearches,
+                      update: ready ? service.update : null,
+                      onRestartToUpdate: restartToUpdate,
                     ),
                   Expanded(
                     child: Row(
@@ -964,6 +978,8 @@ class _MelonAppState extends State<MelonApp>
               onSave: service.bt.saveSettings,
             ),
           ),
+          update: service.update,
+          onRestartToUpdate: restartToUpdate,
           onThemeChanged: setDark,
           onCancelSignIn: () => perform(personal.cancelSignIn),
           onAccountAction: () => perform(personal.toggleAccount),

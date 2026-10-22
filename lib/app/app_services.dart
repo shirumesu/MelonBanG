@@ -32,6 +32,7 @@ import '../features/playback/resource_search.dart';
 import '../features/playback/resume_controller.dart';
 import '../features/tracking/subject_controller.dart';
 import '../features/tracking/tracking_controller.dart';
+import '../features/update/app_update.dart';
 import '../integrations/danmaku/bahamut.dart';
 import '../integrations/danmaku/bilibili.dart';
 import '../integrations/danmaku/dandanplay.dart';
@@ -86,6 +87,7 @@ class AppServices {
   late final DiscoveryController discovery;
   late final TrackingController personal;
   late final SubjectController subjects;
+  late final AppUpdate update;
 
   /// The search shown on the resources page.
   late final ResourceSearchController resources;
@@ -156,6 +158,8 @@ class AppServices {
     await bt.loadPreferences();
     library = PlaybackLibrary(store, downloads, catalog);
     final preferences = await SharedPreferences.getInstance();
+    update = AppUpdate(api, preferences);
+    await update.initialize();
     danmaku = DanmakuController(
       DanmakuRepository(store, catalog, [
         DandanplayDanmaku(api, configuration),

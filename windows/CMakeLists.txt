@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.14)
 if(POLICY CMP0135)
   cmake_policy(SET CMP0135 NEW)
 endif()
+# Lets the updater and uninstaller choose a static C runtime per target.
+cmake_policy(SET CMP0091 NEW)
 include(FetchContent)
 FetchContent_Declare(vcpkg
   URL https://github.com/microsoft/vcpkg/archive/04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4.tar.gz
@@ -63,6 +65,8 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
+add_subdirectory("updater")
+add_subdirectory("uninstall")
 
 
 # Generated plugin build rules, which manage building the plugins and adding
@@ -84,8 +88,8 @@ endif()
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
-install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
-  COMPONENT Runtime)
+install(TARGETS ${BINARY_NAME} updater uninstall
+  RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)

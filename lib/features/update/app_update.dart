@@ -1,0 +1,222 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../core/json.dart';
+import '../../core/network.dart';
+import '../../integrations/github/app_releases.dart';
+
+enum UpdatePhase { idle, checking, available, downloading, ready, failed }
+
+/// Keeps the installed copy current: finds a newer release, downloads and
+/// unpacks it into `.pending` beside the program while the app runs, and
+/// hands it to `updater.exe` as the app exits, which swaps it in.
+class AppUpdate extends ChangeNotifier {
+  AppUpdate(this.api, this.preferences) : releases = AppReleases(api);
+  static const version = String.fromEnvironment('MELONBANG_VERSION');
+  static const _platform = 'windows-x64';
+  final ApiClient api;
+  final SharedPreferences preferences;
+  final AppReleases releases;
+
+  UpdatePhase phase = UpdatePhase.idle;
+  AppRelease? release;
+
+  /// The version unpacked and waiting for the next exit.
+  String? readyVersion;
+  double progress = 0;
+  String? error;
+  DateTime? checkedAt;
+
+  /// Why this copy cannot update itself; null when it can.
+  String? unavailable;
+
+  bool get autoCheck => preferences.getBool('update-auto-check') ?? true;
+  bool get autoDownload => preferences.getBool('update-auto-download') ?? true;
+
+  Future<void> setAutoCheck(bool value) async {
+    await preferences.setBool('update-auto-check', value);
+    notifyListeners();
+  }
+
+  Future<void> setAutoDownload(bool value) async {
+    await preferences.setBool('update-auto-download', value);
+    notifyListeners();
+  }
+
+  String get _installDirectory => File(Platform.resolvedExecutable).parent.path;
+  Directory get _pending => Directory(p.join(_installDirectory, '.pending'));
+  File get _readyMarker => File(p.join(_pending.path, 'ready.json'));
+
+  Future<void> initialize() async {
+    if (!Platform.isWindows || version.isEmpty) {
+      unavailable = '开发版本不自动更新';
+      return;
+    }
+    if (!await File(p.join(_installDirectory, 'updater.exe')).exists()) {
+      unavailable = '当前安装缺少更新程序，请到 GitHub 下载新版本';
+      return;
+    }
+    if (await _readyMarker.exists()) {
+      final pending =
+          '${object(jsonDecode(await _readyMarker.readAsString()))['version']}';
+      if (SemanticVersion.parse(pending)
+              .compareTo(SemanticVersion.parse(version)) >
+          0) {
+        readyVersion = pending;
+        phase = UpdatePhase.ready;
+        return;
+      }
+    }
+    // Left by a finished swap, an interrupted download or an older update.
+    if (await _pending.exists()) await _pending.delete(recursive: true);
+    await for (final entry in Directory.systemTemp.list()) {
+      if (entry is Directory &&
+          p.basename(entry.path).startsWith('melonbang-updater-')) {
+        try {
+          await entry.delete(recursive: true);
+        } on FileSystemException {
+          // The updater that relaunched this app may not have exited yet.
+        }
+      }
+    }
+  }
+
+  Future<void> check() async {
+    if (unavailable != null ||
+        const [
+          UpdatePhase.checking,
+          UpdatePhase.downloading,
+          UpdatePhase.ready,
+        ].contains(phase)) {
+      return;
+    }
+    phase = UpdatePhase.checking;
+    error = null;
+    notifyListeners();
+    try {
+      release = await releases.newerThan(version, _platform);
+      phase = release == null ? UpdatePhase.idle : UpdatePhase.available;
+      checkedAt = DateTime.now();
+    } catch (e) {
+      phase = UpdatePhase.failed;
+      error = '检查更新失败：$e';
+    }
+    notifyListeners();
+    if (phase == UpdatePhase.available && autoDownload) await download();
+  }
+
+  Future<void> download() async {
+    final release = this.release!;
+    phase = UpdatePhase.downloading;
+    progress = 0;
+    error = null;
+    notifyListeners();
+    try {
+      if (await _pending.exists()) await _pending.delete(recursive: true);
+      await _pending.create();
+      final archive = File(p.join(_pending.path, 'update.zip'));
+      await _fetch(release.package, archive);
+      final staging = Directory(p.join(_pending.path, release.version));
+      await staging.create();
+      final unpacked = await Process.run(
+        p.join(Platform.environment['SystemRoot']!, 'System32', 'tar.exe'),
+        ['-xf', archive.path, '-C', staging.path],
+      );
+      if (unpacked.exitCode != 0) {
+        throw StateError('解压失败：${unpacked.stderr}'.trim());
+      }
+      await archive.delete();
+      await _readyMarker.writeAsString(
+        jsonEncode({'version': release.version}),
+      );
+      readyVersion = release.version;
+      phase = UpdatePhase.ready;
+    } on FileSystemException catch (e) {
+      phase = UpdatePhase.failed;
+      error = '无法写入安装目录（${e.osError?.message ?? e.message}），请到 GitHub 手动下载新版本';
+    } catch (e) {
+      phase = UpdatePhase.failed;
+      error = '下载更新失败：$e';
+    }
+    notifyListeners();
+  }
+
+  Future<void> _fetch(ReleaseFile file, File target) async {
+    Object? failure;
+    for (final url in file.urls) {
+      try {
+        final response = await api.client.send(http.Request('GET', url));
+        if (response.statusCode != 200) {
+          throw ApiException(response.statusCode, url.host);
+        }
+        final digest = _DigestSink();
+        final hashing = sha256.startChunkedConversion(digest);
+        final sink = target.openWrite();
+        var received = 0;
+        await for (final chunk in response.stream) {
+          sink.add(chunk);
+          hashing.add(chunk);
+          received += chunk.length;
+          final percent = file.size == 0 ? 0 : received * 100 ~/ file.size;
+          if (percent != (progress * 100).floor()) {
+            progress = percent / 100;
+            notifyListeners();
+          }
+        }
+        await sink.close();
+        hashing.close();
+        if (received != file.size || '${digest.value}' != file.sha256) {
+          throw StateError('更新包校验失败');
+        }
+        return;
+      } catch (e) {
+        failure = e;
+      }
+    }
+    throw failure!;
+  }
+
+  /// Starts the updater for an unpacked update; the caller exits right after.
+  Future<void> applyOnExit({required bool restart}) async {
+    if (phase != UpdatePhase.ready) return;
+    final staging = p.join(_pending.path, readyVersion!);
+    // The new updater handles the swap, and a temporary copy lets it replace
+    // the one inside the install directory.
+    final temporary = await Directory.systemTemp.createTemp(
+      'melonbang-updater-',
+    );
+    final updater = await File(p.join(staging, 'updater.exe'))
+        .copy(p.join(temporary.path, 'updater.exe'));
+    await Process.start(
+      updater.path,
+      [
+        '--pid',
+        '$pid',
+        '--app-dir',
+        _installDirectory,
+        '--staging',
+        staging,
+        '--version',
+        readyVersion!,
+        if (restart) '--restart',
+      ],
+      workingDirectory: temporary.path,
+      mode: ProcessStartMode.detached,
+    );
+  }
+}
+
+class _DigestSink implements Sink<Digest> {
+  Digest? value;
+  @override
+  void add(Digest data) => value = data;
+  @override
+  void close() {}
+}

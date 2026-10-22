@@ -7,9 +7,6 @@ import 'package:flutter/foundation.dart';
 class ServiceConfiguration {
   const ServiceConfiguration({
     this.bangumiClientId = const String.fromEnvironment('BANGUMI_CLIENT_ID'),
-    this.bangumiClientSecret = const String.fromEnvironment(
-      'BANGUMI_CLIENT_SECRET',
-    ),
     this.bangumiRedirectUri = const String.fromEnvironment(
       'BANGUMI_REDIRECT_URI',
       defaultValue: 'http://127.0.0.1:14567/callback',
@@ -21,7 +18,6 @@ class ServiceConfiguration {
   });
 
   final String bangumiClientId;
-  final String bangumiClientSecret;
   final String bangumiRedirectUri;
   final String dandanplayAppId;
   final String dandanplayAppSecret;
@@ -32,7 +28,6 @@ class ServiceConfiguration {
 
     const compiledBangumi =
         bool.hasEnvironment('BANGUMI_CLIENT_ID') ||
-        bool.hasEnvironment('BANGUMI_CLIENT_SECRET') ||
         bool.hasEnvironment('BANGUMI_REDIRECT_URI');
     const compiledDandanplay =
         bool.hasEnvironment('DANDANPLAY_APP_ID') ||
@@ -65,9 +60,6 @@ class ServiceConfiguration {
       bangumiClientId: compiledBangumi
           ? compiled.bangumiClientId
           : value('BANGUMI_CLIENT_ID'),
-      bangumiClientSecret: compiledBangumi
-          ? compiled.bangumiClientSecret
-          : value('BANGUMI_CLIENT_SECRET'),
       bangumiRedirectUri: compiledBangumi
           ? compiled.bangumiRedirectUri
           : value('BANGUMI_REDIRECT_URI', compiled.bangumiRedirectUri),
@@ -100,9 +92,7 @@ class ServiceConfiguration {
     return null;
   }
 
-  bool get hasBangumi =>
-      bangumiClientId.trim().isNotEmpty &&
-      bangumiClientSecret.trim().isNotEmpty;
+  bool get hasBangumi => bangumiClientId.trim().isNotEmpty;
   bool get hasDandanplay =>
       dandanplayAppId.trim().isNotEmpty &&
       dandanplayAppSecret.trim().isNotEmpty;
