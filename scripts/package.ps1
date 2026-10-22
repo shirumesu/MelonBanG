@@ -29,6 +29,12 @@ try {
     & $flutterCommand build windows --release "--build-name=$version" "--dart-define=MELONBANG_VERSION=$version" "--dart-define=MELONBANG_INSTALLED_SIZE=$installedSize"
     if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
   } finally { Pop-Location }
+  # The installer links the MSVC runtime dynamically too, and runs before the
+  # program's copy of it is unpacked.
+  $setupDirectory = Join-Path $projectDirectory 'installer/build/windows/x64/runner/Release'
+  foreach ($runtime in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+    Copy-Item -LiteralPath (Join-Path $releaseDirectory $runtime) -Destination $setupDirectory
+  }
 
   $dist = Join-Path $projectDirectory 'dist'
   Remove-Item -LiteralPath $dist -Recurse -Force -ErrorAction Ignore
@@ -39,7 +45,7 @@ try {
 
   $numericVersion = ($version -split '-')[0] + '.0'
   & $Makensis /V2 "/DVERSION=$version" "/DNUMERIC_VERSION=$numericVersion" `
-    "/DSETUP_DIR=$(Join-Path $projectDirectory 'installer/build/windows/x64/runner/Release')" `
+    "/DSETUP_DIR=$setupDirectory" `
     "/DPAYLOAD=$archive" "/DOUTFILE=$(Join-Path $dist "MelonBanG-$version-windows-x64-setup.exe")" `
     (Join-Path $projectDirectory 'installer/setup.nsi')
   if ($LASTEXITCODE -ne 0) { throw 'Setup packaging failed.' }

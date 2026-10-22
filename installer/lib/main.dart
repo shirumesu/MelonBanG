@@ -90,6 +90,7 @@ class _SetupPageState extends State<SetupPage> {
   }
 
   Future<void> install() async {
+    location.text = await installer.target(location.text.trim());
     setState(() {
       step = _Step.installing;
       error = null;

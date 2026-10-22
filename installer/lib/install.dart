@@ -48,8 +48,6 @@ class Installer {
       await _channel.invokeMethod<String>('installedLocation') ??
       p.join((await _folders())['localAppData']!, 'Programs', 'MelonBanG');
 
-  /// A folder that already holds other files gets a MelonBanG subfolder, so
-  /// uninstalling never removes unrelated files.
   Future<String?> pick(String current) async {
     var initial = current;
     while (!await Directory(initial).exists() &&
@@ -59,10 +57,21 @@ class Installer {
     final picked = await _channel.invokeMethod<String>('pickFolder', {
       'initial': initial,
     });
-    if (picked == null) return null;
-    final folder = Directory(picked);
-    if (await isInstalled(picked) || await folder.list().isEmpty) return picked;
-    return p.join(picked, 'MelonBanG');
+    return picked == null ? null : target(picked);
+  }
+
+  /// The folder to install into for [chosen], whether picked or typed. One
+  /// that already holds other files gets a MelonBanG subfolder, since
+  /// uninstalling removes the install folder as a whole.
+  Future<String> target(String chosen) async {
+    final location = p.normalize(chosen);
+    final folder = Directory(location);
+    if (!await folder.exists() ||
+        await isInstalled(location) ||
+        await folder.list().isEmpty) {
+      return location;
+    }
+    return p.join(location, 'MelonBanG');
   }
 
   Future<bool> isInstalled(String location) =>
