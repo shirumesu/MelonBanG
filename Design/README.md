@@ -8,6 +8,7 @@
 | [components.md](components.md) | 共用组件及其用法 |
 | [layouts.md](layouts.md) | 应用框架、页面模板、窗口宽度规则 |
 | [pages.md](pages.md) | 各页面的结构与信息优先级 |
+| [brand.md](brand.md) | 字标、角色与动效、应用图标 |
 
 ## 原则
 

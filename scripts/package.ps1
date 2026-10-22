@@ -20,13 +20,12 @@ try {
   & (Join-Path $PSScriptRoot 'build.ps1') -ConfigurationFile $ConfigurationFile
   $version = (Select-String -LiteralPath 'pubspec.yaml' -Pattern '^version:\s*([^+\s]+)').Matches[0].Groups[1].Value
   $releaseDirectory = Join-Path $projectDirectory 'build/windows/x64/runner/Release'
-  $installedSize = (Get-ChildItem -LiteralPath $releaseDirectory -Recurse -File | Measure-Object Length -Sum).Sum
 
   Push-Location 'installer'
   try {
     & $flutterCommand pub get
     if ($LASTEXITCODE -ne 0) { throw 'Installer dependency resolution failed.' }
-    & $flutterCommand build windows --release "--build-name=$version" "--dart-define=MELONBANG_VERSION=$version" "--dart-define=MELONBANG_INSTALLED_SIZE=$installedSize"
+    & $flutterCommand build windows --release "--build-name=$version" "--dart-define=MELONBANG_VERSION=$version"
     if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
   } finally { Pop-Location }
   # The installer links the MSVC runtime dynamically too, and runs before the
@@ -35,6 +34,12 @@ try {
   foreach ($runtime in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
     Copy-Item -LiteralPath (Join-Path $releaseDirectory $runtime) -Destination $setupDirectory
   }
+  # The installer also uninstalls: as uninstall.exe it shares the program's
+  # engine, with its own Dart files in "setup".
+  Copy-Item -LiteralPath (Join-Path $setupDirectory 'melonbang_setup.exe') -Destination (Join-Path $releaseDirectory 'uninstall.exe')
+  $uninstallData = Join-Path $releaseDirectory 'setup'
+  Remove-Item -LiteralPath $uninstallData -Recurse -Force -ErrorAction Ignore
+  Copy-Item -LiteralPath (Join-Path $setupDirectory 'data') -Destination $uninstallData -Recurse
 
   $dist = Join-Path $projectDirectory 'dist'
   Remove-Item -LiteralPath $dist -Recurse -Force -ErrorAction Ignore
