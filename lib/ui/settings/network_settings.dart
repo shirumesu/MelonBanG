@@ -267,35 +267,31 @@ class _ConnectivityState extends State<_Connectivity> {
                     ],
                   ),
                   const SizedBox(height: Gap.sm),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 360),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerLow,
-                        borderRadius: controlBorderRadius,
-                      ),
-                      child: groups.isEmpty
-                          ? const Padding(
-                              padding: EdgeInsets.all(Gap.lg),
-                              child: Text('没有需要关注的服务'),
-                            )
-                          : ListView(
-                              // Its own scroll offset: without a key it would
-                              // restore the settings page's.
-                              key: const PageStorageKey('connectivity-results'),
-                              shrinkWrap: true,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: Gap.xs,
-                              ),
+                  // Grows with its open groups: the settings page scrolls,
+                  // so opened results are never clipped into a nested list.
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerLow,
+                      borderRadius: controlBorderRadius,
+                    ),
+                    child: groups.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.all(Gap.lg),
+                            child: Text('没有需要关注的服务'),
+                          )
+                        : Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: Gap.xs,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                                 for (final MapEntry(key: name, value: members)
                                     in groups.entries)
                                   ..._group(context, name, members, results),
                               ],
                             ),
-                    ),
+                          ),
                   ),
                 ],
               ),
