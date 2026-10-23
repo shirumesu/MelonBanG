@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-// Layout and spacing tokens; Design/foundations.md documents their use.
+// Layout and spacing tokens; Spec topics/ui/design/foundations.md explains
+// their use.
 const pageGutter = 24.0;
 const titleBarHeight = 44.0;
 const sidebarWidth = 208.0;
