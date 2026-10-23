@@ -12,7 +12,9 @@ import '../../domain/danmaku.dart';
 import 'matching.dart';
 
 /// Dandanplay: Bangumi mapping, then title search, then file matching.
-class DandanplayDanmaku implements DanmakuSearch {
+/// Comments sent go to the open danmaku network: stored apart from
+/// Dandanplay's own, and returned to this app's later loads.
+class DandanplayDanmaku implements DanmakuSearch, DanmakuSender {
   DandanplayDanmaku(this.api, this.configuration);
   final ApiClient api;
   final ServiceConfiguration configuration;
@@ -199,6 +201,30 @@ class DandanplayDanmaku implements DanmakuSearch {
     title: '${item['animeTitle'] ?? '候选番剧'}',
     episode: '${item['episodeTitle'] ?? item['episodeNumber'] ?? ''}',
   );
+
+  @override
+  bool get sendable => configuration.hasDandanplay;
+
+  /// Modes are numbered as loads read them: 4 bottom, 5 top.
+  @override
+  Future<void> send(String locator, DanmakuComment comment) async {
+    final value = await _request(
+      '/api/v2/comment/${int.parse(locator)}/app',
+      body: {
+        'time': (comment.time * 100).round() / 100,
+        'mode': switch (comment.mode) {
+          DanmakuMode.scroll => 1,
+          DanmakuMode.bottom => 4,
+          DanmakuMode.top => 5,
+        },
+        'color': comment.color,
+        'comment': comment.text,
+      },
+    );
+    if (value['success'] != true) {
+      throw StateError('弹幕发送失败：${value['errorMessage'] ?? '未知错误'}');
+    }
+  }
 
   @override
   Future<List<DanmakuComment>> load(String locator) async {

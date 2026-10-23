@@ -3,12 +3,19 @@ import 'dart:ui';
 
 import '../../domain/danmaku.dart';
 
-int firstVisibleComment(List<DanmakuComment> comments, double after) {
+/// The first comment at or after [after], or with [inclusive] false, the
+/// first one past it.
+int firstVisibleComment(
+  List<DanmakuComment> comments,
+  double after, {
+  bool inclusive = true,
+}) {
   var low = 0;
   var high = comments.length;
   while (low < high) {
     final middle = (low + high) ~/ 2;
-    if (comments[middle].time < after) {
+    final time = comments[middle].time;
+    if (inclusive ? time < after : time <= after) {
       low = middle + 1;
     } else {
       high = middle;
@@ -18,13 +25,15 @@ int firstVisibleComment(List<DanmakuComment> comments, double after) {
 }
 
 class PlacedDanmaku {
-  PlacedDanmaku(this.item, this.extent, this.y, this.lifetime);
+  PlacedDanmaku(this.item, this.extent, this.y, this.lifetime, this.start);
 
   final DanmakuComment item;
   final Size extent;
   final double y;
   final double lifetime;
-  double get start => item.time;
+
+  /// When it entered: its own time, or when it was sent.
+  final double start;
   double get end => start + lifetime;
   bool get scrolling => item.mode == DanmakuMode.scroll;
 
@@ -51,18 +60,29 @@ class DanmakuLayout {
   static const verticalGap = 10.0;
   final _active = <PlacedDanmaku>[];
   Object? _configuration;
+  List<DanmakuComment>? _comments;
   double? _time;
   int _next = 0;
 
+  /// Sent comments placed when they were sent, which the list holds too.
+  final _injected = Set<DanmakuComment>.identity();
+
   void clear() {
     _active.clear();
+    _injected.clear();
     _configuration = null;
+    _comments = null;
     _time = null;
     _next = 0;
   }
 
+  /// Lays out [comments] at [time]. A new list under the same [revision]
+  /// only gained [sent] comments: those enter now from the edge, and the
+  /// comments already shown keep their places.
   List<PlacedDanmaku> update({
     required List<DanmakuComment> comments,
+    required int revision,
+    List<DanmakuComment> sent = const [],
     required double time,
     required Size viewport,
     required double fontSize,
@@ -74,7 +94,7 @@ class DanmakuLayout {
     required Size Function(DanmakuComment) measure,
   }) {
     final configuration = (
-      comments,
+      revision,
       viewport,
       fontSize,
       area,
@@ -90,9 +110,13 @@ class DanmakuLayout {
         time < _time! ||
         time - _time! > lifetime) {
       _active.clear();
+      _injected.clear();
       _next = firstVisibleComment(comments, time - lifetime);
       _configuration = configuration;
+    } else if (!identical(comments, _comments)) {
+      _next = firstVisibleComment(comments, _time!, inclusive: false);
     }
+    _comments = comments;
     _time = time;
     const top = 16.0;
     // Shielding keeps the bottom 15% (subtitles) clear, as Bilibili's 防挡 does.
@@ -106,13 +130,9 @@ class DanmakuLayout {
     final band = math.min(viewport.height * area, bottom - top);
     final laneRatio = const [.35, .6, .85, 1.0][density.clamp(0, 3)];
     final cap = const [30, 60, 100, 0][density.clamp(0, 3)];
-    while (_next < comments.length) {
-      final item = comments[_next];
-      final start = item.time;
-      if (start > time) break;
-      _next++;
+    void place(DanmakuComment item, double start) {
       _active.removeWhere((entry) => entry.end <= start);
-      if (cap > 0 && _active.length >= cap) continue;
+      if (cap > 0 && _active.length >= cap && !item.own) return;
       final extent = measure(item);
       final step = math.max(fontSize, extent.height) + verticalGap;
       final laneCount = math.max(1, ((band / step) * laneRatio).ceil());
@@ -130,6 +150,7 @@ class DanmakuLayout {
           extent,
           y,
           item.mode == DanmakuMode.scroll ? scrollLifetime : fixedLifetime,
+          start,
         );
         final collisions = overlap
             ? _active
@@ -152,7 +173,27 @@ class DanmakuLayout {
           fewest = collisions;
         }
       }
+      // A sent comment always shows, over the first lane if all are taken.
+      if (placed == null && item.own && laneCount > 0) {
+        placed = PlacedDanmaku(
+          item,
+          extent,
+          item.mode == DanmakuMode.bottom ? bottom - extent.height : top,
+          item.mode == DanmakuMode.scroll ? scrollLifetime : fixedLifetime,
+          start,
+        );
+      }
       if (placed != null) _active.add(placed);
+    }
+
+    for (final item in sent) {
+      if (_injected.add(item)) place(item, time);
+    }
+    while (_next < comments.length) {
+      final item = comments[_next];
+      if (item.time > time) break;
+      _next++;
+      if (!_injected.contains(item)) place(item, item.time);
     }
     _active.removeWhere((entry) => entry.end <= time);
     return _active;

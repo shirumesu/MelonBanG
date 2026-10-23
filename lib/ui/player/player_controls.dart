@@ -3,20 +3,25 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import '../core/motion.dart';
 import '../core/theme.dart';
+import '../../domain/danmaku.dart';
+import '../../features/danmaku/danmaku_preferences.dart';
 import '../../features/playback/playback.dart';
+import '../../features/playback/super_resolution.dart';
 import 'player_theme.dart';
 
 /// Horizontal room before the play glyph and after the fullscreen glyph inside
 /// their buttons, so the glyphs line up with the title and the timeline.
 const _leadingInset = 15.0, _trailingInset = 11.0;
 
-/// Bottom transport bar: progress on top, playback on the left, viewing
-/// options on the right. Everything sits on a gradient over the video and
-/// stays white: the mint accent belongs to the light panels.
+/// Bottom transport bar: progress on top, playback on the left, danmaku in
+/// the middle, viewing options on the right. Everything sits on a gradient
+/// over the video and stays white: the mint accent belongs to the light
+/// panels.
 class PlayerControls extends StatelessWidget {
   const PlayerControls({
     super.key,
@@ -35,6 +40,10 @@ class PlayerControls extends StatelessWidget {
     required this.onPopupChanged,
     required this.onFeedback,
     required this.onStepFrame,
+    required this.danmakuMenu,
+    required this.danmakuDraft,
+    required this.danmakuInput,
+    required this.onDanmakuInputDone,
     this.danmakuMenuFocus,
     this.onNext,
   });
@@ -42,6 +51,17 @@ class PlayerControls extends StatelessWidget {
   final bool fullScreen, windowFullScreen, danmakuMenuOpen;
   final VoidCallback onDanmakuMenu;
   final FocusNode? danmakuMenuFocus;
+
+  /// The danmaku settings shown above their button while
+  /// [danmakuMenuOpen], given how far they have faded in.
+  final Widget Function(double visibility) danmakuMenu;
+
+  /// The comment being written and its field.
+  final TextEditingController danmakuDraft;
+  final FocusNode danmakuInput;
+
+  /// Gives the keys back to the video after sending or leaving the field.
+  final VoidCallback onDanmakuInputDone;
   final ValueChanged<bool> onPopupChanged;
   final VoidCallback onWindowFullScreen;
   final double? dragging;
@@ -118,6 +138,7 @@ class PlayerControls extends StatelessWidget {
                     final wide = constraints.maxWidth >= 680;
                     final left = _left(current, duration);
                     final right = _right(context);
+                    final danmaku = _danmaku();
                     return IconButtonTheme(
                       data: IconButtonThemeData(
                         style: ButtonStyle(
@@ -142,16 +163,50 @@ class PlayerControls extends StatelessWidget {
                         ),
                       ),
                       child: wide
-                          ? Row(children: [left, const Spacer(), right])
+                          ? Row(
+                              children: [
+                                left,
+                                const SizedBox(width: Gap.lg),
+                                Expanded(
+                                  child: LayoutBuilder(
+                                    builder: (context, constraints) => Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        ...danmaku,
+                                        if (playback.danmaku.sendable &&
+                                            constraints.maxWidth >=
+                                                _DanmakuComposer.minWidth + 80)
+                                          Flexible(
+                                            child: _DanmakuComposer(
+                                              playback: playback,
+                                              draft: danmakuDraft,
+                                              focusNode: danmakuInput,
+                                              onPopupChanged: onPopupChanged,
+                                              onFeedback: onFeedback,
+                                              onDone: onDanmakuInputDone,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: Gap.lg),
+                                right,
+                              ],
+                            )
                           : Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                                 left,
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    child: right,
+                                SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children: [
+                                      ...danmaku,
+                                      const SizedBox(width: Gap.lg),
+                                      right,
+                                    ],
                                   ),
                                 ),
                               ],
@@ -220,29 +275,38 @@ class PlayerControls extends StatelessWidget {
     ],
   );
 
-  Widget _right(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      IconButton(
-        tooltip: playback.danmakuEnabled ? '关闭弹幕 (D)' : '开启弹幕 (D)',
-        onPressed: () {
-          playback.toggleDanmaku();
-          onFeedback(playback.danmakuEnabled ? '弹幕已开启' : '弹幕已关闭');
-          onReveal();
-        },
-        icon: PlayerGlyph(
-          playback.danmakuEnabled
-              ? PlayerGlyphKind.danmaku
-              : PlayerGlyphKind.danmakuOff,
-        ),
+  /// The danmaku switch and its settings, which open above the button.
+  List<Widget> _danmaku() => [
+    IconButton(
+      tooltip: playback.danmakuEnabled ? '关闭弹幕 (D)' : '开启弹幕 (D)',
+      onPressed: () {
+        playback.toggleDanmaku();
+        onFeedback(playback.danmakuEnabled ? '弹幕已开启' : '弹幕已关闭');
+        onReveal();
+      },
+      icon: PlayerGlyph(
+        playback.danmakuEnabled
+            ? PlayerGlyphKind.danmaku
+            : PlayerGlyphKind.danmakuOff,
       ),
-      IconButton(
+    ),
+    _AnchoredPanel(
+      open: danmakuMenuOpen,
+      panel: danmakuMenu,
+      child: IconButton(
         focusNode: danmakuMenuFocus,
         tooltip: '弹幕设置',
         isSelected: danmakuMenuOpen,
         onPressed: onDanmakuMenu,
         icon: const PlayerGlyph(PlayerGlyphKind.danmakuSettings),
       ),
+    ),
+  ];
+
+  Widget _right(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _SuperResolutionMenu(playback: playback, onPopupChanged: onPopupChanged),
       _SpeedMenu(
         player: player,
         onPopupChanged: onPopupChanged,
@@ -728,6 +792,94 @@ class _HoverPopoverState extends State<_HoverPopover>
   );
 }
 
+/// A panel held open above its control by the page, such as the danmaku
+/// settings; unlike [_HoverPopover] it stays until closed.
+class _AnchoredPanel extends StatefulWidget {
+  const _AnchoredPanel({
+    required this.open,
+    required this.panel,
+    required this.child,
+  });
+  final bool open;
+  final Widget Function(double visibility) panel;
+  final Widget child;
+
+  @override
+  State<_AnchoredPanel> createState() => _AnchoredPanelState();
+}
+
+class _AnchoredPanelState extends State<_AnchoredPanel>
+    with SingleTickerProviderStateMixin {
+  final _portal = OverlayPortalController();
+  late final _fade = AnimationController(vsync: this);
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.open) {
+      _fade.value = 1;
+      _portal.show();
+    }
+  }
+
+  @override
+  void didUpdateWidget(_AnchoredPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.open == oldWidget.open) return;
+    _fade.duration = motionDuration(context);
+    if (widget.open) {
+      _portal.show();
+      _fade.forward();
+    } else {
+      _fade.reverse().whenComplete(() {
+        if (mounted && !widget.open) _portal.hide();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _fade.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => OverlayPortal.overlayChildLayoutBuilder(
+    controller: _portal,
+    overlayChildBuilder: (context, info) => CustomSingleChildLayout(
+      delegate: _AboveAnchor(
+        MatrixUtils.transformRect(
+          info.childPaintTransform,
+          Offset.zero & info.childSize,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: Gap.sm),
+        child: IgnorePointer(
+          ignoring: !widget.open,
+          child: AnimatedBuilder(
+            animation: _fade,
+            builder: (context, _) {
+              final value = Curves.easeOutCubic.transform(_fade.value);
+              // The glass fades itself: an Opacity around its backdrop blur
+              // would blur nothing on some renderers.
+              return Transform.translate(
+                offset: Offset(0, 5 * (1 - value)),
+                child: Transform.scale(
+                  scale: .98 + .02 * value,
+                  alignment: Alignment.bottomCenter,
+                  child: SizedBox(width: 312, child: widget.panel(value)),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    ),
+    child: widget.child,
+  );
+}
+
 /// Centres the popover above its control, kept inside the window.
 class _AboveAnchor extends SingleChildLayoutDelegate {
   _AboveAnchor(this.anchor);
@@ -992,6 +1144,366 @@ class _SpeedMenu extends StatelessWidget {
         ),
       );
     },
+  );
+}
+
+/// Anime4K super-resolution: clicking turns it on or off, and the label
+/// names the resolution it renders. Hovering shows the exact sizes and the
+/// chain.
+class _SuperResolutionMenu extends StatelessWidget {
+  const _SuperResolutionMenu({
+    required this.playback,
+    required this.onPopupChanged,
+  });
+  final Playback playback;
+  final ValueChanged<bool> onPopupChanged;
+
+  static const _chains = {'fast': '效率', 'quality': '质量'};
+
+  String _size(Size size) => '${size.width.round()}×${size.height.round()}';
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = playback.settings.superResolution;
+    final on = mode != 'off';
+    final upscale = playback.upscale;
+    final output = upscale?.output;
+    return _HoverPopover(
+      onPopupChanged: onPopupChanged,
+      anchor: (popover) => TextButton.icon(
+        style: TextButton.styleFrom(
+          foregroundColor: on ? Colors.white : Colors.white70,
+          backgroundColor: popover.open
+              ? Colors.white.withValues(alpha: .14)
+              : null,
+          overlayColor: Colors.white,
+          minimumSize: const Size(44, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+        ),
+        onPressed: () => unawaited(playback.toggleSuperResolution()),
+        icon: on ? const Icon(Icons.auto_awesome_rounded, size: 15) : null,
+        label: Text(output == null ? '超分' : '${resolutionLabel(output)} 超分'),
+      ),
+      popover: (popover) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
+            child: Text(
+              switch (upscale) {
+                _ when !on => 'Anime4K 放大到窗口分辨率',
+                (:final source, output: final output?) =>
+                  '${_size(source)} → ${_size(output)}',
+                (:final source, output: null) =>
+                  '${_size(source)} 原生\n画面不小于窗口，只修复线条',
+                null => '打开视频后放大到窗口分辨率',
+              },
+              style: const TextStyle(
+                fontSize: 12,
+                height: 1.5,
+                color: Colors.white70,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+          _ChoiceList(
+            popover: popover,
+            items: [
+              for (final MapEntry(:key, :value) in {
+                ..._chains,
+                'off': '关闭',
+              }.entries)
+                (
+                  label: value,
+                  selected: key == mode,
+                  onPressed: () => unawaited(playback.setSuperResolution(key)),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The comment field: its look on the left, sending on the right. Enter
+/// sends, an empty Enter or Escape gives the keys back to the video.
+class _DanmakuComposer extends StatefulWidget {
+  const _DanmakuComposer({
+    required this.playback,
+    required this.draft,
+    required this.focusNode,
+    required this.onPopupChanged,
+    required this.onFeedback,
+    required this.onDone,
+  });
+  final Playback playback;
+  final TextEditingController draft;
+  final FocusNode focusNode;
+  final ValueChanged<bool> onPopupChanged;
+  final ValueChanged<String> onFeedback;
+  final VoidCallback onDone;
+
+  /// The narrowest it is shown at; the field keeps about eight characters.
+  static const minWidth = 220.0;
+
+  @override
+  State<_DanmakuComposer> createState() => _DanmakuComposerState();
+}
+
+class _DanmakuComposerState extends State<_DanmakuComposer> {
+  bool _sending = false;
+
+  Future<void> _send() async {
+    final text = widget.draft.text.trim();
+    if (text.isEmpty) {
+      widget.onDone();
+      return;
+    }
+    if (_sending) return;
+    setState(() => _sending = true);
+    final player = widget.playback.player;
+    try {
+      await widget.playback.danmaku.send(
+        player.state.position.inMilliseconds / 1000,
+        text,
+      );
+      widget.draft.clear();
+      widget.onDone();
+    } catch (e) {
+      widget.onFeedback(e is StateError ? e.message : '弹幕发送失败：$e');
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final danmaku = widget.playback.danmaku;
+    final blocked = danmaku.sendBlocked;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(
+        minWidth: _DanmakuComposer.minWidth,
+        maxWidth: 400,
+      ),
+      child: Container(
+        height: 32,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: .1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withValues(alpha: .12)),
+        ),
+        child: Row(
+          children: [
+            _SendStyleMenu(
+              preferences: danmaku.preferences,
+              onPopupChanged: widget.onPopupChanged,
+            ),
+            Expanded(
+              child: ListenableBuilder(
+                listenable: widget.draft,
+                builder: (context, _) => TextField(
+                  controller: widget.draft,
+                  focusNode: widget.focusNode,
+                  enabled: blocked == null,
+                  maxLines: 1,
+                  textInputAction: TextInputAction.send,
+                  inputFormatters: [LengthLimitingTextInputFormatter(100)],
+                  onSubmitted: (_) => unawaited(_send()),
+                  cursorColor: Colors.white,
+                  cursorHeight: 15,
+                  style: const TextStyle(fontSize: 13, color: Colors.white),
+                  decoration: InputDecoration(
+                    isCollapsed: true,
+                    filled: false,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                    hintText: blocked ?? '发个弹幕 (Enter)',
+                    hintMaxLines: 1,
+                    hintStyle: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.white38,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(3),
+              child: ListenableBuilder(
+                listenable: widget.draft,
+                builder: (context, _) => FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xff15181d),
+                    disabledBackgroundColor: Colors.white.withValues(
+                      alpha: .12,
+                    ),
+                    disabledForegroundColor: Colors.white38,
+                    minimumSize: const Size(52, 26),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    shape: const StadiumBorder(),
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  onPressed:
+                      blocked == null &&
+                          !_sending &&
+                          widget.draft.text.trim().isNotEmpty
+                      ? () => unawaited(_send())
+                      : null,
+                  child: const Text('发送'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// How a sent comment looks: where it runs and its colour. The A shows the
+/// colour chosen.
+class _SendStyleMenu extends StatelessWidget {
+  const _SendStyleMenu({
+    required this.preferences,
+    required this.onPopupChanged,
+  });
+  final DanmakuPreferences preferences;
+  final ValueChanged<bool> onPopupChanged;
+
+  /// Bilibili's palette for sending.
+  static const colors = [
+    0xfe0302, 0xff7204, 0xffaa02, 0xffd302, 0xffff00, 0xa0ee00, 0x00cd00, //
+    0x019899, 0x4266be, 0x89d5ff, 0xcc0273, 0x222222, 0x9b9b9b, 0xffffff,
+  ];
+  static const modes = {
+    DanmakuMode.scroll: '滚动',
+    DanmakuMode.top: '顶部',
+    DanmakuMode.bottom: '底部',
+  };
+  static const _ink = Color(0xff15181d);
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: preferences,
+    builder: (context, _) => _HoverPopover(
+      onPopupChanged: onPopupChanged,
+      anchor: (popover) => Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          overlayColor: const WidgetStatePropertyAll(Colors.white12),
+          onTap: popover.toggle,
+          child: SizedBox(
+            width: 34,
+            height: 30,
+            child: Center(
+              child: Text(
+                'A',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xff000000 | preferences.sendColor),
+                  shadows: const [Shadow(blurRadius: 2)],
+                  decoration: TextDecoration.underline,
+                  decorationColor: Colors.white54,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      popover: (popover) => Padding(
+        padding: const EdgeInsets.all(Gap.md),
+        child: SizedBox(
+          width: 7 * 26 + 6 * 6,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                height: 28,
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .08),
+                  borderRadius: badgeBorderRadius,
+                ),
+                child: Row(
+                  children: [
+                    for (final MapEntry(key: mode, value: label)
+                        in modes.entries)
+                      Expanded(
+                        child: Material(
+                          color: mode == preferences.sendMode
+                              ? Colors.white
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(6),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(6),
+                            onTap: () => preferences.update(
+                              () => preferences.sendMode = mode,
+                            ),
+                            child: Center(
+                              child: Text(
+                                label,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: mode == preferences.sendMode
+                                      ? _ink
+                                      : Colors.white70,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: Gap.md),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final color in colors)
+                    Semantics(
+                      selected: color == preferences.sendColor,
+                      label: '#${color.toRadixString(16).padLeft(6, '0')}',
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(6),
+                        onTap: () => preferences.update(
+                          () => preferences.sendColor = color,
+                        ),
+                        child: Container(
+                          width: 26,
+                          height: 26,
+                          decoration: BoxDecoration(
+                            color: Color(0xff000000 | color),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: color == preferences.sendColor
+                                  ? Colors.white
+                                  : Colors.white24,
+                              width: color == preferences.sendColor ? 2 : 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
   );
 }
 

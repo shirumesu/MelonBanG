@@ -23,6 +23,10 @@ class PlaybackPreferences extends ChangeNotifier {
   /// Anime4K shaders: `off`, `fast` or `quality`.
   String get superResolution =>
       storage.getString('player-super-resolution') ?? 'off';
+
+  /// The chain super-resolution turns back on with.
+  String get superResolutionChain =>
+      storage.getString('player-super-resolution-chain') ?? 'fast';
   bool get skipOpening => storage.getBool('player-skip-opening') ?? false;
   bool get skipEnding => storage.getBool('player-skip-ending') ?? false;
 
@@ -35,8 +39,13 @@ class PlaybackPreferences extends ChangeNotifier {
   bool get cacheNext => storage.getBool('player-cache-next') ?? false;
   Future<void> setHardwareDecoding(String value) =>
       _string('player-hwdec', value);
-  Future<void> setSuperResolution(String value) =>
-      _string('player-super-resolution', value);
+  Future<void> setSuperResolution(String value) async {
+    if (value != 'off') {
+      await storage.setString('player-super-resolution-chain', value);
+    }
+    await _string('player-super-resolution', value);
+  }
+
   Future<void> setSkipOpening(bool value) =>
       _bool('player-skip-opening', value);
   Future<void> setSkipEnding(bool value) => _bool('player-skip-ending', value);

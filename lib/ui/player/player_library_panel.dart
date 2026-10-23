@@ -13,6 +13,7 @@ import '../../features/playback/playback.dart';
 import '../acquisition/download_labels.dart';
 import '../acquisition/download_task_widgets.dart';
 import '../core/account_avatar.dart';
+import '../core/bbcode.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -1076,8 +1077,8 @@ class _CommentState extends State<_Comment> {
   Widget _text(BuildContext context, TopicPost post) =>
       post.content.trim().isEmpty
       ? Text('（内容已删除）', style: Theme.of(context).textTheme.bodySmall)
-      : Text.rich(
-          bbcodeSpan(context, post.content),
+      : BBCode(
+          post.content,
           style: const TextStyle(fontSize: 13, height: 1.55),
         );
 }
