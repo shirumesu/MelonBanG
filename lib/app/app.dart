@@ -22,6 +22,7 @@ import '../features/playback/resource_search.dart';
 import '../features/playback/resume_controller.dart';
 import '../features/tracking/subject_controller.dart';
 import '../features/tracking/tracking_controller.dart';
+import '../features/update/app_update.dart';
 import '../ui/acquisition/downloads_page.dart';
 import '../ui/acquisition/resource_search_view.dart';
 import '../ui/core/action_feedback.dart';
@@ -94,6 +95,9 @@ class _MelonAppState extends State<MelonApp>
 
   /// Relaunch once the prepared update has been swapped in on exit.
   bool restartForUpdate = false;
+
+  /// Set when quitting to start again after a failed startup.
+  bool relaunching = false;
   String? startError;
 
   /// Set on a first launch until the download location is confirmed.
@@ -182,7 +186,12 @@ class _MelonAppState extends State<MelonApp>
         refreshPlaybackAvailability(),
       ]);
     } catch (e) {
-      if (mounted) setState(() => startError = errorMessage(e));
+      // Once the window works, a failed first load is an ordinary error.
+      if (ready) {
+        showError(e);
+      } else if (mounted) {
+        setState(() => startError = errorMessage(e));
+      }
     }
   }
 
@@ -552,6 +561,7 @@ class _MelonAppState extends State<MelonApp>
           await service.update.applyOnExit(restart: restartForUpdate);
         }
       } finally {
+        if (relaunching) await relaunchAfterExit();
         // Use WM_CLOSE so the runner destroys its view before leaving the message
         // loop. windowManager.destroy posts WM_QUIT directly on Windows.
         await windowManager.setPreventClose(false);
@@ -562,6 +572,13 @@ class _MelonAppState extends State<MelonApp>
 
   void restartToUpdate() {
     restartForUpdate = true;
+    unawaited(windowManager.close());
+  }
+
+  /// Quits and opens the app again, since partly started services cannot be
+  /// started a second time in this process.
+  void relaunch() {
+    relaunching = true;
     unawaited(windowManager.close());
   }
 
@@ -985,7 +1002,12 @@ class _MelonAppState extends State<MelonApp>
                 ),
               ),
             )
-          : EmptyState(text: '应用服务未能启动', detail: startError);
+          : EmptyState(
+              text: '应用服务未能启动',
+              detail: startError,
+              action: relaunch,
+              actionLabel: '重新启动',
+            );
     }
     switch (route) {
       case 'home':
@@ -1066,6 +1088,7 @@ class _MelonAppState extends State<MelonApp>
             'resources:${subject?.id}:${resources.state.episode?.id}',
           ),
           search: resources,
+          onOpenDownloads: () => navigate('downloads'),
           onPlay: (candidate, episode) => coordinator.prepare(
             subject!,
             episode,

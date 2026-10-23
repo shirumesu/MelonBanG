@@ -272,6 +272,30 @@ class AppUpdate extends ChangeNotifier {
   }
 }
 
+/// Opens the app again once this process has exited, so every service starts
+/// afresh; the caller exits right after.
+Future<void> relaunchAfterExit() async {
+  final executable = Platform.resolvedExecutable;
+  if (Platform.isMacOS) {
+    await Process.start('/bin/sh', [
+      '-c',
+      r'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; open "$2"',
+      'melonbang-relaunch',
+      '$pid',
+      p.dirname(p.dirname(p.dirname(executable))),
+    ], mode: ProcessStartMode.detached);
+    return;
+  }
+  await Process.start('powershell', [
+    '-NoProfile',
+    '-WindowStyle',
+    'Hidden',
+    '-Command',
+    'Wait-Process -Id $pid -ErrorAction SilentlyContinue; '
+        "Start-Process -FilePath '${executable.replaceAll("'", "''")}'",
+  ], mode: ProcessStartMode.detached);
+}
+
 /// The bundle inside the macOS update package.
 const _bundleName = 'MelonBanG.app';
 
