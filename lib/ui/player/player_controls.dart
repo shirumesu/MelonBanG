@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -246,13 +247,8 @@ class PlayerControls extends StatelessWidget {
         player: player,
         onPopupChanged: onPopupChanged,
         onFeedback: onFeedback,
-        onReveal: onReveal,
       ),
-      _SubtitleMenu(
-        playback: playback,
-        onPopupChanged: onPopupChanged,
-        onReveal: onReveal,
-      ),
+      _SubtitleMenu(playback: playback, onPopupChanged: onPopupChanged),
       IconButton(
         tooltip: windowFullScreen ? '退出窗口全屏' : '窗口全屏',
         onPressed: onWindowFullScreen,
@@ -498,7 +494,7 @@ class _ProgressPainter extends CustomPainter {
 
 /// Mute button; hovering it raises a vertical volume slider above it, and the
 /// wheel adjusts volume anywhere over either.
-class PlayerVolumeControl extends StatefulWidget {
+class PlayerVolumeControl extends StatelessWidget {
   const PlayerVolumeControl({
     super.key,
     required this.playback,
@@ -508,167 +504,256 @@ class PlayerVolumeControl extends StatefulWidget {
   final Playback playback;
   final ValueChanged<String> onFeedback;
   final ValueChanged<bool> onPopupChanged;
+  Player get player => playback.player;
+
+  Future<void> _wheel(PointerSignalEvent event) async {
+    if (event is! PointerScrollEvent || event.scrollDelta.dy == 0) return;
+    final volume = await playback.adjustVolume(
+      event.scrollDelta.dy < 0 ? 5 : -5,
+    );
+    onFeedback('音量 ${volume.round()}%');
+  }
 
   @override
-  State<PlayerVolumeControl> createState() => _PlayerVolumeControlState();
+  Widget build(BuildContext context) => _HoverPopover(
+    onPopupChanged: onPopupChanged,
+    onPointerSignal: _wheel,
+    anchor: (_) => StreamBuilder<double>(
+      stream: player.stream.volume,
+      initialData: player.state.volume,
+      builder: (context, snapshot) {
+        final volume = snapshot.data!;
+        return IconButton(
+          onPressed: playback.toggleMute,
+          icon: Icon(
+            volume == 0
+                ? Icons.volume_off_rounded
+                : volume < 50
+                ? Icons.volume_down_rounded
+                : Icons.volume_up_rounded,
+          ),
+        );
+      },
+    ),
+    popover: (popover) => SizedBox(
+      width: 40,
+      height: 140,
+      child: StreamBuilder<double>(
+        stream: player.stream.volume,
+        initialData: player.state.volume,
+        builder: (context, snapshot) {
+          final volume = snapshot.data!.clamp(0.0, 100.0);
+          return Column(
+            children: [
+              const SizedBox(height: 8),
+              Text(
+                '${volume.round()}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+              Expanded(
+                child: RotatedBox(
+                  quarterTurns: 3,
+                  child: Slider(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    value: volume,
+                    max: 100,
+                    semanticFormatterCallback: (value) =>
+                        '音量 ${value.round()}%',
+                    onChangeStart: (_) => popover.hold(true),
+                    onChangeEnd: (_) => popover.hold(false),
+                    onChanged: player.setVolume,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    ),
+  );
 }
 
-class _PlayerVolumeControlState extends State<PlayerVolumeControl> {
+/// A control whose popover rises above it while the pointer rests on either,
+/// and closes shortly after leaving both. Clicking the control toggles it as
+/// well, for the keyboard; a click elsewhere closes it.
+class _HoverPopover extends StatefulWidget {
+  const _HoverPopover({
+    required this.onPopupChanged,
+    required this.anchor,
+    required this.popover,
+    this.onPointerSignal,
+  });
+  final ValueChanged<bool> onPopupChanged;
+  final Widget Function(_HoverPopoverState popover) anchor, popover;
+  final void Function(PointerSignalEvent)? onPointerSignal;
+
+  @override
+  State<_HoverPopover> createState() => _HoverPopoverState();
+}
+
+class _HoverPopoverState extends State<_HoverPopover>
+    with SingleTickerProviderStateMixin {
   final _portal = OverlayPortalController();
-  final _link = LayerLink();
-  Timer? _hide;
-  bool _overButton = false, _overSlider = false, _sliding = false;
-  Player get player => widget.playback.player;
+  late final _fade = AnimationController(vsync: this);
+  Timer? _timer;
+  bool open = false;
+  bool _overAnchor = false, _overPopover = false, _held = false;
 
   @override
   void dispose() {
-    _hide?.cancel();
-    // A slider still open would keep the controls from ever hiding.
-    if (_portal.isShowing) {
+    _timer?.cancel();
+    _fade.dispose();
+    // A popover still open would keep the controls from ever hiding.
+    if (open) {
       final changed = widget.onPopupChanged;
       scheduleMicrotask(() => changed(false));
     }
     super.dispose();
   }
 
-  /// Shows the slider while the pointer is over the button or the slider,
-  /// and lets it close shortly after leaving both.
-  void _update() {
-    _hide?.cancel();
-    if (_overButton || _overSlider || _sliding) {
-      if (!_portal.isShowing) {
-        _portal.show();
-        widget.onPopupChanged(true);
-      }
-      return;
-    }
-    _hide = Timer(const Duration(milliseconds: 180), () {
-      if (!mounted || !_portal.isShowing) return;
-      _portal.hide();
-      widget.onPopupChanged(false);
+  void _show() {
+    _timer?.cancel();
+    if (open) return;
+    setState(() => open = true);
+    _portal.show();
+    _fade.duration = motionDuration(context, 140);
+    _fade.forward();
+    widget.onPopupChanged(true);
+  }
+
+  void close() {
+    _timer?.cancel();
+    // The popover's region disappears without an exit event.
+    _overPopover = _held = false;
+    if (!open) return;
+    setState(() => open = false);
+    widget.onPopupChanged(false);
+    _fade.reverse().whenComplete(() {
+      if (mounted && !open) _portal.hide();
     });
   }
 
-  Future<void> _wheel(PointerSignalEvent event) async {
-    if (event is! PointerScrollEvent || event.scrollDelta.dy == 0) return;
-    final volume = await widget.playback.adjustVolume(
-      event.scrollDelta.dy < 0 ? 5 : -5,
-    );
-    widget.onFeedback('音量 ${volume.round()}%');
+  void toggle() => open ? close() : _show();
+
+  /// Keeps the popover open while a slider in it is dragged past its edge.
+  void hold(bool value) {
+    _held = value;
+    _update();
+  }
+
+  /// Opens after a short rest so sweeping across the bar does not flash
+  /// every popover on the way.
+  void _update() {
+    _timer?.cancel();
+    final wanted = _overAnchor || _overPopover || _held;
+    if (wanted == open) return;
+    _timer = Timer(Duration(milliseconds: wanted ? 90 : 180), () {
+      if (!mounted) return;
+      wanted ? _show() : close();
+    });
   }
 
   @override
-  Widget build(BuildContext context) => Listener(
-    onPointerSignal: _wheel,
-    child: CompositedTransformTarget(
-      link: _link,
-      child: OverlayPortal(
+  Widget build(BuildContext context) => TapRegion(
+    groupId: this,
+    onTapOutside: (_) => close(),
+    child: Listener(
+      onPointerSignal: widget.onPointerSignal,
+      child: OverlayPortal.overlayChildLayoutBuilder(
         controller: _portal,
-        overlayChildBuilder: (_) => Positioned(
-          left: 0,
-          top: 0,
-          child: CompositedTransformFollower(
-            link: _link,
-            targetAnchor: Alignment.topCenter,
-            followerAnchor: Alignment.bottomCenter,
-            child: Listener(onPointerSignal: _wheel, child: _slider()),
+        overlayChildBuilder: (context, info) => CustomSingleChildLayout(
+          delegate: _AboveAnchor(
+            MatrixUtils.transformRect(
+              info.childPaintTransform,
+              Offset.zero & info.childSize,
+            ),
           ),
+          child: _popover(),
         ),
         child: MouseRegion(
           onEnter: (_) {
-            _overButton = true;
+            _overAnchor = true;
             _update();
           },
           onExit: (_) {
-            _overButton = false;
+            _overAnchor = false;
             _update();
           },
-          child: StreamBuilder<double>(
-            stream: player.stream.volume,
-            initialData: player.state.volume,
-            builder: (context, snapshot) {
-              final volume = snapshot.data!;
-              return IconButton(
-                onPressed: widget.playback.toggleMute,
-                icon: Icon(
-                  volume == 0
-                      ? Icons.volume_off_rounded
-                      : volume < 50
-                      ? Icons.volume_down_rounded
-                      : Icons.volume_up_rounded,
-                ),
-              );
-            },
-          ),
+          child: widget.anchor(this),
         ),
       ),
     ),
   );
 
-  Widget _slider() => MouseRegion(
-    onEnter: (_) {
-      _overSlider = true;
-      _update();
-    },
-    onExit: (_) {
-      _overSlider = false;
-      _update();
-    },
-    child: Padding(
-      // Bridges the gap to the button so the pointer never falls between.
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Theme(
-        data: overlayTheme(),
-        child: Material(
-          color: overlaySurface,
-          borderRadius: controlBorderRadius,
-          elevation: 6,
-          child: SizedBox(
-            width: 40,
-            height: 150,
-            child: StreamBuilder<double>(
-              stream: player.stream.volume,
-              initialData: player.state.volume,
-              builder: (context, snapshot) {
-                final volume = snapshot.data!.clamp(0.0, 100.0);
-                return Column(
-                  children: [
-                    const SizedBox(height: 8),
-                    Text(
-                      '${volume.round()}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.white,
-                        fontFeatures: [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                    Expanded(
-                      child: RotatedBox(
-                        quarterTurns: 3,
-                        child: Slider(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          value: volume,
-                          max: 100,
-                          semanticFormatterCallback: (value) =>
-                              '音量 ${value.round()}%',
-                          onChangeStart: (_) => _sliding = true,
-                          onChangeEnd: (_) {
-                            _sliding = false;
-                            _update();
-                          },
-                          onChanged: player.setVolume,
-                        ),
-                      ),
-                    ),
-                  ],
+  // Fading out, it no longer catches the pointer, which would reopen it.
+  Widget _popover() => TapRegion(
+    groupId: this,
+    child: IgnorePointer(
+      ignoring: !open,
+      child: Listener(
+        onPointerSignal: widget.onPointerSignal,
+        child: MouseRegion(
+          hitTestBehavior: HitTestBehavior.opaque,
+          onEnter: (_) {
+            _overPopover = true;
+            _update();
+          },
+          onExit: (_) {
+            _overPopover = false;
+            _update();
+          },
+          child: Padding(
+            // Bridges the gap to the control so the pointer never falls between.
+            padding: const EdgeInsets.only(bottom: 6),
+            child: AnimatedBuilder(
+              animation: _fade,
+              builder: (context, child) {
+                final value = Curves.easeOutCubic.transform(_fade.value);
+                return Transform.translate(
+                  offset: Offset(0, 4 * (1 - value)),
+                  child: OverlayGlass(visibility: value, child: child!),
                 );
               },
+              child: Theme(data: overlayTheme(), child: widget.popover(this)),
             ),
           ),
         ),
       ),
     ),
   );
+}
+
+/// Centres the popover above its control, kept inside the window.
+class _AboveAnchor extends SingleChildLayoutDelegate {
+  _AboveAnchor(this.anchor);
+  final Rect anchor;
+  static const _margin = 8.0;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
+      BoxConstraints.loose(
+        Size(
+          math.max(0, constraints.maxWidth - 2 * _margin),
+          math.max(0, anchor.top - _margin),
+        ),
+      );
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) => Offset(
+    (anchor.center.dx - childSize.width / 2).clamp(
+      _margin,
+      math.max(_margin, size.width - childSize.width - _margin),
+    ),
+    anchor.top - childSize.height,
+  );
+
+  @override
+  bool shouldRelayout(_AboveAnchor old) => old.anchor != anchor;
 }
 
 enum PlayerGlyphKind {
@@ -783,87 +868,85 @@ class _GlyphPainter extends CustomPainter {
 class _TextAction extends StatelessWidget {
   const _TextAction({
     required this.label,
-    required this.tooltip,
     required this.onPressed,
     this.open = false,
   });
-  final String label, tooltip;
+  final String label;
   final VoidCallback? onPressed;
   final bool open;
 
   @override
-  Widget build(BuildContext context) => Tooltip(
-    message: tooltip,
-    child: TextButton(
-      style: TextButton.styleFrom(
-        foregroundColor: Colors.white,
-        backgroundColor: open ? Colors.white.withValues(alpha: .14) : null,
-        overlayColor: Colors.white,
-        minimumSize: const Size(44, 36),
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-      ),
-      onPressed: onPressed,
-      child: Text(label),
+  Widget build(BuildContext context) => TextButton(
+    style: TextButton.styleFrom(
+      foregroundColor: Colors.white,
+      backgroundColor: open ? Colors.white.withValues(alpha: .14) : null,
+      overlayColor: Colors.white,
+      minimumSize: const Size(44, 36),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
     ),
+    onPressed: onPressed,
+    child: Text(label),
   );
 }
 
-/// A dark menu over the video whose rows mark the current choice.
-class _OverlayMenu extends StatelessWidget {
-  const _OverlayMenu({
-    required this.onPopupChanged,
-    required this.onReveal,
-    required this.items,
-    required this.builder,
-  });
-  final ValueChanged<bool> onPopupChanged;
-  final VoidCallback onReveal;
-  final List<({String label, bool selected, VoidCallback onPressed})> items;
-  final Widget Function(MenuController controller) builder;
+typedef _Choice = ({String label, bool selected, VoidCallback onPressed});
+
+/// The choices in a popover; the current one is filled white like the
+/// segmented choices in the danmaku settings. Choosing closes the popover.
+class _ChoiceList extends StatelessWidget {
+  const _ChoiceList({required this.items, required this.popover});
+  final List<_Choice> items;
+  final _HoverPopoverState popover;
+
+  static const _ink = Color(0xff15181d);
 
   @override
-  Widget build(BuildContext context) => Theme(
-    data: overlayTheme(),
-    child: MenuAnchor(
-      onOpen: () {
-        onPopupChanged(true);
-        onReveal();
-      },
-      onClose: () {
-        onPopupChanged(false);
-        onReveal();
-      },
-      alignmentOffset: const Offset(0, -8),
-      menuChildren: [
-        for (final item in items)
-          MenuItemButton(
-            style: ButtonStyle(
-              minimumSize: const WidgetStatePropertyAll(Size(120, 34)),
-              backgroundColor: WidgetStatePropertyAll(
-                item.selected ? Colors.white.withValues(alpha: .1) : null,
+  Widget build(BuildContext context) => ConstrainedBox(
+    constraints: const BoxConstraints(minWidth: 76, maxWidth: 220),
+    child: IntrinsicWidth(
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final item in items)
+              Material(
+                color: item.selected ? Colors.white : Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  overlayColor: WidgetStatePropertyAll(
+                    (item.selected ? _ink : Colors.white).withValues(alpha: .1),
+                  ),
+                  onTap: () {
+                    item.onPressed();
+                    popover.close();
+                  },
+                  child: Container(
+                    height: 30,
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      item.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: item.selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                        color: item.selected ? _ink : Colors.white,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+                ),
               ),
-              shape: const WidgetStatePropertyAll(
-                RoundedRectangleBorder(borderRadius: badgeBorderRadius),
-              ),
-            ),
-            onPressed: item.onPressed,
-            leadingIcon: SizedBox.square(
-              dimension: 16,
-              child: item.selected
-                  ? const Icon(Icons.check_rounded, size: 16)
-                  : null,
-            ),
-            child: Text(
-              item.label,
-              style: TextStyle(
-                fontWeight: item.selected ? FontWeight.w700 : null,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
-            ),
-          ),
-      ],
-      builder: (context, controller, _) => builder(controller),
+          ],
+        ),
+      ),
     ),
   );
 }
@@ -873,12 +956,10 @@ class _SpeedMenu extends StatelessWidget {
     required this.player,
     required this.onPopupChanged,
     required this.onFeedback,
-    required this.onReveal,
   });
   final Player player;
   final ValueChanged<bool> onPopupChanged;
   final ValueChanged<String> onFeedback;
-  final VoidCallback onReveal;
 
   static const rates = [2.0, 1.5, 1.25, 1.0, .75, .5];
 
@@ -888,26 +969,26 @@ class _SpeedMenu extends StatelessWidget {
     initialData: player.state.rate,
     builder: (context, snapshot) {
       final rate = snapshot.data!;
-      return _OverlayMenu(
+      return _HoverPopover(
         onPopupChanged: onPopupChanged,
-        onReveal: onReveal,
-        items: [
-          for (final value in rates)
-            (
-              label: speedLabel(value),
-              selected: value == rate,
-              onPressed: () {
-                unawaited(player.setRate(value));
-                onFeedback('倍速 ${speedLabel(value)}');
-              },
-            ),
-        ],
-        builder: (controller) => _TextAction(
+        anchor: (popover) => _TextAction(
           label: rate == 1 ? '倍速' : speedLabel(rate),
-          tooltip: '播放速度',
-          open: controller.isOpen,
-          onPressed: () =>
-              controller.isOpen ? controller.close() : controller.open(),
+          open: popover.open,
+          onPressed: popover.toggle,
+        ),
+        popover: (popover) => _ChoiceList(
+          popover: popover,
+          items: [
+            for (final value in rates)
+              (
+                label: speedLabel(value),
+                selected: value == rate,
+                onPressed: () {
+                  unawaited(player.setRate(value));
+                  onFeedback('倍速 ${speedLabel(value)}');
+                },
+              ),
+          ],
         ),
       );
     },
@@ -917,14 +998,9 @@ class _SpeedMenu extends StatelessWidget {
 /// Subtitle tracks of the file; audio follows the language preference in
 /// settings and has no menu here.
 class _SubtitleMenu extends StatelessWidget {
-  const _SubtitleMenu({
-    required this.playback,
-    required this.onPopupChanged,
-    required this.onReveal,
-  });
+  const _SubtitleMenu({required this.playback, required this.onPopupChanged});
   final Playback playback;
   final ValueChanged<bool> onPopupChanged;
-  final VoidCallback onReveal;
 
   @override
   Widget build(BuildContext context) => StreamBuilder<Track>(
@@ -941,27 +1017,27 @@ class _SubtitleMenu extends StatelessWidget {
           ...all.where((track) => track.id != 'auto' && track.id != 'no'),
           ...all.where((track) => track.id == 'no'),
         ];
-        return _OverlayMenu(
+        return _HoverPopover(
           onPopupChanged: onPopupChanged,
-          onReveal: onReveal,
-          items: [
-            for (final track in ordered)
-              (
-                label: switch (track.id) {
-                  'no' => '关闭字幕',
-                  'auto' => '自动',
-                  _ => track.title ?? track.language ?? '字幕 ${track.id}',
-                },
-                selected: track == selected,
-                onPressed: () => unawaited(playback.selectSubtitle(track)),
-              ),
-          ],
-          builder: (controller) => IconButton(
-            tooltip: '字幕',
-            isSelected: controller.isOpen,
-            onPressed: () =>
-                controller.isOpen ? controller.close() : controller.open(),
+          anchor: (popover) => IconButton(
+            isSelected: popover.open,
+            onPressed: popover.toggle,
             icon: const Icon(Icons.closed_caption_outlined),
+          ),
+          popover: (popover) => _ChoiceList(
+            popover: popover,
+            items: [
+              for (final track in ordered)
+                (
+                  label: switch (track.id) {
+                    'no' => '关闭字幕',
+                    'auto' => '自动',
+                    _ => track.title ?? track.language ?? '字幕 ${track.id}',
+                  },
+                  selected: track == selected,
+                  onPressed: () => unawaited(playback.selectSubtitle(track)),
+                ),
+            ],
           ),
         );
       },
