@@ -2,9 +2,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'cached_image.dart';
+import 'external_link.dart';
 import 'subject_posters.dart' show imageDecodeWidth;
 import 'theme.dart';
 
@@ -360,12 +360,7 @@ class _Renderer {
     TextStyle style, {
     int? mask,
   }) {
-    final uri = Uri.tryParse(address);
-    void open() {
-      if (uri != null) {
-        launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    }
+    void open() => openExternal(state.context, address);
 
     final hidden = mask != null && !state._revealed.contains(mask);
     final tap = _recognizer(open);
@@ -500,10 +495,7 @@ void _viewImage(BuildContext context, String address) => showDialog<void>(
               children: [
                 const Spacer(),
                 TextButton.icon(
-                  onPressed: () => launchUrl(
-                    Uri.parse(address),
-                    mode: LaunchMode.externalApplication,
-                  ),
+                  onPressed: () => openExternal(context, address),
                   icon: const Icon(Icons.open_in_new, size: 16),
                   label: const Text('在浏览器打开'),
                 ),

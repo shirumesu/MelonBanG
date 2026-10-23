@@ -3,9 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/error_message.dart';
 import '../../core/json.dart' show coverAddress;
 import '../../domain/catalog.dart';
 import '../core/account_avatar.dart';
@@ -15,6 +13,7 @@ import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../../domain/collection_edit.dart';
+import '../core/external_link.dart';
 import '../core/theme.dart';
 import 'collection_labels.dart';
 
@@ -118,22 +117,8 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
     }
   }
 
-  Future<void> _open(String path) async {
-    try {
-      if (!await launchUrl(
-        Uri.parse('https://bgm.tv$path'),
-        mode: LaunchMode.externalApplication,
-      )) {
-        throw StateError('无法打开链接');
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('打开失败：${errorMessage(error)}')));
-      }
-    }
-  }
+  Future<void> _open(String path) =>
+      openExternal(context, 'https://bgm.tv$path');
 
   /// Starts reading [id] unless it is already read or being read; [retry]
   /// reads it again.

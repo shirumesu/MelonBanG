@@ -11,6 +11,36 @@ import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
 import 'settings_page.dart';
 
+/// The data and media folders with their usage, moving them, and the image
+/// cache.
+SettingsSection storageSection({
+  required StorageLocations? storage,
+  required String dataDirectory,
+  required String mediaDirectory,
+  required Future<void> Function() onClearCache,
+  required Future<int> Function() readCacheSize,
+  required VoidCallback onExit,
+}) => SettingsSection(
+  id: 'storage',
+  title: '存储',
+  icon: Icons.folder_outlined,
+  groups: [
+    SettingsGroup([
+      SettingsItem(
+        '存储 缓存 清理 应用数据 媒体缓存 下载位置 迁移 空间 文件夹',
+        StorageSettings(
+          readCacheSize: readCacheSize,
+          onClearCache: onClearCache,
+          onExit: onExit,
+          storage: storage,
+          dataDirectory: dataDirectory,
+          mediaDirectory: mediaDirectory,
+        ),
+      ),
+    ]),
+  ],
+);
+
 class StorageSettings extends StatefulWidget {
   const StorageSettings({
     super.key,

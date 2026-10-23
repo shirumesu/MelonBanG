@@ -1,12 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../domain/play_candidate.dart';
 import '../../domain/transfer.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
+import '../core/external_link.dart';
 import '../core/motion.dart';
 import '../core/theme.dart';
 import 'download_labels.dart';
@@ -549,7 +549,7 @@ class ResourceResultRow extends StatelessWidget {
                                         padding: EdgeInsets.zero,
                                       ),
                                       onPressed: () =>
-                                          _openSource(context, detailUrl),
+                                          openExternal(context, detailUrl),
                                       icon: const Icon(
                                         Icons.open_in_new,
                                         size: 13,
@@ -634,17 +634,6 @@ class ResourceResultRow extends StatelessWidget {
       );
     },
   );
-}
-
-Future<void> _openSource(BuildContext context, String url) async {
-  try {
-    final uri = Uri.parse(url);
-    if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
-  } catch (_) {}
-  if (context.mounted) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('无法打开发布页')));
-  }
 }
 
 Widget _tag(
@@ -1030,7 +1019,7 @@ class ResourceEpisodeRow extends StatelessWidget {
                                       padding: EdgeInsets.zero,
                                     ),
                                     onPressed: () =>
-                                        _openSource(context, detailUrl!),
+                                        openExternal(context, detailUrl!),
                                     icon: const Icon(
                                       Icons.open_in_new,
                                       size: 13,
