@@ -13,8 +13,12 @@ class DanmakuQuickSettings extends StatelessWidget {
     required this.onClose,
     this.onOpenSources,
     this.closeFocusNode,
+    this.visibility = 1,
   });
   final DanmakuPreferences preferences;
+
+  /// How far it has faded in.
+  final double visibility;
   final VoidCallback onClose;
 
   /// Shows the panel's danmaku tab; null while the panel cannot show.
@@ -24,16 +28,12 @@ class DanmakuQuickSettings extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Theme(
     data: overlayTheme(),
-    child: Builder(
-      builder: (context) => Material(
-        color: overlaySurface,
-        borderRadius: BorderRadius.circular(14),
-        elevation: 8,
-        clipBehavior: Clip.antiAlias,
-        child: ListenableBuilder(
-          listenable: preferences,
-          builder: (context, _) => _content(context),
-        ),
+    child: OverlayGlass(
+      borderRadius: BorderRadius.circular(14),
+      visibility: visibility,
+      child: ListenableBuilder(
+        listenable: preferences,
+        builder: (context, _) => _content(context),
       ),
     ),
   );

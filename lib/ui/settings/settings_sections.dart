@@ -308,7 +308,10 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
           const {'auto': '自动', 'auto-copy': '兼容模式', 'no': '关闭'},
           () => prefs.hardwareDecoding,
           prefs.setHardwareDecoding,
-          help: '自动：用显卡解码，最省电。兼容模式：显卡解码后复制回内存，可以避开个别驱动的花屏、黑屏。关闭：只用 CPU 解码。',
+          help:
+              '自动：显卡解码，最省电\n'
+              '兼容模式：可避开个别驱动的花屏、黑屏\n'
+              '关闭：只用 CPU 解码',
         ),
         choice(
           '超分 超分辨率 anime4k 画质 放大 增强',
@@ -317,7 +320,10 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
           () => prefs.superResolution,
           prefs.setSuperResolution,
           subtitle: '用 Anime4K 把画面放大到窗口分辨率',
-          help: '效率档适合核显，质量档需要较强的独立显卡。视频分辨率不低于窗口时不放大，只做线条修复。',
+          help:
+              '效率：适合核显\n'
+              '质量：需要较强的独立显卡\n'
+              '视频不小于窗口时只修线条，不放大',
         ),
       ], title: '画面'),
       SettingsGroup([
@@ -712,10 +718,8 @@ SettingsSection shortcutsSection() => SettingsSection(
         ('播放 / 暂停', 'Space / K / 单击画面'),
         ('后退 / 前进 5 秒', '← / →'),
         ('3 倍速快进', '按住 →'),
-        ('跳到 0%–90%', '0–9'),
         ('回到开头', 'Home'),
         ('上一帧 / 下一帧', ', / .'),
-        ('减速 / 加速', 'Shift + , / .'),
         ('音量', '↑ / ↓'),
         ('静音', 'M'),
         ('弹幕开关', 'D'),

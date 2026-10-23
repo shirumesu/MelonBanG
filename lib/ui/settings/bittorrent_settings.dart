@@ -276,7 +276,7 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
         caption('分享'),
         SettingRow(
           title: '做种方案',
-          help: '将已下载的内容上传给其他用户，推荐启用维护 BT 网络社区；做种只会在应用运行时进行。',
+          help: '把已下载的内容分享给其他用户，推荐开启\n只在应用运行时做种',
           trailing: MelonChoiceMenu<String>(
             value: draft['seedMode'] as String,
             options: const {
@@ -291,13 +291,13 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
           divider,
           SettingRow(
             title: '目标分享率',
-            help: '累计上传量 ÷ 文件总量。0 表示不限，最高 1000；与分享时间任一条件达到即停止。',
+            help: '上传量 ÷ 文件大小，0 为不限，最高 1000\n与分享时间任一达到即停止',
             trailing: numberField('seedRatio', hint: '0 表示不限'),
           ),
           divider,
           SettingRow(
             title: '累计分享时间',
-            help: '仅计算实际做种时间，重启不清零。达到分享率或累计时间任一条件即停止。最多 1440 分钟（1 天）。',
+            help: '只计实际做种时间，重启不清零，最多 1440 分钟\n与分享率任一达到即停止',
             trailing: numberField('seedMinutes', unit: '分钟', hint: '0 表示不限'),
           ),
         ],
@@ -306,23 +306,23 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
         caption('连接'),
         SettingRow(
           title: '每任务连接上限',
-          help: '每个下载或做种任务可连接 5–500 位用户。总连接数随实际运行任务数增加，仍受系统可用资源限制。',
+          help: '每个任务 5–500 位用户\n总数随运行中的任务增加',
           trailing: numberField('connectionsPerTask'),
         ),
         divider,
         SettingRow(
           title: '监听端口',
-          help: '0 表示自动选择；固定端口范围 1–65535。',
+          help: '0 为自动，固定端口 1–65535',
           trailing: numberField('listenPort'),
         ),
         divider,
-        toggle('dht', 'DHT 节点发现', help: '帮助公共种子发现其他用户；私有种子遵循自身限制。'),
+        toggle('dht', 'DHT 节点发现', help: '帮公共种子找到更多用户\n私有种子按自身规则'),
         divider,
-        toggle('upnp', '自动端口映射', help: '通过 UPnP / NAT-PMP 尝试接收入站连接。'),
+        toggle('upnp', '自动端口映射', help: '用 UPnP / NAT-PMP 接收入站连接'),
         divider,
         toggle('ipv6', 'IPv6'),
         divider,
-        toggle('forceEncryption', '仅连接加密用户', help: '默认允许协商加密；强制开启可能减少可连接用户。'),
+        toggle('forceEncryption', '仅连接加密用户', help: '默认允许加密，开启后可连接的用户会变少'),
         divider,
         SettingRow(
           title: '恢复推荐值',

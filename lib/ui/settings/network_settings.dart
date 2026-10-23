@@ -27,7 +27,10 @@ SettingsSection networkSection({
                 SettingRow(
                   title: '网络代理',
                   subtitle: proxy.describe(),
-                  help: '用于 Bangumi、资源站、弹幕、PikPak、更新和在线播放。BT 下载与做种直接连接其他用户，不经过代理。系统代理只读取手动设置的地址，不执行自动配置脚本（PAC）。',
+                  help:
+                      '作用于 Bangumi、资源站、弹幕、PikPak、更新和在线播放\n'
+                      'BT 下载与做种不走代理\n'
+                      '系统代理只读手动设置的地址，不支持 PAC',
                   trailing: MelonChoiceMenu<ProxyMode>(
                     options: {
                       for (final mode in ProxyMode.values) mode: mode.label,
@@ -198,12 +201,10 @@ class _ProbeRow extends StatelessWidget {
         ),
         null,
       ),
+      // Probes hit bare hosts without a token, so 401 or 404 still means the
+      // service answered; only the limited codes are worth showing.
       ProbeState.reachable => (
-        Text(
-          value!.status != null && value.status! >= 400
-              ? '${value.elapsed!.inMilliseconds} ms · HTTP ${value.status}'
-              : '${value.elapsed!.inMilliseconds} ms',
-        ),
+        Text('${value!.elapsed!.inMilliseconds} ms'),
         accentOf(context).accent,
       ),
       ProbeState.limited => (

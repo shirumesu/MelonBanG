@@ -344,19 +344,6 @@ class PlayerPageState extends State<PlayerPage> {
     await seekTo(from + seconds);
   }
 
-  Future<void> changeRate(int step) async {
-    playback.cancelAutoplay();
-    const rates = [.5, .75, 1.0, 1.25, 1.5, 2.0];
-    final current = rates.indexWhere((rate) => rate >= player.state.rate);
-    final next =
-        rates[((current < 0 ? rates.length - 1 : current) + step).clamp(
-          0,
-          rates.length - 1,
-        )];
-    await player.setRate(next);
-    showFeedback('倍速 $next×');
-  }
-
   Future<void> changeVolume(double delta) async {
     final volume = await playback.adjustVolume(delta);
     if (mounted) showFeedback('音量 ${volume.round()}%');
@@ -397,22 +384,9 @@ class PlayerPageState extends State<PlayerPage> {
     final keyboard = HardwareKeyboard.instance;
     if (keyboard.isControlPressed ||
         keyboard.isMetaPressed ||
-        keyboard.isAltPressed) {
+        keyboard.isAltPressed ||
+        keyboard.isShiftPressed) {
       return KeyEventResult.ignored;
-    }
-    if (keyboard.isShiftPressed) {
-      if (danmakuMenu ||
-          !const [
-            LogicalKeyboardKey.period,
-            LogicalKeyboardKey.comma,
-          ].contains(event.logicalKey)) {
-        return KeyEventResult.ignored;
-      }
-      unawaited(
-        changeRate(event.logicalKey == LogicalKeyboardKey.period ? 1 : -1),
-      );
-      reveal();
-      return KeyEventResult.handled;
     }
     if (event.logicalKey == LogicalKeyboardKey.escape &&
         playback.autoplayTarget != null) {
@@ -439,12 +413,6 @@ class PlayerPageState extends State<PlayerPage> {
       unawaited(playback.playOrPause());
     } else if (event.logicalKey == LogicalKeyboardKey.home) {
       unawaited(seekTo(0));
-    } else if (_digits.indexOf(event.logicalKey) case final digit
-        when digit >= 0) {
-      // 0–9 jump to that tenth of the episode.
-      unawaited(
-        seekTo(player.state.duration.inMilliseconds / 1000 * (digit % 10) / 10),
-      );
     } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
       unawaited(seekRelative(-5));
     } else if (event.logicalKey == LogicalKeyboardKey.keyF ||
@@ -1039,37 +1007,36 @@ class PlayerPageState extends State<PlayerPage> {
                       tween: Tween(end: danmakuMenu ? 1 : 0),
                       duration: motionDuration(context),
                       curve: Curves.easeOutCubic,
-                      builder: (_, value, child) => Offstage(
+                      // The glass fades itself: an Opacity around its
+                      // backdrop blur would blur nothing on some renderers.
+                      builder: (_, value, _) => Offstage(
                         offstage: value == 0,
-                        child: Opacity(
-                          opacity: value,
-                          child: Transform.translate(
-                            offset: Offset(0, 5 * (1 - value)),
-                            child: Transform.scale(
-                              scale: .98 + .02 * value,
-                              alignment: Alignment.bottomRight,
-                              child: child,
+                        child: Transform.translate(
+                          offset: Offset(0, 5 * (1 - value)),
+                          child: Transform.scale(
+                            scale: .98 + .02 * value,
+                            alignment: Alignment.bottomRight,
+                            child: SizedBox(
+                              width: math.min(312, constraints.maxWidth - 24),
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxHeight: math.max(
+                                    120,
+                                    constraints.maxHeight - 160,
+                                  ),
+                                ),
+                                child: DanmakuQuickSettings(
+                                  visibility: value,
+                                  closeFocusNode: menuCloseFocus,
+                                  preferences: playback.danmaku.preferences,
+                                  onClose: closeMenu,
+                                  // The panel is hidden in immersive modes.
+                                  onOpenSources: immersive
+                                      ? null
+                                      : () => showPanel(PlayerPanelTab.danmaku),
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                      ),
-                      child: SizedBox(
-                        width: math.min(312, constraints.maxWidth - 24),
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxHeight: math.max(
-                              120,
-                              constraints.maxHeight - 160,
-                            ),
-                          ),
-                          child: DanmakuQuickSettings(
-                            closeFocusNode: menuCloseFocus,
-                            preferences: playback.danmaku.preferences,
-                            onClose: closeMenu,
-                            // The panel is hidden in immersive modes.
-                            onOpenSources: immersive
-                                ? null
-                                : () => showPanel(PlayerPanelTab.danmaku),
                           ),
                         ),
                       ),
@@ -1453,26 +1420,3 @@ class _PreparingView extends StatelessWidget {
     );
   }
 }
-
-const _digits = [
-  LogicalKeyboardKey.digit0,
-  LogicalKeyboardKey.digit1,
-  LogicalKeyboardKey.digit2,
-  LogicalKeyboardKey.digit3,
-  LogicalKeyboardKey.digit4,
-  LogicalKeyboardKey.digit5,
-  LogicalKeyboardKey.digit6,
-  LogicalKeyboardKey.digit7,
-  LogicalKeyboardKey.digit8,
-  LogicalKeyboardKey.digit9,
-  LogicalKeyboardKey.numpad0,
-  LogicalKeyboardKey.numpad1,
-  LogicalKeyboardKey.numpad2,
-  LogicalKeyboardKey.numpad3,
-  LogicalKeyboardKey.numpad4,
-  LogicalKeyboardKey.numpad5,
-  LogicalKeyboardKey.numpad6,
-  LogicalKeyboardKey.numpad7,
-  LogicalKeyboardKey.numpad8,
-  LogicalKeyboardKey.numpad9,
-];
