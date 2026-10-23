@@ -240,15 +240,15 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                 ),
               ),
               child: Center(
-                child: Text(
-                  label,
-                  maxLines: 1,
+                child: AnimatedDefaultTextStyle(
+                  duration: motionDuration(context, 120),
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: foreground,
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
+                  child: Text(label, maxLines: 1),
                 ),
               ),
             ),
@@ -276,74 +276,82 @@ class _EpisodeGridState extends State<EpisodeGrid> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Listener(
-              onPointerDown: (event) {
-                if (event.buttons & kSecondaryMouseButton != 0) _cancel();
-              },
-              onPointerMove: (event) {
-                if (event.buttons & kSecondaryMouseButton != 0) _cancel();
-              },
-              child: RawGestureDetector(
-                gestures: {
-                  TapGestureRecognizer:
-                      GestureRecognizerFactoryWithHandlers<
-                        TapGestureRecognizer
-                      >(
-                        TapGestureRecognizer.new,
-                        (recognizer) => recognizer
-                          ..onTapUp = (details) {
-                            final index = indexAt(details.localPosition);
-                            if (index != null) widget.onSelect(visible[index]);
-                          }
-                          ..onSecondaryTapUp = (details) {
-                            final index = indexAt(details.localPosition);
-                            if (index != null && dragStatus == null) {
-                              unawaited(
-                                _menu(details.globalPosition, visible[index]),
-                              );
-                            }
-                          },
-                      ),
-                  LongPressGestureRecognizer:
-                      GestureRecognizerFactoryWithHandlers<
-                        LongPressGestureRecognizer
-                      >(
-                        () => LongPressGestureRecognizer(
-                          duration: const Duration(milliseconds: 600),
-                        ),
-                        (recognizer) => recognizer
-                          ..onLongPressStart = (details) {
-                            final index = indexAt(details.localPosition);
-                            if (index != null) _start(visible[index]);
-                          }
-                          ..onLongPressMoveUpdate = (details) {
-                            drag(details.localPosition);
-                          }
-                          ..onLongPressEnd = (_) {
-                            _end();
-                          }
-                          ..onLongPressCancel = _cancel,
-                      ),
+            // 展开 and 收起 grow and shrink the grid instead of jumping.
+            AnimatedSize(
+              duration: motionDuration(context, 280),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.topLeft,
+              child: Listener(
+                onPointerDown: (event) {
+                  if (event.buttons & kSecondaryMouseButton != 0) _cancel();
                 },
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  onHover: (event) {
-                    final index = indexAt(event.localPosition);
-                    if (index != hovered) {
-                      setState(() => hovered = index);
-                      widget.onHover(index == null ? null : visible[index]);
-                    }
+                onPointerMove: (event) {
+                  if (event.buttons & kSecondaryMouseButton != 0) _cancel();
+                },
+                child: RawGestureDetector(
+                  gestures: {
+                    TapGestureRecognizer:
+                        GestureRecognizerFactoryWithHandlers<
+                          TapGestureRecognizer
+                        >(
+                          TapGestureRecognizer.new,
+                          (recognizer) => recognizer
+                            ..onTapUp = (details) {
+                              final index = indexAt(details.localPosition);
+                              if (index != null) {
+                                widget.onSelect(visible[index]);
+                              }
+                            }
+                            ..onSecondaryTapUp = (details) {
+                              final index = indexAt(details.localPosition);
+                              if (index != null && dragStatus == null) {
+                                unawaited(
+                                  _menu(details.globalPosition, visible[index]),
+                                );
+                              }
+                            },
+                        ),
+                    LongPressGestureRecognizer:
+                        GestureRecognizerFactoryWithHandlers<
+                          LongPressGestureRecognizer
+                        >(
+                          () => LongPressGestureRecognizer(
+                            duration: const Duration(milliseconds: 600),
+                          ),
+                          (recognizer) => recognizer
+                            ..onLongPressStart = (details) {
+                              final index = indexAt(details.localPosition);
+                              if (index != null) _start(visible[index]);
+                            }
+                            ..onLongPressMoveUpdate = (details) {
+                              drag(details.localPosition);
+                            }
+                            ..onLongPressEnd = (_) {
+                              _end();
+                            }
+                            ..onLongPressCancel = _cancel,
+                        ),
                   },
-                  onExit: (_) {
-                    setState(() => hovered = null);
-                    widget.onHover(null);
-                  },
-                  child: Wrap(
-                    spacing: _gap,
-                    runSpacing: _gap,
-                    children: [
-                      for (var i = 0; i < visible.length; i++) cell(i),
-                    ],
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    onHover: (event) {
+                      final index = indexAt(event.localPosition);
+                      if (index != hovered) {
+                        setState(() => hovered = index);
+                        widget.onHover(index == null ? null : visible[index]);
+                      }
+                    },
+                    onExit: (_) {
+                      setState(() => hovered = null);
+                      widget.onHover(null);
+                    },
+                    child: Wrap(
+                      spacing: _gap,
+                      runSpacing: _gap,
+                      children: [
+                        for (var i = 0; i < visible.length; i++) cell(i),
+                      ],
+                    ),
                   ),
                 ),
               ),

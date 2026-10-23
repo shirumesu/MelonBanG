@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'motion.dart';
 import 'theme.dart';
 
 class PageScroll extends StatelessWidget {
@@ -122,20 +123,24 @@ class MelonBadge extends StatelessWidget {
     final color = this.color ?? accentOf(context).accent;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final theme = BadgeTheme.of(context);
-    return Container(
+    final duration = motionDuration(context, 200);
+    // A status that changes, such as a finished download, shifts colour.
+    return AnimatedContainer(
+      duration: duration,
       constraints: BoxConstraints(minHeight: theme.largeSize!),
       padding: theme.padding,
       decoration: BoxDecoration(
         color: color.withValues(alpha: dark ? .2 : .13),
         borderRadius: badgeBorderRadius,
       ),
-      child: Text(
-        text,
+      child: AnimatedDefaultTextStyle(
+        duration: duration,
         style: theme.textStyle!.copyWith(
           color: dark
               ? Color.lerp(color, Colors.white, .25)
               : Color.lerp(color, Colors.black, .28),
         ),
+        child: Text(text),
       ),
     );
   }
@@ -154,35 +159,37 @@ class EmptyState extends StatelessWidget {
   final VoidCallback? action;
   final String actionLabel;
   @override
-  Widget build(BuildContext context) => MelonPanel(
-    padding: const EdgeInsets.all(32),
-    child: Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.movie_outlined,
-            size: 32,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(height: 14),
-          Text(
-            text,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-          ),
-          if (detail != null)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                detail!,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+  Widget build(BuildContext context) => MotionAppear(
+    child: MelonPanel(
+      padding: const EdgeInsets.all(32),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.movie_outlined,
+              size: 32,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-          if (action != null)
-            TextButton(onPressed: action, child: Text(actionLabel)),
-        ],
+            const SizedBox(height: 14),
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            if (detail != null)
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  detail!,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            if (action != null)
+              TextButton(onPressed: action, child: Text(actionLabel)),
+          ],
+        ),
       ),
     ),
   );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/catalog.dart';
 import '../../features/discovery/discovery_controller.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -83,17 +84,20 @@ class _SearchPageState extends State<SearchPage> {
               Padding(
                 padding: const EdgeInsets.only(top: Gap.xl),
                 child: Center(
-                  child: busy
-                      ? const SizedBox.square(
-                          dimension: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      // Short result lists do not scroll, so loading stays reachable.
-                      : TextButton.icon(
-                          onPressed: discovery.loadMore,
-                          icon: const Icon(Icons.expand_more, size: 18),
-                          label: const Text('加载更多'),
-                        ),
+                  child: MotionSwap(
+                    value: busy,
+                    child: busy
+                        ? const SizedBox.square(
+                            dimension: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        // Short result lists do not scroll, so loading stays reachable.
+                        : TextButton.icon(
+                            onPressed: discovery.loadMore,
+                            icon: const Icon(Icons.expand_more, size: 18),
+                            label: const Text('加载更多'),
+                          ),
+                  ),
                 ),
               ),
           ],

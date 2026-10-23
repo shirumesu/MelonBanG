@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'cached_image.dart';
 import 'external_link.dart';
+import 'motion.dart';
 import 'subject_posters.dart' show imageDecodeWidth;
 import 'theme.dart';
 
@@ -481,7 +482,7 @@ class _Renderer {
   }
 }
 
-void _viewImage(BuildContext context, String address) => showDialog<void>(
+void _viewImage(BuildContext context, String address) => showMelonDialog<void>(
   context: context,
   builder: (context) => Dialog(
     child: ConstrainedBox(

@@ -172,6 +172,9 @@ class _TrendingShowcase extends StatefulWidget {
 class _TrendingShowcaseState extends State<_TrendingShowcase> {
   int index = 0;
 
+  /// Which way the last change moved, so the next title enters from there.
+  int direction = 1;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -179,7 +182,12 @@ class _TrendingShowcaseState extends State<_TrendingShowcase> {
   }
 
   void select(int value) {
-    setState(() => index = value % widget.items.length);
+    final current = index.clamp(0, widget.items.length - 1);
+    if (value == current) return;
+    setState(() {
+      direction = value > current ? 1 : -1;
+      index = value % widget.items.length;
+    });
     PageStorage.maybeOf(context)?.writeState(context, index);
   }
 
@@ -188,6 +196,7 @@ class _TrendingShowcaseState extends State<_TrendingShowcase> {
     final current = index.clamp(0, widget.items.length - 1);
     final spotlight = _Spotlight(
       item: widget.items[current],
+      direction: direction,
       rank: current + 1,
       count: widget.items.length,
       onOpen: widget.onOpen,
@@ -222,6 +231,7 @@ class _TrendingShowcaseState extends State<_TrendingShowcase> {
 class _Spotlight extends StatelessWidget {
   const _Spotlight({
     required this.item,
+    required this.direction,
     required this.rank,
     required this.count,
     required this.onOpen,
@@ -229,6 +239,9 @@ class _Spotlight extends StatelessWidget {
     required this.onNext,
   });
   final Subject item;
+
+  /// 1 when moving down the ranking, -1 when moving back up.
+  final int direction;
   final int rank, count;
   final ValueChanged<Subject> onOpen;
   final VoidCallback onPrevious, onNext;
@@ -274,7 +287,27 @@ class _Spotlight extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.all(28),
                 child: AnimatedSwitcher(
-                  duration: motionDuration(context, 220),
+                  duration: motionDuration(context, 320),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  // The new title slides in from the side it came from while
+                  // the old one leaves the other way.
+                  transitionBuilder: (child, animation) => FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: animation.drive(
+                        Tween(
+                          begin: Offset(
+                            (child.key == ValueKey(id) ? .04 : -.04) *
+                                direction,
+                            0,
+                          ),
+                          end: Offset.zero,
+                        ),
+                      ),
+                      child: child,
+                    ),
+                  ),
                   child: Row(
                     key: ValueKey(id),
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -465,82 +498,92 @@ class _RankList extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return MelonPanel(
       padding: const EdgeInsets.fromLTRB(Gap.sm, Gap.sm, Gap.sm, Gap.sm),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(left: Gap.sm, bottom: Gap.xs),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.local_fire_department_outlined,
-                  size: 18,
-                  color: coral,
-                ),
-                const SizedBox(width: 6),
-                Text('本季热度', style: Theme.of(context).textTheme.titleSmall),
-                const Spacer(),
-                refresh,
-              ],
-            ),
+      child: MotionSelection<int>(
+        selected: selected,
+        highlight: DecoratedBox(
+          decoration: BoxDecoration(
+            color: scheme.primaryContainer.withValues(alpha: .6),
+            borderRadius: badgeBorderRadius,
           ),
-          for (var i = 0; i < items.length; i++)
-            Expanded(
-              child: Material(
-                color: i == selected
-                    ? scheme.primaryContainer.withValues(alpha: .6)
-                    : Colors.transparent,
-                borderRadius: badgeBorderRadius,
-                child: InkWell(
+        ),
+        builder: (context, keyOf) => Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: Gap.sm, bottom: Gap.xs),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.local_fire_department_outlined,
+                    size: 18,
+                    color: coral,
+                  ),
+                  const SizedBox(width: 6),
+                  Text('本季热度', style: Theme.of(context).textTheme.titleSmall),
+                  const Spacer(),
+                  refresh,
+                ],
+              ),
+            ),
+            for (var i = 0; i < items.length; i++)
+              Expanded(
+                child: Material(
+                  key: keyOf(i),
+                  color: Colors.transparent,
                   borderRadius: badgeBorderRadius,
-                  onTap: () => onSelect(i),
-                  child: Semantics(
-                    selected: i == selected,
-                    button: true,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 24,
-                            child: Text(
-                              '${i + 1}',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800,
-                                color: i < 3 ? coral : scheme.onSurfaceVariant,
+                  child: InkWell(
+                    borderRadius: badgeBorderRadius,
+                    onTap: () => onSelect(i),
+                    child: Semantics(
+                      selected: i == selected,
+                      button: true,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 24,
+                              child: Text(
+                                '${i + 1}',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                  color: i < 3
+                                      ? coral
+                                      : scheme.onSurfaceVariant,
+                                ),
                               ),
                             ),
-                          ),
-                          Expanded(
-                            child: Text(
-                              items[i].title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: i == selected
-                                    ? FontWeight.w800
-                                    : FontWeight.w600,
+                            Expanded(
+                              child: Text(
+                                items[i].title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: i == selected
+                                      ? FontWeight.w800
+                                      : FontWeight.w600,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: Gap.sm),
-                          Text(
-                            '★ ${scoreLabel(items[i].score)}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: scheme.tertiary,
+                            const SizedBox(width: Gap.sm),
+                            Text(
+                              '★ ${scoreLabel(items[i].score)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: scheme.tertiary,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -638,7 +681,7 @@ class _ResumePoster extends StatefulWidget {
 }
 
 class _ResumePosterState extends State<_ResumePoster> {
-  bool hovered = false, focused = false;
+  bool hovered = false, focused = false, pressed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -658,77 +701,52 @@ class _ResumePosterState extends State<_ResumePoster> {
         onTap: () => widget.onOpen(item),
         onHover: (value) => setState(() => hovered = value),
         onFocusChange: (value) => setState(() => focused = value),
+        onHighlightChanged: (value) => setState(() => pressed = value),
         overlayColor: const WidgetStatePropertyAll(Colors.transparent),
         borderRadius: posterBorderRadius,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: posterBorderRadius,
-                  boxShadow: posterShadows(context),
-                ),
-                child: ClipRRect(
-                  borderRadius: posterBorderRadius,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      SubjectCover(
-                        url: item.coverUrl,
-                        title: item.title,
-                        id: item.id,
-                      ),
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            stops: [.35, 1],
-                            colors: [Colors.transparent, Color(0xcc000000)],
-                          ),
-                          color: active
-                              ? Colors.black.withValues(alpha: .12)
-                              : null,
+              child: PosterLift(
+                raised: active,
+                pressed: pressed,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    SubjectCover(
+                      url: item.coverUrl,
+                      title: item.title,
+                      id: item.id,
+                    ),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          stops: [.35, 1],
+                          colors: [Colors.transparent, Color(0xcc000000)],
                         ),
+                        color: active
+                            ? Colors.black.withValues(alpha: .12)
+                            : null,
                       ),
-                      if (episodeLabel != null)
-                        Positioned(
-                          top: 10,
-                          left: 10,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: accentOf(context).accent,
-                              borderRadius: badgeBorderRadius,
-                            ),
-                            child: Text(
-                              episodeLabel,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ),
+                    ),
+                    if (episodeLabel != null)
                       Positioned(
                         top: 10,
-                        right: 10,
+                        left: 10,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 8,
                             vertical: 4,
                           ),
-                          decoration: const BoxDecoration(
-                            color: Colors.black38,
+                          decoration: BoxDecoration(
+                            color: accentOf(context).accent,
                             borderRadius: badgeBorderRadius,
                           ),
                           child: Text(
-                            '剩余 $remaining 分钟',
+                            episodeLabel,
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 11,
@@ -737,44 +755,70 @@ class _ResumePosterState extends State<_ResumePoster> {
                           ),
                         ),
                       ),
-                      Positioned(
-                        left: 11,
-                        right: 10,
-                        bottom: 14,
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: const BoxDecoration(
+                          color: Colors.black38,
+                          borderRadius: badgeBorderRadius,
+                        ),
                         child: Text(
-                          item.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                          '剩余 $remaining 分钟',
                           style: const TextStyle(
-                            fontSize: 13,
-                            height: 1.3,
                             color: Colors.white,
+                            fontSize: 11,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
                       ),
-                      if (duration > 0)
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: LinearProgressIndicator(
-                            value: (position / duration).clamp(0, 1),
+                    ),
+                    Positioned(
+                      left: 11,
+                      right: 10,
+                      bottom: 14,
+                      child: Text(
+                        item.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          height: 1.3,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    if (duration > 0)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: MotionValue(
+                          value: (position / duration).clamp(0, 1),
+                          from: 0,
+                          milliseconds: 700,
+                          builder: (context, value) => LinearProgressIndicator(
+                            value: value,
                             minHeight: 4,
                             color: accentOf(context).accent,
                             backgroundColor: Colors.white24,
                             semanticsLabel: '观看进度',
                           ),
                         ),
-                      if (focused)
-                        DecoratedBox(
-                          decoration: BoxDecoration(
-                            borderRadius: posterBorderRadius,
-                            border: Border.all(color: scheme.primary, width: 2),
-                          ),
+                      ),
+                    if (focused)
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: posterBorderRadius,
+                          border: Border.all(color: scheme.primary, width: 2),
                         ),
-                    ],
-                  ),
+                      ),
+                  ],
                 ),
               ),
             ),

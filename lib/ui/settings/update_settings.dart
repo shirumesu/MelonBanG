@@ -5,6 +5,7 @@ import '../../features/update/app_update.dart';
 import '../../features/update/uninstall.dart';
 import '../../integrations/github/app_releases.dart';
 import '../core/external_link.dart';
+import '../core/motion.dart';
 import '../core/theme.dart';
 import 'settings_page.dart';
 
@@ -217,7 +218,7 @@ class _UninstallRow extends StatelessWidget {
   };
 
   Future<void> _confirmWindows(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showMelonDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('卸载 MelonBanG？'),
@@ -243,7 +244,7 @@ class _UninstallRow extends StatelessWidget {
   }
 
   Future<void> _confirmMacOS(BuildContext context) async {
-    final wipe = await showDialog<bool>(
+    final wipe = await showMelonDialog<bool>(
       context: context,
       builder: (context) => _MacOSUninstallDialog(uninstall: uninstall),
     );

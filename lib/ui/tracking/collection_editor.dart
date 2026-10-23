@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -490,6 +492,10 @@ class StarRating extends StatefulWidget {
 class _StarRatingState extends State<StarRating> {
   int hover = 0;
 
+  /// The star last tapped and how many taps there were, so each tap gives
+  /// that star a small bounce.
+  int popped = 0, pops = 0;
+
   @override
   Widget build(BuildContext context) {
     final empty = Theme.of(context).colorScheme.surfaceContainerHighest;
@@ -508,11 +514,21 @@ class _StarRatingState extends State<StarRating> {
                 cursor: SystemMouseCursors.click,
                 onEnter: (_) => setState(() => hover = n),
                 child: GestureDetector(
-                  onTap: () => widget.onTap(n),
+                  onTap: () {
+                    if (widget.enabled) {
+                      setState(() {
+                        popped = n;
+                        pops++;
+                      });
+                    }
+                    widget.onTap(n);
+                  },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: .5),
-                    child: Icon(
-                      Icons.star_rounded,
+                    child: _Star(
+                      key: ValueKey(n == popped ? pops : 0),
+                      pop: n == popped && pops > 0,
+                      lifted: widget.enabled && hover == n,
                       size: widget.size,
                       color: n > shown
                           ? empty
@@ -547,6 +563,42 @@ class _StarRatingState extends State<StarRating> {
       ],
     );
   }
+}
+
+/// One star: its colour fades as the rating passes over it, it rises under
+/// the pointer, and [pop] bounces it once when it was just tapped.
+class _Star extends StatelessWidget {
+  const _Star({
+    super.key,
+    required this.color,
+    required this.size,
+    required this.lifted,
+    required this.pop,
+  });
+  final Color color;
+  final double size;
+  final bool lifted, pop;
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    tween: Tween(begin: pop ? 0 : 1, end: 1),
+    duration: motionDuration(context, 380),
+    builder: (context, bounce, child) => Transform.scale(
+      scale: 1 + math.sin(bounce * math.pi) * .3,
+      child: child,
+    ),
+    child: AnimatedScale(
+      scale: lifted ? 1.18 : 1,
+      duration: motionDuration(context, 160),
+      curve: Curves.easeOutCubic,
+      child: TweenAnimationBuilder<Color?>(
+        tween: ColorTween(end: color),
+        duration: motionDuration(context, 140),
+        builder: (context, color, _) =>
+            Icon(Icons.star_rounded, size: size, color: color),
+      ),
+    ),
+  );
 }
 
 class ScoreText extends StatelessWidget {

@@ -126,6 +126,10 @@ class PlayerPageState extends State<PlayerPage> {
   double? dragging;
   int seekTicket = 0;
   String? feedback;
+
+  /// The last confirmation shown, kept while it fades out.
+  String shownFeedback = '';
+  bool shownBoost = false;
   Timer? hideTimer, feedbackTimer;
   StreamSubscription<bool>? playingSubscription;
   String? sessionId;
@@ -657,6 +661,11 @@ class PlayerPageState extends State<PlayerPage> {
       final narrow = constraints.maxWidth < 680;
       final transportInset = narrow ? 136.0 : 108.0;
       final failure = widget.failure?.reason ?? playback.error;
+      final toast = feedback != null || boosting;
+      if (toast) {
+        shownBoost = boosting;
+        shownFeedback = boosting ? '3× 快进中' : feedback!;
+      }
       return Focus(
         focusNode: focus,
         autofocus: true,
@@ -716,30 +725,44 @@ class PlayerPageState extends State<PlayerPage> {
                 builder: (_, snapshot) =>
                     (playback.opening || snapshot.data == true) &&
                         failure == null
-                    ? ValueListenableBuilder(
-                        valueListenable: widget.downloads.snapshot,
-                        builder: (context, downloads, _) => _BufferingStatus(
-                          opening: playback.opening,
-                          task: switch (playback.session) {
-                            PlaybackSession(:final downloadId?, streamId: _?) =>
-                              downloads.task(downloadId),
-                            _ => null,
-                          },
+                    // Fades in after a moment, so a brief stall does not
+                    // flash the spinner.
+                    ? MotionAppear(
+                        offset: 0,
+                        delay: 250,
+                        child: ValueListenableBuilder(
+                          valueListenable: widget.downloads.snapshot,
+                          builder: (context, downloads, _) => _BufferingStatus(
+                            opening: playback.opening,
+                            task: switch (playback.session) {
+                              PlaybackSession(
+                                :final downloadId?,
+                                streamId: _?,
+                              ) =>
+                                downloads.task(downloadId),
+                              _ => null,
+                            },
+                          ),
                         ),
                       )
                     : const SizedBox.shrink(),
               ),
               if (failure != null)
                 Center(
-                  child: _FailureCard(
-                    reason: failure,
-                    onRetry: widget.failure == null
-                        ? null
-                        : widget.onRetryFailure,
-                    onChoose: widget.subject == null
-                        ? null
-                        : () =>
-                              findResources(widget.failure?.episode ?? episode),
+                  child: MotionAppear(
+                    offset: 10,
+                    milliseconds: 280,
+                    child: _FailureCard(
+                      reason: failure,
+                      onRetry: widget.failure == null
+                          ? null
+                          : widget.onRetryFailure,
+                      onChoose: widget.subject == null
+                          ? null
+                          : () => findResources(
+                              widget.failure?.episode ?? episode,
+                            ),
+                    ),
                   ),
                 ),
               StreamBuilder<bool>(
@@ -795,39 +818,52 @@ class PlayerPageState extends State<PlayerPage> {
                 right: 0,
                 child: IgnorePointer(
                   child: Center(
+                    // Settles in from slightly smaller and keeps its text
+                    // while fading out; a new message resizes it smoothly.
                     child: AnimatedOpacity(
-                      opacity: feedback == null && !boosting ? 0 : 1,
-                      duration: motionDuration(context, 150),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 7,
-                        ),
-                        decoration: const BoxDecoration(
-                          color: Color(0xb3000000),
-                          borderRadius: controlBorderRadius,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (boosting) ...[
-                              const Icon(
-                                Icons.fast_forward_rounded,
-                                size: 18,
-                                color: Colors.white,
-                              ),
-                              const SizedBox(width: Gap.sm),
-                            ],
-                            Text(
-                              boosting ? '3× 快进中' : feedback ?? '',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                                fontFeatures: [FontFeature.tabularFigures()],
-                              ),
+                      opacity: toast ? 1 : 0,
+                      duration: motionDuration(context, toast ? 150 : 260),
+                      child: AnimatedScale(
+                        scale: toast ? 1 : .94,
+                        duration: motionDuration(context, 220),
+                        curve: Curves.easeOutCubic,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 7,
+                          ),
+                          decoration: const BoxDecoration(
+                            color: Color(0xb3000000),
+                            borderRadius: controlBorderRadius,
+                          ),
+                          child: AnimatedSize(
+                            duration: motionDuration(context, 180),
+                            curve: Curves.easeOutCubic,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (shownBoost) ...[
+                                  const Icon(
+                                    Icons.fast_forward_rounded,
+                                    size: 18,
+                                    color: Colors.white,
+                                  ),
+                                  const SizedBox(width: Gap.sm),
+                                ],
+                                Text(
+                                  shownFeedback,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                    fontFeatures: [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -891,12 +927,17 @@ class PlayerPageState extends State<PlayerPage> {
                       curve: Curves.easeOutCubic,
                       right: pageGutter,
                       bottom: controls ? transportInset : pageGutter,
-                      child: _SkipButton(
-                        label: label,
-                        onPressed: () {
-                          showFeedback(label);
-                          unawaited(seekTo(target));
-                        },
+                      child: MotionAppear(
+                        key: ValueKey(label),
+                        offset: 8,
+                        milliseconds: 260,
+                        child: _SkipButton(
+                          label: label,
+                          onPressed: () {
+                            showFeedback(label);
+                            unawaited(seekTo(target));
+                          },
+                        ),
                       ),
                     );
                   },
@@ -906,47 +947,51 @@ class PlayerPageState extends State<PlayerPage> {
                 Positioned(
                   right: 20,
                   bottom: transportInset + 4,
-                  child: Material(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius: BorderRadius.circular(12),
-                    elevation: 8,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(switch (playback.autoplayTarget) {
-                            null => playback.autoplayMessage!,
-                            final target =>
-                              '${playback.autoplaySeconds} 秒后播放第 ${target.episode.number} 话',
-                          }),
-                          if (playback.autoplayTarget case final target?) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              target.sourceLabel,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                TextButton(
-                                  onPressed: playback.playAutoplay,
-                                  child: const Text('立即播放'),
-                                ),
-                                TextButton(
-                                  onPressed: playback.cancelAutoplay,
-                                  child: const Text('取消'),
-                                ),
-                              ],
-                            ),
-                          ] else if (playback.autoplayEndEpisode != null)
-                            TextButton(
-                              onPressed: () =>
-                                  findResources(playback.autoplayEndEpisode),
-                              child: const Text('查找资源'),
-                            ),
-                        ],
+                  child: MotionAppear(
+                    offset: 12,
+                    milliseconds: 300,
+                    child: Material(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      elevation: 8,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(switch (playback.autoplayTarget) {
+                              null => playback.autoplayMessage!,
+                              final target =>
+                                '${playback.autoplaySeconds} 秒后播放第 ${target.episode.number} 话',
+                            }),
+                            if (playback.autoplayTarget case final target?) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                target.sourceLabel,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  TextButton(
+                                    onPressed: playback.playAutoplay,
+                                    child: const Text('立即播放'),
+                                  ),
+                                  TextButton(
+                                    onPressed: playback.cancelAutoplay,
+                                    child: const Text('取消'),
+                                  ),
+                                ],
+                              ),
+                            ] else if (playback.autoplayEndEpisode != null)
+                              TextButton(
+                                onPressed: () =>
+                                    findResources(playback.autoplayEndEpisode),
+                                child: const Text('查找资源'),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -1316,107 +1361,129 @@ class _PreparingView extends StatelessWidget {
     return ColoredBox(
       color: Colors.black,
       child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 96,
-                height: 128,
-                child: ClipRRect(
-                  borderRadius: posterBorderRadius,
-                  child: SubjectCover(
-                    url: preparing.coverUrl,
-                    title: preparing.title,
-                    id: preparing.subject?.id ?? 0,
+        child: MotionAppear(
+          offset: 10,
+          milliseconds: 320,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 96,
+                  height: 128,
+                  child: ClipRRect(
+                    borderRadius: posterBorderRadius,
+                    child: SubjectCover(
+                      url: preparing.coverUrl,
+                      title: preparing.title,
+                      id: preparing.subject?.id ?? 0,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: Gap.lg),
-              Text(
-                preparing.title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              if (preparing.detail case final detail?) ...[
-                const SizedBox(height: Gap.xs),
+                const SizedBox(height: Gap.lg),
                 Text(
-                  detail,
+                  preparing.title,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: muted, fontSize: 12),
+                  style: const TextStyle(
+                    color: white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ],
-              const SizedBox(height: Gap.xl),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (failed == null)
-                    const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: white,
+                if (preparing.detail case final detail?) ...[
+                  const SizedBox(height: Gap.xs),
+                  Text(
+                    detail,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: muted, fontSize: 12),
+                  ),
+                ],
+                const SizedBox(height: Gap.xl),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    MotionSwap(
+                      value: failed == null,
+                      child: failed == null
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: white,
+                              ),
+                            )
+                          : Icon(
+                              Icons.error_outline_rounded,
+                              size: 18,
+                              color: muted,
+                            ),
+                    ),
+                    const SizedBox(width: Gap.sm),
+                    // Each step of finding and opening the video cross-fades
+                    // into the next.
+                    Flexible(
+                      child: AnimatedSize(
+                        duration: motionDuration(context, 220),
+                        curve: Curves.easeOutCubic,
+                        child: MotionSwap(
+                          value: failed ?? preparing.status,
+                          scale: 1,
+                          milliseconds: 220,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            failed ?? preparing.status ?? '正在查找资源…',
+                            style: TextStyle(color: muted, fontSize: 13),
+                          ),
+                        ),
                       ),
-                    )
-                  else
-                    Icon(Icons.error_outline_rounded, size: 18, color: muted),
-                  const SizedBox(width: Gap.sm),
-                  Flexible(
-                    child: Text(
-                      failed ?? preparing.status ?? '正在查找资源…',
-                      style: TextStyle(color: muted, fontSize: 13),
+                    ),
+                  ],
+                ),
+                if (failed == null && live != null) ...[
+                  const SizedBox(height: Gap.xs),
+                  Text(
+                    live,
+                    style: TextStyle(
+                      color: muted,
+                      fontSize: 12,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
                 ],
-              ),
-              if (failed == null && live != null) ...[
-                const SizedBox(height: Gap.xs),
-                Text(
-                  live,
-                  style: TextStyle(
-                    color: muted,
-                    fontSize: 12,
-                    fontFeatures: const [FontFeature.tabularFigures()],
+                if (failed == null && hint != null) ...[
+                  const SizedBox(height: Gap.xs),
+                  Text(
+                    hint,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: muted, fontSize: 12),
                   ),
-                ),
-              ],
-              if (failed == null && hint != null) ...[
-                const SizedBox(height: Gap.xs),
-                Text(
-                  hint,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-              ],
-              const SizedBox(height: Gap.lg),
-              Wrap(
-                spacing: Gap.sm,
-                runSpacing: Gap.sm,
-                alignment: WrapAlignment.center,
-                children: [
-                  if (failed != null)
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: white,
-                        foregroundColor: const Color(0xff164d39),
-                      ),
-                      onPressed: onRetry,
-                      child: const Text('重试'),
-                    ),
-                  if (canChoose)
-                    OutlinedButton(
-                      style: buttonStyle,
-                      onPressed: onChoose,
-                      child: const Text('选择资源'),
-                    ),
                 ],
-              ),
-            ],
+                const SizedBox(height: Gap.lg),
+                Wrap(
+                  spacing: Gap.sm,
+                  runSpacing: Gap.sm,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    if (failed != null)
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: white,
+                          foregroundColor: const Color(0xff164d39),
+                        ),
+                        onPressed: onRetry,
+                        child: const Text('重试'),
+                      ),
+                    if (canChoose)
+                      OutlinedButton(
+                        style: buttonStyle,
+                        onPressed: onChoose,
+                        child: const Text('选择资源'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

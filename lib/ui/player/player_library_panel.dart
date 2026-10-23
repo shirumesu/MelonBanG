@@ -15,6 +15,7 @@ import '../acquisition/download_task_widgets.dart';
 import '../core/account_avatar.dart';
 import '../core/bbcode.dart';
 import '../core/external_link.dart';
+import '../core/motion.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -161,31 +162,40 @@ class _PlayerSidePanelState extends State<PlayerSidePanel> {
               ),
             ),
           Expanded(
-            child: switch (tab) {
-              PlayerPanelTab.episodes => _EpisodesPane(
-                key: ValueKey('episodes:${widget.session?.subjectId}'),
-                subject: subject,
-                session: widget.session,
-                source: widget.source,
-                remembered: widget.remembered,
-                onForgetSource: widget.onForgetSource,
-                downloads: widget.downloads,
-                onEpisode: widget.onEpisode,
-                onFindResources: widget.onFindResources,
-                onPlayFile: widget.onPlayFile,
-                onToggleTask: widget.onToggleTask,
-                onMark: mark,
+            // Tabs cross-fade rather than cut.
+            child: MotionSwap(
+              value: tab,
+              scale: 1,
+              milliseconds: 200,
+              alignment: Alignment.topCenter,
+              child: SizedBox.expand(
+                child: switch (tab) {
+                  PlayerPanelTab.episodes => _EpisodesPane(
+                    key: ValueKey('episodes:${widget.session?.subjectId}'),
+                    subject: subject,
+                    session: widget.session,
+                    source: widget.source,
+                    remembered: widget.remembered,
+                    onForgetSource: widget.onForgetSource,
+                    downloads: widget.downloads,
+                    onEpisode: widget.onEpisode,
+                    onFindResources: widget.onFindResources,
+                    onPlayFile: widget.onPlayFile,
+                    onToggleTask: widget.onToggleTask,
+                    onMark: mark,
+                  ),
+                  PlayerPanelTab.discussion => _DiscussionPane(
+                    key: ValueKey('discussion:${episode?.id}'),
+                    community: widget.community,
+                    episode: episode,
+                  ),
+                  PlayerPanelTab.danmaku => PlayerDanmakuPane(
+                    playback: widget.playback,
+                    onError: widget.onError,
+                  ),
+                },
               ),
-              PlayerPanelTab.discussion => _DiscussionPane(
-                key: ValueKey('discussion:${episode?.id}'),
-                community: widget.community,
-                episode: episode,
-              ),
-              PlayerPanelTab.danmaku => PlayerDanmakuPane(
-                playback: widget.playback,
-                onError: widget.onError,
-              ),
-            },
+            ),
           ),
         ],
       ),
@@ -502,10 +512,13 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
             const SizedBox(height: 6),
             Padding(
               padding: const EdgeInsets.only(right: Gap.sm),
-              child: LinearProgressIndicator(
+              child: MotionValue(
                 value: task.progress,
-                minHeight: 2,
-                borderRadius: BorderRadius.circular(1),
+                builder: (context, value) => LinearProgressIndicator(
+                  value: value,
+                  minHeight: 2,
+                  borderRadius: BorderRadius.circular(1),
+                ),
               ),
             ),
           ],
@@ -622,10 +635,13 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                     left: 8,
                     right: 8,
                     bottom: 5,
-                    child: LinearProgressIndicator(
+                    child: MotionValue(
                       value: downloading.progress,
-                      minHeight: 2,
-                      borderRadius: BorderRadius.circular(1),
+                      builder: (context, value) => LinearProgressIndicator(
+                        value: value,
+                        minHeight: 2,
+                        borderRadius: BorderRadius.circular(1),
+                      ),
                     ),
                   ),
               ],
@@ -746,10 +762,8 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                   style: small,
                 ),
                 const Spacer(),
-                Icon(
-                  tasksOpen
-                      ? Icons.expand_less_rounded
-                      : Icons.expand_more_rounded,
+                ExpandChevron(
+                  open: tasksOpen,
                   size: 18,
                   color: scheme.onSurfaceVariant,
                 ),
@@ -757,17 +771,23 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
             ),
           ),
         ),
-        if (tasksOpen) ...[
-          if (taskError != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: Gap.sm),
-              child: Text(
-                taskError!,
-                style: TextStyle(color: scheme.error, fontSize: 12),
-              ),
-            ),
-          for (final task in tasks) taskTile(task),
-        ],
+        MotionReveal(
+          visible: tasksOpen,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (taskError != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: Gap.sm),
+                  child: Text(
+                    taskError!,
+                    style: TextStyle(color: scheme.error, fontSize: 12),
+                  ),
+                ),
+              for (final task in tasks) taskTile(task),
+            ],
+          ),
+        ),
       ],
     );
   }

@@ -411,7 +411,7 @@ class _MelonAppState extends State<MelonApp>
     if (target == null) return null;
     final search = service.newResourceSearch()..open(item, episode: episode);
     try {
-      return await showDialog<PlayCandidate>(
+      return await showMelonDialog<PlayCandidate>(
         context: target,
         builder: (context) => Dialog(
           clipBehavior: Clip.antiAlias,
@@ -805,8 +805,12 @@ class _MelonAppState extends State<MelonApp>
                           Expanded(
                             child: Column(
                               children: [
-                                if (busy && !fullScreen)
-                                  const LinearProgressIndicator(minHeight: 2),
+                                MotionReveal(
+                                  visible: busy && !fullScreen,
+                                  child: const LinearProgressIndicator(
+                                    minHeight: 2,
+                                  ),
+                                ),
                                 Expanded(
                                   child: PageStorage(
                                     bucket: pageStorage,

@@ -18,7 +18,7 @@ Future<List<Episode>?> showResourceBatchDialog(
   required Set<int> available,
   Set<int> added = const {},
   Set<int> cached = const {},
-}) => showDialog<List<Episode>>(
+}) => showMelonDialog<List<Episode>>(
   context: context,
   builder: (_) => _BatchDialog(
     title: title,
