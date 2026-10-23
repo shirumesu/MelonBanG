@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/error_message.dart';
 import '../../core/json.dart' show coverAddress;
 import '../../domain/catalog.dart';
 import '../core/account_avatar.dart';
@@ -127,8 +128,9 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('打开失败：$error')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('打开失败：${errorMessage(error)}')));
       }
     }
   }

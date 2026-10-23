@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
+import '../../core/error_message.dart';
 import '../core/motion.dart';
 import '../core/theme.dart';
 import '../../domain/danmaku.dart';
@@ -1313,7 +1314,9 @@ class _DanmakuComposerState extends State<_DanmakuComposer> {
       widget.draft.clear();
       widget.onDone();
     } catch (e) {
-      widget.onFeedback(e is StateError ? e.message : '弹幕发送失败：$e');
+      widget.onFeedback(
+        e is StateError ? errorMessage(e) : '弹幕发送失败：${errorMessage(e)}',
+      );
     } finally {
       if (mounted) {
         setState(() => _sending = false);

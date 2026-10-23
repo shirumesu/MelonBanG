@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../core/error_message.dart';
 import '../../core/network.dart';
 import '../../core/proxy.dart';
 import '../../domain/sources.dart';
@@ -162,19 +163,10 @@ class ConnectivityCheck extends ChangeNotifier {
   }
 }
 
-/// A short reason for a failed connection.
+/// A short reason for a failed connection; the diagnostic itself when the
+/// cause is unknown.
 String describeNetworkError(Object error) {
+  if (networkFailure(error) case final reason?) return reason;
   final text = '$error';
-  if (text.contains('Failed host lookup') || text.contains('nodename')) {
-    return '无法解析域名';
-  }
-  if (text.contains('Connection refused')) return '连接被拒绝';
-  if (text.contains('Connection reset') || text.contains('Connection closed')) {
-    return '连接被重置';
-  }
-  if (text.contains('HandshakeException') || text.contains('CERTIFICATE')) {
-    return 'TLS 握手失败';
-  }
-  if (text.contains('Proxy') || text.contains('proxy')) return '代理连接失败';
   return text.length > 80 ? '${text.substring(0, 80)}…' : text;
 }

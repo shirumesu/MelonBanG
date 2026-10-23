@@ -217,8 +217,13 @@ class _DownloadsPageState extends State<DownloadsPage> {
         if (visible.isEmpty)
           EmptyState(
             text: tasks.isEmpty ? '还没有缓存' : '没有符合条件的任务',
-            action: tasks.isEmpty ? widget.onExplore : null,
-            actionLabel: '去探索',
+            action: tasks.isEmpty
+                ? widget.onExplore
+                : () => setState(() {
+                    filter = '全部';
+                    statusFilter = '全部状态';
+                  }),
+            actionLabel: tasks.isEmpty ? '去探索' : '清除筛选',
           ),
       ],
     );

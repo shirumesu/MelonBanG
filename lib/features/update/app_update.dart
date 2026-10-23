@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/error_message.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../integrations/github/app_releases.dart';
@@ -125,7 +126,7 @@ class AppUpdate extends ChangeNotifier {
       checkedAt = DateTime.now();
     } catch (e) {
       phase = UpdatePhase.failed;
-      error = '检查更新失败：$e';
+      error = '检查更新失败：${errorMessage(e)}';
     }
     notifyListeners();
     if (phase == UpdatePhase.available && autoDownload) await download();
@@ -185,7 +186,7 @@ class AppUpdate extends ChangeNotifier {
           '无法写入$location（${e.osError?.message ?? e.message}），请到 GitHub 手动下载新版本';
     } catch (e) {
       phase = UpdatePhase.failed;
-      error = '下载更新失败：$e';
+      error = '下载更新失败：${errorMessage(e)}';
     }
     notifyListeners();
   }

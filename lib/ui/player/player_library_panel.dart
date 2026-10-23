@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/error_message.dart';
 import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/playback_session.dart';
@@ -297,7 +298,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
       await widget.onToggleTask(task);
       if (mounted && taskError != null) setState(() => taskError = null);
     } catch (e) {
-      if (mounted) setState(() => taskError = '$e');
+      if (mounted) setState(() => taskError = errorMessage(e));
     }
   }
 
@@ -648,7 +649,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
         const PopupMenuItem(value: 'resources', child: Text('查找资源')),
         PopupMenuItem(
           value: 'mark',
-          child: Text(episode.watched ? '标为未看' : '标为看过'),
+          child: Text(episode.watched ? '标为未看' : '标为已看'),
         ),
       ],
     );
@@ -709,7 +710,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
           ),
         ),
         Tooltip(
-          message: '点击播放：有缓存直接播放，否则按来源设置选择资源\n右键：查找资源、标为看过',
+          message: '点击播放：有缓存直接播放，否则按来源设置选择资源\n右键：查找资源、标为已看',
           child: Icon(
             Icons.help_outline_rounded,
             size: 16,
@@ -879,7 +880,7 @@ class _DiscussionPaneState extends State<_DiscussionPane> {
       );
       if (mounted) setState(() => posts = result);
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) setState(() => error = errorMessage(e));
     }
   }
 

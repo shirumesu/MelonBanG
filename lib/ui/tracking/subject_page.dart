@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/error_message.dart';
 import '../../domain/collection_edit.dart';
 import '../../domain/catalog.dart';
 import '../../features/playback/playback_library.dart';
@@ -83,6 +84,7 @@ class SubjectPage extends StatelessWidget {
         onPlayEpisode: onPlayEpisode,
         onOpenEpisode: onOpenEpisode,
         onOpenSubject: onOpenSubject,
+        onRetry: () => unawaited(subjects.open(subject!).catchError(onError)),
       );
     },
   );
@@ -98,6 +100,7 @@ class _SubjectDetail extends StatefulWidget {
     required this.onPlayEpisode,
     required this.onOpenEpisode,
     required this.onOpenSubject,
+    required this.onRetry,
     this.resume,
     this.airings = const [],
     this.cachedEpisodeIds,
@@ -120,6 +123,9 @@ class _SubjectDetail extends StatefulWidget {
   final ValueChanged<Episode?> onFindResources;
   final ValueChanged<Episode> onPlayEpisode, onOpenEpisode;
   final ValueChanged<Subject> onOpenSubject;
+
+  /// Loads the parts that failed again.
+  final VoidCallback onRetry;
   @override
   State<_SubjectDetail> createState() => _SubjectDetailState();
 }
@@ -287,7 +293,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         _selectedStatus = previousStatus;
         _savingCollection = false;
         _feedback = null;
-        _collectionError = '保存失败：$error';
+        _collectionError = '保存失败：${errorMessage(error)}';
       });
       return false;
     }
@@ -361,13 +367,15 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     } on FormatException catch (error) {
       return error.message;
     }
+    // The typed tags stay in the field when they were not saved.
+    if (_savingCollection) return '正在保存上一项修改，请稍后再添加';
     final previous = _tags;
-    await _saveFields(
+    final saved = await _saveFields(
       CollectionChange(tags: tags),
       label: '已保存标签',
       undo: CollectionChange(tags: previous),
     );
-    return null;
+    return saved ? null : '标签未保存';
   }
 
   Future<void> _saveComment(String comment) =>
@@ -428,7 +436,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       await widget.onSaveEpisodes(ids, status);
     } catch (error) {
       if (mounted && widget.subject?.id == subjectId) {
-        _episodeError = '标记失败：$error';
+        _episodeError = '标记失败：${errorMessage(error)}';
       }
     } finally {
       if (mounted && widget.subject?.id == subjectId) {
@@ -449,8 +457,9 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('打开失败：$error')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('打开失败：${errorMessage(error)}')));
       }
     }
   }
@@ -880,9 +889,9 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         else if (episodes.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Text(
-              _failedPart('episodes') ? '剧集加载失败，请重新打开详情重试。' : '暂无剧集信息',
-            ),
+            child: _failedPart('episodes')
+                ? _failure('剧集加载失败')
+                : const Text('暂无剧集信息'),
           )
         else
           _EpisodeGrid(
@@ -915,6 +924,14 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       ],
     );
   }
+
+  Widget _failure(String message) => Row(
+    children: [
+      Text(message, style: Theme.of(context).textTheme.bodySmall),
+      const SizedBox(width: Gap.sm),
+      TextButton(onPressed: widget.onRetry, child: const Text('重试')),
+    ],
+  );
 
   Widget _collectionCard(Subject item) {
     final text = Theme.of(context).textTheme;
@@ -1332,11 +1349,10 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             ],
           ),
           const SizedBox(height: Gap.md),
-          if (people.isEmpty)
-            Text(
-              loading ? '正在加载$heading…' : '$heading加载失败。',
-              style: Theme.of(context).textTheme.bodySmall,
-            )
+          if (people.isEmpty && !loading)
+            _failure('$heading加载失败')
+          else if (people.isEmpty)
+            Text('正在加载$heading…', style: Theme.of(context).textTheme.bodySmall)
           else
             LayoutBuilder(
               builder: (context, constraints) {
@@ -1988,7 +2004,7 @@ class _EpisodeGridState extends State<_EpisodeGrid> {
       ),
       items: [
         const PopupMenuItem(value: 'play', child: Text('播放')),
-        const PopupMenuItem(value: 'resources', child: Text('查看资源')),
+        const PopupMenuItem(value: 'resources', child: Text('查找资源')),
         PopupMenuItem(value: 'mark', child: Text(watched ? '标为未看' : '标为已看')),
       ],
     );

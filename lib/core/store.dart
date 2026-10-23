@@ -101,9 +101,6 @@ class AppStore {
     offset: offset,
   )).values.toList();
 
-  Future<List<Json>> listPrefix(String scope, String prefix) =>
-      list(scope, idPrefix: prefix);
-
   Future<Map<String, Json>> entries(
     String scope, {
     int? subjectId,

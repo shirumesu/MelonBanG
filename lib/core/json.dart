@@ -7,12 +7,6 @@ Json object(dynamic value) =>
 List<Json> objects(dynamic value) =>
     value is List ? value.map(object).toList() : [];
 double number(dynamic value) => value is num ? value.toDouble() : 0;
-String titleOf(Json value) =>
-    [value['nameCn'], value['displayName'], value['name'], value['title']]
-        .whereType<String>()
-        .where((title) => title.trim().isNotEmpty)
-        .firstOrNull ??
-    '未命名';
 String newId() => base64Url
     .encode(List.generate(18, (_) => Random.secure().nextInt(256)))
     .replaceAll('=', '');

@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
+import '../../core/error_message.dart';
 import '../../core/json.dart';
 import '../../core/store.dart';
 import '../../domain/torrent_identity.dart';
@@ -385,7 +386,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     } catch (error) {
       if (!_active(task)) return;
       task['status'] = 'failed';
-      task['errorMessage'] = '$error';
+      task['errorMessage'] = errorMessage(error);
       task['downloadSpeedBytesPerSecond'] = 0;
       await _persist(task);
     } finally {

@@ -1,5 +1,6 @@
 import 'package:pinyin/pinyin.dart';
 
+import '../../core/error_message.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../domain/torrent_identity.dart';
@@ -132,7 +133,10 @@ class ReleaseSearch {
             succeeded = true;
           } catch (e) {
             state = progress[source.id]!;
-            state = state.copyWith(failed: state.failed + 1, message: '$e');
+            state = state.copyWith(
+              failed: state.failed + 1,
+              message: errorMessage(e),
+            );
             progress[source.id] = state;
           } finally {
             state = progress[source.id]!;

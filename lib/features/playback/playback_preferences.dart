@@ -74,12 +74,6 @@ class PlaybackPreferences extends ChangeNotifier {
 
   Future<void> setAutoMarkWatched(bool value) =>
       _bool('player-auto-mark-watched', value);
-
-  Future<void> resetLanguages() async {
-    await storage.remove('player-subtitle-language');
-    await storage.remove('player-audio-language');
-    notifyListeners();
-  }
 }
 
 String languageCodes(String preference) => switch (preference) {

@@ -14,6 +14,18 @@ import 'core/service_configuration.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (kReleaseMode) {
+    // A part that fails to build says so instead of leaving a grey box.
+    ErrorWidget.builder = (_) => const Directionality(
+      textDirection: TextDirection.ltr,
+      child: Center(
+        child: Text(
+          '这部分内容显示失败',
+          style: TextStyle(color: Color(0xff8a8f98), fontSize: 12),
+        ),
+      ),
+    );
+  }
   if (kDebugMode && (Platform.isWindows || Platform.isMacOS)) {
     // Hot restart replaces Dart isolates, but keeps the native video plugin.
     // Release its old outputs before media_kit sends quit to the old players.

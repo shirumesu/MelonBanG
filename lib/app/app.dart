@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../core/error_message.dart';
 import 'app_services.dart';
 import '../core/network.dart';
 import '../features/acquisition/resource_metadata.dart';
@@ -178,7 +180,7 @@ class _MelonAppState extends State<MelonApp>
         refreshPlaybackAvailability(),
       ]);
     } catch (e) {
-      if (mounted) setState(() => startError = e.toString());
+      if (mounted) setState(() => startError = errorMessage(e));
     }
   }
 
@@ -219,7 +221,11 @@ class _MelonAppState extends State<MelonApp>
     pending: busy,
   );
 
-  void rememberLocation() => history.add(location);
+  void rememberLocation() {
+    history.add(location);
+    // Each location keeps its page's results; older steps are dropped.
+    if (history.length > 50) history.removeAt(0);
+  }
 
   /// Stops requests that belong to the page being left.
   void nextNavigation() {
@@ -240,6 +246,10 @@ class _MelonAppState extends State<MelonApp>
   void goBack() {
     final leavingPlayer = route == 'player';
     leavePlayer();
+    // A player left while it was still preparing has nothing to return to.
+    while (history.lastOrNull?.route == 'player' && playback.uri == null) {
+      history.removeLast();
+    }
     if (history.isEmpty) {
       navigate('home');
       return;
@@ -313,7 +323,7 @@ class _MelonAppState extends State<MelonApp>
   @override
   void showError(Object e) => messages.currentState?.showSnackBar(
     SnackBar(
-      content: Text(e.toString().replaceFirst('Bad state: ', '')),
+      content: Text(errorMessage(e)),
       behavior: SnackBarBehavior.floating,
     ),
   );
@@ -605,7 +615,7 @@ class _MelonAppState extends State<MelonApp>
     try {
       await service.uninstall.start(wipe: wipe);
     } catch (e) {
-      showError('无法开始卸载：$e');
+      showError('无法开始卸载：${errorMessage(e)}');
       return;
     }
     uninstalling = true;
@@ -713,82 +723,90 @@ class _MelonAppState extends State<MelonApp>
           const SingleActivator(LogicalKeyboardKey.bracketLeft, meta: true):
               goBack,
         },
-        child: Builder(
-          // One animated theme for the whole window: switching it fades
-          // between light and dark.
-          builder: (context) => AnimatedTheme(
-            data: theme,
-            duration: motionDuration(context, 300),
-            curve: Curves.easeInOut,
-            child: Scaffold(
-              body: Column(
-                children: [
-                  if (!fullScreen)
-                    AppTitleBar(
-                      immersive: route == 'player' && windowFullScreen,
-                      dark: dark,
-                      sidebarVisible: showSidebar,
-                      onBack: history.isEmpty ? null : goBack,
-                      backLabel: '返回',
-                      onToggleSidebar: () => setState(() {
-                        if (route == 'player') {
-                          playerSidebarVisible = !playerSidebarVisible;
-                        } else {
-                          sidebarVisible = !sidebarVisible;
-                        }
-                      }),
-                      onToggleTheme: () => setDark(!dark),
-                      panelOpen:
-                          route == 'player' &&
-                              ready &&
-                              coordinator.preparing == null &&
-                              playback.uri != null
-                          ? playerPanel
-                          : null,
-                      search: search,
-                      searchFocusNode: searchFocus,
-                      onSearch: (query) => searchSubjects(query: query),
-                      recentSearches: recentSearches,
-                      onClearRecentSearches: clearRecentSearches,
-                      update: ready ? service.update : null,
-                      onRestartToUpdate: restartToUpdate,
-                    ),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        if (!fullScreen &&
-                            !(route == 'player' && windowFullScreen))
-                          MotionReveal(
-                            visible: showSidebar,
-                            axis: Axis.horizontal,
-                            child: SizedBox(
-                              width: sidebarWidth,
-                              child: sidebar(),
+        // The mouse's back button goes back like the title-bar action.
+        child: Listener(
+          onPointerDown: (event) {
+            if (event.buttons & kBackMouseButton != 0 && history.isNotEmpty) {
+              goBack();
+            }
+          },
+          child: Builder(
+            // One animated theme for the whole window: switching it fades
+            // between light and dark.
+            builder: (context) => AnimatedTheme(
+              data: theme,
+              duration: motionDuration(context, 300),
+              curve: Curves.easeInOut,
+              child: Scaffold(
+                body: Column(
+                  children: [
+                    if (!fullScreen)
+                      AppTitleBar(
+                        immersive: route == 'player' && windowFullScreen,
+                        dark: dark,
+                        sidebarVisible: showSidebar,
+                        onBack: history.isEmpty ? null : goBack,
+                        backLabel: '返回',
+                        onToggleSidebar: () => setState(() {
+                          if (route == 'player') {
+                            playerSidebarVisible = !playerSidebarVisible;
+                          } else {
+                            sidebarVisible = !sidebarVisible;
+                          }
+                        }),
+                        onToggleTheme: () => setDark(!dark),
+                        panelOpen:
+                            route == 'player' &&
+                                ready &&
+                                coordinator.preparing == null &&
+                                playback.uri != null
+                            ? playerPanel
+                            : null,
+                        search: search,
+                        searchFocusNode: searchFocus,
+                        onSearch: (query) => searchSubjects(query: query),
+                        recentSearches: recentSearches,
+                        onClearRecentSearches: clearRecentSearches,
+                        update: ready ? service.update : null,
+                        onRestartToUpdate: restartToUpdate,
+                      ),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          if (!fullScreen &&
+                              !(route == 'player' && windowFullScreen))
+                            MotionReveal(
+                              visible: showSidebar,
+                              axis: Axis.horizontal,
+                              child: SizedBox(
+                                width: sidebarWidth,
+                                child: sidebar(),
+                              ),
+                            ),
+                          Expanded(
+                            child: Column(
+                              children: [
+                                if (busy && !fullScreen)
+                                  const LinearProgressIndicator(minHeight: 2),
+                                Expanded(
+                                  child: PageStorage(
+                                    bucket: pageStorage,
+                                    child: route == 'player'
+                                        ? player()
+                                        : PageEntrance(
+                                            key: PageStorageKey(pageIdentity),
+                                            child: page(),
+                                          ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        Expanded(
-                          child: Column(
-                            children: [
-                              if (busy && !fullScreen)
-                                const LinearProgressIndicator(minHeight: 2),
-                              Expanded(
-                                child: PageStorage(
-                                  bucket: pageStorage,
-                                  child: route == 'player'
-                                      ? player()
-                                      : PageEntrance(
-                                          key: PageStorageKey(pageIdentity),
-                                          child: page(),
-                                        ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

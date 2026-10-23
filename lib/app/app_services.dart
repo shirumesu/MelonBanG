@@ -11,6 +11,7 @@ import '../integrations/bangumi/community.dart';
 import '../integrations/catalog.dart';
 import '../core/content_cache.dart';
 import '../core/credentials.dart';
+import '../core/error_message.dart';
 import '../core/network.dart';
 import '../core/proxy.dart';
 import '../core/service_configuration.dart';
@@ -262,7 +263,7 @@ class AppServices {
           downloadsAvailable.value = true;
         },
         onError: (Object error) {
-          downloadIssue.value = error.toString();
+          downloadIssue.value = errorMessage(error);
         },
       ),
     );

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../core/error_message.dart';
 import '../../domain/catalog.dart';
 
 /// One catalogue search: the query, the pages received so far, and where the
@@ -65,7 +66,7 @@ class DiscoveryController extends ChangeNotifier {
           .then(showTrending)
           .catchError((Object e) {
             trendingFailed = true;
-            trendingError = e.toString();
+            trendingError = errorMessage(e);
           })
           .whenComplete(() {
             trendingLoading = false;
@@ -76,7 +77,7 @@ class DiscoveryController extends ChangeNotifier {
           .then(showToday)
           .catchError((Object e) {
             todayFailed = true;
-            todayError = e.toString();
+            todayError = errorMessage(e);
           })
           .whenComplete(() {
             todayLoading = false;
@@ -101,7 +102,7 @@ class DiscoveryController extends ChangeNotifier {
     try {
       show(await catalog.calendar(onCached: show));
     } catch (e) {
-      calendarError = e.toString();
+      calendarError = errorMessage(e);
       rethrow;
     } finally {
       calendarLoading = false;
@@ -173,7 +174,7 @@ class DiscoveryController extends ChangeNotifier {
           offset: search.offset,
           total: search.total,
           hasMore: search.hasMore,
-          error: e.toString(),
+          error: errorMessage(e),
           requestOffset: offset,
         );
       }

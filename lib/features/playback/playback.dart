@@ -9,6 +9,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/error_message.dart';
 import '../../core/proxy.dart';
 import '../../domain/catalog.dart';
 import '../../domain/playback_session.dart';
@@ -360,7 +361,7 @@ class Playback extends ChangeNotifier {
         );
       }
     } catch (e) {
-      error = e.toString();
+      error = errorMessage(e);
       session = null;
       uri = null;
       await player.stop();
@@ -448,7 +449,7 @@ class Playback extends ChangeNotifier {
     } catch (e) {
       _shaders = 'off';
       _announceUpscale = false;
-      showNotice('超分辨率不可用：$e');
+      showNotice('超分辨率不可用：${errorMessage(e)}');
     }
     _scheduleOutputSize();
   }
@@ -759,7 +760,7 @@ class Playback extends ChangeNotifier {
       });
     } catch (e) {
       if (ticket != _autoplayTicket) return;
-      autoplayMessage = '自动连播已停止：$e';
+      autoplayMessage = '自动连播已停止：${errorMessage(e)}';
       notifyListeners();
     }
   }
@@ -781,7 +782,7 @@ class Playback extends ChangeNotifier {
     try {
       await target.play();
     } catch (e) {
-      autoplayMessage = '下一话打开失败：$e';
+      autoplayMessage = '下一话打开失败：${errorMessage(e)}';
       notifyListeners();
     }
   }

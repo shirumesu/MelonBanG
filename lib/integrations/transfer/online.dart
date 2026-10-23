@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:pointycastle/export.dart';
 
+import '../../core/error_message.dart';
 import '../../core/hls_playlist.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
@@ -202,7 +203,7 @@ class OnlineDownloads implements OnlineTransfer {
     } catch (error) {
       if (!_active(task)) return;
       task['status'] = 'failed';
-      task['errorMessage'] = '$error'.replaceFirst('Bad state: ', '');
+      task['errorMessage'] = errorMessage(error);
       task['downloadSpeedBytesPerSecond'] = 0;
       await _persist(task);
     } finally {
