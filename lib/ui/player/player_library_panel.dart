@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/error_message.dart';
 import '../../domain/catalog.dart';
@@ -15,6 +14,7 @@ import '../acquisition/download_labels.dart';
 import '../acquisition/download_task_widgets.dart';
 import '../core/account_avatar.dart';
 import '../core/bbcode.dart';
+import '../core/external_link.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -905,10 +905,8 @@ class _DiscussionPaneState extends State<_DiscussionPane> {
             ),
           ),
           TextButton.icon(
-            onPressed: () => launchUrl(
-              Uri.https('bgm.tv', '/ep/${episode.id}'),
-              mode: LaunchMode.externalApplication,
-            ),
+            onPressed: () =>
+                openExternal(context, 'https://bgm.tv/ep/${episode.id}'),
             icon: const Icon(Icons.open_in_new, size: 15),
             label: const Text('在 Bangumi 打开'),
           ),

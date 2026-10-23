@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/error_message.dart';
 import '../../domain/catalog.dart';
@@ -15,37 +14,14 @@ import '../../features/acquisition/resource_metadata.dart';
 import '../../features/acquisition/title_matching.dart';
 import '../../features/playback/play_selection.dart';
 import '../../features/playback/resource_search.dart';
+import '../core/external_link.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'resource_batch_dialog.dart';
+import 'resource_results.dart';
 import 'resource_widgets.dart';
-
-/// The kind segment, like the Sources page groups: online entries, torrents
-/// over BT and torrents PikPak's index holds.
-enum _Family {
-  all('全部'),
-  online('在线'),
-  torrent('BT'),
-  pikpak('PikPak');
-
-  const _Family(this.label);
-  final String label;
-
-  static _Family of(PlayCandidate candidate) => switch (candidate.kind) {
-    PlayKind.online => online,
-    PlayKind.pikpak => pikpak,
-    _ => torrent,
-  };
-}
-
-/// A result, with the episode a whole-subject search matched it to.
-typedef _Member = (
-  PlayCandidate candidate,
-  ResourceTitleInfo info,
-  Episode? episode,
-);
 
 /// An entry of an upload or site subject, with the episode it plays as.
 typedef _Part = (
@@ -53,16 +29,6 @@ typedef _Part = (
   SourceEpisode entry,
   Episode? episode,
 );
-
-/// One row of the list: a result, or a series of single-episode releases
-/// shown as one expandable entry.
-class _Entry {
-  _Entry(this.key, this.members);
-  final String key;
-  final List<_Member> members;
-  bool get series => members.length > 1;
-  String get id => series ? key : members.single.$1.id;
-}
 
 /// The display title of a series, without the episode of its release.
 String _seriesTitle(ResourceTitleInfo info) => info.displayTitle
@@ -123,7 +89,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   // Entries of online subjects, by candidate id.
   final parts = <String, Future<List<SourceEpisode>>>{};
 
-  _Family kind = _Family.all;
+  ResourceFamily kind = ResourceFamily.all;
   bool searching = false;
   String? opening;
   PageStorageBucket? storage;
@@ -184,7 +150,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         resourceEpisodeKeyword(episode);
     Iterable<String> strings(Object? value) =>
         value is List ? value.whereType<String>() : const [];
-    kind = _Family.values.asNameMap()[form['kind']] ?? _Family.all;
+    kind =
+        ResourceFamily.values.asNameMap()[form['kind']] ?? ResourceFamily.all;
     qualities.addAll(strings(form['qualities']));
     groups.addAll(strings(form['sourceGroups']));
     languages.addAll(strings(form['languages']));
@@ -259,7 +226,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       set.clear();
     }
     excludedProviders.clear();
-    kind = _Family.all;
+    kind = ResourceFamily.all;
   });
 
   void toggle(Set<String> set, String value, bool selected) =>
@@ -486,526 +453,112 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   );
 
   Widget _page(BuildContext context, Widget? _) {
+    final results = ResourceResults(
+      [
+        for (final candidate in state.candidates)
+          (candidate, annotate(candidate)),
+      ],
+      excludedProviders: excludedProviders,
+      qualities: qualities,
+      groups: groups,
+      languages: languages,
+      subtitleForms: subtitleForms,
+      kind: kind,
+      subject: subject,
+      grouping: state.terms != null && searched == null,
+    );
+    final entries = results.entries;
+    final scheme = Theme.of(context).colorScheme;
+    return CustomScrollView(
+      key: const PageStorageKey('page-scroll'),
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(
+            pageGutter,
+            Gap.lg,
+            pageGutter,
+            Gap.md,
+          ),
+          sliver: SliverToBoxAdapter(child: _form(context)),
+        ),
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: _PinnedBar(
+            height: 104,
+            child: _filterBar(context, results),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
+          sliver: SliverList.builder(
+            itemCount: entries.length + 2,
+            // Rows keep their state when new results reorder the list.
+            findChildIndexCallback: (key) {
+              final index = entries.indexWhere(
+                (entry) => key == ValueKey(entry.id),
+              );
+              return index < 0 ? null : index + 1;
+            },
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return results.visible.isEmpty
+                    ? const SizedBox.shrink()
+                    : _tableHeader(context);
+              }
+              if (index == entries.length + 1) {
+                return _emptyResults(results);
+              }
+              final i = index - 1;
+              final entry = entries[i];
+              return LayoutBuilder(
+                key: ValueKey(entry.id),
+                builder: (context, constraints) => Material(
+                  color: scheme.surface,
+                  borderRadius: BorderRadius.vertical(
+                    top: i == 0 && constraints.maxWidth < resourceTableWidth
+                        ? panelBorderRadius.topLeft
+                        : Radius.zero,
+                    bottom: i == entries.length - 1
+                        ? panelBorderRadius.bottomLeft
+                        : Radius.zero,
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (i > 0)
+                        const Divider(height: 1, indent: 16, endIndent: 16),
+                      entry.series
+                          ? _seriesRow(results, entry)
+                          : switch (entry.members.single) {
+                              final member &&
+                                  (
+                                    PlayCandidate(
+                                      target: OnlineTarget(chooseFrom: _?),
+                                    ),
+                                    _,
+                                    _,
+                                  ) =>
+                                _onlineRow(results, member),
+                              final member => _resultRow(results, member),
+                            },
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _form(BuildContext context) {
     final names = subject == null ? const <String>[] : resourceNames(subject!);
     final aliases = names.where((name) => name != keyword.text.trim()).toList();
-    final candidates = state.candidates;
     final sources = state.sources;
-    bool providerShown(PlayCandidate candidate) =>
-        !excludedProviders.contains(candidate.provider);
-    bool kindShown(PlayCandidate candidate) =>
-        kind == _Family.all || _Family.of(candidate) == kind;
-    final annotated = candidates
-        .map((candidate) => (candidate, annotate(candidate)))
-        .toList();
-    final fromShownProviders = annotated
-        .where((entry) => providerShown(entry.$1))
-        .toList();
-    // Results stating nothing for a selection stay, after confirmed ones.
-    final gaps = <String, List<String>>{
-      for (final (candidate, info) in fromShownProviders)
-        candidate.id: ?resourceSelectionGaps(
-          info,
-          qualities: qualities,
-          groups: groups,
-          languages: languages,
-          subtitleForms: subtitleForms,
-        ),
-    };
-    final matching = [
-      for (final confirmed in [true, false])
-        for (final entry in fromShownProviders)
-          if (gaps[entry.$1.id]?.isEmpty == confirmed) entry,
-    ];
-    final visible = matching.where((entry) => kindShown(entry.$1)).toList();
-    List<String> unstated(PlayCandidate candidate) => [
-      if (gaps[candidate.id]! case final missing when missing.isNotEmpty)
-        '未标明${missing.join('、')}',
-    ];
-    // Option counts cover results of the shown sites and kind, before other
-    // filters; kind counts cover every other filter.
-    Map<String, int> tally(Iterable<String> Function(ResourceTitleInfo) of) {
-      final counts = <String, int>{};
-      for (final entry in fromShownProviders.where((e) => kindShown(e.$1))) {
-        for (final value in of(entry.$2)) {
-          counts[value] = (counts[value] ?? 0) + 1;
-        }
-      }
-      return counts;
-    }
-
-    final qualityCounts = tally(
-      (info) => info.quality == null ? const [] : [info.quality!],
-    );
-    final groupCounts = tally((info) => info.sourceGroups);
-    final languageCounts = tally((info) => info.languages);
-    final formCounts = tally((info) => info.subtitleForms);
-    final groupNames = {...groupCounts.keys, ...groups}.toList()
-      ..sort((a, b) {
-        final byCount = (groupCounts[b] ?? 0).compareTo(groupCounts[a] ?? 0);
-        return byCount != 0 ? byCount : a.compareTo(b);
-      });
-    MelonFilterOption<String> counted(String value, Map<String, int> counts) =>
-        MelonFilterOption(
-          value,
-          value,
-          detail: '${counts[value] ?? 0}',
-          enabled: (counts[value] ?? 0) > 0,
-        );
-    final kindCounts = {
-      for (final value in _Family.values)
-        value: value == _Family.all
-            ? matching.length
-            : matching.where((e) => _Family.of(e.$1) == value).length,
-    };
-    // Results are ranked, so the first shown confident match is the best of
-    // what the filters leave.
-    final recommended = visible.firstOrNull?.$1;
-    final recommendedId = recommended == null || recommended.possibleMatch
-        ? null
-        : recommended.id;
-    // Without an episode term, one group's single-episode releases of a
-    // series on one site form an entry; releases holding none of the
-    // subject's episodes, such as an earlier season's, follow the rest.
-    final grouping = state.terms != null && searched == null;
-    final entries = <_Entry>[], unmatched = <_Entry>[];
-    final bySeries = <String, _Entry>{};
-    final targets = {
-      for (final (candidate, info) in visible)
-        if (grouping && candidate.target is ReleaseTarget)
-          candidate.id: releaseEpisode(subject!, info),
-    };
-    String? seriesOf(PlayCandidate candidate, ResourceTitleInfo info) =>
-        switch (info.series) {
-          final series? when targets.containsKey(candidate.id) =>
-            'series:${candidate.kind.name}:${candidate.provider}:'
-                '${targets[candidate.id] != null}:$series',
-          _ => null,
-        };
-    // Groups word subtitles differently across episodes (`ASSx2` against
-    // `[简繁内封字幕]`), so a release stating none joins the series' only
-    // stated subtitles.
-    final stated = <String, Set<String>>{};
-    for (final (candidate, info) in visible) {
-      if (seriesOf(candidate, info) case final series?
-          when info.subtitles.isNotEmpty) {
-        (stated[series] ??= {}).add(info.subtitles);
-      }
-    }
-    for (final (candidate, info) in visible) {
-      final release = targets.containsKey(candidate.id);
-      final target = targets[candidate.id];
-      final member = (candidate, info, target);
-      final rest = release && info.episode != null && target == null
-          ? unmatched
-          : entries;
-      final key = switch (seriesOf(candidate, info)) {
-        final series? => switch (stated[series]) {
-          final subtitles?
-              when info.subtitles.isEmpty && subtitles.length == 1 =>
-            '$series:${subtitles.single}',
-          _ => '$series:${info.subtitles}',
-        },
-        null => null,
-      };
-      if (bySeries[key] case final entry?) {
-        entry.members.add(member);
-      } else {
-        final entry = _Entry(key ?? candidate.id, [member]);
-        rest.add(entry);
-        if (key != null) bySeries[key] = entry;
-      }
-    }
-    entries.addAll(unmatched);
-    bool belongs(_Member member) =>
-        !grouping ||
-        member.$3 != null ||
-        member.$2.episode == null ||
-        member.$1.target is! ReleaseTarget;
-    Widget resultRow(_Member member) {
-      final (candidate, info, target) = member;
-      final expanded = expandedTitles.contains(candidate.id);
-      final chapter = target ?? searched;
-      return ResourceArrival(
-        child: ResourceResultRow(
-          candidate: candidate,
-          info: info,
-          expanded: expanded,
-          onExpand: () => changeForm(() {
-            if (!expandedTitles.remove(candidate.id)) {
-              expandedTitles.add(candidate.id);
-            }
-          }),
-          notes: [
-            ...notesOf(candidate),
-            ...unstated(candidate),
-            if (target != null && target.sort != info.episode)
-              '对应第 ${target.number} 话',
-          ],
-          warnings: [...warningsOf(candidate), if (!belongs(member)) '未对应本作剧集'],
-          recommended: candidate.id == recommendedId,
-          playing: opening == candidate.id,
-          onPlay: playable(candidate, chapter) && opening == null
-              ? () => play(candidate, chapter!)
-              : null,
-          error: downloadErrors[candidate.id],
-          download: switch (candidate.target) {
-            ReleaseTarget() ||
-            OnlineTarget(ref: _?) => (wide) => ResourceDownloadButton(
-              adding: adding.contains(candidate.id),
-              task: taskOf(candidate),
-              failed: downloadErrors.containsKey(candidate.id),
-              showLabel: wide,
-              onPressed: () => download(candidate, episode: target),
-            ),
-            _ => null,
-          },
-        ),
-      );
-    }
-
-    /// A release of an expanded series, showing what sets it apart.
-    Widget memberRow(_Member member, bool wide) {
-      final (candidate, info, target) = member;
-      final release = (candidate.target as ReleaseTarget).candidate.release;
-      final expanded = expandedTitles.contains(candidate.id);
-      return ResourceEpisodeRow(
-        label: target == null
-            ? info.episodeLabel!
-            : '第 ${target.number.padLeft(2, '0')} 话',
-        wide: wide,
-        title: info.title,
-        detailUrl: release.detailUrl,
-        expanded: expanded,
-        onExpand: () => changeForm(() {
-          if (!expandedTitles.remove(candidate.id)) {
-            expandedTitles.add(candidate.id);
-          }
-        }),
-        notes: [
-          if (target != null && target.sort != info.episode)
-            '标题为${info.episodeLabel}',
-        ],
-        warnings: [...info.warnings, ...warningsOf(candidate)],
-        size: resourceSizeLabel(release),
-        date: resourceDateLabel(release),
-        error: downloadErrors[candidate.id],
-        download: ResourceDownloadButton(
-          adding: adding.contains(candidate.id),
-          task: taskOf(candidate),
-          failed: downloadErrors.containsKey(candidate.id),
-          showLabel: wide,
-          onPressed: () => download(candidate, episode: target),
-        ),
-        play: playable(candidate, target)
-            ? ResourcePlayButton(
-                onPressed: opening == null
-                    ? () => play(candidate, target!)
-                    : null,
-                instant: candidate.instant,
-                playing: opening == candidate.id,
-                showLabel: wide,
-              )
-            : null,
-      );
-    }
-
-    Widget seriesRow(_Entry entry) {
-      final (best, info, _) = entry.members.first;
-      final members = [...entry.members]
-        ..sort(
-          (a, b) => (a.$3?.sort ?? a.$2.episode!).compareTo(
-            b.$3?.sort ?? b.$2.episode!,
-          ),
-        );
-      // The best-ranked release of each episode.
-      final options = <int, PlayCandidate>{
-        for (final (candidate, _, target) in entry.members.reversed)
-          if (target != null) target.id: candidate,
-      };
-      final each = <double, PlayCandidate>{
-        for (final (candidate, info, target) in entry.members.reversed)
-          target?.sort ?? info.episode!: candidate,
-      };
-      final bytes = [
-        for (final candidate in each.values)
-          if (candidate.target case ReleaseTarget(
-            candidate: ReleaseCandidate(:final release),
-          ))
-            releaseBytes(release),
-      ].nonNulls;
-      final dates = [
-        for (final (candidate, _, _) in entry.members)
-          if (candidate.target case ReleaseTarget(
-            candidate: ReleaseCandidate(:final release),
-          ))
-            resourceDateLabel(release),
-      ].where((date) => date != '—').toList()..sort();
-      final expanded = expandedTitles.contains(entry.key);
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ResourceArrival(
-            child: ResourceSeriesRow(
-              candidate: best,
-              info: info,
-              title: _seriesTitle(info),
-              group: resourceGroupLabel(info),
-              coverage: '第 ${episodeSpans(each.keys)} 话',
-              size: bytes.isEmpty
-                  ? '—'
-                  : resourceBytesLabel(bytes.reduce((a, b) => a + b)),
-              date: dates.lastOrNull ?? '—',
-              expanded: expanded,
-              onExpand: () => changeForm(() {
-                if (!expandedTitles.remove(entry.key)) {
-                  expandedTitles.add(entry.key);
-                }
-              }),
-              recommended: best.id == recommendedId,
-              notes: [
-                if (controller.state.remembered?.affinity(best) == 2) '上次选择',
-                ...unstated(best),
-              ],
-              warnings: [if (options.isEmpty) '未对应本作剧集'],
-              action: (wide) => ResourceBatchButton(
-                showLabel: wide,
-                added:
-                    options.isNotEmpty &&
-                    options.values.every(
-                      (candidate) => taskOf(candidate) != null,
-                    ),
-                onPressed: options.isEmpty
-                    ? null
-                    : () => downloadRange(
-                        options,
-                        title: [
-                          resourceGroupLabel(info),
-                          _seriesTitle(info),
-                        ].where((e) => e.isNotEmpty).join('  '),
-                        source: [
-                          best.providerLabel ?? best.provider,
-                          ?info.quality,
-                          ...info.languages,
-                          ...info.subtitleForms,
-                        ].join(' · '),
-                      ),
-              ),
-            ),
-          ),
-          if (expanded)
-            ResourceEpisodePanel(
-              rows: (wide) => [
-                for (final member in members) memberRow(member, wide),
-              ],
-            ),
-        ],
-      );
-    }
-
-    /// An online subject: its entries, read when first needed, are its
-    /// episodes, by line.
-    Widget onlineRow(_Member member) {
-      final (candidate, info, _) = member;
-      final id = candidate.id;
-      final expanded = expandedTitles.contains(id);
-      final future = expanded
-          ? parts[id] ??= controller.entries(candidate)
-          : parts[id];
-      final small = Theme.of(context).textTheme.bodySmall;
-      return FutureBuilder<List<SourceEpisode>>(
-        future: future,
-        builder: (context, snapshot) {
-          final rows = snapshot.data;
-          final lines = rows == null ? null : linesOf(candidate, rows);
-          final matched = {
-            for (final items in lines?.values ?? const <List<_Part>>[])
-              for (final (_, _, target) in items) ?target?.sort,
-          };
-          final options = lines?.values
-              .map(lineOptions)
-              .fold(
-                <int, PlayCandidate>{},
-                (a, b) => b.length > a.length ? b : a,
-              );
-          Widget line(String name, List<_Part> items) {
-            final options = lineOptions(items);
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(26, 4, 8, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      name.isEmpty ? '默认线路' : name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: small?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
-                  if (searched == null && options.length > 1)
-                    TextButton.icon(
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      onPressed: () => downloadRange(
-                        options,
-                        title: candidate.title,
-                        source: [candidate.sourceLabel, name].join(' · '),
-                      ),
-                      icon: const Icon(Icons.download_rounded, size: 16),
-                      label: const Text('批量下载'),
-                    ),
-                ],
-              ),
-            );
-          }
-
-          Widget part(_Part part, bool wide) {
-            final (entry, item, target) = part;
-            return ResourceEpisodeRow(
-              label: item.label,
-              wide: wide,
-              notes: [
-                if (searched != null) '作为第 ${searched!.number} 话',
-                ?item.description,
-              ],
-              warnings: [if (target == null) '未对应本作剧集'],
-              error: downloadErrors[entry.id],
-              download: target == null
-                  ? null
-                  : ResourceDownloadButton(
-                      adding: adding.contains(entry.id),
-                      task: taskOf(entry),
-                      failed: downloadErrors.containsKey(entry.id),
-                      showLabel: wide,
-                      onPressed: () => download(entry, episode: target),
-                    ),
-              play: target == null
-                  ? null
-                  : ResourcePlayButton(
-                      onPressed: opening == null
-                          ? () => play(entry, target)
-                          : null,
-                      instant: true,
-                      playing: opening == entry.id,
-                      showLabel: wide,
-                    ),
-            );
-          }
-
-          Widget notice(Widget child) => Padding(
-            padding: const EdgeInsets.fromLTRB(26, 8, 8, 8),
-            child: child,
-          );
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ResourceArrival(
-                child: ResourceSeriesRow(
-                  candidate: candidate,
-                  info: info,
-                  title: info.displayTitle,
-                  group: candidate.line,
-                  coverage: rows == null
-                      ? null
-                      : searched == null && matched.isNotEmpty
-                      ? '第 ${episodeSpans(matched)} 话'
-                      : '${rows.length} 个条目',
-                  notes: [...notesOf(candidate), ...unstated(candidate)],
-                  warnings: warningsOf(candidate),
-                  recommended: id == recommendedId,
-                  expanded: expanded,
-                  onExpand: () => changeForm(() {
-                    if (!expandedTitles.remove(id)) expandedTitles.add(id);
-                  }),
-                  action: searched != null
-                      ? null
-                      : (wide) => ResourceBatchButton(
-                          showLabel: wide,
-                          loading:
-                              future != null &&
-                              snapshot.connectionState != ConnectionState.done,
-                          added:
-                              options != null &&
-                              options.isNotEmpty &&
-                              options.values.every(
-                                (part) => taskOf(part) != null,
-                              ),
-                          onPressed: options != null && options.isEmpty
-                              ? null
-                              : () => downloadOnline(candidate),
-                        ),
-                ),
-              ),
-              if (expanded)
-                ResourceEpisodePanel(
-                  rows: (wide) => [
-                    if (snapshot.hasError)
-                      notice(
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                '读取失败：${snapshot.error}',
-                                style: small?.copyWith(
-                                  color: Theme.of(context).colorScheme.error,
-                                ),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () => setState(() => parts.remove(id)),
-                              child: const Text('重试'),
-                            ),
-                          ],
-                        ),
-                      )
-                    else if (rows == null)
-                      notice(
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: SizedBox(
-                            width: 160,
-                            child: LinearProgressIndicator(minHeight: 2),
-                          ),
-                        ),
-                      )
-                    else if (rows.isEmpty)
-                      notice(Text('没有可播放的条目', style: small))
-                    else
-                      for (final MapEntry(key: name, value: items)
-                          in lines!.entries) ...[
-                        if (lines.length > 1) line(name, items),
-                        for (final item in items) part(item, wide),
-                      ],
-                  ],
-                ),
-            ],
-          );
-        },
-      );
-    }
-
-    final providersFailed =
-        sources.isNotEmpty &&
-        sources.every((e) => e.status == SearchStatus.error) &&
-        candidates.isEmpty;
-    final allProvidersExcluded =
-        sources.isNotEmpty &&
-        sources.every(
-          (provider) => excludedProviders.contains(provider.sourceId),
-        );
-    final filtered =
-        [
-          qualities,
-          groups,
-          languages,
-          subtitleForms,
-        ].any((e) => e.isNotEmpty) ||
-        excludedProviders.isNotEmpty;
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
-    final background = Material.of(context).color!;
     final shownEpisode = state.terms == null ? episode : searched;
     final includedAliases = aliases.where((name) => !excluded.contains(name));
     final aliasMenu = MelonFilterMenu<String>(
@@ -1034,14 +587,14 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     final sourceRegistry = controller.sources;
     final failingSites = [
       if (state.terms != null &&
-          (kind == _Family.all || kind == _Family.online))
+          (kind == ResourceFamily.all || kind == ResourceFamily.online))
         for (final rule in sourceRegistry.instancesOf(SourceKind.online))
           if (sourceRegistry.isEnabled(rule.id) &&
               (sourceRegistry.errors.containsKey(rule.id) ||
                   sourceRegistry.status(rule.id) == SourceHealth.update))
             rule,
     ];
-    final form = Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
@@ -1172,11 +725,9 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: () => launchUrl(
-                    Uri.parse(
-                      rule.website ?? sourceRegistry.currentDomain(rule.id),
-                    ),
-                    mode: LaunchMode.externalApplication,
+                  onPressed: () => openExternal(
+                    context,
+                    rule.website ?? sourceRegistry.currentDomain(rule.id),
                   ),
                   icon: const Icon(Icons.open_in_new, size: 15),
                   label: const Text('打开站点'),
@@ -1186,6 +737,28 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           ),
       ],
     );
+  }
+
+  Widget _filterBar(BuildContext context, ResourceResults results) {
+    final sources = state.sources;
+    final scheme = Theme.of(context).colorScheme;
+    final small = Theme.of(context).textTheme.bodySmall;
+    final background = Material.of(context).color!;
+    MelonFilterOption<String> counted(String value, Map<String, int> counts) =>
+        MelonFilterOption(
+          value,
+          value,
+          detail: '${counts[value] ?? 0}',
+          enabled: (counts[value] ?? 0) > 0,
+        );
+    final filtered =
+        [
+          qualities,
+          groups,
+          languages,
+          subtitleForms,
+        ].any((e) => e.isNotEmpty) ||
+        excludedProviders.isNotEmpty;
     final providerWarning = sources.any(
       (provider) => const [
         SearchStatus.error,
@@ -1195,7 +768,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     final shownProviders = sources
         .where((provider) => !excludedProviders.contains(provider.sourceId))
         .length;
-    final filterBar = ColoredBox(
+    return ColoredBox(
       color: background,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: pageGutter),
@@ -1207,12 +780,12 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
               children: [
                 SizedBox(
                   width: 4 * 96,
-                  child: MelonSegmentedControl<_Family>(
+                  child: MelonSegmentedControl<ResourceFamily>(
                     key: const ValueKey('resource-filter-kind'),
                     semanticLabel: '资源类型',
                     options: {
-                      for (final value in _Family.values)
-                        value: '${value.label} ${kindCounts[value]}',
+                      for (final value in ResourceFamily.values)
+                        value: '${value.label} ${results.kindCounts[value]}',
                     },
                     value: kind,
                     onChanged: (value) => changeForm(() => kind = value),
@@ -1221,12 +794,12 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 const Spacer(),
                 if (filtered)
                   Text(
-                    '筛选后 ${visible.length} 条',
+                    '筛选后 ${results.visible.length} 条',
                     style: small?.copyWith(
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
-                if (state.terms != null && !grouping) ...[
+                if (state.terms != null && !results.grouping) ...[
                   const SizedBox(width: Gap.sm),
                   Tooltip(
                     message: '清空集数重新搜索，按字幕组归类后选择集数下载',
@@ -1301,7 +874,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       sections: [
                         MelonFilterSection([
                           for (final value in resourceQualities)
-                            counted(value, qualityCounts),
+                            counted(value, results.qualityCounts),
                         ]),
                       ],
                       selected: qualities,
@@ -1315,13 +888,16 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       key: const ValueKey('resource-filter-groups'),
                       label: '字幕组',
                       icon: Icons.groups_outlined,
-                      summary: summary(groups, groupNames),
+                      summary: summary(groups, results.groupNames),
                       tooltip: '按字幕组筛选',
                       sections: [
-                        MelonFilterSection([
-                          for (final name in groupNames)
-                            counted(name, groupCounts),
-                        ], title: groupNames.isEmpty ? '暂无字幕组信息' : null),
+                        MelonFilterSection(
+                          [
+                            for (final name in results.groupNames)
+                              counted(name, results.groupCounts),
+                          ],
+                          title: results.groupNames.isEmpty ? '暂无字幕组信息' : null,
+                        ),
                       ],
                       selected: groups,
                       onToggle: (value, on) => toggle(groups, value, on),
@@ -1343,11 +919,11 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       sections: [
                         MelonFilterSection([
                           for (final value in resourceLanguages)
-                            counted(value, languageCounts),
+                            counted(value, results.languageCounts),
                         ], title: '字幕语言'),
                         MelonFilterSection([
                           for (final value in resourceSubtitleForms)
-                            counted(value, formCounts),
+                            counted(value, results.formCounts),
                         ], title: '字幕形式'),
                       ],
                       selected: {...languages, ...subtitleForms},
@@ -1384,168 +960,463 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         ),
       ),
     );
-    return CustomScrollView(
-      key: const PageStorageKey('page-scroll'),
-      slivers: [
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(
-            pageGutter,
-            Gap.lg,
-            pageGutter,
-            Gap.md,
-          ),
-          sliver: SliverToBoxAdapter(child: form),
-        ),
-        SliverPersistentHeader(
-          pinned: true,
-          delegate: _PinnedBar(height: 104, child: filterBar),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
-          sliver: SliverList.builder(
-            itemCount: entries.length + 2,
-            // Rows keep their state when new results reorder the list.
-            findChildIndexCallback: (key) {
-              final index = entries.indexWhere(
-                (entry) => key == ValueKey(entry.id),
-              );
-              return index < 0 ? null : index + 1;
-            },
-            itemBuilder: (context, index) {
-              if (index == 0) {
-                return visible.isEmpty
-                    ? const SizedBox.shrink()
-                    : LayoutBuilder(
-                        builder: (context, constraints) =>
-                            constraints.maxWidth < resourceTableWidth
-                            ? const SizedBox.shrink()
-                            : Material(
-                                color: scheme.surface,
-                                borderRadius: BorderRadius.vertical(
-                                  top: panelBorderRadius.topLeft,
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    16,
-                                    11,
-                                    16,
-                                    9,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          '资源',
-                                          style: small?.copyWith(fontSize: 11),
-                                        ),
-                                      ),
-                                      for (final (label, width) in [
-                                        ('来源', resourceGroupColumnWidth),
-                                        ('大小', resourceSizeColumnWidth),
-                                        ('发布', resourceDateColumnWidth),
-                                      ]) ...[
-                                        const SizedBox(width: Gap.md),
-                                        SizedBox(
-                                          width: width,
-                                          child: Text(
-                                            label,
-                                            style: small?.copyWith(
-                                              fontSize: 11,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                      SizedBox(
-                                        width:
-                                            Gap.sm +
-                                            resourceActionsWidth(wide: true),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                      );
-              }
-              if (index == entries.length + 1) {
-                final emptyKind = matching.isNotEmpty;
-                return (visible.isEmpty &&
-                        (allProvidersExcluded ||
-                            !searchBusy ||
-                            candidates.isNotEmpty))
-                    ? EmptyState(
-                        text: allProvidersExcluded
-                            ? '已隐藏全部资源站的结果'
-                            : emptyKind
-                            ? '此分类暂无资源'
-                            : candidates.isNotEmpty
-                            ? '没有符合筛选条件的资源'
-                            : providersFailed
-                            ? '资源站暂时无法连接'
-                            : '没有找到资源，试试其他名称或清空集数关键词',
-                        action: allProvidersExcluded
-                            ? () => changeForm(excludedProviders.clear)
-                            : emptyKind
-                            ? () => changeForm(() => kind = _Family.all)
-                            : candidates.isNotEmpty
-                            ? clearFilters
-                            : () {
-                                if (!providersFailed) episodeQuery.clear();
-                                search();
-                              },
-                        actionLabel: allProvidersExcluded
-                            ? '显示全部资源站'
-                            : emptyKind
-                            ? '查看全部'
-                            : candidates.isNotEmpty
-                            ? '清除筛选'
-                            : !providersFailed && episodeQuery.text.isNotEmpty
-                            ? '清空集数并搜索'
-                            : '重新搜索',
-                      )
-                    : const SizedBox.shrink();
-              }
-              final i = index - 1;
-              final entry = entries[i];
-              return LayoutBuilder(
-                key: ValueKey(entry.id),
-                builder: (context, constraints) => Material(
-                  color: scheme.surface,
-                  borderRadius: BorderRadius.vertical(
-                    top: i == 0 && constraints.maxWidth < resourceTableWidth
-                        ? panelBorderRadius.topLeft
-                        : Radius.zero,
-                    bottom: i == entries.length - 1
-                        ? panelBorderRadius.bottomLeft
-                        : Radius.zero,
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (i > 0)
-                        const Divider(height: 1, indent: 16, endIndent: 16),
-                      entry.series
-                          ? seriesRow(entry)
-                          : switch (entry.members.single) {
-                              final member &&
-                                  (
-                                    PlayCandidate(
-                                      target: OnlineTarget(chooseFrom: _?),
-                                    ),
-                                    _,
-                                    _,
-                                  ) =>
-                                onlineRow(member),
-                              final member => resultRow(member),
-                            },
+  }
+
+  /// The column headings of the result table, shown when it is wide.
+  Widget _tableHeader(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final small = Theme.of(context).textTheme.bodySmall;
+    return LayoutBuilder(
+      builder: (context, constraints) =>
+          constraints.maxWidth < resourceTableWidth
+          ? const SizedBox.shrink()
+          : Material(
+              color: scheme.surface,
+              borderRadius: BorderRadius.vertical(
+                top: panelBorderRadius.topLeft,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 11, 16, 9),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text('资源', style: small?.copyWith(fontSize: 11)),
+                    ),
+                    for (final (label, width) in [
+                      ('来源', resourceGroupColumnWidth),
+                      ('大小', resourceSizeColumnWidth),
+                      ('发布', resourceDateColumnWidth),
+                    ]) ...[
+                      const SizedBox(width: Gap.md),
+                      SizedBox(
+                        width: width,
+                        child: Text(
+                          label,
+                          style: small?.copyWith(fontSize: 11),
+                        ),
+                      ),
                     ],
+                    SizedBox(width: Gap.sm + resourceActionsWidth(wide: true)),
+                  ],
+                ),
+              ),
+            ),
+    );
+  }
+
+  /// Why no result shows, with the action that brings some back.
+  Widget _emptyResults(ResourceResults results) {
+    final candidates = state.candidates, sources = state.sources;
+    final providersFailed =
+        sources.isNotEmpty &&
+        sources.every((e) => e.status == SearchStatus.error) &&
+        candidates.isEmpty;
+    final allProvidersExcluded =
+        sources.isNotEmpty &&
+        sources.every(
+          (provider) => excludedProviders.contains(provider.sourceId),
+        );
+    final emptyKind = results.matching.isNotEmpty;
+    return (results.visible.isEmpty &&
+            (allProvidersExcluded || !searchBusy || candidates.isNotEmpty))
+        ? EmptyState(
+            text: allProvidersExcluded
+                ? '已隐藏全部资源站的结果'
+                : emptyKind
+                ? '此分类暂无资源'
+                : candidates.isNotEmpty
+                ? '没有符合筛选条件的资源'
+                : providersFailed
+                ? '资源站暂时无法连接'
+                : '没有找到资源，试试其他名称或清空集数关键词',
+            action: allProvidersExcluded
+                ? () => changeForm(excludedProviders.clear)
+                : emptyKind
+                ? () => changeForm(() => kind = ResourceFamily.all)
+                : candidates.isNotEmpty
+                ? clearFilters
+                : () {
+                    if (!providersFailed) episodeQuery.clear();
+                    search();
+                  },
+            actionLabel: allProvidersExcluded
+                ? '显示全部资源站'
+                : emptyKind
+                ? '查看全部'
+                : candidates.isNotEmpty
+                ? '清除筛选'
+                : !providersFailed && episodeQuery.text.isNotEmpty
+                ? '清空集数并搜索'
+                : '重新搜索',
+          )
+        : const SizedBox.shrink();
+  }
+
+  Widget _resultRow(ResourceResults results, ResourceMember member) {
+    final (candidate, info, target) = member;
+    final expanded = expandedTitles.contains(candidate.id);
+    final chapter = target ?? searched;
+    return ResourceArrival(
+      child: ResourceResultRow(
+        candidate: candidate,
+        info: info,
+        expanded: expanded,
+        onExpand: () => changeForm(() {
+          if (!expandedTitles.remove(candidate.id)) {
+            expandedTitles.add(candidate.id);
+          }
+        }),
+        notes: [
+          ...notesOf(candidate),
+          ...results.unstated(candidate),
+          if (target != null && target.sort != info.episode)
+            '对应第 ${target.number} 话',
+        ],
+        warnings: [
+          ...warningsOf(candidate),
+          if (!results.belongs(member)) '未对应本作剧集',
+        ],
+        recommended: candidate.id == results.recommendedId,
+        playing: opening == candidate.id,
+        onPlay: playable(candidate, chapter) && opening == null
+            ? () => play(candidate, chapter!)
+            : null,
+        error: downloadErrors[candidate.id],
+        download: switch (candidate.target) {
+          ReleaseTarget() ||
+          OnlineTarget(ref: _?) => (wide) => ResourceDownloadButton(
+            adding: adding.contains(candidate.id),
+            task: taskOf(candidate),
+            failed: downloadErrors.containsKey(candidate.id),
+            showLabel: wide,
+            onPressed: () => download(candidate, episode: target),
+          ),
+          _ => null,
+        },
+      ),
+    );
+  }
+
+  /// A release of an expanded series, showing what sets it apart.
+  Widget _memberRow(ResourceMember member, bool wide) {
+    final (candidate, info, target) = member;
+    final release = (candidate.target as ReleaseTarget).candidate.release;
+    final expanded = expandedTitles.contains(candidate.id);
+    return ResourceEpisodeRow(
+      label: target == null
+          ? info.episodeLabel!
+          : '第 ${target.number.padLeft(2, '0')} 话',
+      wide: wide,
+      title: info.title,
+      detailUrl: release.detailUrl,
+      expanded: expanded,
+      onExpand: () => changeForm(() {
+        if (!expandedTitles.remove(candidate.id)) {
+          expandedTitles.add(candidate.id);
+        }
+      }),
+      notes: [
+        if (target != null && target.sort != info.episode)
+          '标题为${info.episodeLabel}',
+      ],
+      warnings: [...info.warnings, ...warningsOf(candidate)],
+      size: resourceSizeLabel(release),
+      date: resourceDateLabel(release),
+      error: downloadErrors[candidate.id],
+      download: ResourceDownloadButton(
+        adding: adding.contains(candidate.id),
+        task: taskOf(candidate),
+        failed: downloadErrors.containsKey(candidate.id),
+        showLabel: wide,
+        onPressed: () => download(candidate, episode: target),
+      ),
+      play: playable(candidate, target)
+          ? ResourcePlayButton(
+              onPressed: opening == null
+                  ? () => play(candidate, target!)
+                  : null,
+              instant: candidate.instant,
+              playing: opening == candidate.id,
+              showLabel: wide,
+            )
+          : null,
+    );
+  }
+
+  Widget _seriesRow(ResourceResults results, ResourceEntry entry) {
+    final (best, info, _) = entry.members.first;
+    final members = [...entry.members]
+      ..sort(
+        (a, b) => (a.$3?.sort ?? a.$2.episode!).compareTo(
+          b.$3?.sort ?? b.$2.episode!,
+        ),
+      );
+    // The best-ranked release of each episode.
+    final options = <int, PlayCandidate>{
+      for (final (candidate, _, target) in entry.members.reversed)
+        if (target != null) target.id: candidate,
+    };
+    final each = <double, PlayCandidate>{
+      for (final (candidate, info, target) in entry.members.reversed)
+        target?.sort ?? info.episode!: candidate,
+    };
+    final bytes = [
+      for (final candidate in each.values)
+        if (candidate.target case ReleaseTarget(
+          candidate: ReleaseCandidate(:final release),
+        ))
+          releaseBytes(release),
+    ].nonNulls;
+    final dates = [
+      for (final (candidate, _, _) in entry.members)
+        if (candidate.target case ReleaseTarget(
+          candidate: ReleaseCandidate(:final release),
+        ))
+          resourceDateLabel(release),
+    ].where((date) => date != '—').toList()..sort();
+    final expanded = expandedTitles.contains(entry.key);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ResourceArrival(
+          child: ResourceSeriesRow(
+            candidate: best,
+            info: info,
+            title: _seriesTitle(info),
+            group: resourceGroupLabel(info),
+            coverage: '第 ${episodeSpans(each.keys)} 话',
+            size: bytes.isEmpty
+                ? '—'
+                : resourceBytesLabel(bytes.reduce((a, b) => a + b)),
+            date: dates.lastOrNull ?? '—',
+            expanded: expanded,
+            onExpand: () => changeForm(() {
+              if (!expandedTitles.remove(entry.key)) {
+                expandedTitles.add(entry.key);
+              }
+            }),
+            recommended: best.id == results.recommendedId,
+            notes: [
+              if (controller.state.remembered?.affinity(best) == 2) '上次选择',
+              ...results.unstated(best),
+            ],
+            warnings: [if (options.isEmpty) '未对应本作剧集'],
+            action: (wide) => ResourceBatchButton(
+              showLabel: wide,
+              added:
+                  options.isNotEmpty &&
+                  options.values.every(
+                    (candidate) => taskOf(candidate) != null,
+                  ),
+              onPressed: options.isEmpty
+                  ? null
+                  : () => downloadRange(
+                      options,
+                      title: [
+                        resourceGroupLabel(info),
+                        _seriesTitle(info),
+                      ].where((e) => e.isNotEmpty).join('  '),
+                      source: [
+                        best.providerLabel ?? best.provider,
+                        ?info.quality,
+                        ...info.languages,
+                        ...info.subtitleForms,
+                      ].join(' · '),
+                    ),
+            ),
+          ),
+        ),
+        if (expanded)
+          ResourceEpisodePanel(
+            rows: (wide) => [
+              for (final member in members) _memberRow(member, wide),
+            ],
+          ),
+      ],
+    );
+  }
+
+  /// An online subject: its entries, read when first needed, are its
+  /// episodes, by line.
+  Widget _onlineRow(ResourceResults results, ResourceMember member) {
+    final (candidate, info, _) = member;
+    final id = candidate.id;
+    final expanded = expandedTitles.contains(id);
+    final future = expanded
+        ? parts[id] ??= controller.entries(candidate)
+        : parts[id];
+    final small = Theme.of(context).textTheme.bodySmall;
+    return FutureBuilder<List<SourceEpisode>>(
+      future: future,
+      builder: (context, snapshot) {
+        final rows = snapshot.data;
+        final lines = rows == null ? null : linesOf(candidate, rows);
+        final matched = {
+          for (final items in lines?.values ?? const <List<_Part>>[])
+            for (final (_, _, target) in items) ?target?.sort,
+        };
+        final options = lines?.values
+            .map(lineOptions)
+            .fold(
+              <int, PlayCandidate>{},
+              (a, b) => b.length > a.length ? b : a,
+            );
+        Widget line(String name, List<_Part> items) {
+          final options = lineOptions(items);
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(26, 4, 8, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    name.isEmpty ? '默认线路' : name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: small?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
                   ),
                 ),
-              );
-            },
-          ),
-        ),
-      ],
+                if (searched == null && options.length > 1)
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: () => downloadRange(
+                      options,
+                      title: candidate.title,
+                      source: [candidate.sourceLabel, name].join(' · '),
+                    ),
+                    icon: const Icon(Icons.download_rounded, size: 16),
+                    label: const Text('批量下载'),
+                  ),
+              ],
+            ),
+          );
+        }
+
+        Widget part(_Part part, bool wide) {
+          final (entry, item, target) = part;
+          return ResourceEpisodeRow(
+            label: item.label,
+            wide: wide,
+            notes: [
+              if (searched != null) '作为第 ${searched!.number} 话',
+              ?item.description,
+            ],
+            warnings: [if (target == null) '未对应本作剧集'],
+            error: downloadErrors[entry.id],
+            download: target == null
+                ? null
+                : ResourceDownloadButton(
+                    adding: adding.contains(entry.id),
+                    task: taskOf(entry),
+                    failed: downloadErrors.containsKey(entry.id),
+                    showLabel: wide,
+                    onPressed: () => download(entry, episode: target),
+                  ),
+            play: target == null
+                ? null
+                : ResourcePlayButton(
+                    onPressed: opening == null
+                        ? () => play(entry, target)
+                        : null,
+                    instant: true,
+                    playing: opening == entry.id,
+                    showLabel: wide,
+                  ),
+          );
+        }
+
+        Widget notice(Widget child) => Padding(
+          padding: const EdgeInsets.fromLTRB(26, 8, 8, 8),
+          child: child,
+        );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ResourceArrival(
+              child: ResourceSeriesRow(
+                candidate: candidate,
+                info: info,
+                title: info.displayTitle,
+                group: candidate.line,
+                coverage: rows == null
+                    ? null
+                    : searched == null && matched.isNotEmpty
+                    ? '第 ${episodeSpans(matched)} 话'
+                    : '${rows.length} 个条目',
+                notes: [...notesOf(candidate), ...results.unstated(candidate)],
+                warnings: warningsOf(candidate),
+                recommended: id == results.recommendedId,
+                expanded: expanded,
+                onExpand: () => changeForm(() {
+                  if (!expandedTitles.remove(id)) expandedTitles.add(id);
+                }),
+                action: searched != null
+                    ? null
+                    : (wide) => ResourceBatchButton(
+                        showLabel: wide,
+                        loading:
+                            future != null &&
+                            snapshot.connectionState != ConnectionState.done,
+                        added:
+                            options != null &&
+                            options.isNotEmpty &&
+                            options.values.every(
+                              (part) => taskOf(part) != null,
+                            ),
+                        onPressed: options != null && options.isEmpty
+                            ? null
+                            : () => downloadOnline(candidate),
+                      ),
+              ),
+            ),
+            if (expanded)
+              ResourceEpisodePanel(
+                rows: (wide) => [
+                  if (snapshot.hasError)
+                    notice(
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              '读取失败：${errorMessage(snapshot.error!)}',
+                              style: small?.copyWith(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => setState(() => parts.remove(id)),
+                            child: const Text('重试'),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (rows == null)
+                    notice(
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: SizedBox(
+                          width: 160,
+                          child: LinearProgressIndicator(minHeight: 2),
+                        ),
+                      ),
+                    )
+                  else if (rows.isEmpty)
+                    notice(Text('没有可播放的条目', style: small))
+                  else
+                    for (final MapEntry(key: name, value: items)
+                        in lines!.entries) ...[
+                      if (lines.length > 1) line(name, items),
+                      for (final item in items) part(item, wide),
+                    ],
+                ],
+              ),
+          ],
+        );
+      },
     );
   }
 }

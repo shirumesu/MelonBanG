@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../features/update/app_update.dart';
 import '../../features/update/uninstall.dart';
 import '../../integrations/github/app_releases.dart';
+import '../core/external_link.dart';
 import '../core/theme.dart';
 import 'settings_page.dart';
 
@@ -62,13 +63,15 @@ SettingsSection aboutSection({
         SettingRow(
           title: '开源许可',
           subtitle: 'MelonBanG 以 GNU GPL 3.0 许可发布',
-          trailing: OutlinedButton.icon(
-            onPressed: () => launchUrl(
-              Uri.https('github.com', '/$releaseRepository'),
-              mode: LaunchMode.externalApplication,
+          trailing: Builder(
+            builder: (context) => OutlinedButton.icon(
+              onPressed: () => openExternal(
+                context,
+                'https://github.com/$releaseRepository',
+              ),
+              icon: const Icon(Icons.open_in_new, size: 18),
+              label: const Text('源代码'),
             ),
-            icon: const Icon(Icons.open_in_new, size: 18),
-            label: const Text('源代码'),
           ),
         ),
       ),
@@ -98,7 +101,7 @@ class _UpdateStatus extends StatelessWidget {
               : 'MelonBanG ${AppUpdate.version}',
           subtitle: _status(),
           subtitleColor: update.phase == UpdatePhase.failed ? coral : null,
-          trailing: _action(),
+          trailing: _action(context),
         ),
         if (update.phase == UpdatePhase.downloading)
           Padding(
@@ -134,11 +137,10 @@ class _UpdateStatus extends StatelessWidget {
     };
   }
 
-  Widget _action() {
+  Widget _action(BuildContext context) {
     if (update.unavailable != null) {
       return OutlinedButton.icon(
-        onPressed: () =>
-            launchUrl(releasePage, mode: LaunchMode.externalApplication),
+        onPressed: () => openExternal(context, '$releasePage'),
         icon: const Icon(Icons.open_in_new, size: 18),
         label: const Text('发行页'),
       );

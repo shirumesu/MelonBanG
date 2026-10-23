@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../domain/bittorrent_settings.dart';
@@ -9,6 +10,32 @@ import 'settings_page.dart';
 const bitTorrentKeywords =
     'bt 下载 做种 上传 限速 速度 同时下载 同时分享 启动时继续 分享率 分享时间 '
     '连接 端口 监听端口 dht upnp nat 端口映射 ipv6 加密 恢复推荐值';
+
+/// BT downloading and seeding; its settings show once cache tasks are
+/// restored.
+SettingsSection downloadsSection({
+  required ValueListenable<bool> available,
+  required ValueListenable<String?> issue,
+  required BitTorrentSettings settings,
+  required Future<void> Function(BitTorrentSettings) onSave,
+}) => SettingsSection(
+  id: 'downloads',
+  title: '下载与做种',
+  icon: Icons.swap_vert,
+  groups: [
+    SettingsGroup([
+      SettingsItem(
+        bitTorrentKeywords,
+        ListenableBuilder(
+          listenable: Listenable.merge([available, issue]),
+          builder: (context, _) => available.value
+              ? BitTorrentSettingsPanel(settings: settings, onSave: onSave)
+              : DownloadsUnavailable(issue: issue.value),
+        ),
+      ),
+    ]),
+  ],
+);
 
 /// BT download and sharing settings. Switches, menus and sliders apply at
 /// once; a number applies when its field is submitted or left, after

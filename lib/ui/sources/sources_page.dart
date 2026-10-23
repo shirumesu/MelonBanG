@@ -1,14 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../domain/danmaku.dart';
 import '../../domain/sources.dart';
 import '../../features/acquisition/source_registry.dart';
 import '../../features/danmaku/danmaku_controller.dart';
 import '../../features/network/connectivity.dart';
+import '../../integrations/github/app_releases.dart' show releasePage;
 import '../core/action_feedback.dart';
+import '../core/external_link.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
 import '../settings/network_settings.dart' show ProbeStatus;
@@ -313,12 +314,7 @@ class _SourcesPageState extends State<SourcesPage> {
                     FeedbackIssue(
                       feedback: _engineIssue,
                       actionLabel: '查看版本',
-                      onRetry: () => launchUrl(
-                        Uri.parse(
-                          'https://github.com/shirumesu/MelonBanG/releases',
-                        ),
-                        mode: LaunchMode.externalApplication,
-                      ),
+                      onRetry: () => openExternal(context, '$releasePage'),
                     ),
                   ],
                 ),
@@ -517,10 +513,7 @@ class _SourcesPageState extends State<SourcesPage> {
         ],
         if (website != null)
           TextButton.icon(
-            onPressed: () => launchUrl(
-              Uri.parse(website),
-              mode: LaunchMode.externalApplication,
-            ),
+            onPressed: () => openExternal(context, website),
             icon: const Icon(Icons.open_in_new, size: 16),
             label: const Text('打开站点'),
           ),

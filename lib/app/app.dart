@@ -7,8 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../core/error_message.dart';
 import 'app_services.dart';
+import '../core/error_message.dart';
 import '../core/network.dart';
 import '../features/acquisition/resource_metadata.dart';
 import '../domain/catalog.dart';
@@ -32,7 +32,9 @@ import '../ui/core/motion.dart';
 import '../ui/core/page_widgets.dart';
 import '../ui/core/subject_posters.dart';
 import '../ui/core/theme.dart';
-import '../ui/discovery/discovery_pages.dart';
+import '../ui/discovery/calendar_page.dart';
+import '../ui/discovery/home_page.dart';
+import '../ui/discovery/search_page.dart';
 import '../ui/player/player_page.dart';
 import '../ui/settings/bittorrent_settings.dart';
 import '../ui/settings/network_settings.dart';
@@ -909,54 +911,24 @@ class _MelonAppState extends State<MelonApp>
       playback.settings,
       onForgetSources: service.selection.forgetAll,
     ),
-    SettingsSection(
-      id: 'downloads',
-      title: '下载与做种',
-      icon: Icons.swap_vert,
-      groups: [
-        SettingsGroup([
-          SettingsItem(
-            bitTorrentKeywords,
-            ListenableBuilder(
-              listenable: Listenable.merge([
-                service.downloadsAvailable,
-                service.downloadIssue,
-              ]),
-              builder: (context, _) => service.downloadsAvailable.value
-                  ? BitTorrentSettingsPanel(
-                      settings: service.bt.settings,
-                      onSave: service.bt.saveSettings,
-                    )
-                  : DownloadsUnavailable(issue: service.downloadIssue.value),
-            ),
-          ),
-        ]),
-      ],
+    downloadsSection(
+      available: service.downloadsAvailable,
+      issue: service.downloadIssue,
+      settings: service.bt.settings,
+      onSave: service.bt.saveSettings,
     ),
     networkSection(proxy: service.proxy, connectivity: service.connectivity),
-    SettingsSection(
-      id: 'storage',
-      title: '存储',
-      icon: Icons.folder_outlined,
-      groups: [
-        SettingsGroup([
-          SettingsItem(
-            '存储 缓存 清理 应用数据 媒体缓存 下载位置 迁移 空间 文件夹',
-            StorageSettings(
-              readCacheSize: service.cache.size,
-              onClearCache: () async {
-                await service.cache.clear();
-                PaintingBinding.instance.imageCache.clear();
-                PaintingBinding.instance.imageCache.clearLiveImages();
-              },
-              onExit: () => windowManager.close(),
-              storage: service.storage,
-              dataDirectory: service.dataDirectory!,
-              mediaDirectory: service.bt.directory,
-            ),
-          ),
-        ]),
-      ],
+    storageSection(
+      readCacheSize: service.cache.size,
+      onClearCache: () async {
+        await service.cache.clear();
+        PaintingBinding.instance.imageCache.clear();
+        PaintingBinding.instance.imageCache.clearLiveImages();
+      },
+      onExit: () => windowManager.close(),
+      storage: service.storage,
+      dataDirectory: service.dataDirectory!,
+      mediaDirectory: service.bt.directory,
     ),
     shortcutsSection(),
     aboutSection(
@@ -967,29 +939,30 @@ class _MelonAppState extends State<MelonApp>
     ),
   ];
 
-  Widget downloadsSection(Widget Function() content) => ListenableBuilder(
+  /// [content] once cache tasks are restored, until then their state.
+  Widget restoredDownloads(Widget Function() content) => ListenableBuilder(
     listenable: Listenable.merge([
       service.downloadsAvailable,
       service.downloadIssue,
     ]),
     builder: (context, _) {
       if (service.downloadsAvailable.value) return content();
-      final issue = service.downloadIssue.value;
-      return Padding(
-        padding: const EdgeInsets.all(24),
-        child: Center(
-          child: issue == null
-              ? const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('正在恢复缓存任务…'),
-                  ],
-                )
-              : Text('缓存任务恢复失败：$issue'),
+      return switch (service.downloadIssue.value) {
+        null => const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('正在恢复缓存任务…'),
+            ],
+          ),
         ),
-      );
+        final issue => Padding(
+          padding: const EdgeInsets.all(pageGutter),
+          child: EmptyState(text: '缓存任务恢复失败', detail: issue),
+        ),
+      };
     },
   );
 
@@ -1100,7 +1073,7 @@ class _MelonAppState extends State<MelonApp>
           ),
         );
       case 'downloads':
-        return downloadsSection(
+        return restoredDownloads(
           () => DownloadsPage(
             downloads: downloads,
             onExplore: () => navigate('home'),
