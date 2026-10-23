@@ -14,7 +14,7 @@ import 'core/service_configuration.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (kDebugMode && Platform.isWindows) {
+  if (kDebugMode && (Platform.isWindows || Platform.isMacOS)) {
     // Hot restart replaces Dart isolates, but keeps the native video plugin.
     // Release its old outputs before media_kit sends quit to the old players.
     await const MethodChannel('com.alexmercerind/media_kit_video')

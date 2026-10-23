@@ -57,6 +57,8 @@ public class MediaKitVideoPlugin: NSObject, FlutterPlugin {
       handleSetSizeMethodCall(call.arguments, result)
     case "VideoOutputManager.Dispose":
       handleDisposeMethodCall(call.arguments, result)
+    case "VideoOutputManager.Reset":
+      handleResetMethodCall(result)
     case "Utils.EnterNativeFullscreen":
       handleEnterNativeFullscreenMethodCall(call.arguments, result)
     case "Utils.ExitNativeFullscreen":
@@ -140,6 +142,17 @@ public class MediaKitVideoPlugin: NSObject, FlutterPlugin {
     )
 
     result(nil)
+  }
+
+  private func handleResetMethodCall(
+    _ result: @escaping FlutterResult
+  ) {
+    videoOutputManager.reset()
+
+    // Reply after the texture unregistrations that the outputs queued.
+    DispatchQueue.main.async {
+      result(nil)
+    }
   }
 
   private func handleEnterNativeFullscreenMethodCall(

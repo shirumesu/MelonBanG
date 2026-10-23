@@ -24,15 +24,19 @@ Keep this override until an upstream release provides equivalent completion
 semantics. Revalidate by closing the packaged application during active playback,
 checking exit code zero and absence of child processes.
 
-## Windows hot restart
+## Hot restart (Windows and macOS)
 
 Debug startup awaits `VideoOutputManager.Reset` before `MediaKit.ensureInitialized`.
 Flutter retains the native plugin across hot restart, while media_kit 1.2.6 sends
-`quit` to old mpv handles whose Dart NativeCallable callbacks have been destroyed.
-Reset clears those wakeup callbacks, unregisters all old textures and drains the
-render queue before replying on the platform thread. Every player in this app has
-a VideoController, so the manager owns all affected handles. This also prevents
-old video outputs from accumulating across restarts. Keep this ordering if player
+`quit` to old mpv handles whose Dart NativeCallable callbacks have been destroyed;
+mpv's core thread then calls the dead wakeup callback from `mp_shutdown_clients`
+and the process crashes (EXC_BAD_ACCESS in `append_event` on macOS).
+Reset clears those wakeup callbacks and releases all old video outputs before
+replying on the platform thread. Windows also unregisters the textures and drains
+the render queue before replying; macOS replies after the texture unregistrations
+its outputs queued on the main thread. Every player in this app has a
+VideoController, so the manager owns all affected handles. This also prevents old
+video outputs from accumulating across restarts. Keep this ordering if player
 initialization changes; audio-only players would need their own handle cleanup.
 
 Related upstream callback fix: https://github.com/media-kit/media-kit/pull/1416.

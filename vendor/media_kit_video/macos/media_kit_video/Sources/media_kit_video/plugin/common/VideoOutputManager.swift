@@ -4,6 +4,10 @@
   import FlutterMacOS
 #endif
 
+#if SWIFT_PACKAGE
+  import Mpv
+#endif
+
 public class VideoOutputManager: NSObject {
   private let registry: FlutterTextureRegistry
   private var videoOutputs = [Int64: VideoOutput]()
@@ -52,5 +56,14 @@ public class VideoOutputManager: NSObject {
     }
 
     self.videoOutputs[handle] = nil
+  }
+
+  public func reset() {
+    // Every app player owns a VideoOutput. Its Dart NativeCallable no longer
+    // exists after restart; even teardown must not invoke that callback.
+    for handle in self.videoOutputs.keys {
+      mpv_set_wakeup_callback(OpaquePointer(bitPattern: Int(handle)), nil, nil)
+    }
+    self.videoOutputs.removeAll()
   }
 }
