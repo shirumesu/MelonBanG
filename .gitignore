@@ -18,3 +18,6 @@ build/
 .metadata.*
 macos/Runner/Configs/Signing.local.xcconfig
 vendor/media_kit_video/macos/Headers/
+
+# Design notes live in Spec; this folder stays local only.
+Design/

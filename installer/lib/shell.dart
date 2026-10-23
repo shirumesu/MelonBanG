@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'bot.dart';
 import 'install.dart';
 
-// MelonBanG's palette; see Design/brand.md.
+// MelonBanG's palette; see Brand in Spec (topics/ui/design/brand.md).
 const mint = Color(0xff22b388);
 const deep = Color(0xff168364);
 const ink = Color(0xff263833);
