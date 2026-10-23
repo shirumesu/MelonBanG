@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
@@ -152,8 +153,19 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           Expanded(
             child: NotificationListener<ScrollNotification>(
-              onNotification: (_) {
-                follow();
+              onNotification: (notification) {
+                // Only the page's own scrolling. A list inside a setting can
+                // report while it is laid out, when positions cannot be read
+                // yet, so those wait for the frame to finish.
+                if (notification.depth != 0) return false;
+                if (SchedulerBinding.instance.schedulerPhase ==
+                    SchedulerPhase.persistentCallbacks) {
+                  SchedulerBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) follow();
+                  });
+                } else {
+                  follow();
+                }
                 return false;
               },
               child: LayoutBuilder(

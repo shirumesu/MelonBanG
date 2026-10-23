@@ -282,6 +282,9 @@ class _ConnectivityState extends State<_Connectivity> {
                               child: Text('没有需要关注的服务'),
                             )
                           : ListView(
+                              // Its own scroll offset: without a key it would
+                              // restore the settings page's.
+                              key: const PageStorageKey('connectivity-results'),
                               shrinkWrap: true,
                               padding: const EdgeInsets.symmetric(
                                 vertical: Gap.xs,

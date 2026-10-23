@@ -480,6 +480,9 @@ class _SourcesPageState extends State<SourcesPage> {
                   child: Text('没有匹配的数据源', style: theme.textTheme.bodySmall),
                 )
               : ListView(
+                  // Each scrolling area keeps its own offset; without keys
+                  // the list and the details would share one.
+                  key: const PageStorageKey('data-source-list'),
                   padding: const EdgeInsets.fromLTRB(
                     pageGutter - Gap.xs,
                     0,
@@ -534,6 +537,7 @@ class _SourcesPageState extends State<SourcesPage> {
     final sender = provider is DanmakuSender;
     final quota = danmaku.quota;
     return ListView(
+      key: PageStorageKey('data-source:${entry.id}'),
       padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
       children: [
         if (narrow) _back(),
@@ -618,6 +622,7 @@ class _SourcesPageState extends State<SourcesPage> {
         : registry.currentDomain(id);
     _runtimeIssue.issue = registry.errors[id];
     return ListView(
+      key: PageStorageKey('data-source:$id'),
       padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
       children: [
         FeedbackIssue(
@@ -880,7 +885,7 @@ class _SourceRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 2),
       child: Material(
         color: selected
-            ? theme.colorScheme.secondaryContainer
+            ? theme.listTileTheme.selectedTileColor
             : Colors.transparent,
         borderRadius: controlBorderRadius,
         child: InkWell(
