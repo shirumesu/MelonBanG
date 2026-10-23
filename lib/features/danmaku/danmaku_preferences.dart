@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:pinyin/pinyin.dart' show ChineseHelper;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/json.dart';
@@ -167,6 +168,8 @@ class DanmakuPreferences extends ChangeNotifier {
     // Normalized text → index in result of its latest shown comment.
     final shown = <String, int>{};
     final counts = <int, int>{};
+    // Index in result → the text its merged group shows instead.
+    final texts = <int, String>{};
     for (final item in comments) {
       if ((item.mode == DanmakuMode.scroll && !scroll) ||
           (item.mode == DanmakuMode.top && !top) ||
@@ -184,6 +187,11 @@ class DanmakuPreferences extends ChangeNotifier {
         final index = shown[key];
         if (index != null && item.time - result[index].time <= mergeWindow) {
           counts[index] = (counts[index] ?? 1) + 1;
+          // Simplified and traditional spellings together show simplified.
+          if (_traditional(texts[index] ?? result[index].text) &&
+              !_traditional(item.text)) {
+            texts[index] = item.text;
+          }
           continue;
         }
         shown[key] = result.length;
@@ -194,7 +202,7 @@ class DanmakuPreferences extends ChangeNotifier {
       final item = result[index];
       result[index] = DanmakuComment(
         item.time,
-        '${item.text} ×$count',
+        '${texts[index] ?? item.text} ×$count',
         source: item.source,
         mode: item.mode,
         color: item.color,
@@ -205,8 +213,8 @@ class DanmakuPreferences extends ChangeNotifier {
 
   static const mergeWindow = 10.0;
 
-  /// Text compared for merging: case, width, spacing and trailing
-  /// punctuation ignored.
+  /// Text compared for merging: case, width, spacing, trailing punctuation
+  /// and simplified/traditional spelling ignored.
   static String _mergeKey(String text) {
     final buffer = StringBuffer();
     for (final rune in text.runes) {
@@ -217,10 +225,19 @@ class DanmakuPreferences extends ChangeNotifier {
           ? 0x20
           : rune;
       if (folded == 0x20 || folded == 0x09) continue;
-      buffer.writeCharCode(folded);
+      buffer.write(
+        ChineseHelper.convertCharToSimplifiedChinese(
+          String.fromCharCode(folded),
+        ),
+      );
     }
     final key = buffer.toString().toLowerCase();
     final trimmed = key.replaceFirst(RegExp(r'[!?.,~。！？，、…～]+$'), '');
     return trimmed.isEmpty ? key : trimmed;
   }
+
+  static bool _traditional(String text) => text.runes.any((rune) {
+    final char = String.fromCharCode(rune);
+    return ChineseHelper.convertCharToSimplifiedChinese(char) != char;
+  });
 }

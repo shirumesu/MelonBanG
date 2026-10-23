@@ -196,8 +196,13 @@ class _AnchoredPanelState extends State<AnchoredPanel>
     if (widget.open == oldWidget.open) return;
     _fade.duration = motionDuration(context);
     if (widget.open) {
-      _portal.show();
-      _fade.forward();
+      // The transport builds this inside a LayoutBuilder, and the overlay
+      // cannot change during layout.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !widget.open) return;
+        _portal.show();
+        _fade.forward();
+      });
     } else {
       _fade.reverse().whenComplete(() {
         if (mounted && !widget.open) _portal.hide();
