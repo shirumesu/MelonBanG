@@ -396,36 +396,13 @@ class AppSidebar extends StatelessWidget {
                 onTap: () => onNavigate('home'),
                 child: Semantics(
                   button: true,
-                  label: 'melonbang，返回探索首页',
+                  label: 'MelonBanG，返回探索首页',
                   excludeSemantics: true,
                   child: Padding(
                     padding: const EdgeInsets.all(Gap.sm),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 30,
-                          height: 30,
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Color(0xff6fd9b1), mint],
-                            ),
-                            borderRadius: BorderRadius.all(Radius.circular(9)),
-                          ),
-                          child: const Icon(
-                            Icons.spa_rounded,
-                            color: Color(0xff08321f),
-                            size: 17,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        const Text(
-                          'melonbang',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
+                    child: Image.asset(
+                      'assets/images/logotype.png',
+                      width: 150,
                     ),
                   ),
                 ),

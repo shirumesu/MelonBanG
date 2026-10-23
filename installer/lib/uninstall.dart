@@ -110,6 +110,11 @@ class Uninstaller {
     for (final root in roots) {
       if (!left.contains(root)) await Directory(root).delete(recursive: true);
     }
+    // Application support sits in a folder named after the company.
+    final company = Directory(p.dirname(_support));
+    if (wipe && await company.exists() && await company.list().isEmpty) {
+      await company.delete();
+    }
     if (!left.contains(location)) {
       onProgress(1, '清理安装记录');
       await channel.invokeMethod('unregister');

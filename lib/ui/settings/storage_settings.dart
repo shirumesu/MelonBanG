@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 
 import '../../core/storage_locations.dart';
 import '../../core/storage_usage.dart';
@@ -278,4 +281,104 @@ class _StorageSettingsState extends State<StorageSettings> {
         ),
     ],
   );
+}
+
+/// The first launch: where downloaded episodes go, before anything is stored.
+class StorageSetup extends StatefulWidget {
+  const StorageSetup({super.key, required this.storage, required this.onDone});
+  final StorageLocations storage;
+  final VoidCallback onDone;
+  @override
+  State<StorageSetup> createState() => _StorageSetupState();
+}
+
+class _StorageSetupState extends State<StorageSetup> {
+  late String media = widget.storage.media;
+  bool busy = false;
+  String? error;
+
+  /// A folder that already holds other files gets a MelonBanG subfolder.
+  Future<void> pick() async {
+    final selected = await getDirectoryPath(confirmButtonText: '选择文件夹');
+    if (selected == null) return;
+    final folder = Directory(selected);
+    final empty = !await folder.exists() || await folder.list().isEmpty;
+    if (!mounted) return;
+    setState(() {
+      media = empty ? selected : p.join(selected, 'MelonBanG');
+      error = null;
+    });
+  }
+
+  Future<void> confirm() async {
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      if (media != widget.storage.media) await widget.storage.choose(media);
+      widget.onDone();
+    } catch (e) {
+      setState(() {
+        busy = false;
+        error = '$e'.replaceFirst('Bad state: ', '');
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('欢迎使用 MelonBanG', style: text.headlineSmall),
+              const SizedBox(height: 8),
+              const Text('先选好番剧下载到哪里。视频很占空间，建议放在剩余空间较大的磁盘上。'),
+              const SizedBox(height: 20),
+              MelonPanel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('下载位置', style: text.titleSmall),
+                    const SizedBox(height: 8),
+                    SelectableText(media, style: text.bodySmall),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: busy ? null : pick,
+                      icon: const Icon(Icons.folder_open_outlined),
+                      label: const Text('更改位置'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text('之后可以在 设置 › 应用数据 › 媒体缓存 里更改', style: text.bodySmall),
+              if (error != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              const SizedBox(height: 20),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton(
+                  onPressed: busy ? null : confirm,
+                  child: const Text('开始使用'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

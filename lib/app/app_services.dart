@@ -101,18 +101,29 @@ class AppServices {
     return _starting ??= _start();
   }
 
+  /// The configured locations; null when a data directory override is set.
+  Future<StorageLocations?> locate() => _locating ??= _locate();
+  Future<StorageLocations?>? _locating;
+  Future<StorageLocations?> _locate() async {
+    if ((directory ?? Platform.environment['MELONBANG_DATA_DIR']) != null) {
+      return null;
+    }
+    final support = (await getApplicationSupportDirectory()).path;
+    final locations = StorageLocations(
+      File(p.join(support, 'storage.json')),
+      p.join(support, 'native'),
+    );
+    locations.onProgress = (message) => startupStatus.value = message;
+    await locations.load();
+    return storage = locations;
+  }
+
   Future<void> _start() async {
     final override = directory ?? Platform.environment['MELONBANG_DATA_DIR'];
     if (override != null) {
       dataDirectory = override;
     } else {
-      final support = (await getApplicationSupportDirectory()).path;
-      storage = StorageLocations(
-        File(p.join(support, 'storage.json')),
-        p.join(support, 'native'),
-      );
-      storage!.onProgress = (message) => startupStatus.value = message;
-      await storage!.load();
+      await locate();
       await storage!.migrate();
       dataDirectory = storage!.data;
     }
