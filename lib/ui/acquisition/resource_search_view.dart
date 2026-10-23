@@ -56,6 +56,7 @@ class ResourceSearchView extends StatefulWidget {
     required this.onPlay,
     this.active = true,
     this.actions = const [],
+    this.onOpenDownloads,
   });
   final ResourceSearchController search;
 
@@ -68,6 +69,9 @@ class ResourceSearchView extends StatefulWidget {
 
   /// Trailing actions of the heading row, such as open-in-page and close.
   final List<Widget> actions;
+
+  /// Opens the cache page; given, a download added here offers it.
+  final VoidCallback? onOpenDownloads;
   @override
   State<ResourceSearchView> createState() => _ResourceSearchViewState();
 }
@@ -247,10 +251,11 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         null => null,
       };
 
-  /// Downloads [candidate] as [episode], by default the searched one.
-  Future<void> download(PlayCandidate candidate, {Episode? episode}) async {
+  /// Downloads [candidate] as [episode], by default the searched one;
+  /// whether a task was added.
+  Future<bool> download(PlayCandidate candidate, {Episode? episode}) async {
     final id = candidate.id;
-    if (adding.contains(id) || taskOf(candidate) != null) return;
+    if (adding.contains(id) || taskOf(candidate) != null) return false;
     final method = candidate.kind == PlayKind.pikpak
         ? CacheMethod.pikpak
         : CacheMethod.bt;
@@ -268,13 +273,32 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         _ => controller.saveOnline(candidate, episode: episode),
       };
       if (mounted) setState(() => downloadTasks[id] = task.id);
+      return true;
     } catch (error) {
       if (mounted) {
         setState(() => downloadErrors[id] = '添加失败：${errorMessage(error)}');
       }
+      return false;
     } finally {
       if (mounted) setState(() => adding.remove(id));
     }
+  }
+
+  Future<void> downloadOne(PlayCandidate candidate, {Episode? episode}) async {
+    if (await download(candidate, episode: episode)) offerDownloads(1);
+  }
+
+  /// Confirms [count] added downloads, with the way to the cache page.
+  void offerDownloads(int count) {
+    final open = widget.onOpenDownloads;
+    if (open == null || count == 0 || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(count == 1 ? '已加入缓存' : '已将 $count 话加入缓存'),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(label: '查看缓存', onPressed: open),
+      ),
+    );
   }
 
   bool playable(PlayCandidate candidate, Episode? target) =>
@@ -346,10 +370,12 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       },
     );
     if (chosen == null || !mounted) return;
+    var added = 0;
     for (final episode in chosen) {
-      await download(options[episode.id]!, episode: episode);
+      if (await download(options[episode.id]!, episode: episode)) added++;
       if (!mounted) return;
     }
+    offerDownloads(added);
   }
 
   /// Cached annotations, renewed when site metadata adds release groups.
@@ -1089,7 +1115,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             task: taskOf(candidate),
             failed: downloadErrors.containsKey(candidate.id),
             showLabel: wide,
-            onPressed: () => download(candidate, episode: target),
+            onPressed: () => downloadOne(candidate, episode: target),
           ),
           _ => null,
         },
@@ -1128,7 +1154,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         task: taskOf(candidate),
         failed: downloadErrors.containsKey(candidate.id),
         showLabel: wide,
-        onPressed: () => download(candidate, episode: target),
+        onPressed: () => downloadOne(candidate, episode: target),
       ),
       play: playable(candidate, target)
           ? ResourcePlayButton(
@@ -1313,7 +1339,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                     task: taskOf(entry),
                     failed: downloadErrors.containsKey(entry.id),
                     showLabel: wide,
-                    onPressed: () => download(entry, episode: target),
+                    onPressed: () => downloadOne(entry, episode: target),
                   ),
             play: target == null
                 ? null
