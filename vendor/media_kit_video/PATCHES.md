@@ -70,3 +70,14 @@ The Swift compiler passes the same `GL_SILENCE_DEPRECATION` and
 `COREVIDEO_SILENCE_GL_DEPRECATION` macros to its Clang importer as CocoaPods.
 These silence only the intentional OpenGL/Core Video API deprecations while
 preserving other compiler warnings.
+
+## Fixed output size
+
+`NativeVideoController` resized the output to the video's own dimensions on
+every `videoParams` change, even after `setSize` had fixed a size, while its
+`width`/`height` fields kept naming the fixed one; a later `setSize` with the
+same values then returned early and the output stayed at the video size. The
+patch skips the automatic resize while a fixed size is set. MelonBanG fixes the
+output to the displayed size only while super-resolution shaders are enabled,
+so they have room to upscale, and clears it otherwise. Revalidate the output
+size after switching files of different dimensions with the setting on.

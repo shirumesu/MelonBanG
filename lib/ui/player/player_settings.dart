@@ -161,6 +161,7 @@ class DanmakuQuickSettings extends StatelessWidget {
                     toggle('描边', prefs.stroke, (v) => prefs.stroke = v),
                     toggle('允许重叠', prefs.overlap, (v) => prefs.overlap = v),
                     toggle('防挡字幕', prefs.shield, (v) => prefs.shield = v),
+                    toggle('合并重复', prefs.merge, (v) => prefs.merge = v),
                   ],
                 ),
                 const SizedBox(height: Gap.sm),

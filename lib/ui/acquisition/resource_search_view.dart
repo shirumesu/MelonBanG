@@ -406,6 +406,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   }
 
   List<String> notesOf(PlayCandidate candidate) => [
+    if (controller.state.remembered?.affinity(candidate) == 2) '上次选择',
     if (candidate.target case OnlineTarget(:final description?)) description,
   ];
 
@@ -766,7 +767,10 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 }
               }),
               recommended: best.id == recommendedId,
-              notes: unstated(best),
+              notes: [
+                if (controller.state.remembered?.affinity(best) == 2) '上次选择',
+                ...unstated(best),
+              ],
               warnings: [if (options.isEmpty) '未对应本作剧集'],
               action: (wide) => ResourceBatchButton(
                 showLabel: wide,

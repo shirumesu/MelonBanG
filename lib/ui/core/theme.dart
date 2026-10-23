@@ -21,9 +21,47 @@ const posterBorderRadius = BorderRadius.all(Radius.circular(14));
 const panelBorderRadius = BorderRadius.all(Radius.circular(16));
 const controlBorderRadius = BorderRadius.all(Radius.circular(12));
 const badgeBorderRadius = BorderRadius.all(Radius.circular(8));
-const navigationGradient = LinearGradient(
-  colors: [Color(0xff65cfad), Color(0xff8bddbf)],
-);
+
+/// Accent-dependent colours the colour scheme has no role for.
+@immutable
+class MelonAccent extends ThemeExtension<MelonAccent> {
+  const MelonAccent({
+    required this.accent,
+    required this.navigation,
+    required this.onNavigation,
+  });
+
+  /// Progress, highlighted badges and section icons; [mint] by default.
+  final Color accent;
+
+  /// The selected sidebar entry and the text on it.
+  final LinearGradient navigation;
+  final Color onNavigation;
+
+  @override
+  MelonAccent copyWith({
+    Color? accent,
+    LinearGradient? navigation,
+    Color? onNavigation,
+  }) => MelonAccent(
+    accent: accent ?? this.accent,
+    navigation: navigation ?? this.navigation,
+    onNavigation: onNavigation ?? this.onNavigation,
+  );
+
+  @override
+  MelonAccent lerp(MelonAccent? other, double t) => other == null
+      ? this
+      : MelonAccent(
+          accent: Color.lerp(accent, other.accent, t)!,
+          navigation: LinearGradient.lerp(navigation, other.navigation, t)!,
+          onNavigation: Color.lerp(onNavigation, other.onNavigation, t)!,
+        );
+}
+
+/// The theme's [MelonAccent].
+MelonAccent accentOf(BuildContext context) =>
+    Theme.of(context).extension<MelonAccent>()!;
 
 List<BoxShadow> posterShadows(BuildContext context) => [
   BoxShadow(
@@ -41,18 +79,36 @@ LinearGradient sidebarSurface(BuildContext context) => LinearGradient(
   stops: const [.82, 1],
 );
 
-ThemeData appTheme(bool dark) {
-  final scheme =
-      ColorScheme.fromSeed(
-        seedColor: mint,
-        brightness: dark ? Brightness.dark : Brightness.light,
-      ).copyWith(
-        primary: dark ? mintOnDark : const Color(0xff168364),
-        onPrimary: dark ? const Color(0xff123a2a) : Colors.white,
-        primaryContainer: dark
+/// The application theme. [accent] seeds the primary roles; the default
+/// mint keeps its hand-tuned values, other colours take Material's tones
+/// while surfaces stay neutral.
+ThemeData appTheme(bool dark, {Color accent = mint}) {
+  final brightness = dark ? Brightness.dark : Brightness.light;
+  final brand = accent == mint;
+  final seeded = ColorScheme.fromSeed(
+    seedColor: accent,
+    brightness: brightness,
+  );
+  final scheme = ColorScheme.fromSeed(seedColor: mint, brightness: brightness)
+      .copyWith(
+        primary: !brand
+            ? seeded.primary
+            : dark
+            ? mintOnDark
+            : const Color(0xff168364),
+        onPrimary: !brand
+            ? seeded.onPrimary
+            : dark
+            ? const Color(0xff123a2a)
+            : Colors.white,
+        primaryContainer: !brand
+            ? seeded.primaryContainer
+            : dark
             ? const Color(0xff304f42)
             : const Color(0xffb8edd5),
-        onPrimaryContainer: dark
+        onPrimaryContainer: !brand
+            ? seeded.onPrimaryContainer
+            : dark
             ? const Color(0xffcbefdc)
             : const Color(0xff164d39),
         secondary: coral,
@@ -206,6 +262,19 @@ ThemeData appTheme(bool dark) {
     displayColor: scheme.onSurface,
   );
   return theme.copyWith(
+    extensions: [
+      MelonAccent(
+        accent: accent,
+        navigation: brand
+            ? const LinearGradient(
+                colors: [Color(0xff65cfad), Color(0xff8bddbf)],
+              )
+            : LinearGradient(
+                colors: [seeded.primaryFixedDim, seeded.primaryFixed],
+              ),
+        onNavigation: brand ? const Color(0xff08321f) : seeded.onPrimaryFixed,
+      ),
+    ],
     badgeTheme: BadgeThemeData(
       largeSize: 24,
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),

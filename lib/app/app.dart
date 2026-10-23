@@ -11,6 +11,7 @@ import '../core/network.dart';
 import '../features/acquisition/resource_metadata.dart';
 import '../domain/catalog.dart';
 import '../domain/play_candidate.dart';
+import '../features/appearance/appearance.dart';
 import '../features/discovery/discovery_controller.dart';
 import '../features/downloads/downloads_controller.dart';
 import '../features/playback/playback.dart';
@@ -24,6 +25,7 @@ import '../ui/acquisition/resource_search_view.dart';
 import '../ui/core/action_feedback.dart';
 import '../ui/core/app_chrome.dart';
 import '../ui/core/cached_image.dart';
+import '../ui/core/cover_colors.dart';
 import '../ui/core/motion.dart';
 import '../ui/core/page_widgets.dart';
 import '../ui/core/subject_posters.dart';
@@ -31,8 +33,11 @@ import '../ui/core/theme.dart';
 import '../ui/discovery/discovery_pages.dart';
 import '../ui/player/player_page.dart';
 import '../ui/settings/bittorrent_settings.dart';
+import '../ui/settings/network_settings.dart';
 import '../ui/settings/settings_page.dart';
+import '../ui/settings/settings_sections.dart';
 import '../ui/settings/storage_settings.dart';
+import '../ui/settings/update_settings.dart';
 import '../ui/sources/pikpak_account.dart';
 import '../ui/sources/sources_page.dart';
 import '../ui/tracking/subject_page.dart';
@@ -49,7 +54,7 @@ class MelonApp extends StatefulWidget {
 /// The window: navigation, history, title bar, sidebar and full screen. Page
 /// state and requests belong to the feature controllers.
 class _MelonAppState extends State<MelonApp>
-    with WindowListener
+    with WindowListener, WidgetsBindingObserver
     implements PlaybackShell {
   final messages = GlobalKey<ScaffoldMessengerState>();
   final navigation = GlobalKey<NavigatorState>();
@@ -65,8 +70,23 @@ class _MelonAppState extends State<MelonApp>
   final homeFeedback = ActionFeedback();
   final syncFeedback = ActionFeedback();
   String route = 'home', selectedSection = 'home';
-  bool dark = false, ready = false, fullScreen = false;
+  bool ready = false, fullScreen = false;
   bool closing = false, sidebarVisible = true, windowFullScreen = false;
+
+  /// Theme mode, theme colour and cover colouring.
+  late final appearance = Appearance(widget.preferences);
+  CoverColors? covers;
+
+  /// The cover the theme colour is taken from, and that colour once read.
+  String? coverSeedUrl;
+  Color? coverSeed;
+
+  /// Set when quitting to uninstall, which skips a waiting update.
+  bool uninstalling = false;
+
+  bool get dark => appearance.dark(
+    WidgetsBinding.instance.platformDispatcher.platformBrightness,
+  );
 
   /// Relaunch once the prepared update has been swapped in on exit.
   bool restartForUpdate = false;
@@ -109,7 +129,9 @@ class _MelonAppState extends State<MelonApp>
   @override
   void initState() {
     super.initState();
-    dark = widget.preferences.getBool('dark') ?? false;
+    WidgetsBinding.instance.addObserver(this);
+    appearance.addListener(servicesChanged);
+    unawaited(appearance.refreshSystemAccent());
     recentSearches = widget.preferences.getStringList('recentSearches') ?? [];
     windowManager.addListener(this);
     unawaited(windowManager.setPreventClose(true));
@@ -126,6 +148,7 @@ class _MelonAppState extends State<MelonApp>
       }
       await service.start();
       if (!mounted || closing) return;
+      covers = CoverColors(service.cache);
       coordinator.shell = this;
       _controllers = Listenable.merge([
         coordinator,
@@ -513,7 +536,7 @@ class _MelonAppState extends State<MelonApp>
     } finally {
       try {
         await service.close();
-        if (ready) {
+        if (ready && !uninstalling) {
           await service.update.applyOnExit(restart: restartForUpdate);
         }
       } finally {
@@ -528,6 +551,65 @@ class _MelonAppState extends State<MelonApp>
   void restartToUpdate() {
     restartForUpdate = true;
     unawaited(windowManager.close());
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    if (appearance.mode == ThemeChoice.system) setState(() {});
+  }
+
+  /// System colours and proxy settings can change while the app runs.
+  @override
+  void onWindowFocus() {
+    unawaited(appearance.refreshSystemAccent());
+    unawaited(service.proxy?.refreshSystem());
+  }
+
+  /// The cover the current page takes its colour from, while that is on.
+  String? get themeCover {
+    if (!ready || !appearance.coverColor) return null;
+    return switch (route) {
+      'subject' => subjects.subject?.coverUrl,
+      // Kept while the player loads the subject between sessions.
+      'player' =>
+        coordinator.subject?.coverUrl ??
+            coordinator.preparing?.coverUrl ??
+            coverSeedUrl,
+      _ => null,
+    };
+  }
+
+  /// The theme colour: the page's cover colour once read, else the chosen
+  /// one.
+  Color get themeAccent {
+    final cover = themeCover;
+    if (cover != coverSeedUrl) {
+      coverSeedUrl = cover;
+      // The previous cover's colour stays until the new one is read, so
+      // moving between subjects changes colour once.
+      if (cover == null) coverSeed = null;
+      if (cover != null) {
+        unawaited(
+          covers!.seed(cover).then((value) {
+            if (mounted && coverSeedUrl == cover) {
+              setState(() => coverSeed = value);
+            }
+          }),
+        );
+      }
+    }
+    return cover != null && coverSeed != null ? coverSeed! : appearance.seed;
+  }
+
+  Future<void> uninstallApp(bool wipe) async {
+    try {
+      await service.uninstall.start(wipe: wipe);
+    } catch (e) {
+      showError('无法开始卸载：$e');
+      return;
+    }
+    uninstalling = true;
+    await windowManager.close();
   }
 
   @override
@@ -595,6 +677,9 @@ class _MelonAppState extends State<MelonApp>
     playerPanel.dispose();
     search.dispose();
     searchFocus.dispose();
+    appearance.removeListener(servicesChanged);
+    appearance.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     windowManager.removeListener(this);
     super.dispose();
   }
@@ -604,6 +689,7 @@ class _MelonAppState extends State<MelonApp>
     if (closing) {
       return const MaterialApp(home: Scaffold(body: SizedBox.shrink()));
     }
+    final theme = appTheme(dark, accent: themeAccent);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Melonbang',
@@ -615,7 +701,7 @@ class _MelonAppState extends State<MelonApp>
           : child!,
       scaffoldMessengerKey: messages,
       navigatorKey: navigation,
-      theme: appTheme(dark),
+      theme: theme,
       home: CallbackShortcuts(
         bindings: {
           const SingleActivator(LogicalKeyboardKey.keyF, meta: true):
@@ -631,7 +717,7 @@ class _MelonAppState extends State<MelonApp>
           // One animated theme for the whole window: switching it fades
           // between light and dark.
           builder: (context) => AnimatedTheme(
-            data: appTheme(dark),
+            data: theme,
             duration: motionDuration(context, 300),
             curve: Curves.easeInOut,
             child: Scaffold(
@@ -760,6 +846,10 @@ class _MelonAppState extends State<MelonApp>
     panelOpen: playerPanel,
     community: service.community,
     source: coordinator.activeCandidate,
+    remembered: playback.settings.rememberSource
+        ? coordinator.remembered
+        : null,
+    onForgetSource: () => perform(coordinator.forgetSource),
     failure: coordinator.failure,
     onRetryFailure: coordinator.retryFailure,
     onMarkEpisode: coordinator.markEpisode,
@@ -774,10 +864,90 @@ class _MelonAppState extends State<MelonApp>
     onOpenResources: openResourcePage,
   );
 
-  void setDark(bool value) {
-    setState(() => dark = value);
-    unawaited(widget.preferences.setBool('dark', value));
-  }
+  void setDark(bool value) => unawaited(
+    appearance.setMode(value ? ThemeChoice.dark : ThemeChoice.light),
+  );
+
+  List<SettingsSection> settingsSections() => [
+    accountSection(
+      personal: personal,
+      onAccountAction: () => perform(personal.toggleAccount),
+      onCancelSignIn: () => perform(personal.cancelSignIn),
+      syncBusy: syncFeedback.busy,
+      onSync: () => perform(() async {
+        final syncing = syncCollection();
+        setState(() {});
+        await syncing;
+        if (mounted) setState(() {});
+        if (syncFeedback.issue != null) {
+          throw StateError(syncFeedback.issue!);
+        }
+      }),
+    ),
+    appearanceSection(appearance),
+    playbackSection(playback.settings),
+    danmakuSection(playback.danmaku.preferences),
+    sourcesSection(
+      playback.settings,
+      onForgetSources: service.selection.forgetAll,
+    ),
+    SettingsSection(
+      id: 'downloads',
+      title: '下载与做种',
+      icon: Icons.swap_vert,
+      groups: [
+        SettingsGroup([
+          SettingsItem(
+            bitTorrentKeywords,
+            ListenableBuilder(
+              listenable: Listenable.merge([
+                service.downloadsAvailable,
+                service.downloadIssue,
+              ]),
+              builder: (context, _) => service.downloadsAvailable.value
+                  ? BitTorrentSettingsPanel(
+                      settings: service.bt.settings,
+                      onSave: service.bt.saveSettings,
+                    )
+                  : DownloadsUnavailable(issue: service.downloadIssue.value),
+            ),
+          ),
+        ]),
+      ],
+    ),
+    networkSection(proxy: service.proxy, connectivity: service.connectivity),
+    SettingsSection(
+      id: 'storage',
+      title: '存储',
+      icon: Icons.folder_outlined,
+      groups: [
+        SettingsGroup([
+          SettingsItem(
+            '存储 缓存 清理 应用数据 媒体缓存 下载位置 迁移 空间 文件夹',
+            StorageSettings(
+              readCacheSize: service.cache.size,
+              onClearCache: () async {
+                await service.cache.clear();
+                PaintingBinding.instance.imageCache.clear();
+                PaintingBinding.instance.imageCache.clearLiveImages();
+              },
+              onExit: () => windowManager.close(),
+              storage: service.storage,
+              dataDirectory: service.dataDirectory!,
+              mediaDirectory: service.bt.directory,
+            ),
+          ),
+        ]),
+      ],
+    ),
+    shortcutsSection(),
+    aboutSection(
+      update: service.update,
+      onRestart: restartToUpdate,
+      uninstall: service.uninstall,
+      onUninstall: uninstallApp,
+    ),
+  ];
 
   Widget downloadsSection(Widget Function() content) => ListenableBuilder(
     listenable: Listenable.merge([
@@ -957,45 +1127,7 @@ class _MelonAppState extends State<MelonApp>
           ),
         );
       case 'settings':
-        return SettingsPage(
-          playback: playback,
-          personal: personal,
-          dark: dark,
-          dataDirectory: service.dataDirectory,
-          storageSettings: StorageSettings(
-            readCacheSize: service.cache.size,
-            onClearCache: () async {
-              await service.cache.clear();
-              PaintingBinding.instance.imageCache.clear();
-              PaintingBinding.instance.imageCache.clearLiveImages();
-            },
-            onExit: () => windowManager.close(),
-            storage: service.storage,
-            dataDirectory: service.dataDirectory!,
-            mediaDirectory: service.bt.directory,
-          ),
-          onSync: () => perform(() async {
-            final syncing = syncCollection();
-            setState(() {});
-            await syncing;
-            if (mounted) setState(() {});
-            if (syncFeedback.issue != null) {
-              throw StateError(syncFeedback.issue!);
-            }
-          }),
-          syncBusy: syncFeedback.busy,
-          bitTorrentSettings: downloadsSection(
-            () => BitTorrentSettingsPanel(
-              settings: service.bt.settings,
-              onSave: service.bt.saveSettings,
-            ),
-          ),
-          update: service.update,
-          onRestartToUpdate: restartToUpdate,
-          onThemeChanged: setDark,
-          onCancelSignIn: () => perform(personal.cancelSignIn),
-          onAccountAction: () => perform(personal.toggleAccount),
-        );
+        return SettingsPage(sections: settingsSections());
       default:
         return const EmptyState(text: '打开一部喜欢的作品');
     }

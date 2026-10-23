@@ -22,6 +22,7 @@ class ResourceSearchState {
     this.terms,
     this.candidates = const [],
     this.sources = const [],
+    this.remembered,
   });
   final Subject? subject;
 
@@ -37,6 +38,9 @@ class ResourceSearchState {
   final ResourceTerms? terms;
   final List<PlayCandidate> candidates;
   final List<SourceProgress> sources;
+
+  /// The source the subject was last played from, which ranks first.
+  final RememberedSource? remembered;
 }
 
 /// Searches online sources, torrent indexes and PikPak's index together for
@@ -87,6 +91,7 @@ class ResourceSearchController extends ChangeNotifier {
     final episode = state.episode;
     final searched = keywordEpisode(subject, terms.episodeKeyword, episode);
     var candidates = const <PlayCandidate>[];
+    RememberedSource? remembered;
     final progress = <String, SourceProgress>{};
     Timer? pending;
     void show() {
@@ -100,6 +105,7 @@ class ResourceSearchController extends ChangeNotifier {
         terms: terms,
         candidates: candidates,
         sources: progress.values.toList(),
+        remembered: remembered,
       );
       notifyListeners();
     }
@@ -113,6 +119,7 @@ class ResourceSearchController extends ChangeNotifier {
     show();
     final settings = playback.settings;
     try {
+      remembered = await selection.remembered(subject.id);
       candidates = await selection.candidates(
         subject,
         searched,

@@ -26,6 +26,8 @@
 | `sky` | `#8BBCF6` | 平台 / 集数标签、想看 |
 | `grape` | `#B6A4F0` | 看过、默认头像 |
 
+主题模式可选浅色、深色或跟随系统。主题色默认薄荷（上表的手调数值）；换成其他预设、系统强调色或封面取色时，`primary`、`onPrimary`、`primaryContainer`、`onPrimaryContainer` 改用 Material 按该颜色生成的色调，页面背景、卡片和文字角色不变，保持中性灰底。依赖主题色但 `ColorScheme` 没有对应角色的颜色放在 `MelonAccent` 扩展里（`accentOf(context)`）：`accent`（进度条、默认 `MelonBadge`、分区图标、继续观看的集数标签，薄荷时就是 `mint`）、侧栏选中项的渐变 `navigation` 和其上的文字色 `onNavigation`。封面取色只在番剧详情和播放器生效，颜色读不到时用所选主题色；播放器画面上的深色浮层不受主题色影响。
+
 收藏状态颜色固定：在看 mint、想看 sky、搁置 gold、看过 grape、抛弃 coral（`collectionColor`）。
 
 ## 字体

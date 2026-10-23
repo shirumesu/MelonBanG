@@ -18,6 +18,7 @@ import '../core/motion.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'danmaku.dart';
+import '../../features/playback/play_selection.dart';
 import '../../features/playback/playback.dart';
 import 'player_controls.dart';
 import 'player_library_panel.dart';
@@ -48,6 +49,8 @@ class PlayerPage extends StatefulWidget {
     required this.panelOpen,
     required this.community,
     this.source,
+    this.remembered,
+    this.onForgetSource,
     this.failure,
     this.onRetryFailure,
     required this.onMarkEpisode,
@@ -84,6 +87,10 @@ class PlayerPage extends StatefulWidget {
   /// The source chosen for the session, when one was.
   final PlayCandidate? source;
 
+  /// The source the subject remembers, and forgetting it.
+  final RememberedSource? remembered;
+  final VoidCallback? onForgetSource;
+
   /// Why the chosen source stopped; the video stays paused under it.
   final PlaybackFailure? failure;
   final VoidCallback? onRetryFailure;
@@ -116,7 +123,8 @@ class PlayerPageState extends State<PlayerPage> {
   String? feedback;
   Timer? hideTimer, feedbackTimer;
   StreamSubscription<bool>? playingSubscription;
-  String? sessionId, lastNotice;
+  String? sessionId;
+  int lastNotice = 0;
   Playback get playback => widget.playback;
   Player get player => playback.player;
   bool get immersive => widget.fullScreen || widget.windowFullScreen;
@@ -125,6 +133,8 @@ class PlayerPageState extends State<PlayerPage> {
   void initState() {
     super.initState();
     sessionId = playback.session?.id;
+    // Notices from before this page was shown are not repeated.
+    lastNotice = playback.noticeRevision;
     playback.addListener(refresh);
     widget.panelOpen.addListener(refresh);
     playingSubscription = player.stream.playing.listen((_) => reveal());
@@ -150,9 +160,9 @@ class PlayerPageState extends State<PlayerPage> {
 
   void refresh() {
     if (!mounted) return;
-    if (playback.notice != null && playback.notice != lastNotice) {
-      lastNotice = playback.notice;
-      showFeedback(lastNotice!);
+    if (playback.notice != null && playback.noticeRevision != lastNotice) {
+      lastNotice = playback.noticeRevision;
+      showFeedback(playback.notice!);
     }
     final next = playback.session?.id;
     if (next != sessionId) {
@@ -570,6 +580,8 @@ class PlayerPageState extends State<PlayerPage> {
                             subject: widget.subject,
                             session: playback.session,
                             source: widget.source,
+                            remembered: widget.remembered,
+                            onForgetSource: widget.onForgetSource,
                             downloads: downloads,
                             tab: panelTab,
                             onTab: (tab) => setState(() => panelTab = tab),
@@ -688,12 +700,23 @@ class PlayerPageState extends State<PlayerPage> {
                   reveal();
                 },
                 onDoubleTap: fullscreen,
-                child: Video(
-                  controller: playback.video,
-                  controls: NoVideoControls,
-                  subtitleViewConfiguration: const SubtitleViewConfiguration(
-                    visible: false,
-                  ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Super-resolution renders at the shown size.
+                    final ratio = MediaQuery.devicePixelRatioOf(context);
+                    playback.showAt(
+                      Size(
+                        constraints.maxWidth * ratio,
+                        constraints.maxHeight * ratio,
+                      ),
+                    );
+                    return Video(
+                      controller: playback.video,
+                      controls: NoVideoControls,
+                      subtitleViewConfiguration:
+                          const SubtitleViewConfiguration(visible: false),
+                    );
+                  },
                 ),
               ),
               DanmakuLayer(playback: playback),

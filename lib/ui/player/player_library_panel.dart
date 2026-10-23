@@ -8,6 +8,7 @@ import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/playback_session.dart';
 import '../../domain/transfer.dart';
+import '../../features/playback/play_selection.dart';
 import '../../features/playback/playback.dart';
 import '../acquisition/download_labels.dart';
 import '../acquisition/download_task_widgets.dart';
@@ -51,6 +52,8 @@ class PlayerSidePanel extends StatefulWidget {
     required this.onMarkEpisode,
     required this.onOpenSubject,
     required this.onError,
+    this.remembered,
+    this.onForgetSource,
   });
   final Playback playback;
   final SubjectCommunitySource community;
@@ -59,6 +62,10 @@ class PlayerSidePanel extends StatefulWidget {
 
   /// The source chosen for the session, when one was.
   final PlayCandidate? source;
+
+  /// The source the subject remembers for its next episodes.
+  final RememberedSource? remembered;
+  final VoidCallback? onForgetSource;
   final TransferSnapshot downloads;
   final PlayerPanelTab tab;
   final ValueChanged<PlayerPanelTab> onTab;
@@ -158,6 +165,8 @@ class _PlayerSidePanelState extends State<PlayerSidePanel> {
                 subject: subject,
                 session: widget.session,
                 source: widget.source,
+                remembered: widget.remembered,
+                onForgetSource: widget.onForgetSource,
                 downloads: widget.downloads,
                 onEpisode: widget.onEpisode,
                 onFindResources: widget.onFindResources,
@@ -224,10 +233,14 @@ class _EpisodesPane extends StatefulWidget {
     required this.onPlayFile,
     required this.onToggleTask,
     required this.onMark,
+    this.remembered,
+    this.onForgetSource,
   });
   final Subject? subject;
   final PlaybackSession? session;
   final PlayCandidate? source;
+  final RememberedSource? remembered;
+  final VoidCallback? onForgetSource;
   final TransferSnapshot downloads;
   final ValueChanged<Episode> onEpisode;
   final ValueChanged<Episode?> onFindResources;
@@ -492,6 +505,31 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                 minHeight: 2,
                 borderRadius: BorderRadius.circular(1),
               ),
+            ),
+          ],
+          if (widget.remembered case final remembered?) ...[
+            const SizedBox(height: Gap.xs),
+            Row(
+              children: [
+                Icon(Icons.bookmark_outline, size: 14, color: small?.color),
+                const SizedBox(width: Gap.xs),
+                Expanded(
+                  child: Tooltip(
+                    message: '再看这部番时优先使用这个来源',
+                    child: Text(
+                      '已记住 ${remembered.label}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: small,
+                    ),
+                  ),
+                ),
+                if (widget.onForgetSource != null)
+                  TextButton(
+                    onPressed: widget.onForgetSource,
+                    child: const Text('忘记'),
+                  ),
+              ],
             ),
           ],
         ],

@@ -8,6 +8,7 @@ import '../../core/storage_locations.dart';
 import '../../core/storage_usage.dart';
 import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
+import 'settings_page.dart';
 
 class StorageSettings extends StatefulWidget {
   const StorageSettings({
@@ -153,134 +154,123 @@ class _StorageSettingsState extends State<StorageSettings> {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      SectionTitle(
-        title: '图片与资料缓存',
-        trailing: Text(
-          usageLabel(cacheBytes),
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
+  Widget build(BuildContext context) {
+    const divider = Divider(height: 1, indent: 20, endIndent: 20);
+    final small = Theme.of(context).textTheme.bodySmall;
+    Widget location(bool media) => SettingRow(
+      title: media ? '媒体缓存' : '应用数据',
+      subtitle: usageLabel(media ? usage?.mediaBytes : usage?.dataBytes),
+      trailing: OutlinedButton.icon(
+        onPressed: busy || widget.storage == null ? null : () => choose(media),
+        icon: const Icon(Icons.drive_file_move_outline, size: 18),
+        label: const Text('更改位置'),
       ),
-      MelonPanel(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('图片和番剧资料超过 120 天自动清理，图片最多占用 100 MiB'),
-            const SizedBox(height: 4),
-            Text(
+    );
+    Widget path(String value) => Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: SelectableText(value, style: small),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SettingRow(
+          title: '图片与资料缓存',
+          subtitle:
+              '${usageLabel(cacheBytes)}，超过 120 天自动清理，图片最多 100 MiB；'
               '清理不影响已下载的视频、追番和观看进度',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            FeedbackButton(
-              feedback: cleanup,
-              label: '清理缓存',
-              runningLabel: '正在清理…',
-              successLabel: '已清理',
-              icon: Icons.cleaning_services_outlined,
-              onPressed: clearCache,
-            ),
-            FeedbackIssue(feedback: cleanup, onRetry: clearCache),
-          ],
-        ),
-      ),
-      for (final media in [false, true]) ...[
-        SectionTitle(
-          title: media ? '媒体缓存' : '应用数据',
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                usageLabel(media ? usage?.mediaBytes : usage?.dataBytes),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(width: 4),
-              IconButton(
-                tooltip: '刷新空间用量',
-                onPressed: measuring ? null : refreshUsage,
-                icon: const Icon(Icons.refresh, size: 18),
-              ),
-            ],
+          trailing: FeedbackButton(
+            feedback: cleanup,
+            label: '清理缓存',
+            runningLabel: '正在清理…',
+            successLabel: '已清理',
+            icon: Icons.cleaning_services_outlined,
+            onPressed: clearCache,
           ),
         ),
-        MelonPanel(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SelectableText(
-                media ? widget.mediaDirectory : widget.dataDirectory,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: busy || widget.storage == null
-                    ? null
-                    : () => choose(media),
-                icon: const Icon(Icons.drive_file_move_outline),
-                label: const Text('更改位置'),
-              ),
-            ],
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: FeedbackIssue(feedback: cleanup, onRetry: clearCache),
+        ),
+        divider,
+        location(false),
+        path(widget.dataDirectory),
+        divider,
+        location(true),
+        path(widget.mediaDirectory),
+        divider,
+        SettingRow(
+          title: '刷新空间用量',
+          subtitle: widget.storage == null
+              ? '当前使用启动参数指定的数据目录，请先移除该参数以启用位置管理'
+              : null,
+          trailing: IconButton(
+            tooltip: '刷新空间用量',
+            onPressed: measuring ? null : refreshUsage,
+            icon: const Icon(Icons.refresh, size: 18),
           ),
         ),
-      ],
-      const SizedBox(height: 18),
-      if (widget.storage == null) const Text('当前使用启动参数指定的数据目录，请先移除该参数以启用位置管理。'),
-      if (widget.storage?.pending case final plan?) ...[
-        const SizedBox(height: 14),
-        MelonPanel(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('迁移将在重启后进行'),
-              const SizedBox(height: 8),
-              if (plan['data'] != widget.dataDirectory)
-                SelectableText('应用数据 → ${plan['data']}'),
-              if (plan['media'] != widget.mediaDirectory)
-                SelectableText('媒体缓存 → ${plan['media']}'),
-              const SizedBox(height: 12),
-              const Text('请退出并重新打开应用，启动时会显示迁移进度。'),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 12,
-                children: [
-                  if (widget.onExit != null)
-                    FilledButton(
-                      onPressed: busy ? null : widget.onExit,
-                      child: const Text('退出应用'),
+        if (widget.storage?.pending case final plan?) ...[
+          divider,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '迁移将在重启后进行',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                if (plan['data'] != widget.dataDirectory)
+                  SelectableText('应用数据 → ${plan['data']}', style: small),
+                if (plan['media'] != widget.mediaDirectory)
+                  SelectableText('媒体缓存 → ${plan['media']}', style: small),
+                const SizedBox(height: 8),
+                Text('请退出并重新打开应用，启动时会显示迁移进度。', style: small),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  children: [
+                    if (widget.onExit != null)
+                      FilledButton(
+                        onPressed: busy ? null : widget.onExit,
+                        child: const Text('退出应用'),
+                      ),
+                    TextButton(
+                      onPressed: busy
+                          ? null
+                          : () async {
+                              setState(() {
+                                busy = true;
+                                error = null;
+                              });
+                              try {
+                                await widget.storage!.cancel();
+                              } catch (_) {
+                                error = '暂时无法取消迁移，请重试。';
+                              } finally {
+                                if (mounted) setState(() => busy = false);
+                              }
+                            },
+                      child: const Text('取消迁移'),
                     ),
-                  TextButton(
-                    onPressed: busy
-                        ? null
-                        : () async {
-                            setState(() {
-                              busy = true;
-                              error = null;
-                            });
-                            try {
-                              await widget.storage!.cancel();
-                            } catch (_) {
-                              error = '暂时无法取消迁移，请重试。';
-                            } finally {
-                              if (mounted) setState(() => busy = false);
-                            }
-                          },
-                    child: const Text('取消迁移'),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
+        if (error != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+            child: Text(
+              error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
       ],
-      if (error != null)
-        Text(
-          error!,
-          style: TextStyle(color: Theme.of(context).colorScheme.error),
-        ),
-    ],
-  );
+    );
+  }
 }
 
 /// The first launch: where downloaded episodes go, before anything is stored.
@@ -359,7 +349,7 @@ class _StorageSetupState extends State<StorageSetup> {
                 ),
               ),
               const SizedBox(height: 8),
-              Text('之后可以在 设置 › 应用数据 › 媒体缓存 里更改', style: text.bodySmall),
+              Text('之后可以在 设置 › 存储 › 媒体缓存 里更改', style: text.bodySmall),
               if (error != null) ...[
                 const SizedBox(height: 12),
                 Text(

@@ -16,6 +16,12 @@ class MainFlutterWindow: NSWindow {
     ).setMethodCallHandler { call, result in
       Self.handleCredentials(call, result: result)
     }
+    FlutterMethodChannel(
+      name: "org.melonbang/system",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    ).setMethodCallHandler { call, result in
+      Self.handleSystem(call, result: result)
+    }
 
     super.awakeFromNib()
 
@@ -58,6 +64,42 @@ class MainFlutterWindow: NSWindow {
         x: 20 + CGFloat(index) * 20,
         y: ((height - button.frame.height) / 2).rounded()
       ))
+    }
+  }
+
+  /// The accent colour and the manual proxy configuration of the system.
+  private static func handleSystem(_ call: FlutterMethodCall, result: FlutterResult) {
+    switch call.method {
+    case "accentColor":
+      guard let color = NSColor.controlAccentColor.usingColorSpace(.sRGB) else {
+        result(nil)
+        return
+      }
+      let channel = { (value: CGFloat) in Int((value * 255).rounded()) & 0xff }
+      result(
+        0xff00_0000 | channel(color.redComponent) << 16
+          | channel(color.greenComponent) << 8 | channel(color.blueComponent))
+    case "proxy":
+      guard
+        let settings = CFNetworkCopySystemProxySettings()?.takeRetainedValue()
+          as? [String: Any]
+      else {
+        result(nil)
+        return
+      }
+      func server(_ prefix: String) -> String? {
+        guard (settings["\(prefix)Enable"] as? NSNumber)?.boolValue == true,
+          let host = settings["\(prefix)Proxy"] as? String, !host.isEmpty
+        else { return nil }
+        guard let port = settings["\(prefix)Port"] as? NSNumber else { return host }
+        return "\(host):\(port.intValue)"
+      }
+      var proxy: [String: Any] = ["exceptions": settings["ExceptionsList"] as? [String] ?? []]
+      if let http = server("HTTP") { proxy["http"] = http }
+      if let https = server("HTTPS") { proxy["https"] = https }
+      result(proxy)
+    default:
+      result(FlutterMethodNotImplemented)
     }
   }
 

@@ -48,6 +48,7 @@ class DanmakuPreferences extends ChangeNotifier {
       bottom = saved['bottom'] as bool? ?? true;
       colorful = saved['colorful'] as bool? ?? true;
       stroke = saved['stroke'] as bool? ?? true;
+      merge = saved['merge'] as bool? ?? true;
       providers = object(saved['providers'])
           .map((key, value) => MapEntry(key, value == true));
       filters =
@@ -72,6 +73,7 @@ class DanmakuPreferences extends ChangeNotifier {
       bottom = true,
       colorful = true,
       stroke = true,
+      merge = true,
       overlap = false,
       shield = false;
   double size = 25, opacity = .9, area = .6;
@@ -101,6 +103,7 @@ class DanmakuPreferences extends ChangeNotifier {
         'bottom': bottom,
         'colorful': colorful,
         'stroke': stroke,
+        'merge': merge,
         'providers': providers,
       }),
     );
@@ -112,7 +115,7 @@ class DanmakuPreferences extends ChangeNotifier {
   }
 
   void resetDisplay() => update(() {
-    enabled = scroll = top = bottom = colorful = stroke = true;
+    enabled = scroll = top = bottom = colorful = stroke = merge = true;
     overlap = shield = false;
     size = 25;
     opacity = .9;
@@ -136,9 +139,14 @@ class DanmakuPreferences extends ChangeNotifier {
     );
   }
 
-  /// Comments that pass mode/colour/filter rules, in time order.
+  /// Comments that pass mode/colour/filter rules, in time order. With
+  /// [merge], a comment repeating one shown in the last [mergeWindow]
+  /// seconds, from any source, is folded into it and counted as `×N`.
   List<DanmakuComment> visible(List<DanmakuComment> comments) {
     final result = <DanmakuComment>[];
+    // Normalized text → index in result of its latest shown comment.
+    final shown = <String, int>{};
+    final counts = <int, int>{};
     for (final item in comments) {
       if ((item.mode == DanmakuMode.scroll && !scroll) ||
           (item.mode == DanmakuMode.top && !top) ||
@@ -147,8 +155,48 @@ class DanmakuPreferences extends ChangeNotifier {
       }
       if (!colorful && item.color != 0xffffff) continue;
       if (filters.any((rule) => rule.matches(item.text))) continue;
+      if (merge) {
+        final key = _mergeKey(item.text);
+        final index = shown[key];
+        if (index != null && item.time - result[index].time <= mergeWindow) {
+          counts[index] = (counts[index] ?? 1) + 1;
+          continue;
+        }
+        shown[key] = result.length;
+      }
       result.add(item);
     }
+    for (final MapEntry(key: index, value: count) in counts.entries) {
+      final item = result[index];
+      result[index] = DanmakuComment(
+        item.time,
+        '${item.text} ×$count',
+        source: item.source,
+        mode: item.mode,
+        color: item.color,
+      );
+    }
     return result;
+  }
+
+  static const mergeWindow = 10.0;
+
+  /// Text compared for merging: case, width, spacing and trailing
+  /// punctuation ignored.
+  static String _mergeKey(String text) {
+    final buffer = StringBuffer();
+    for (final rune in text.runes) {
+      // Full-width ASCII forms and the ideographic space.
+      final folded = rune >= 0xff01 && rune <= 0xff5e
+          ? rune - 0xfee0
+          : rune == 0x3000
+          ? 0x20
+          : rune;
+      if (folded == 0x20 || folded == 0x09) continue;
+      buffer.writeCharCode(folded);
+    }
+    final key = buffer.toString().toLowerCase();
+    final trimmed = key.replaceFirst(RegExp(r'[!?.,~。！？，、…～]+$'), '');
+    return trimmed.isEmpty ? key : trimmed;
   }
 }

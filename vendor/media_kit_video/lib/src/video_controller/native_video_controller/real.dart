@@ -98,6 +98,13 @@ class NativeVideoController extends PlatformVideoController {
         videoParamsWidth = width;
         videoParamsHeight = height;
 
+        // MelonBanG: a fixed output size set through [setSize] stays until
+        // [setSize] changes it; upstream replaced it with the video size on
+        // the next file while [width]/[height] still named the fixed one.
+        if (this.width != null && this.height != null) {
+          return;
+        }
+
         await _channel.invokeMethod(
           'VideoOutputManager.SetSize',
           {
