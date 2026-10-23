@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/transfer.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
 import 'download_labels.dart';
@@ -48,13 +49,16 @@ class DownloadTaskStatus extends StatelessWidget {
         if (!task.complete)
           Padding(
             padding: const EdgeInsets.only(top: 10),
-            child: LinearProgressIndicator(
+            child: MotionValue(
               value: task.cloudProgress ?? progress,
-              minHeight: 4,
-              borderRadius: BorderRadius.circular(99),
-              backgroundColor: Theme.of(context)
-                  .colorScheme
-                  .surfaceContainerLow,
+              builder: (context, value) => LinearProgressIndicator(
+                value: value,
+                minHeight: 4,
+                borderRadius: BorderRadius.circular(99),
+                backgroundColor: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerLow,
+              ),
             ),
           ),
       ],
@@ -127,18 +131,22 @@ class DownloadToggleButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final toggle = task.toggle;
     if (toggle == null) return const SizedBox.shrink();
+    final icon = switch (toggle) {
+      TaskToggle.pause => Icons.pause_rounded,
+      TaskToggle.resume =>
+        task.status == DownloadStatus.failed
+            ? Icons.refresh_rounded
+            : Icons.download_rounded,
+      TaskToggle.stopSeeding => Icons.stop_circle_outlined,
+      TaskToggle.resumeSeeding => Icons.upload_rounded,
+    };
     return IconButton(
       tooltip: toggleLabel(toggle),
       onPressed: () => onToggle(task),
-      icon: Icon(switch (toggle) {
-        TaskToggle.pause => Icons.pause_rounded,
-        TaskToggle.resume =>
-          task.status == DownloadStatus.failed
-              ? Icons.refresh_rounded
-              : Icons.download_rounded,
-        TaskToggle.stopSeeding => Icons.stop_circle_outlined,
-        TaskToggle.resumeSeeding => Icons.upload_rounded,
-      }, size: size),
+      icon: MotionSwap(
+        value: icon,
+        child: Icon(icon, size: size),
+      ),
     );
   }
 }
@@ -148,7 +156,7 @@ Future<void> chooseDownloadVideo(
   BuildContext context,
   DownloadTask task,
   void Function(String id, String? fileId) onPlay,
-) => showDialog<void>(
+) => showMelonDialog<void>(
   context: context,
   builder: (context) => AlertDialog(
     title: const Text('选择视频'),

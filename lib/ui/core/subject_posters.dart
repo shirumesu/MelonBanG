@@ -129,7 +129,8 @@ class SubjectPosterGrid extends StatefulWidget {
 }
 
 class _SubjectPosterGridState extends State<SubjectPosterGrid> {
-  DateTime? _changedAt;
+  /// Set on creation too, so the first posters cascade in row by row.
+  DateTime _changedAt = DateTime.now();
 
   @override
   void didUpdateWidget(SubjectPosterGrid oldWidget) {
@@ -174,9 +175,8 @@ class _SubjectPosterGridState extends State<SubjectPosterGrid> {
             // Only posters built right after a change fade in, not those
             // scrolled into view later.
             entering:
-                _changedAt != null &&
-                DateTime.now().difference(_changedAt!) <
-                    const Duration(milliseconds: 300),
+                DateTime.now().difference(_changedAt) <
+                const Duration(milliseconds: 300),
             child: SubjectPoster(
               onOpen: widget.onOpen,
               item: items[i],
@@ -495,135 +495,130 @@ class _SubjectPosterState extends State<SubjectPoster> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: posterBorderRadius,
-                boxShadow: posterShadows(context),
-              ),
-              child: ClipRRect(
-                borderRadius: posterBorderRadius,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    SubjectCover(
-                      url: item.coverUrl,
-                      title: item.title,
-                      id: item.id,
-                    ),
-                    const DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          stops: [.4, 1],
-                          colors: [Colors.transparent, Color(0xcc000000)],
-                        ),
+            child: PosterLift(
+              raised: hovered || focused,
+              pressed: pressed,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  SubjectCover(
+                    url: item.coverUrl,
+                    title: item.title,
+                    id: item.id,
+                  ),
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        stops: [.4, 1],
+                        colors: [Colors.transparent, Color(0xcc000000)],
                       ),
                     ),
+                  ),
+                  Positioned(
+                    left: 11,
+                    right: 10,
+                    bottom: 12,
+                    child: Text(
+                      item.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.3,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  if (rank != null)
                     Positioned(
-                      left: 11,
-                      right: 10,
-                      bottom: 12,
-                      child: Text(
-                        item.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          height: 1.3,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
+                      top: 9,
+                      left: 9,
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 24),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
                         ),
-                      ),
-                    ),
-                    if (rank != null)
-                      Positioned(
-                        top: 9,
-                        left: 9,
-                        child: Container(
-                          constraints: const BoxConstraints(minHeight: 24),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            borderRadius: badgeBorderRadius,
-                            gradient: rank <= 3
-                                ? const LinearGradient(
-                                    colors: [Color(0xffffcf6b), coral],
-                                  )
-                                : null,
-                            color: rank > 3 ? Colors.black38 : null,
-                          ),
-                          child: Text(
-                            '#$rank',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ),
-                    if (widget.badge case final badge?)
-                      Positioned(
-                        top: 10,
-                        left: 10,
-                        child: Container(
-                          constraints: const BoxConstraints(minHeight: 24),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: const BoxDecoration(
-                            color: coral,
-                            borderRadius: badgeBorderRadius,
-                          ),
-                          child: Text(
-                            badge,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      )
-                    else if (tracking && status != null)
-                      Positioned(
-                        top: 10,
-                        left: 10,
-                        child: Material(
-                          color: Theme.of(context).colorScheme.surface,
-                          borderRadius: badgeBorderRadius,
-                          child: MelonBadge(
-                            collectionLabels[status]!,
-                            color: collectionColor(status),
-                          ),
-                        ),
-                      ),
-                    IgnorePointer(
-                      child: AnimatedContainer(
-                        duration: motionDuration(context, pressed ? 80 : 120),
-                        curve: Curves.easeOut,
                         decoration: BoxDecoration(
-                          borderRadius: posterBorderRadius,
-                          color: pressed
-                              ? Colors.black.withValues(alpha: .12)
-                              : hovered
-                              ? Colors.white.withValues(alpha: .06)
-                              : Colors.transparent,
-                          border: focused
-                              ? Border.all(
-                                  color: Theme.of(context).colorScheme.primary,
-                                  width: 2,
+                          borderRadius: badgeBorderRadius,
+                          gradient: rank <= 3
+                              ? const LinearGradient(
+                                  colors: [Color(0xffffcf6b), coral],
                                 )
                               : null,
+                          color: rank > 3 ? Colors.black38 : null,
+                        ),
+                        child: Text(
+                          '#$rank',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  if (widget.badge case final badge?)
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 24),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: const BoxDecoration(
+                          color: coral,
+                          borderRadius: badgeBorderRadius,
+                        ),
+                        child: Text(
+                          badge,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    )
+                  else if (tracking && status != null)
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: Material(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: badgeBorderRadius,
+                        child: MelonBadge(
+                          collectionLabels[status]!,
+                          color: collectionColor(status),
+                        ),
+                      ),
+                    ),
+                  IgnorePointer(
+                    child: AnimatedContainer(
+                      duration: motionDuration(context, pressed ? 80 : 120),
+                      curve: Curves.easeOut,
+                      decoration: BoxDecoration(
+                        borderRadius: posterBorderRadius,
+                        color: pressed
+                            ? Colors.black.withValues(alpha: .12)
+                            : hovered
+                            ? Colors.white.withValues(alpha: .06)
+                            : Colors.transparent,
+                        border: focused
+                            ? Border.all(
+                                color: Theme.of(context).colorScheme.primary,
+                                width: 2,
+                              )
+                            : null,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -655,6 +650,39 @@ class _SubjectPosterState extends State<SubjectPoster> {
       ),
     );
   }
+}
+
+/// A poster's cover that rises a little toward the pointer, its shadow
+/// deepening, and gives slightly under a press.
+class PosterLift extends StatelessWidget {
+  const PosterLift({
+    super.key,
+    required this.raised,
+    required this.child,
+    this.pressed = false,
+  });
+  final bool raised, pressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => AnimatedScale(
+    scale: pressed
+        ? .98
+        : raised
+        ? 1.02
+        : 1,
+    duration: motionDuration(context, pressed ? 100 : 260),
+    curve: Curves.easeOutCubic,
+    child: AnimatedContainer(
+      duration: motionDuration(context, 260),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        borderRadius: posterBorderRadius,
+        boxShadow: posterShadows(context, raised: raised && !pressed),
+      ),
+      child: ClipRRect(borderRadius: posterBorderRadius, child: child),
+    ),
+  );
 }
 
 /// The line under a poster: the score, then the watch progress when
@@ -914,35 +942,37 @@ class PosterPlaceholders extends StatelessWidget {
   Widget build(BuildContext context) => Semantics(
     label: '正在加载番剧',
     child: ExcludeSemantics(
-      child: SizedBox(
-        height: 330,
-        child: ListView.separated(
-          key: const PageStorageKey('poster-placeholders'),
-          scrollDirection: Axis.horizontal,
-          itemCount: 5,
-          separatorBuilder: (_, _) => const SizedBox(width: 16),
-          itemBuilder: (context, _) => SizedBox(
-            width: 180,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  height: 240,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
-                    borderRadius: posterBorderRadius,
+      child: MotionPulse(
+        child: SizedBox(
+          height: 330,
+          child: ListView.separated(
+            key: const PageStorageKey('poster-placeholders'),
+            scrollDirection: Axis.horizontal,
+            itemCount: 5,
+            separatorBuilder: (_, _) => const SizedBox(width: 16),
+            itemBuilder: (context, _) => SizedBox(
+              width: 180,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    height: 240,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                      borderRadius: posterBorderRadius,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  width: 130,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
-                    borderRadius: badgeBorderRadius,
+                  const SizedBox(height: 12),
+                  Container(
+                    width: 130,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                      borderRadius: badgeBorderRadius,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

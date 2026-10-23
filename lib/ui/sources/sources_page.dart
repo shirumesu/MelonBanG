@@ -10,6 +10,7 @@ import '../../features/network/connectivity.dart';
 import '../../integrations/github/app_releases.dart' show releasePage;
 import '../core/action_feedback.dart';
 import '../core/external_link.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
 import '../settings/network_settings.dart' show ProbeStatus;
@@ -329,9 +330,17 @@ class _SourcesPageState extends State<SourcesPage> {
                         children: [
                           SizedBox(width: 296, child: _list(all, selected)),
                           Expanded(
-                            child: selected == null
-                                ? const SizedBox()
-                                : _details(selected),
+                            child: MotionSwap(
+                              value: selected?.id,
+                              scale: 1,
+                              milliseconds: 160,
+                              alignment: Alignment.topLeft,
+                              child: SizedBox.expand(
+                                child: selected == null
+                                    ? null
+                                    : _details(selected),
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -380,7 +389,8 @@ class _SourcesPageState extends State<SourcesPage> {
               children: [
                 AnimatedRotation(
                   turns: folded ? 0 : .25,
-                  duration: const Duration(milliseconds: 150),
+                  duration: motionDuration(context, 200),
+                  curve: Curves.easeOutCubic,
                   child: Icon(
                     Icons.chevron_right,
                     size: 18,
@@ -402,17 +412,22 @@ class _SourcesPageState extends State<SourcesPage> {
           ),
         ),
       );
-      if (!folded) {
-        for (final entry in members) {
-          rows.add(
-            _SourceRow(
-              entry: entry,
-              selected: selected?.id == entry.id,
-              onTap: () => _select(entry.id),
-            ),
-          );
-        }
-      }
+      rows.add(
+        MotionReveal(
+          visible: !folded,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final entry in members)
+                _SourceRow(
+                  entry: entry,
+                  selected: selected?.id == entry.id,
+                  onTap: () => _select(entry.id),
+                ),
+            ],
+          ),
+        ),
+      );
     }
     int count(_Kind kind) => all.where((entry) => entry.kind == kind).length;
     return Column(
@@ -876,60 +891,68 @@ class _SourceRow extends StatelessWidget {
     final quiet = entry.enabled && !entry.problem;
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
-      child: Material(
-        color: selected
-            ? theme.listTileTheme.selectedTileColor
-            : Colors.transparent,
-        borderRadius: controlBorderRadius,
-        child: InkWell(
+      child: AnimatedContainer(
+        duration: motionDuration(context, 200),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          color: selected
+              ? theme.listTileTheme.selectedTileColor
+              : theme.listTileTheme.selectedTileColor!.withValues(alpha: 0),
           borderRadius: controlBorderRadius,
-          onTap: onTap,
-          child: SizedBox(
-            height: 44,
-            child: Row(
-              children: [
-                const SizedBox(width: Gap.md),
-                Tooltip(
-                  message: entry.status,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: entry.color,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: Gap.md),
-                Expanded(
-                  child: Text(
-                    entry.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: selected ? FontWeight.w700 : null,
-                    ),
-                  ),
-                ),
-                if (!quiet)
-                  Padding(
-                    padding: const EdgeInsets.only(left: Gap.sm),
-                    child: Text(
-                      entry.status,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: entry.problem ? entry.color : null,
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          borderRadius: controlBorderRadius,
+          child: InkWell(
+            borderRadius: controlBorderRadius,
+            onTap: onTap,
+            child: SizedBox(
+              height: 44,
+              child: Row(
+                children: [
+                  const SizedBox(width: Gap.md),
+                  Tooltip(
+                    message: entry.status,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: entry.color,
+                        shape: BoxShape.circle,
                       ),
                     ),
                   ),
-                Transform.scale(
-                  scale: .8,
-                  child: Switch(
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    value: entry.enabled,
-                    onChanged: entry.onToggle,
+                  const SizedBox(width: Gap.md),
+                  Expanded(
+                    child: Text(
+                      entry.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: selected ? FontWeight.w700 : null,
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                  if (!quiet)
+                    Padding(
+                      padding: const EdgeInsets.only(left: Gap.sm),
+                      child: Text(
+                        entry.status,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: entry.problem ? entry.color : null,
+                        ),
+                      ),
+                    ),
+                  Transform.scale(
+                    scale: .8,
+                    child: Switch(
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      value: entry.enabled,
+                      onChanged: entry.onToggle,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

@@ -55,7 +55,18 @@ class _ResourceAction extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                SizedBox.square(dimension: 18, child: icon),
+                SizedBox.square(
+                  dimension: 18,
+                  // A spinner following progress updates in place; a new
+                  // state's symbol replaces the old one.
+                  child: MotionSwap(
+                    value: switch (icon) {
+                      Icon(icon: final symbol) => symbol,
+                      _ => icon.runtimeType,
+                    },
+                    child: icon,
+                  ),
+                ),
                 if (label != null) ...[
                   const SizedBox(width: 5),
                   Text(
@@ -121,11 +132,14 @@ class ResourceDownloadButton extends StatelessWidget {
       final DownloadTask task => (
         Padding(
           padding: const EdgeInsets.all(2),
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
+          child: MotionValue(
             value: task.progress,
-            color: foreground,
-            backgroundColor: foreground.withValues(alpha: .2),
+            builder: (context, value) => CircularProgressIndicator(
+              strokeWidth: 2,
+              value: value,
+              color: foreground,
+              backgroundColor: foreground.withValues(alpha: .2),
+            ),
           ),
         ),
         '$percent%',
@@ -280,9 +294,8 @@ class ResourceArrival extends StatelessWidget {
   @override
   Widget build(BuildContext context) => TweenAnimationBuilder<double>(
     tween: Tween(begin: 0, end: 1),
-    duration: MediaQuery.disableAnimationsOf(context)
-        ? Duration.zero
-        : const Duration(milliseconds: 240),
+    duration: motionDuration(context, 240),
+    curve: Curves.easeOutCubic,
     child: child,
     builder: (_, value, child) => Opacity(
       opacity: value,

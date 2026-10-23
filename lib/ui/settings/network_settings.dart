@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/proxy.dart';
 import '../../features/network/connectivity.dart';
+import '../core/motion.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
 import 'settings_page.dart';
@@ -324,7 +325,8 @@ class _ConnectivityState extends State<_Connectivity> {
             children: [
               AnimatedRotation(
                 turns: open ? .25 : 0,
-                duration: const Duration(milliseconds: 150),
+                duration: motionDuration(context, 200),
+                curve: Curves.easeOutCubic,
                 child: const Icon(Icons.chevron_right, size: 18),
               ),
               const SizedBox(width: Gap.xs),
@@ -348,12 +350,19 @@ class _ConnectivityState extends State<_Connectivity> {
           ),
         ),
       ),
-      if (open)
-        for (final target in members)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(40, 0, Gap.md, 0),
-            child: _ProbeRow(target: target, result: results[target.id]),
-          ),
+      MotionReveal(
+        visible: open,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final target in members)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(40, 0, Gap.md, 0),
+                child: _ProbeRow(target: target, result: results[target.id]),
+              ),
+          ],
+        ),
+      ),
     ];
   }
 }

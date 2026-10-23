@@ -72,7 +72,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
   }
 
   Future<void> _addMagnet() async {
-    final uri = await showDialog<String>(
+    final uri = await showMelonDialog<String>(
       context: context,
       builder: (_) => const AddMagnetDialog(),
     );
@@ -96,7 +96,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
   }
 
   Future<void> _remove(DownloadTask task) async {
-    final remove = await showDialog<bool>(
+    final remove = await showMelonDialog<bool>(
       context: context,
       builder: (_) => RemoveDownloadDialog(title: task.title),
     );
@@ -349,29 +349,31 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     onPressed: () => setState(
                       () => open ? expanded.remove(key) : expanded.add(key),
                     ),
-                    icon: Icon(
-                      open
-                          ? Icons.expand_less_rounded
-                          : Icons.expand_more_rounded,
-                    ),
+                    icon: ExpandChevron(open: open),
                   ),
                 ],
               ),
             ),
           ),
-          if (open) ...[
-            Divider(height: 1, color: scheme.outlineVariant),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final task in ordered)
-                    _episodeRow(context, subject, task),
-                ],
-              ),
+          MotionReveal(
+            visible: open,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Divider(height: 1, color: scheme.outlineVariant),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final task in ordered)
+                        _episodeRow(context, subject, task),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -457,11 +459,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
         if (!task.complete)
           Padding(
             padding: const EdgeInsets.fromLTRB(74, 0, 8, 4),
-            child: LinearProgressIndicator(
+            child: MotionValue(
               value: task.cloudProgress ?? progress,
-              minHeight: 2,
-              borderRadius: BorderRadius.circular(99),
-              backgroundColor: scheme.surfaceContainerLow,
+              builder: (context, value) => LinearProgressIndicator(
+                value: value,
+                minHeight: 2,
+                borderRadius: BorderRadius.circular(99),
+                backgroundColor: scheme.surfaceContainerLow,
+              ),
             ),
           ),
         if ((task.errorMessage ?? task.persistenceError) case final issue?)
@@ -472,14 +477,16 @@ class _DownloadsPageState extends State<DownloadsPage> {
               style: TextStyle(color: scheme.error, fontSize: 12),
             ),
           ),
-        if (details)
-          Padding(
+        MotionReveal(
+          visible: details,
+          child: Padding(
             padding: const EdgeInsets.fromLTRB(74, 4, 8, 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: _details(context, task),
             ),
           ),
+        ),
       ],
     );
   }
@@ -530,11 +537,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 onPressed: () => setState(
                   () => details ? expanded.remove(id) : expanded.add(id),
                 ),
-                icon: Icon(
-                  details
-                      ? Icons.expand_less_rounded
-                      : Icons.expand_more_rounded,
-                ),
+                icon: ExpandChevron(open: details),
               ),
             ],
           ),
@@ -546,10 +549,13 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 style: TextStyle(color: scheme.error, fontSize: 12),
               ),
             ),
-          if (details) ...[
-            const Divider(height: 28),
-            ..._details(context, task),
-          ],
+          MotionReveal(
+            visible: details,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [const Divider(height: 28), ..._details(context, task)],
+            ),
+          ),
         ],
       ),
     );

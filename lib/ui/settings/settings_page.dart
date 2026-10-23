@@ -271,18 +271,38 @@ class _Contents extends StatelessWidget {
         Expanded(
           child: ListView(
             children: [
-              for (final section in sections)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: Gap.xs),
-                  child: ListTile(
-                    dense: true,
-                    selected: section.id == selected,
-                    leading: Icon(section.icon, size: 20),
-                    titleTextStyle: Theme.of(context).textTheme.titleSmall,
-                    title: Text(section.title),
-                    onTap: () => onSelect(section.id),
+              // The highlight follows the page as it scrolls through the
+              // sections.
+              MotionSelection<String>(
+                selected: selected,
+                highlight: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).listTileTheme.selectedTileColor,
+                    borderRadius: controlBorderRadius,
                   ),
                 ),
+                builder: (context, keyOf) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final section in sections)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: Gap.xs),
+                        child: ListTile(
+                          key: keyOf(section.id),
+                          dense: true,
+                          selected: section.id == selected,
+                          selectedTileColor: Colors.transparent,
+                          leading: Icon(section.icon, size: 20),
+                          titleTextStyle: Theme.of(context)
+                              .textTheme
+                              .titleSmall,
+                          title: Text(section.title),
+                          onTap: () => onSelect(section.id),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),

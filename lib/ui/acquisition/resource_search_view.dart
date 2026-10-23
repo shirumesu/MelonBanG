@@ -15,6 +15,7 @@ import '../../features/acquisition/title_matching.dart';
 import '../../features/playback/play_selection.dart';
 import '../../features/playback/resource_search.dart';
 import '../core/external_link.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
@@ -312,7 +313,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   Future<void> play(PlayCandidate candidate, Episode target) async {
     if (opening != null) return;
     if (candidate.possibleMatch) {
-      final confirmed = await showDialog<bool>(
+      final confirmed = await showMelonDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('确认条目匹配'),
@@ -692,15 +693,17 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    Opacity(
-                      opacity: searchBusy ? 0 : 1,
-                      child: const Text('搜索'),
+                    // Keeps the button as wide as its label.
+                    const Opacity(opacity: 0, child: Text('搜索')),
+                    MotionSwap(
+                      value: searchBusy,
+                      child: searchBusy
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('搜索'),
                     ),
-                    if (searchBusy)
-                      const SizedBox.square(
-                        dimension: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
                   ],
                 ),
               ),
@@ -731,10 +734,13 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             );
           },
         ),
-        if (searchBusy) ...[
-          const SizedBox(height: Gap.md),
-          ResourceSearchStatus(providers: sources),
-        ],
+        MotionReveal(
+          visible: searchBusy,
+          child: Padding(
+            padding: const EdgeInsets.only(top: Gap.md),
+            child: ResourceSearchStatus(providers: sources),
+          ),
+        ),
         for (final rule in failingSites)
           Padding(
             padding: const EdgeInsets.only(top: Gap.sm),
@@ -1252,12 +1258,14 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             ),
           ),
         ),
-        if (expanded)
-          ResourceEpisodePanel(
+        MotionReveal(
+          visible: expanded,
+          child: ResourceEpisodePanel(
             rows: (wide) => [
               for (final member in members) _memberRow(member, wide),
             ],
           ),
+        ),
       ],
     );
   }
@@ -1398,8 +1406,9 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       ),
               ),
             ),
-            if (expanded)
-              ResourceEpisodePanel(
+            MotionReveal(
+              visible: expanded,
+              child: ResourceEpisodePanel(
                 rows: (wide) => [
                   if (snapshot.hasError)
                     notice(
@@ -1440,6 +1449,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                     ],
                 ],
               ),
+            ),
           ],
         );
       },

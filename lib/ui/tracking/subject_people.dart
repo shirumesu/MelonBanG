@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../domain/catalog.dart';
 import '../core/cached_image.dart';
 import '../core/external_link.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -88,7 +89,7 @@ class SubjectPeoplePanel extends StatelessWidget {
   }
 
   void _allPeople(BuildContext context, String heading, List<Credit> people) =>
-      showDialog<void>(
+      showMelonDialog<void>(
         context: context,
         builder: (context) => Dialog(
           child: SizedBox(
@@ -208,7 +209,7 @@ class SubjectPeoplePanel extends StatelessWidget {
         message: '查看${person.title}完整立绘',
         child: InkWell(
           borderRadius: badgeBorderRadius,
-          onTap: () => showDialog<void>(
+          onTap: () => showMelonDialog<void>(
             context: context,
             builder: (context) => Dialog(
               child: SizedBox(
@@ -271,10 +272,14 @@ class SubjectPeoplePanel extends StatelessWidget {
                   // Filled without distortion; tall portraits keep the face.
                   fit: BoxFit.cover,
                   alignment: Alignment.topCenter,
-                  frameBuilder: (_, child, frame, synchronous) =>
-                      frame == null && !synchronous
-                      ? placeholder('正在加载头像')
-                      : preview(child),
+                  frameBuilder: (_, child, frame, synchronous) => preview(
+                    ImageFadeIn(
+                      frame: frame,
+                      synchronous: synchronous,
+                      placeholder: placeholder('正在加载头像'),
+                      child: child,
+                    ),
+                  ),
                   errorBuilder: (_, _, _) => placeholder('头像加载失败'),
                 ),
         ),

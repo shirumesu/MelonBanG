@@ -6,6 +6,7 @@ import '../../features/playback/playback_preferences.dart';
 import '../../features/tracking/tracking_controller.dart';
 import '../core/account_avatar.dart';
 import '../core/action_feedback.dart';
+import '../core/motion.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
 import 'settings_page.dart';
@@ -178,7 +179,8 @@ class _AccentPicker extends StatelessWidget {
           onTap: () => appearance.setAccent(id),
           radius: 20,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
+            duration: motionDuration(context, 200),
+            curve: Curves.easeOutCubic,
             width: 30,
             height: 30,
             padding: const EdgeInsets.all(3),
@@ -206,9 +208,12 @@ class _AccentPicker extends StatelessWidget {
                       )
                     : null,
               ),
-              child: selected
-                  ? const Icon(Icons.check, size: 15, color: Colors.white)
-                  : null,
+              child: AnimatedScale(
+                scale: selected ? 1 : 0,
+                duration: motionDuration(context, 220),
+                curve: selected ? Curves.easeOutBack : Curves.easeIn,
+                child: const Icon(Icons.check, size: 15, color: Colors.white),
+              ),
             ),
           ),
         ),

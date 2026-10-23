@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 
+import '../core/motion.dart';
 import '../core/theme.dart';
 import '../../features/playback/playback.dart';
 import 'danmaku_composer.dart';
@@ -236,10 +237,14 @@ class PlayerControls extends StatelessWidget {
             unawaited(playback.playOrPause());
             onReveal();
           },
-          icon: Icon(
-            playing.data == true
-                ? Icons.pause_rounded
-                : Icons.play_arrow_rounded,
+          icon: MotionSwap(
+            value: playing.data == true,
+            scale: .6,
+            child: Icon(
+              playing.data == true
+                  ? Icons.pause_rounded
+                  : Icons.play_arrow_rounded,
+            ),
           ),
         ),
       ),
@@ -285,10 +290,13 @@ class PlayerControls extends StatelessWidget {
         onFeedback(playback.danmakuEnabled ? '弹幕已开启' : '弹幕已关闭');
         onReveal();
       },
-      icon: PlayerGlyph(
-        playback.danmakuEnabled
-            ? PlayerGlyphKind.danmaku
-            : PlayerGlyphKind.danmakuOff,
+      icon: MotionSwap(
+        value: playback.danmakuEnabled,
+        child: PlayerGlyph(
+          playback.danmakuEnabled
+              ? PlayerGlyphKind.danmaku
+              : PlayerGlyphKind.danmakuOff,
+        ),
       ),
     ),
     AnchoredPanel(
@@ -317,19 +325,27 @@ class PlayerControls extends StatelessWidget {
       IconButton(
         tooltip: windowFullScreen ? '退出窗口全屏' : '窗口全屏',
         onPressed: onWindowFullScreen,
-        icon: Icon(
-          windowFullScreen
-              ? Icons.close_fullscreen_rounded
-              : Icons.open_in_full_rounded,
-          size: 18,
+        icon: MotionSwap(
+          value: windowFullScreen,
+          child: Icon(
+            windowFullScreen
+                ? Icons.close_fullscreen_rounded
+                : Icons.open_in_full_rounded,
+            size: 18,
+          ),
         ),
       ),
       IconButton(
         tooltip: fullScreen ? '退出全屏 (F)' : '全屏 (F)',
         onPressed: onFullscreen,
-        icon: Icon(
-          fullScreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
-          size: 24,
+        icon: MotionSwap(
+          value: fullScreen,
+          child: Icon(
+            fullScreen
+                ? Icons.fullscreen_exit_rounded
+                : Icons.fullscreen_rounded,
+            size: 24,
+          ),
         ),
       ),
     ],

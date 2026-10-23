@@ -9,6 +9,7 @@ import '../../domain/catalog.dart';
 import '../core/account_avatar.dart';
 import '../core/action_feedback.dart';
 import '../core/bbcode.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
@@ -510,38 +511,47 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                   final rows = (_pages[segment] ?? [])
                       .where((row) => !_own(row))
                       .toList();
-                  return SliverMainAxisGroup(
-                    slivers: [
-                      if (rows.isEmpty)
-                        SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: Text(
-                              _feedback.busy
-                                  ? '正在加载…'
-                                  : _feedback.issue == null
-                                  ? '这里还没有内容'
-                                  : '内容暂时无法读取',
+                  // Switching between 吐槽, 评论 and 讨论 fades the list in.
+                  return TweenAnimationBuilder<double>(
+                    key: ValueKey(segment),
+                    tween: Tween(begin: 0, end: 1),
+                    duration: motionDuration(context, 240),
+                    curve: Curves.easeOut,
+                    builder: (context, value, sliver) =>
+                        SliverOpacity(opacity: value, sliver: sliver),
+                    child: SliverMainAxisGroup(
+                      slivers: [
+                        if (rows.isEmpty)
+                          SliverToBoxAdapter(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Text(
+                                _feedback.busy
+                                    ? '正在加载…'
+                                    : _feedback.issue == null
+                                    ? '这里还没有内容'
+                                    : '内容暂时无法读取',
+                              ),
                             ),
                           ),
+                        SliverList.builder(
+                          itemCount: rows.length,
+                          itemBuilder: (_, index) => _row(rows[index]),
                         ),
-                      SliverList.builder(
-                        itemCount: rows.length,
-                        itemBuilder: (_, index) => _row(rows[index]),
-                      ),
-                      if ((_pages[segment]?.length ?? 0) <
-                          (_totals[segment] ?? 0))
-                        SliverToBoxAdapter(
-                          child: Center(
-                            child: TextButton(
-                              onPressed: _feedback.busy
-                                  ? null
-                                  : () => unawaited(_load()),
-                              child: Text(_feedback.busy ? '正在加载…' : '加载更多'),
+                        if ((_pages[segment]?.length ?? 0) <
+                            (_totals[segment] ?? 0))
+                          SliverToBoxAdapter(
+                            child: Center(
+                              child: TextButton(
+                                onPressed: _feedback.busy
+                                    ? null
+                                    : () => unawaited(_load()),
+                                child: Text(_feedback.busy ? '正在加载…' : '加载更多'),
+                              ),
                             ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   );
                 },
               ),
@@ -821,6 +831,15 @@ class _ClampedPostState extends State<_ClampedPost>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    return AnimatedSize(
+      duration: motionDuration(context, 260),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topLeft,
+      child: _post(context),
+    );
+  }
+
+  Widget _post(BuildContext context) {
     final post = BBCode(widget.source, style: _postText);
     if (_expanded) {
       return Column(
@@ -967,6 +986,15 @@ class _ReviewState extends State<_Review> with AutomaticKeepAliveClientMixin {
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    return AnimatedSize(
+      duration: motionDuration(context, 260),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topLeft,
+      child: _body(context),
+    );
+  }
+
+  Widget _body(BuildContext context) {
     final small = Theme.of(context).textTheme.bodySmall;
     final content = widget.content;
     if (_expanded && content != null && content.hasData) {

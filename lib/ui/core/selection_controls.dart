@@ -332,11 +332,25 @@ class MelonChoiceMenu<T> extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            const Icon(Icons.keyboard_arrow_down_rounded, size: 17),
+            _MenuChevron(open: controller.isOpen),
           ],
         ),
       ),
     ),
+  );
+}
+
+/// A menu button's arrow, turning over while its menu is open.
+class _MenuChevron extends StatelessWidget {
+  const _MenuChevron({required this.open});
+  final bool open;
+
+  @override
+  Widget build(BuildContext context) => AnimatedRotation(
+    turns: open ? .5 : 0,
+    duration: motionDuration(context, 220),
+    curve: Curves.easeOutCubic,
+    child: const Icon(Icons.keyboard_arrow_down_rounded, size: 17),
   );
 }
 
@@ -416,9 +430,12 @@ class MelonFilterMenu<T> extends StatelessWidget {
           width: 1.5,
         ),
       ),
-      child: value
-          ? Icon(Icons.check_rounded, size: 12, color: scheme.onPrimary)
-          : null,
+      child: AnimatedScale(
+        scale: value ? 1 : 0,
+        duration: motionDuration(context, 160),
+        curve: value ? Curves.easeOutBack : Curves.easeIn,
+        child: Icon(Icons.check_rounded, size: 12, color: scheme.onPrimary),
+      ),
     );
     return MenuAnchor(
       crossAxisUnconstrained: false,
@@ -510,7 +527,7 @@ class MelonFilterMenu<T> extends StatelessWidget {
               ),
             ],
             const SizedBox(width: 4),
-            const Icon(Icons.keyboard_arrow_down_rounded, size: 17),
+            _MenuChevron(open: controller.isOpen),
           ],
         );
         return Tooltip(

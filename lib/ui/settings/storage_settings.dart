@@ -8,6 +8,7 @@ import '../../core/error_message.dart';
 import '../../core/storage_locations.dart';
 import '../../core/storage_usage.dart';
 import '../core/action_feedback.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import 'settings_page.dart';
 
@@ -140,7 +141,7 @@ class _StorageSettingsState extends State<StorageSettings> {
     try {
       final selected = await getDirectoryPath(confirmButtonText: '选择文件夹');
       if (selected == null || !mounted) return;
-      final confirmed = await showDialog<bool>(
+      final confirmed = await showMelonDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: Text(media ? '迁移媒体缓存？' : '迁移应用数据？'),

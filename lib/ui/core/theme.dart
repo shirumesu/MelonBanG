@@ -64,13 +64,17 @@ class MelonAccent extends ThemeExtension<MelonAccent> {
 MelonAccent accentOf(BuildContext context) =>
     Theme.of(context).extension<MelonAccent>()!;
 
-List<BoxShadow> posterShadows(BuildContext context) => [
-  BoxShadow(
-    color: Theme.of(context).shadowColor,
-    blurRadius: 6,
-    offset: const Offset(0, 2),
-  ),
-];
+/// [raised] lifts the poster under the pointer.
+List<BoxShadow> posterShadows(BuildContext context, {bool raised = false}) {
+  final color = Theme.of(context).shadowColor;
+  return [
+    BoxShadow(
+      color: raised ? color.withValues(alpha: color.a * 2.2) : color,
+      blurRadius: raised ? 18 : 6,
+      offset: Offset(0, raised ? 8 : 2),
+    ),
+  ];
+}
 
 LinearGradient sidebarSurface(BuildContext context) => LinearGradient(
   colors: [
@@ -256,6 +260,11 @@ ThemeData appTheme(bool dark, {Color accent = mint}) {
       labelColor: scheme.primary,
       unselectedLabelColor: scheme.onSurface,
       dividerColor: Colors.transparent,
+    ),
+    // Hints wait for the pointer to rest instead of flashing up while it
+    // passes over toolbars.
+    tooltipTheme: const TooltipThemeData(
+      waitDuration: Duration(milliseconds: 400),
     ),
   );
   final textTheme = theme.textTheme.apply(

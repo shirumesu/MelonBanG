@@ -727,11 +727,16 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                   const SizedBox(height: 6),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(99),
-                    child: LinearProgressIndicator(
+                    child: MotionValue(
                       value: total == 0 ? 0 : watched / total,
-                      minHeight: 6,
-                      color: accentOf(context).accent,
-                      backgroundColor: scheme.surfaceContainerHigh,
+                      from: 0,
+                      milliseconds: 600,
+                      builder: (context, value) => LinearProgressIndicator(
+                        value: value,
+                        minHeight: 6,
+                        color: accentOf(context).accent,
+                        backgroundColor: scheme.surfaceContainerHigh,
+                      ),
                     ),
                   ),
                 ],
@@ -766,19 +771,23 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           ],
         ),
         const SizedBox(height: Gap.lg),
-        if (_summaryExpanded)
-          SelectableText(
-            key: PageStorageKey('subject-summary:${item.id}'),
-            summary,
-            style: const TextStyle(fontSize: 13, height: 1.75),
-          )
-        else
-          Text(
-            summary.replaceAll(RegExp(r'\s+'), ' '),
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 13, height: 1.75),
-          ),
+        AnimatedSize(
+          duration: motionDuration(context, 260),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topLeft,
+          child: _summaryExpanded
+              ? SelectableText(
+                  key: PageStorageKey('subject-summary:${item.id}'),
+                  summary,
+                  style: const TextStyle(fontSize: 13, height: 1.75),
+                )
+              : Text(
+                  summary.replaceAll(RegExp(r'\s+'), ' '),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, height: 1.75),
+                ),
+        ),
         if (summary.length > 90)
           Align(
             alignment: Alignment.centerLeft,
@@ -1177,25 +1186,35 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             ],
           ),
           const SizedBox(height: Gap.md),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(99),
-            child: SizedBox(
-              height: 8,
-              child: Row(
-                children: [
-                  for (final key in collectionLabels.keys)
-                    if ((stats[key] ?? 0) > 0)
-                      Expanded(
-                        flex: math.max(1, stats[key]!),
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: 2),
-                          child: ColoredBox(
-                            color: collectionColor(key),
-                            child: const SizedBox.expand(),
+          // The bar fills in from the left when the card first shows.
+          MotionValue(
+            value: 1,
+            from: 0,
+            milliseconds: 800,
+            builder: (context, grown) => ClipRRect(
+              borderRadius: BorderRadius.circular(99),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                widthFactor: grown,
+                child: SizedBox(
+                  height: 8,
+                  child: Row(
+                    children: [
+                      for (final key in collectionLabels.keys)
+                        if ((stats[key] ?? 0) > 0)
+                          Expanded(
+                            flex: math.max(1, stats[key]!),
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 2),
+                              child: ColoredBox(
+                                color: collectionColor(key),
+                                child: const SizedBox.expand(),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                ],
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -1258,23 +1277,34 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         children: [
           Text('作品资料', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: Gap.sm),
-          for (final row in shown)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3.5),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(width: 76, child: Text(row.key, style: small)),
-                  Expanded(
-                    child: SelectableText(
-                      key: PageStorageKey('subject-info:${item.id}:${row.key}'),
-                      row.value,
-                      style: const TextStyle(fontSize: 12),
+          AnimatedSize(
+            duration: motionDuration(context, 280),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topLeft,
+            child: Column(
+              children: [
+                for (final row in shown)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3.5),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(width: 76, child: Text(row.key, style: small)),
+                        Expanded(
+                          child: SelectableText(
+                            key: PageStorageKey(
+                              'subject-info:${item.id}:${row.key}',
+                            ),
+                            row.value,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+              ],
             ),
+          ),
           if (rows.length > 10)
             TextButton(
               onPressed: () => setState(() => _infoExpanded = !_infoExpanded),

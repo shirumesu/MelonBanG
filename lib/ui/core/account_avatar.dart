@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'motion.dart';
 import 'theme.dart';
 import 'subject_posters.dart' show imageDecodeWidth;
 import 'cached_image.dart';
@@ -40,8 +41,12 @@ class AccountAvatar extends StatelessWidget {
                 url: url!,
                 cacheWidth: imageDecodeWidth(context, size),
                 fit: BoxFit.cover,
-                frameBuilder: (_, child, frame, synchronous) =>
-                    frame == null && !synchronous ? fallback : child,
+                frameBuilder: (_, child, frame, synchronous) => ImageFadeIn(
+                  frame: frame,
+                  synchronous: synchronous,
+                  placeholder: fallback,
+                  child: child,
+                ),
                 errorBuilder: (_, error, stack) => fallback,
               ),
       ),

@@ -76,33 +76,32 @@ class AppTitleBar extends StatelessWidget {
                 if (!immersive && update != null)
                   ListenableBuilder(
                     listenable: update!,
-                    builder: (context, _) => update!.phase == UpdatePhase.ready
-                        ? Tooltip(
-                            message: '新版本 ${update!.readyVersion} 已下载',
-                            child: Padding(
-                              padding: const EdgeInsets.only(right: Gap.xs),
-                              child: FilledButton.tonalIcon(
-                                onPressed: onRestartToUpdate,
-                                style: FilledButton.styleFrom(
-                                  visualDensity: VisualDensity.compact,
-                                ),
-                                icon: const Icon(Icons.restart_alt, size: 16),
-                                label: const Text('重启以更新'),
-                              ),
+                    builder: (context, _) => MotionReveal(
+                      visible: update!.phase == UpdatePhase.ready,
+                      axis: Axis.horizontal,
+                      alignment: Alignment.centerRight,
+                      milliseconds: 280,
+                      child: Tooltip(
+                        message: '新版本 ${update!.readyVersion} 已下载',
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: Gap.xs),
+                          child: FilledButton.tonalIcon(
+                            onPressed: onRestartToUpdate,
+                            style: FilledButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
                             ),
-                          )
-                        : const SizedBox.shrink(),
+                            icon: const Icon(Icons.restart_alt, size: 16),
+                            label: const Text('重启以更新'),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 if (!immersive)
                   IconButton(
                     tooltip: '切换主题',
                     onPressed: onToggleTheme,
-                    icon: Icon(
-                      dark
-                          ? Icons.light_mode_outlined
-                          : Icons.dark_mode_outlined,
-                      size: 18,
-                    ),
+                    icon: _ThemeGlyph(dark: dark),
                   ),
                 if (!immersive && panelOpen != null)
                   ValueListenableBuilder<bool?>(
@@ -160,6 +159,34 @@ class AppTitleBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The theme switch's sun or moon, turning in as it replaces the other.
+class _ThemeGlyph extends StatelessWidget {
+  const _ThemeGlyph({required this.dark});
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) => AnimatedSwitcher(
+    duration: motionDuration(context, 320),
+    switchInCurve: Curves.easeOutCubic,
+    switchOutCurve: Curves.easeInCubic,
+    transitionBuilder: (child, animation) => FadeTransition(
+      opacity: animation,
+      child: RotationTransition(
+        turns: animation.drive(Tween(begin: -.25, end: 0)),
+        child: ScaleTransition(
+          scale: animation.drive(Tween(begin: .5, end: 1)),
+          child: child,
+        ),
+      ),
+    ),
+    child: Icon(
+      dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+      key: ValueKey(dark),
+      size: 18,
+    ),
+  );
 }
 
 class _CatalogueSearch extends StatefulWidget {
@@ -243,47 +270,53 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
             child: Align(
               alignment: Alignment.topLeft,
               child: TextFieldTapRegion(
-                child: SizedBox(
-                  width: constraints.maxWidth,
-                  child: Material(
-                    color: scheme.surface,
-                    elevation: 3,
-                    shadowColor: Theme.of(context).popupMenuTheme.shadowColor,
-                    shape: const RoundedRectangleBorder(
-                      borderRadius: controlBorderRadius,
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 340),
-                      child: ListView(
-                        padding: const EdgeInsets.symmetric(vertical: Gap.xs),
-                        shrinkWrap: true,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(14, 0, 6, 0),
-                            child: Row(
-                              children: [
-                                Text(
-                                  '最近搜索',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                                const Spacer(),
-                                TextButton(
-                                  onPressed: widget.onClearRecent,
-                                  child: const Text('清除'),
-                                ),
-                              ],
+                child: MotionAppear(
+                  offset: -4,
+                  milliseconds: 180,
+                  child: SizedBox(
+                    width: constraints.maxWidth,
+                    child: Material(
+                      color: scheme.surface,
+                      elevation: 3,
+                      shadowColor: Theme.of(context).popupMenuTheme.shadowColor,
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: controlBorderRadius,
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 340),
+                        child: ListView(
+                          padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+                          shrinkWrap: true,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(14, 0, 6, 0),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    '最近搜索',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall,
+                                  ),
+                                  const Spacer(),
+                                  TextButton(
+                                    onPressed: widget.onClearRecent,
+                                    child: const Text('清除'),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          for (final option in options)
-                            ListTile(
-                              dense: true,
-                              visualDensity: VisualDensity.compact,
-                              leading: const Icon(Icons.history, size: 18),
-                              title: Text(option, maxLines: 1),
-                              onTap: () => widget.onSearch(option),
-                            ),
-                        ],
+                            for (final option in options)
+                              ListTile(
+                                dense: true,
+                                visualDensity: VisualDensity.compact,
+                                leading: const Icon(Icons.history, size: 18),
+                                title: Text(option, maxLines: 1),
+                                onTap: () => widget.onSearch(option),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -314,38 +347,42 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
               prefixIcon: const Icon(Icons.search, size: 17),
               suffixIcon: Padding(
                 padding: const EdgeInsets.only(right: 8),
-                child: focused
-                    ? IconButton(
-                        tooltip: '搜索番剧',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () =>
-                            widget.onSearch(widget.controller.text.trim()),
-                        icon: const Icon(Icons.arrow_forward, size: 16),
-                      )
-                    : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 1,
-                            ),
-                            decoration: BoxDecoration(
-                              color: scheme.surfaceContainerHigh,
-                              borderRadius: const BorderRadius.all(
-                                Radius.circular(5),
+                child: MotionSwap(
+                  value: focused,
+                  alignment: Alignment.centerRight,
+                  child: focused
+                      ? IconButton(
+                          tooltip: '搜索番剧',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () =>
+                              widget.onSearch(widget.controller.text.trim()),
+                          icon: const Icon(Icons.arrow_forward, size: 16),
+                        )
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: scheme.surfaceContainerHigh,
+                                borderRadius: const BorderRadius.all(
+                                  Radius.circular(5),
+                                ),
+                              ),
+                              child: Text(
+                                shortcut,
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  color: scheme.onSurfaceVariant,
+                                ),
                               ),
                             ),
-                            child: Text(
-                              shortcut,
-                              style: TextStyle(
-                                fontSize: 10.5,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                ),
               ),
             ),
           ),
@@ -376,166 +413,188 @@ class AppSidebar extends StatelessWidget {
   final int watchingCount, downloadCount;
   final bool sourcesWarning;
   final ValueChanged<String> onNavigate;
+
+  /// The entry standing for the current page; detail pages reached from
+  /// 探索 keep it selected.
+  String? get _selected {
+    final active = selectedRoute ?? route;
+    if (const ['subject', 'calendar', 'search', 'resources'].contains(active)) {
+      return 'home';
+    }
+    return const [
+          'home',
+          'tracking',
+          'downloads',
+          'sources',
+          'settings',
+        ].contains(active)
+        ? active
+        : null;
+  }
+
   @override
   Widget build(BuildContext context) => Container(
     decoration: BoxDecoration(gradient: sidebarSurface(context)),
     padding: const EdgeInsets.fromLTRB(12, Gap.md, 12, Gap.md),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: Gap.lg),
-          child: Tooltip(
-            message: '返回探索首页',
-            child: Material(
-              color: Colors.transparent,
-              borderRadius: controlBorderRadius,
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                key: const ValueKey('brand-home'),
-                onTap: () => onNavigate('home'),
-                child: Semantics(
-                  button: true,
-                  label: 'MelonBanG，返回探索首页',
-                  excludeSemantics: true,
-                  child: Padding(
-                    padding: const EdgeInsets.all(Gap.sm),
-                    child: Image.asset(
-                      'assets/images/logotype.png',
-                      width: 150,
+    // One highlight glides between entries instead of each lighting up.
+    child: MotionSelection<String>(
+      selected: _selected,
+      highlight: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: controlBorderRadius,
+          gradient: accentOf(context).navigation,
+        ),
+      ),
+      builder: (context, keyOf) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: Gap.lg),
+            child: Tooltip(
+              message: '返回探索首页',
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: controlBorderRadius,
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  key: const ValueKey('brand-home'),
+                  onTap: () => onNavigate('home'),
+                  child: Semantics(
+                    button: true,
+                    label: 'MelonBanG，返回探索首页',
+                    excludeSemantics: true,
+                    child: Padding(
+                      padding: const EdgeInsets.all(Gap.sm),
+                      child: Image.asset(
+                        'assets/images/logotype.png',
+                        width: 150,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-        _nav(context, 'home', '探索', Icons.explore_outlined),
-        _nav(
-          context,
-          'tracking',
-          '追番',
-          Icons.favorite_border,
-          watchingCount > 0 ? '$watchingCount' : null,
-        ),
-        _nav(
-          context,
-          'downloads',
-          '缓存',
-          Icons.download_outlined,
-          downloadCount > 0 ? '$downloadCount' : null,
-        ),
-        const Spacer(),
-        _nav(
-          context,
-          'sources',
-          '数据源',
-          Icons.hub_outlined,
-          sourcesWarning ? '●' : null,
-        ),
-        _nav(context, 'settings', '设置', Icons.settings_outlined),
-        const SizedBox(height: Gap.sm),
-        Material(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: posterBorderRadius,
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () => onNavigate('settings'),
-            child: Padding(
-              padding: const EdgeInsets.all(Gap.sm),
-              child: Row(
-                children: [
-                  AccountAvatar(url: avatarUrl, name: nickname, size: 32),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          nickname,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
+          _nav(context, keyOf, 'home', '探索', Icons.explore_outlined),
+          _nav(
+            context,
+            keyOf,
+            'tracking',
+            '追番',
+            Icons.favorite_border,
+            watchingCount > 0 ? '$watchingCount' : null,
+          ),
+          _nav(
+            context,
+            keyOf,
+            'downloads',
+            '缓存',
+            Icons.download_outlined,
+            downloadCount > 0 ? '$downloadCount' : null,
+          ),
+          const Spacer(),
+          _nav(
+            context,
+            keyOf,
+            'sources',
+            '数据源',
+            Icons.hub_outlined,
+            sourcesWarning ? '●' : null,
+          ),
+          _nav(context, keyOf, 'settings', '设置', Icons.settings_outlined),
+          const SizedBox(height: Gap.sm),
+          Material(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: posterBorderRadius,
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () => onNavigate('settings'),
+              child: Padding(
+                padding: const EdgeInsets.all(Gap.sm),
+                child: Row(
+                  children: [
+                    AccountAvatar(url: avatarUrl, name: nickname, size: 32),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            nickname,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
-                        Text(
-                          username == null ? '点击登录' : '@$username',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant,
+                          Text(
+                            username == null ? '点击登录' : '@$username',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     ),
   );
   Widget _nav(
     BuildContext context,
+    Key Function(String) keyOf,
     String target,
     String label,
     IconData icon, [
     String? count,
   ]) {
-    final activeRoute = selectedRoute ?? route;
-    final selected =
-        activeRoute == target ||
-        (target == 'home' &&
-            [
-              'subject',
-              'calendar',
-              'search',
-              'resources',
-            ].contains(activeRoute));
+    final selected = _selected == target;
     final accent = accentOf(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: Gap.xs),
-      child: AnimatedContainer(
-        duration: motionDuration(context, 160),
-        curve: Curves.easeOut,
-        decoration: BoxDecoration(
-          borderRadius: controlBorderRadius,
-          gradient: selected ? accent.navigation : null,
-        ),
-        child: Material(
-          type: MaterialType.transparency,
-          child: ListTile(
-            dense: true,
-            selected: selected,
-            selectedColor: accent.onNavigation,
-            iconColor: Theme.of(context).colorScheme.onSurfaceVariant,
-            titleTextStyle: Theme.of(context).textTheme.titleSmall,
-            selectedTileColor: Colors.transparent,
-            shape: const RoundedRectangleBorder(
-              borderRadius: controlBorderRadius,
-            ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-            leading: Icon(icon, size: 20),
-            title: Text(label),
-            trailing: count == null
-                ? null
-                : Text(
-                    count,
+      child: Material(
+        key: keyOf(target),
+        type: MaterialType.transparency,
+        child: ListTile(
+          dense: true,
+          selected: selected,
+          selectedColor: accent.onNavigation,
+          iconColor: Theme.of(context).colorScheme.onSurfaceVariant,
+          titleTextStyle: Theme.of(context).textTheme.titleSmall,
+          selectedTileColor: Colors.transparent,
+          shape: const RoundedRectangleBorder(
+            borderRadius: controlBorderRadius,
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          leading: Icon(icon, size: 20),
+          title: Text(label),
+          trailing: count == null
+              ? null
+              : MotionSwap(
+                  value: count,
+                  scale: .6,
+                  child: AnimatedDefaultTextStyle(
+                    duration: motionDuration(context, 200),
                     style: TextStyle(
                       fontSize: 11,
                       color: selected ? accent.onNavigation : accent.accent,
                       fontWeight: FontWeight.w800,
                     ),
+                    child: Text(count),
                   ),
-            onTap: () => onNavigate(target),
-          ),
+                ),
+          onTap: () => onNavigate(target),
         ),
       ),
     );
