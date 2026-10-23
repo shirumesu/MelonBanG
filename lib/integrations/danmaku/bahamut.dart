@@ -22,6 +22,8 @@ class BahamutDanmaku implements DanmakuMatcher {
   String get description => '动画疯的弹幕，只匹配正片，不含配音版和特别篇。';
   @override
   String? get unconfigured => null;
+  @override
+  bool get manual => true;
 
   @override
   Future<DanmakuMatch> match(DanmakuQuery query) async {

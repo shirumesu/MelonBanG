@@ -1441,9 +1441,9 @@ class _SendStyleMenu extends StatelessWidget {
   static const _ink = Color(0xff15181d);
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: preferences,
-    builder: (context, _) => _HoverPopover(
+  Widget build(BuildContext context) => ValueListenableBuilder(
+    valueListenable: preferences.sendStyle,
+    builder: (context, style, _) => _HoverPopover(
       onPopupChanged: onPopupChanged,
       anchor: (popover) => Material(
         type: MaterialType.transparency,
@@ -1460,7 +1460,7 @@ class _SendStyleMenu extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xff000000 | preferences.sendColor),
+                  color: Color(0xff000000 | style.color),
                   shadows: const [Shadow(blurRadius: 2)],
                   decoration: TextDecoration.underline,
                   decorationColor: Colors.white54,
@@ -1491,21 +1491,22 @@ class _SendStyleMenu extends StatelessWidget {
                         in modes.entries)
                       Expanded(
                         child: Material(
-                          color: mode == preferences.sendMode
+                          color: mode == style.mode
                               ? Colors.white
                               : Colors.transparent,
                           borderRadius: BorderRadius.circular(6),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(6),
-                            onTap: () => preferences.update(
-                              () => preferences.sendMode = mode,
+                            onTap: () => preferences.sendStyle.value = (
+                              mode: mode,
+                              color: style.color,
                             ),
                             child: Center(
                               child: Text(
                                 label,
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: mode == preferences.sendMode
+                                  color: mode == style.mode
                                       ? _ink
                                       : Colors.white70,
                                 ),
@@ -1524,12 +1525,13 @@ class _SendStyleMenu extends StatelessWidget {
                 children: [
                   for (final color in colors)
                     Semantics(
-                      selected: color == preferences.sendColor,
+                      selected: color == style.color,
                       label: '#${color.toRadixString(16).padLeft(6, '0')}',
                       child: InkWell(
                         borderRadius: BorderRadius.circular(6),
-                        onTap: () => preferences.update(
-                          () => preferences.sendColor = color,
+                        onTap: () => preferences.sendStyle.value = (
+                          mode: style.mode,
+                          color: color,
                         ),
                         child: Container(
                           width: 26,
@@ -1538,10 +1540,10 @@ class _SendStyleMenu extends StatelessWidget {
                             color: Color(0xff000000 | color),
                             borderRadius: BorderRadius.circular(6),
                             border: Border.all(
-                              color: color == preferences.sendColor
+                              color: color == style.color
                                   ? Colors.white
                                   : Colors.white24,
-                              width: color == preferences.sendColor ? 2 : 1,
+                              width: color == style.color ? 2 : 1,
                             ),
                           ),
                         ),
