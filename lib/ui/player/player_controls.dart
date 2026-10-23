@@ -44,6 +44,7 @@ class PlayerControls extends StatelessWidget {
     required this.danmakuDraft,
     required this.danmakuInput,
     required this.onDanmakuInputDone,
+    required this.danmakuHint,
     this.danmakuMenuFocus,
     this.onNext,
   });
@@ -62,6 +63,9 @@ class PlayerControls extends StatelessWidget {
 
   /// Gives the keys back to the video after sending or leaving the field.
   final VoidCallback onDanmakuInputDone;
+
+  /// The comment field's empty line.
+  final String danmakuHint;
   final ValueChanged<bool> onPopupChanged;
   final VoidCallback onWindowFullScreen;
   final double? dragging;
@@ -185,6 +189,7 @@ class PlayerControls extends StatelessWidget {
                                               onPopupChanged: onPopupChanged,
                                               onFeedback: onFeedback,
                                               onDone: onDanmakuInputDone,
+                                              hint: danmakuHint,
                                             ),
                                           ),
                                       ],
@@ -1238,6 +1243,7 @@ class _DanmakuComposer extends StatefulWidget {
     required this.onPopupChanged,
     required this.onFeedback,
     required this.onDone,
+    required this.hint,
   });
   final Playback playback;
   final TextEditingController draft;
@@ -1245,6 +1251,9 @@ class _DanmakuComposer extends StatefulWidget {
   final ValueChanged<bool> onPopupChanged;
   final ValueChanged<String> onFeedback;
   final VoidCallback onDone;
+
+  /// The empty field's line while it can send.
+  final String hint;
 
   /// The narrowest it is shown at; the field keeps about eight characters.
   static const minWidth = 220.0;
@@ -1256,10 +1265,41 @@ class _DanmakuComposer extends StatefulWidget {
 class _DanmakuComposerState extends State<_DanmakuComposer> {
   bool _sending = false;
 
+  /// Counts down the wait between comments.
+  Timer? _tick;
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  /// Whole seconds until the next comment may go.
+  int get _wait {
+    final after = widget.playback.danmaku.sendAfter;
+    if (after == null) return 0;
+    final left = after.difference(DateTime.now()).inMilliseconds;
+    return left <= 0 ? 0 : (left / 1000).ceil();
+  }
+
+  void _countDown() {
+    _tick?.cancel();
+    if (_wait == 0) return;
+    _tick = Timer.periodic(const Duration(milliseconds: 250), (timer) {
+      if (!mounted) return timer.cancel();
+      setState(() {});
+      if (_wait == 0) timer.cancel();
+    });
+  }
+
   Future<void> _send() async {
     final text = widget.draft.text.trim();
     if (text.isEmpty) {
       widget.onDone();
+      return;
+    }
+    if (_wait case final wait when wait > 0) {
+      widget.onFeedback('$wait 秒后才能再发送');
       return;
     }
     if (_sending) return;
@@ -1275,7 +1315,10 @@ class _DanmakuComposerState extends State<_DanmakuComposer> {
     } catch (e) {
       widget.onFeedback(e is StateError ? e.message : '弹幕发送失败：$e');
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) {
+        setState(() => _sending = false);
+        _countDown();
+      }
     }
   }
 
@@ -1283,6 +1326,7 @@ class _DanmakuComposerState extends State<_DanmakuComposer> {
   Widget build(BuildContext context) {
     final danmaku = widget.playback.danmaku;
     final blocked = danmaku.sendBlocked;
+    final wait = _wait;
     return ConstrainedBox(
       constraints: const BoxConstraints(
         minWidth: _DanmakuComposer.minWidth,
@@ -1320,7 +1364,7 @@ class _DanmakuComposerState extends State<_DanmakuComposer> {
                     filled: false,
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                    hintText: blocked ?? '发个弹幕 (Enter)',
+                    hintText: blocked ?? widget.hint,
                     hintMaxLines: 1,
                     hintStyle: const TextStyle(
                       fontSize: 13,
@@ -1354,10 +1398,16 @@ class _DanmakuComposerState extends State<_DanmakuComposer> {
                   onPressed:
                       blocked == null &&
                           !_sending &&
+                          wait == 0 &&
                           widget.draft.text.trim().isNotEmpty
                       ? () => unawaited(_send())
                       : null,
-                  child: const Text('发送'),
+                  child: Text(
+                    wait > 0 ? '$wait 秒' : '发送',
+                    style: const TextStyle(
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
                 ),
               ),
             ),

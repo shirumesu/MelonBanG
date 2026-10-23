@@ -75,6 +75,30 @@ class ConnectivityCheck extends ChangeNotifier {
     ProbeTarget('pikpak', 'PikPak', '网盘', Uri.https('api-drive.mypikpak.com')),
   ];
 
+  /// The target probing [id], if it is checked.
+  ProbeTarget? target(String id) =>
+      targets.where((target) => target.id == id).firstOrNull;
+
+  /// Probes one target, unless a full test is running.
+  Future<ProbeResult?> probe(String id) async {
+    final target = this.target(id);
+    if (target == null || running) return null;
+    final run = _run;
+    results[id] = const ProbeResult(ProbeState.running);
+    notifyListeners();
+    final client = ApiClient(timeout: const Duration(seconds: 10));
+    try {
+      final result = await _probe(client, target);
+      if (run == _run) {
+        results[id] = result;
+        notifyListeners();
+      }
+      return result;
+    } finally {
+      client.close();
+    }
+  }
+
   /// Probes every target, four at a time.
   Future<void> runAll() async {
     final run = ++_run;

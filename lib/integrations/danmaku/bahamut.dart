@@ -19,6 +19,11 @@ class BahamutDanmaku implements DanmakuMatcher {
   String get label => '巴哈姆特';
 
   @override
+  String get description => '动画疯的弹幕，只匹配正片，不含配音版和特别篇。';
+  @override
+  String? get unconfigured => null;
+
+  @override
   Future<DanmakuMatch> match(DanmakuQuery query) async {
     final episode = await query.episode();
     final locator = await _locator(episode);

@@ -39,6 +39,7 @@ import '../features/update/uninstall.dart';
 import '../integrations/danmaku/bahamut.dart';
 import '../integrations/danmaku/bilibili.dart';
 import '../integrations/danmaku/dandanplay.dart';
+import '../integrations/danmaku/melon.dart';
 import '../integrations/danmaku/local.dart';
 import '../integrations/melon_api/source_rules.dart';
 import '../integrations/sources/engines.dart';
@@ -182,6 +183,11 @@ class AppServices {
     await update.initialize();
     danmaku = DanmakuController(
       DanmakuRepository(store, catalog, [
+        MelonDanmaku(
+          api,
+          token: account.accessToken,
+          signedIn: () => account.profile != null,
+        ),
         DandanplayDanmaku(api, configuration),
         BilibiliDanmaku(api),
         BahamutDanmaku(api),

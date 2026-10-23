@@ -1112,6 +1112,8 @@ class _MelonAppState extends State<MelonApp>
 
         return SourcesPage(
           registry: service.sources,
+          danmaku: service.danmaku,
+          connectivity: service.connectivity,
           pikpakAccount: PikPakAccount(
             account: pikpak.accountName,
             needsAuthorization: pikpak.needsAuthorization,

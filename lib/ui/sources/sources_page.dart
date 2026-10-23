@@ -3,20 +3,32 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../domain/danmaku.dart';
 import '../../domain/sources.dart';
 import '../../features/acquisition/source_registry.dart';
+import '../../features/danmaku/danmaku_controller.dart';
+import '../../features/network/connectivity.dart';
 import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
+import '../settings/network_settings.dart' show ProbeStatus;
 
+/// Every source of data the app reads, by kind: online video sites, BT
+/// indexes, the PikPak drive and danmaku providers. Built for many of each:
+/// the list searches, filters by kind or by problems and folds its groups,
+/// and each source has its own details and connection test.
 class SourcesPage extends StatefulWidget {
   const SourcesPage({
     super.key,
     required this.registry,
+    required this.danmaku,
+    required this.connectivity,
     required this.pikpakAccount,
     required this.onPlay,
   });
   final SourceRegistry registry;
+  final DanmakuController danmaku;
+  final ConnectivityCheck connectivity;
   final Widget pikpakAccount;
   final Future<void> Function(ResolvedStream) onPlay;
   @override
@@ -38,17 +50,82 @@ class _SourcesPageState extends State<SourcesPage> {
   SourceEpisode? _episode;
   ResolvedStream? _resolved;
   int _generation = 0;
+  final _filter = TextEditingController();
+  _Kind? _kind;
+  bool _problemsOnly = false;
+
+  /// Groups folded by hand.
+  final _folded = <_Kind>{};
   SourceRegistry get registry => widget.registry;
+  DanmakuController get danmaku => widget.danmaku;
+
   List<_Entry> get entries => [
     for (final instance in registry.instances)
-      _Entry(
+      _registryEntry(
         instance.id,
         instance.name,
-        instance.kind == SourceKind.torrent ? 'BT 索引' : '在线源',
+        instance.kind == SourceKind.torrent ? _Kind.torrent : _Kind.online,
         instance: instance,
       ),
-    const _Entry('pikpak', 'PikPak', '网盘'),
+    _registryEntry('pikpak', 'PikPak', _Kind.drive),
+    for (final provider in danmaku.repository.matchers) _danmakuEntry(provider),
   ];
+
+  _Entry _registryEntry(
+    String id,
+    String name,
+    _Kind kind, {
+    SourceInstance? instance,
+  }) {
+    final status = registry.status(id);
+    return _Entry(
+      id,
+      name,
+      kind,
+      status: label(status),
+      color: color(status),
+      problem: switch (status) {
+        SourceHealth.error ||
+        SourceHealth.verification ||
+        SourceHealth.update => true,
+        _ => false,
+      },
+      enabled: registry.isEnabled(id) && instance?.disabled != true,
+      onToggle: instance?.disabled == true
+          ? null
+          : (value) => registry.setEnabled(id, value),
+      probe: instance == null ? 'pikpak' : 'source:$id',
+      instance: instance,
+    );
+  }
+
+  _Entry _danmakuEntry(DanmakuMatcher provider) {
+    final unconfigured = provider.unconfigured;
+    final enabled =
+        unconfigured == null && danmaku.preferences.sourceEnabled(provider.id);
+    return _Entry(
+      provider.id,
+      provider.label,
+      _Kind.danmaku,
+      status: unconfigured != null
+          ? '未配置'
+          : enabled
+          ? '已启用'
+          : '已停用',
+      color: unconfigured != null
+          ? gold
+          : enabled
+          ? mint
+          : sky,
+      enabled: enabled,
+      onToggle: unconfigured != null
+          ? null
+          : (value) => danmaku.setDefault(provider.id, value),
+      probe: provider.id == 'melon' ? 'melon-api' : provider.id,
+      danmaku: provider,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -68,6 +145,7 @@ class _SourcesPageState extends State<SourcesPage> {
       feedback.dispose();
     }
     _query.dispose();
+    _filter.dispose();
     super.dispose();
   }
 
@@ -85,6 +163,7 @@ class _SourcesPageState extends State<SourcesPage> {
     SourceHealth.disabled => sky,
   };
   void _select(String id) {
+    if (id == 'melon') unawaited(danmaku.refreshQuota());
     _generation++;
     _search.dispose();
     _resolve.dispose();
@@ -158,10 +237,19 @@ class _SourcesPageState extends State<SourcesPage> {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([registry, _search, _resolve]),
+    listenable: Listenable.merge([
+      registry,
+      danmaku,
+      danmaku.preferences,
+      widget.connectivity,
+      _search,
+      _resolve,
+      _filter,
+    ]),
     builder: (context, _) {
-      final selected = entries
-          .where((entry) => entry.id == (_selected ?? entries.first.id))
+      final all = entries;
+      final selected = all
+          .where((entry) => entry.id == (_selected ?? all.first.id))
           .firstOrNull;
       _engineIssue.issue = registry.needsUpdate ? '部分视频源需要更新应用后才能使用' : null;
       return LayoutBuilder(
@@ -184,7 +272,7 @@ class _SourcesPageState extends State<SourcesPage> {
                       children: [
                         Expanded(
                           child: Text(
-                            '视频源',
+                            '数据源',
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
                         ),
@@ -202,7 +290,7 @@ class _SourcesPageState extends State<SourcesPage> {
                       ],
                     ),
                     Text(
-                      '规则 ${registry.version}，${snapshotDate(registry.snapshot.updatedAt)} 更新',
+                      '在线源与 BT 索引规则 ${registry.version}，${snapshotDate(registry.snapshot.updatedAt)} 更新',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     FeedbackIssue(
@@ -239,11 +327,11 @@ class _SourcesPageState extends State<SourcesPage> {
                 child: narrow
                     ? _narrowDetail && selected != null
                           ? _details(selected, narrow: true)
-                          : _list(selected)
+                          : _list(all, selected)
                     : Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          SizedBox(width: 244, child: _list(selected)),
+                          SizedBox(width: 296, child: _list(all, selected)),
                           Expanded(
                             child: selected == null
                                 ? const SizedBox()
@@ -258,50 +346,269 @@ class _SourcesPageState extends State<SourcesPage> {
       );
     },
   );
-  Widget _list(_Entry? selected) => ListView(
-    padding: const EdgeInsets.fromLTRB(pageGutter, 0, Gap.md, Gap.lg),
-    children: [
-      for (final group in ['在线源', 'BT 索引', '网盘']) ...[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(Gap.md, Gap.lg, Gap.md, Gap.sm),
-          child: Text(group, style: Theme.of(context).textTheme.titleSmall),
-        ),
-        for (final entry in entries.where((e) => e.group == group))
-          Padding(
-            padding: const EdgeInsets.only(bottom: Gap.xs),
-            child: ListTile(
-              dense: true,
-              minTileHeight: 56,
-              contentPadding: const EdgeInsets.only(
-                left: Gap.md,
-                right: Gap.sm,
-              ),
-              selected: selected?.id == entry.id,
-              titleTextStyle: Theme.of(context).textTheme.titleSmall,
-              title: Text(entry.name),
-              subtitle: Align(
-                alignment: Alignment.centerLeft,
-                child: MelonBadge(
-                  label(registry.status(entry.id)),
-                  color: color(registry.status(entry.id)),
+
+  /// Search, kind and problem filters over the folding groups.
+  Widget _list(List<_Entry> all, _Entry? selected) {
+    final theme = Theme.of(context);
+    final query = _filter.text.trim().toLowerCase();
+    final problems = all.where((entry) => entry.problem).length;
+    if (problems == 0) _problemsOnly = false;
+    final shown = [
+      for (final entry in all)
+        if ((_kind == null || entry.kind == _kind) &&
+            (!_problemsOnly || entry.problem) &&
+            (query.isEmpty ||
+                entry.name.toLowerCase().contains(query) ||
+                entry.id.toLowerCase().contains(query)))
+          entry,
+    ];
+    // Searching or filtering shows every match, folded or not.
+    final filtering = query.isNotEmpty || _problemsOnly;
+    final rows = <Widget>[];
+    for (final kind in _Kind.values) {
+      final members = shown.where((entry) => entry.kind == kind).toList();
+      if (members.isEmpty) continue;
+      final folded = !filtering && _folded.contains(kind);
+      final issues = members.where((entry) => entry.problem).length;
+      rows.add(
+        InkWell(
+          borderRadius: controlBorderRadius,
+          onTap: filtering
+              ? null
+              : () => setState(
+                  () => folded ? _folded.remove(kind) : _folded.add(kind),
                 ),
-              ),
-              trailing: Switch(
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                value:
-                    registry.isEnabled(entry.id) &&
-                    entry.instance?.disabled != true,
-                onChanged: entry.instance?.disabled == true
-                    ? null
-                    : (value) => registry.setEnabled(entry.id, value),
-              ),
-              onTap: () => _select(entry.id),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.xs, Gap.md, Gap.sm, 6),
+            child: Row(
+              children: [
+                AnimatedRotation(
+                  turns: folded ? 0 : .25,
+                  duration: const Duration(milliseconds: 150),
+                  child: Icon(
+                    Icons.chevron_right,
+                    size: 18,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(width: Gap.xs),
+                Text(kind.label, style: theme.textTheme.titleSmall),
+                const SizedBox(width: Gap.sm),
+                Text('${members.length}', style: theme.textTheme.bodySmall),
+                const Spacer(),
+                if (issues > 0)
+                  Text(
+                    '$issues 个异常',
+                    style: theme.textTheme.bodySmall?.copyWith(color: coral),
+                  ),
+              ],
             ),
           ),
+        ),
+      );
+      if (!folded) {
+        for (final entry in members) {
+          rows.add(
+            _SourceRow(
+              entry: entry,
+              selected: selected?.id == entry.id,
+              onTap: () => _select(entry.id),
+            ),
+          );
+        }
+      }
+    }
+    int count(_Kind kind) => all.where((entry) => entry.kind == kind).length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(pageGutter, 0, Gap.md, Gap.sm),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: _filter,
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: '搜索数据源',
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  suffixIcon: query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: '清除',
+                          onPressed: _filter.clear,
+                          icon: const Icon(Icons.close, size: 16),
+                        ),
+                ),
+              ),
+              const SizedBox(height: Gap.sm),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  ChoiceChip(
+                    label: Text('全部 ${all.length}'),
+                    selected: _kind == null,
+                    onSelected: (_) => setState(() => _kind = null),
+                  ),
+                  for (final kind in _Kind.values)
+                    if (count(kind) > 0)
+                      ChoiceChip(
+                        label: Text('${kind.label} ${count(kind)}'),
+                        selected: _kind == kind,
+                        onSelected: (_) =>
+                            setState(() => _kind = _kind == kind ? null : kind),
+                      ),
+                  if (problems > 0)
+                    FilterChip(
+                      label: Text('异常 $problems'),
+                      selected: _problemsOnly,
+                      selectedColor: coral.withValues(alpha: .18),
+                      onSelected: (value) =>
+                          setState(() => _problemsOnly = value),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: rows.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.all(pageGutter),
+                  child: Text('没有匹配的数据源', style: theme.textTheme.bodySmall),
+                )
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(
+                    pageGutter - Gap.xs,
+                    0,
+                    Gap.md,
+                    Gap.lg,
+                  ),
+                  children: rows,
+                ),
+        ),
       ],
-    ],
+    );
+  }
+
+  /// The source's address with a link and a connection test of its own.
+  Widget _connection(_Entry entry, String address, String? website) {
+    final probe = widget.connectivity;
+    final result = probe.results[entry.probe];
+    final testable = probe.target(entry.probe) != null;
+    return Row(
+      children: [
+        Expanded(child: SelectableText(address)),
+        const SizedBox(width: Gap.sm),
+        if (testable) ...[
+          if (result != null) Flexible(child: ProbeStatus(result)),
+          TextButton.icon(
+            onPressed: probe.running || result?.state == ProbeState.running
+                ? null
+                : () => unawaited(probe.probe(entry.probe)),
+            icon: const Icon(Icons.network_check, size: 16),
+            label: const Text('测试连接'),
+          ),
+        ],
+        if (website != null)
+          TextButton.icon(
+            onPressed: () => launchUrl(
+              Uri.parse(website),
+              mode: LaunchMode.externalApplication,
+            ),
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: const Text('打开站点'),
+          ),
+      ],
+    );
+  }
+
+  Widget _danmakuDetails(_Entry entry, DanmakuMatcher provider, bool narrow) {
+    final theme = Theme.of(context);
+    final address = switch (widget.connectivity.target(entry.probe)) {
+      final target? => '${target.url.scheme}://${target.url.host}',
+      null => '',
+    };
+    final sender = provider is DanmakuSender;
+    final quota = danmaku.quota;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
+      children: [
+        if (narrow) _back(),
+        SectionTitle(
+          title: entry.name,
+          top: 0,
+          trailing: MelonBadge(entry.status, color: entry.color),
+        ),
+        MelonPanel(
+          padding: const EdgeInsets.symmetric(
+            horizontal: Gap.lg,
+            vertical: Gap.md,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (address.isNotEmpty) _connection(entry, address, null),
+              Text('弹幕', style: theme.textTheme.bodySmall),
+              Padding(
+                padding: const EdgeInsets.only(top: Gap.sm),
+                child: Text(
+                  provider.description,
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+              if (provider.unconfigured case final reason?)
+                Padding(
+                  padding: const EdgeInsets.only(top: Gap.sm),
+                  child: Text(
+                    reason,
+                    style: theme.textTheme.bodySmall?.copyWith(color: gold),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (sender) ...[
+          const SectionTitle(title: '发送', top: Gap.lg),
+          MelonPanel(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Gap.lg,
+              vertical: Gap.md,
+            ),
+            child: Text(switch ((provider as DanmakuSender).unavailable) {
+              final reason? => reason,
+              null when quota != null =>
+                '今天还能发送 ${quota.remaining} 条，共 ${quota.limit} 条',
+              null => '每 3 秒一条，每天最多 200 条',
+            }),
+          ),
+        ],
+        Padding(
+          padding: const EdgeInsets.only(top: Gap.md),
+          child: Text(
+            '开关决定新打开的视频是否加载这个来源；播放中可以在侧栏的弹幕页单独开关。',
+            style: theme.textTheme.bodySmall,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _back() => Align(
+    alignment: Alignment.centerLeft,
+    child: TextButton.icon(
+      onPressed: () => setState(() => _narrowDetail = false),
+      icon: const Icon(Icons.arrow_back),
+      label: const Text('返回数据源列表'),
+    ),
   );
+
   Widget _details(_Entry entry, {bool narrow = false}) {
+    if (entry.danmaku case final provider?) {
+      return _danmakuDetails(entry, provider, narrow);
+    }
     final id = entry.id;
     final instance = entry.instance;
     final online = instance?.kind == SourceKind.online;
@@ -317,22 +624,11 @@ class _SourcesPageState extends State<SourcesPage> {
           feedback: _runtimeIssue,
           onRetry: manual ? () => _manualSearch(id) : null,
         ),
-        if (narrow)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: () => setState(() => _narrowDetail = false),
-              icon: const Icon(Icons.arrow_back),
-              label: const Text('返回来源列表'),
-            ),
-          ),
+        if (narrow) _back(),
         SectionTitle(
           title: entry.name,
           top: 0,
-          trailing: MelonBadge(
-            label(registry.status(id)),
-            color: color(registry.status(id)),
-          ),
+          trailing: MelonBadge(entry.status, color: entry.color),
         ),
         MelonPanel(
           padding: const EdgeInsets.symmetric(
@@ -342,20 +638,7 @@ class _SourcesPageState extends State<SourcesPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(child: SelectableText(domain)),
-                  const SizedBox(width: Gap.sm),
-                  TextButton.icon(
-                    onPressed: () => launchUrl(
-                      Uri.parse(instance?.website ?? domain),
-                      mode: LaunchMode.externalApplication,
-                    ),
-                    icon: const Icon(Icons.open_in_new, size: 16),
-                    label: const Text('打开站点'),
-                  ),
-                ],
-              ),
+              _connection(entry, domain, instance?.website ?? domain),
               Text(
                 instance == null
                     ? '网盘'
@@ -532,12 +815,129 @@ class _SourcesPageState extends State<SourcesPage> {
   );
 }
 
-final class _Entry {
-  const _Entry(this.id, this.name, this.group, {this.instance});
-  final String id, name, group;
+enum _Kind {
+  online('在线源'),
+  torrent('BT 索引'),
+  drive('网盘'),
+  danmaku('弹幕');
 
-  /// `null` for the PikPak transfer, which shares this page's switches.
+  const _Kind(this.label);
+  final String label;
+}
+
+final class _Entry {
+  const _Entry(
+    this.id,
+    this.name,
+    this.kind, {
+    required this.status,
+    required this.color,
+    required this.enabled,
+    required this.onToggle,
+    required this.probe,
+    this.problem = false,
+    this.instance,
+    this.danmaku,
+  });
+  final String id, name;
+  final _Kind kind;
+  final String status;
+  final Color color;
+  final bool enabled;
+
+  /// Needs attention: failing, asking for verification or for an update.
+  final bool problem;
+
+  /// Null while the switch cannot change, such as a source the maintainer
+  /// disabled.
+  final ValueChanged<bool>? onToggle;
+
+  /// The connectivity target checking this source.
+  final String probe;
+
+  /// The rule behind an online source or BT index.
   final SourceInstance? instance;
+  final DanmakuMatcher? danmaku;
+}
+
+/// A source in the list: status dot, name, status when it is not simply on,
+/// and its switch.
+class _SourceRow extends StatelessWidget {
+  const _SourceRow({
+    required this.entry,
+    required this.selected,
+    required this.onTap,
+  });
+  final _Entry entry;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final quiet = entry.enabled && !entry.problem;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Material(
+        color: selected
+            ? theme.colorScheme.secondaryContainer
+            : Colors.transparent,
+        borderRadius: controlBorderRadius,
+        child: InkWell(
+          borderRadius: controlBorderRadius,
+          onTap: onTap,
+          child: SizedBox(
+            height: 44,
+            child: Row(
+              children: [
+                const SizedBox(width: Gap.md),
+                Tooltip(
+                  message: entry.status,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: entry.color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: Gap.md),
+                Expanded(
+                  child: Text(
+                    entry.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: selected ? FontWeight.w700 : null,
+                    ),
+                  ),
+                ),
+                if (!quiet)
+                  Padding(
+                    padding: const EdgeInsets.only(left: Gap.sm),
+                    child: Text(
+                      entry.status,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: entry.problem ? entry.color : null,
+                      ),
+                    ),
+                  ),
+                Transform.scale(
+                  scale: .8,
+                  child: Switch(
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    value: entry.enabled,
+                    onChanged: entry.onToggle,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 String snapshotDate(DateTime? value) {

@@ -107,6 +107,9 @@ class PlayerPageState extends State<PlayerPage> {
   final danmakuDraft = TextEditingController();
   final danmakuInput = FocusNode();
 
+  /// The comment field's empty line, drawn again for each episode.
+  String danmakuHint = _danmakuHint();
+
   bool controls = true;
   bool controlsHovered = false, controlsFocused = false, controlsPopup = false;
   bool resourcesOpen = false;
@@ -169,6 +172,7 @@ class PlayerPageState extends State<PlayerPage> {
     final next = playback.session?.id;
     if (next != sessionId) {
       sessionId = next;
+      danmakuHint = _danmakuHint();
       dragging = null;
       seekTicket++;
       danmakuMenu = false;
@@ -996,6 +1000,7 @@ class PlayerPageState extends State<PlayerPage> {
                             onStepFrame: (forward) =>
                                 unawaited(stepFrame(forward)),
                             danmakuDraft: danmakuDraft,
+                            danmakuHint: danmakuHint,
                             danmakuInput: danmakuInput,
                             onDanmakuInputDone: () {
                               focus.requestFocus();
@@ -1044,6 +1049,11 @@ class PlayerPageState extends State<PlayerPage> {
     },
   );
 }
+
+const _danmakuHints = ['发个友善的弹幕见证当下', '请输入文本', '前方高能？', '我掌握了弹幕的核心！'];
+
+String _danmakuHint() =>
+    _danmakuHints[math.Random().nextInt(_danmakuHints.length)];
 
 /// The subject's name, then the episode in a quieter style.
 class _Title extends StatelessWidget {
