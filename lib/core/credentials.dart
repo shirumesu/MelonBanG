@@ -67,9 +67,11 @@ class CachedCredentials implements Credentials {
 
 /// Store account tokens in the login keychain, isolated by data directory.
 class MacOSCredentials implements Credentials {
-  MacOSCredentials(String directory)
-    : _service =
-          'org.melonbang.credentials.${sha256.convert(utf8.encode(p.normalize(p.absolute(directory))))}';
+  MacOSCredentials(String directory) : _service = serviceFor(directory);
+
+  /// The keychain service holding the items of [directory]'s data.
+  static String serviceFor(String directory) =>
+      'org.melonbang.credentials.${sha256.convert(utf8.encode(p.normalize(p.absolute(directory))))}';
 
   static const _channel = MethodChannel('org.melonbang/credentials');
   final String _service;

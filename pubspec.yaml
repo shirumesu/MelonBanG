@@ -53,6 +53,8 @@ flutter:
     - assets/fonts/OFL.txt
     - assets/images/akkarin.png
     - assets/images/logotype.png
+    # Anime4K 4.0.1 (MIT, notice in each file and assets/shaders/LICENSE).
+    - assets/shaders/
 
   fonts:
     - family: Resource Han Rounded

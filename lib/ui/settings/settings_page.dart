@@ -1,413 +1,342 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
-import '../../domain/catalog.dart';
-import '../../features/tracking/tracking_controller.dart';
-import '../core/account_avatar.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
-import '../core/selection_controls.dart';
-import '../../features/playback/playback.dart';
-import '../../features/update/app_update.dart';
-import '../player/danmaku_preferences_editor.dart';
-import 'update_settings.dart';
 
-class SettingsPage extends StatefulWidget {
-  const SettingsPage({
-    super.key,
-    required this.personal,
-    required this.dark,
-    required this.dataDirectory,
-    required this.bitTorrentSettings,
-    required this.onAccountAction,
-    required this.onCancelSignIn,
-    required this.onThemeChanged,
-    required this.update,
-    required this.onRestartToUpdate,
-    this.onSync,
-    this.playback,
-    this.storageSettings,
-    this.syncBusy = false,
+/// One searchable entry of a settings group: usually a [SettingRow].
+class SettingsItem {
+  const SettingsItem(this.keywords, this.child);
+
+  /// Words the search matches, including the visible labels.
+  final String keywords;
+  final Widget child;
+}
+
+/// Items shown together on one card, under an optional caption.
+class SettingsGroup {
+  const SettingsGroup(this.items, {this.title});
+  final String? title;
+  final List<SettingsItem> items;
+}
+
+/// A heading of the settings page and an entry of its contents column.
+class SettingsSection {
+  const SettingsSection({
+    required this.id,
+    required this.title,
+    required this.icon,
+    required this.groups,
   });
-  final TrackingController personal;
-  final Playback? playback;
-  final Widget? storageSettings;
-  final VoidCallback? onSync;
-  final bool syncBusy;
-  final bool dark;
-  final String? dataDirectory;
-  final Widget bitTorrentSettings;
-  final VoidCallback onAccountAction, onCancelSignIn;
-  final ValueChanged<bool> onThemeChanged;
-  final AppUpdate update;
-  final VoidCallback onRestartToUpdate;
+  final String id, title;
+  final IconData icon;
+  final List<SettingsGroup> groups;
+}
+
+/// Every setting on one scrolling page: the contents column on the left
+/// jumps to a section and follows the scroll position, and the search box
+/// filters the rows. New settings join a section without adding pages or
+/// nested navigation.
+class SettingsPage extends StatefulWidget {
+  const SettingsPage({super.key, required this.sections});
+  final List<SettingsSection> sections;
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  int selected = 0;
-  List<String> get categories => [
-    '账户与同步',
-    '界面与外观',
-    '播放',
-    '下载与做种',
-    '应用数据',
-    '更新与关于',
-  ];
-  List<IconData> get icons => [
-    Icons.person_outline,
-    Icons.palette_outlined,
-    Icons.play_circle_outline,
-    Icons.swap_vert,
-    Icons.folder_outlined,
-    Icons.info_outline,
-  ];
+  final scroll = ScrollController();
+  final query = TextEditingController();
+  final viewport = GlobalKey();
+  final keys = <String, GlobalKey>{};
+  String? current;
 
-  TrackingController get personal => widget.personal;
+  /// Set while a contents click scrolls, so passing sections do not flash
+  /// in the column.
+  String? jumping;
 
   @override
-  Widget build(BuildContext context) =>
-      ListenableBuilder(listenable: personal, builder: _page);
+  void dispose() {
+    scroll.dispose();
+    query.dispose();
+    super.dispose();
+  }
 
-  Widget _page(BuildContext context, Widget? _) {
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-    final account = personal.profile;
-    final signedIn = account != null && !personal.needsAuthorization;
-    final pending = personal.sync.pending;
+  List<SettingsSection> get visible {
+    final text = query.text.trim().toLowerCase();
+    if (text.isEmpty) return widget.sections;
+    bool matches(String value) => value.toLowerCase().contains(text);
+    return [
+      for (final section in widget.sections)
+        if (matches(section.title))
+          section
+        else if ([
+              for (final group in section.groups)
+                if (group.items.any((item) => matches(item.keywords)))
+                  SettingsGroup(
+                    group.items
+                        .where((item) => matches(item.keywords))
+                        .toList(),
+                    title: group.title,
+                  ),
+            ]
+            case final groups when groups.isNotEmpty)
+          SettingsSection(
+            id: section.id,
+            title: section.title,
+            icon: section.icon,
+            groups: groups,
+          ),
+    ];
+  }
+
+  /// The last section whose heading has scrolled to the top of the page.
+  void follow() {
+    if (jumping != null) return;
+    final box = viewport.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final top = box.localToGlobal(Offset.zero).dy;
+    final sections = visible;
+    String? found = sections.firstOrNull?.id;
+    for (final section in sections) {
+      final heading =
+          keys[section.id]?.currentContext?.findRenderObject() as RenderBox?;
+      if (heading == null || !heading.attached) continue;
+      if (heading.localToGlobal(Offset.zero).dy - top <= 96) {
+        found = section.id;
+      }
+    }
+    if (scroll.hasClients &&
+        scroll.position.pixels >= scroll.position.maxScrollExtent - 4) {
+      found = sections.lastOrNull?.id ?? found;
+    }
+    if (found != current) setState(() => current = found);
+  }
+
+  Future<void> jump(String id) async {
+    final target = keys[id]?.currentContext;
+    if (target == null) return;
+    setState(() => current = jumping = id);
+    await Scrollable.ensureVisible(
+      target,
+      duration: motionDuration(context, 260),
+      curve: Curves.easeOutCubic,
+    );
+    if (mounted) setState(() => jumping = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sections = visible;
+    final selected = sections.any((s) => s.id == current)
+        ? current
+        : sections.firstOrNull?.id;
     return LayoutBuilder(
       builder: (context, constraints) => Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: constraints.maxWidth < 820 ? 176 : 204,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(pageGutter, Gap.lg, 0, Gap.lg),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(Gap.md, Gap.xs, 0, Gap.md),
-                  child: Text(
-                    '设置',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-                for (var i = 0; i < categories.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: Gap.xs),
-                    child: ListTile(
-                      dense: true,
-                      selected: selected == i,
-                      leading: Icon(icons[i], size: 20),
-                      titleTextStyle: Theme.of(context).textTheme.titleSmall,
-                      title: Text(categories[i]),
-                      onTap: () => setState(() => selected = i),
-                    ),
-                  ),
-              ],
+            width: constraints.maxWidth < 820 ? 172 : 212,
+            child: _Contents(
+              sections: sections,
+              selected: selected,
+              query: query,
+              onQuery: () => setState(() {
+                current = null;
+                if (scroll.hasClients) scroll.jumpTo(0);
+              }),
+              onSelect: jump,
             ),
           ),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (_) {
+                follow();
+                return false;
+              },
+              child: LayoutBuilder(
+                key: viewport,
+                builder: (context, viewportSize) => SingleChildScrollView(
+                  key: const PageStorageKey('settings-scroll'),
+                  controller: scroll,
                   padding: const EdgeInsets.fromLTRB(
                     pageGutter,
-                    Gap.lg + Gap.xs,
+                    Gap.sm,
                     pageGutter,
                     0,
                   ),
-                  child: Text(
-                    categories[selected],
-                    style: Theme.of(context).textTheme.titleLarge,
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 880),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (sections.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: Gap.xl),
+                              child: EmptyState(
+                                text: '没有与“${query.text.trim()}”相关的设置',
+                              ),
+                            ),
+                          for (final (index, section) in sections.indexed)
+                            _SectionView(
+                              key: keys.putIfAbsent(section.id, GlobalKey.new),
+                              section: section,
+                              first: index == 0,
+                            ),
+                          // The last sections can still scroll to the top.
+                          SizedBox(
+                            height: math.max(
+                              Gap.xxl,
+                              viewportSize.maxHeight * .6,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-                Expanded(
-                  child: _pages(context, account, signedIn, pending, muted),
-                ),
-              ],
+              ),
             ),
           ),
         ],
       ),
     );
-  }
-
-  Widget _pages(
-    BuildContext context,
-    AccountProfile? account,
-    bool signedIn,
-    int pending,
-    Color muted,
-  ) => IndexedStack(
-    index: selected,
-    children: [
-      PageScroll(
-        key: const PageStorageKey('settings-account'),
-        children: [
-          const SectionTitle(title: '账户'),
-          MelonPanel(
-            padding: EdgeInsets.zero,
-            child: SettingRow(
-              leading: AccountAvatar(
-                url: account?.avatarUrl,
-                name: account?.nickname ?? '',
-                size: 44,
-              ),
-              title: account?.nickname ?? '未登录',
-              subtitle: account == null
-                  ? '登录 Bangumi 后同步收藏和观看进度'
-                  : personal.needsAuthorization
-                  ? '登录凭据待解锁'
-                  : '@${account.username ?? ''}',
-              trailing: Wrap(
-                spacing: Gap.sm,
-                children: [
-                  if (personal.accountBusy && !signedIn)
-                    TextButton(
-                      onPressed: widget.onCancelSignIn,
-                      child: const Text('取消登录'),
-                    ),
-                  if (signedIn)
-                    OutlinedButton.icon(
-                      onPressed: personal.accountBusy
-                          ? null
-                          : widget.onAccountAction,
-                      icon: const Icon(Icons.logout, size: 18),
-                      label: Text(personal.accountBusy ? '退出中…' : '退出登录'),
-                    )
-                  else
-                    FilledButton.icon(
-                      onPressed: personal.accountBusy
-                          ? null
-                          : widget.onAccountAction,
-                      icon: const Icon(Icons.account_circle_outlined, size: 18),
-                      label: Text(
-                        personal.accountBusy
-                            ? '连接中…'
-                            : personal.needsAuthorization
-                            ? '解锁同步'
-                            : '登录 Bangumi',
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          if (signedIn) ...[
-            const SectionTitle(title: '同步'),
-            MelonPanel(
-              padding: EdgeInsets.zero,
-              child: Column(
-                children: [
-                  SettingRow(
-                    title: pending > 0 ? '$pending 项修改待上传' : '已全部同步',
-                    subtitle: '联网时自动同步',
-                    trailing: OutlinedButton.icon(
-                      onPressed: widget.syncBusy ? null : widget.onSync,
-                      icon: const Icon(Icons.sync, size: 18),
-                      label: Text(widget.syncBusy ? '同步中…' : '立即同步'),
-                    ),
-                  ),
-                  if (personal.sync.error case final error?) ...[
-                    const Divider(height: 1, indent: 20, endIndent: 20),
-                    SettingRow(
-                      title: '上次同步失败',
-                      subtitle: error,
-                      subtitleColor: coral,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-      PageScroll(
-        key: const PageStorageKey('settings-appearance'),
-        children: [
-          const SectionTitle(title: '主题'),
-          MelonPanel(
-            padding: EdgeInsets.zero,
-            child: SettingRow(
-              title: '深色主题',
-              onTap: () => widget.onThemeChanged(!widget.dark),
-              trailing: Switch(
-                value: widget.dark,
-                onChanged: widget.onThemeChanged,
-              ),
-            ),
-          ),
-        ],
-      ),
-      PageScroll(
-        key: const PageStorageKey('settings-playback'),
-        children: [
-          if (widget.playback != null) ...playbackSettings(),
-          const SectionTitle(title: '播放快捷键'),
-          MelonPanel(
-            padding: EdgeInsets.zero,
-            child: Column(
-              children: [
-                for (final (i, (action, keys)) in const [
-                  ('播放 / 暂停', 'Space / K / 单击画面'),
-                  ('后退 / 前进 5 秒', '← / →'),
-                  ('3 倍速快进', '按住 →'),
-                  ('跳到 0%–90%', '0–9'),
-                  ('回到开头', 'Home'),
-                  ('上一帧 / 下一帧', ', / .'),
-                  ('减速 / 加速', 'Shift + , / .'),
-                  ('音量', '↑ / ↓'),
-                  ('静音', 'M'),
-                  ('弹幕开关', 'D'),
-                  ('全屏', 'F / F11 / 双击画面'),
-                  ('退出全屏', 'Esc'),
-                ].indexed) ...[
-                  if (i > 0)
-                    const Divider(height: 1, indent: 20, endIndent: 20),
-                  SettingRow(
-                    title: action,
-                    trailing: Text(
-                      keys,
-                      style: TextStyle(
-                        color: muted,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-      widget.bitTorrentSettings,
-      PageScroll(
-        key: const PageStorageKey('settings-data'),
-        children: [
-          if (widget.storageSettings != null)
-            widget.storageSettings!
-          else ...[
-            const SectionTitle(title: '应用数据'),
-            MelonPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('追番记录、播放进度与安装目录分开保存。'),
-                  const SizedBox(height: 14),
-                  SelectableText(
-                    widget.dataDirectory ?? '正在准备…',
-                    key: const PageStorageKey('settings-data-path'),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-      UpdateSettings(
-        update: widget.update,
-        onRestart: widget.onRestartToUpdate,
-      ),
-    ],
-  );
-  List<Widget> playbackSettings() {
-    final playback = widget.playback!;
-    final prefs = playback.settings;
-    Widget choice(
-      String title,
-      Map<String, String> values,
-      String value,
-      ValueChanged<String> change,
-    ) => SettingRow(
-      title: title,
-      trailing: MelonChoiceMenu<String>(
-        options: values,
-        value: value,
-        onSelected: change,
-      ),
-    );
-    return [
-      const SectionTitle(title: '播放偏好'),
-      ListenableBuilder(
-        listenable: prefs,
-        builder: (_, _) => MelonPanel(
-          padding: EdgeInsets.zero,
-          child: Column(
-            children: [
-              SettingRow(
-                title: '自动连播',
-                subtitle: '播完 5 秒后播放下一话',
-                trailing: Switch(
-                  value: prefs.autoplay,
-                  onChanged: prefs.setAutoplay,
-                ),
-              ),
-              SettingRow(
-                title: '自动标记为看过',
-                subtitle: '播放进度达到 80% 时将本话标为看过',
-                trailing: Switch(
-                  value: prefs.autoMarkWatched,
-                  onChanged: prefs.setAutoMarkWatched,
-                ),
-              ),
-              choice(
-                '字幕语言',
-                const {'chs': '简体中文', 'cht': '繁体中文', 'ja': '日语', 'auto': '自动'},
-                prefs.subtitleLanguage,
-                prefs.setSubtitleLanguage,
-              ),
-              choice(
-                '音轨语言',
-                const {'ja': '日语', 'zh': '中文', 'auto': '自动'},
-                prefs.audioLanguage,
-                prefs.setAudioLanguage,
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: prefs.resetLanguages,
-                  child: const Text('恢复语言默认'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      const SectionTitle(title: '来源优先级'),
-      ListenableBuilder(
-        listenable: prefs,
-        builder: (_, _) => MelonPanel(
-          padding: EdgeInsets.zero,
-          child: Column(
-            children: [
-              choice(
-                '放送中的番',
-                const {'bt': 'BT 优先', 'online': '在线优先'},
-                prefs.airingPriority,
-                prefs.setAiringPriority,
-              ),
-              choice(
-                '已完结的番',
-                const {'bt': 'BT 优先', 'online': '在线优先'},
-                prefs.completedPriority,
-                prefs.setCompletedPriority,
-              ),
-            ],
-          ),
-        ),
-      ),
-      const SectionTitle(title: '弹幕'),
-      MelonPanel(
-        child: DanmakuPreferencesEditor(
-          preferences: playback.danmaku.preferences,
-        ),
-      ),
-    ];
   }
 }
 
-/// A settings line: label and explanation on the left, its control at the end.
+class _Contents extends StatelessWidget {
+  const _Contents({
+    required this.sections,
+    required this.selected,
+    required this.query,
+    required this.onQuery,
+    required this.onSelect,
+  });
+  final List<SettingsSection> sections;
+  final String? selected;
+  final TextEditingController query;
+  final VoidCallback onQuery;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(pageGutter, Gap.lg, 0, Gap.lg),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.md, Gap.xs, 0, Gap.md),
+          child: Text('设置', style: Theme.of(context).textTheme.titleLarge),
+        ),
+        TextField(
+          controller: query,
+          onChanged: (_) => onQuery(),
+          decoration: InputDecoration(
+            hintText: '搜索设置',
+            prefixIcon: const Icon(Icons.search, size: 18),
+            prefixIconConstraints: const BoxConstraints(minWidth: 36),
+            suffixIcon: ListenableBuilder(
+              listenable: query,
+              builder: (context, _) => query.text.isEmpty
+                  ? const SizedBox.shrink()
+                  : IconButton(
+                      tooltip: '清除',
+                      iconSize: 16,
+                      onPressed: () {
+                        query.clear();
+                        onQuery();
+                      },
+                      icon: const Icon(Icons.close),
+                    ),
+            ),
+          ),
+        ),
+        const SizedBox(height: Gap.md),
+        Expanded(
+          child: ListView(
+            children: [
+              for (final section in sections)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: Gap.xs),
+                  child: ListTile(
+                    dense: true,
+                    selected: section.id == selected,
+                    leading: Icon(section.icon, size: 20),
+                    titleTextStyle: Theme.of(context).textTheme.titleSmall,
+                    title: Text(section.title),
+                    onTap: () => onSelect(section.id),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _SectionView extends StatelessWidget {
+  const _SectionView({super.key, required this.section, required this.first});
+  final SettingsSection section;
+  final bool first;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: EdgeInsets.only(top: first ? Gap.lg : 40, bottom: Gap.md),
+          child: Row(
+            children: [
+              Icon(section.icon, size: 20, color: accentOf(context).accent),
+              const SizedBox(width: Gap.sm),
+              Text(section.title, style: text.titleMedium),
+            ],
+          ),
+        ),
+        for (final (index, group) in section.groups.indexed) ...[
+          if (group.title case final title?)
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                Gap.xs,
+                index == 0 ? 0 : Gap.lg,
+                Gap.xs,
+                Gap.sm,
+              ),
+              child: Text(
+                title,
+                style: text.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            )
+          else if (index > 0)
+            const SizedBox(height: Gap.md),
+          MelonPanel(
+            padding: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final (row, item) in group.items.indexed) ...[
+                  if (row > 0)
+                    const Divider(height: 1, indent: 20, endIndent: 20),
+                  item.child,
+                ],
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// A settings line: label and explanation on the left, its control at the
+/// end. Narrow rows put a wide [trailing] control under the label.
 class SettingRow extends StatelessWidget {
   const SettingRow({
     super.key,
@@ -417,6 +346,7 @@ class SettingRow extends StatelessWidget {
     this.trailing,
     this.onTap,
     this.subtitleColor,
+    this.help,
   });
   final String title;
   final String? subtitle;
@@ -424,40 +354,161 @@ class SettingRow extends StatelessWidget {
   final VoidCallback? onTap;
   final Color? subtitleColor;
 
+  /// A longer explanation behind a ? mark beside the title.
+  final String? help;
+
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    customBorder: CardTheme.of(context).shape,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: Gap.lg),
-      child: Row(
-        children: [
-          if (leading != null) ...[leading!, const SizedBox(width: Gap.lg)],
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
+  Widget build(BuildContext context) {
+    final label = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
                 ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle!,
-                    style: Theme.of(context).textTheme.bodySmall
-                        ?.copyWith(color: subtitleColor),
+              ),
+            ),
+            if (help != null) ...[
+              const SizedBox(width: Gap.xs),
+              HelpHint(message: help!),
+            ],
+          ],
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 3),
+          Text(
+            subtitle!,
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: subtitleColor),
+          ),
+        ],
+      ],
+    );
+    return InkWell(
+      onTap: onTap,
+      customBorder: CardTheme.of(context).shape,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            if (trailing != null && constraints.maxWidth < 520) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      if (leading != null) ...[
+                        leading!,
+                        const SizedBox(width: Gap.lg),
+                      ],
+                      Expanded(child: label),
+                    ],
                   ),
+                  const SizedBox(height: Gap.md),
+                  trailing!,
+                ],
+              );
+            }
+            return Row(
+              children: [
+                if (leading != null) ...[
+                  leading!,
+                  const SizedBox(width: Gap.lg),
+                ],
+                Expanded(child: label),
+                if (trailing != null) ...[
+                  const SizedBox(width: Gap.xl),
+                  trailing!,
                 ],
               ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// A row whose control is a slider with its value beside it.
+class SettingSlider extends StatelessWidget {
+  const SettingSlider({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.label,
+    required this.onChanged,
+    this.divisions,
+    this.onChangeEnd,
+  });
+  final String title, label;
+  final double value, min, max;
+  final int? divisions;
+  final ValueChanged<double>? onChanged, onChangeEnd;
+
+  @override
+  Widget build(BuildContext context) => SettingRow(
+    title: title,
+    trailing: SizedBox(
+      width: 300,
+      child: Row(
+        children: [
+          Expanded(
+            child: Slider(
+              padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
+              value: value.clamp(min, max),
+              min: min,
+              max: max,
+              divisions: divisions,
+              onChanged: onChanged,
+              onChangeEnd: onChangeEnd,
             ),
           ),
-          if (trailing != null) ...[const SizedBox(width: Gap.lg), trailing!],
+          SizedBox(
+            width: 52,
+            child: Text(
+              label,
+              textAlign: TextAlign.right,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
         ],
       ),
+    ),
+  );
+}
+
+/// A ? mark whose tooltip also opens on click.
+class HelpHint extends StatefulWidget {
+  const HelpHint({super.key, required this.message});
+  final String message;
+  @override
+  State<HelpHint> createState() => _HelpHintState();
+}
+
+class _HelpHintState extends State<HelpHint> {
+  final tooltip = GlobalKey<TooltipState>();
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    key: tooltip,
+    message: widget.message,
+    child: IconButton(
+      onPressed: () => tooltip.currentState?.ensureTooltipVisible(),
+      icon: const Icon(Icons.help_outline_rounded),
+      iconSize: 14,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 24, height: 24),
+      visualDensity: VisualDensity.compact,
     ),
   );
 }

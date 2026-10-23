@@ -12,6 +12,7 @@ import '../integrations/catalog.dart';
 import '../core/content_cache.dart';
 import '../core/credentials.dart';
 import '../core/network.dart';
+import '../core/proxy.dart';
 import '../core/service_configuration.dart';
 import '../core/store.dart';
 import '../core/storage_locations.dart';
@@ -22,6 +23,7 @@ import '../features/danmaku/danmaku_controller.dart';
 import '../features/danmaku/danmaku_preferences.dart';
 import '../features/danmaku/danmaku_repository.dart';
 import '../features/discovery/discovery_controller.dart';
+import '../features/network/connectivity.dart';
 import '../features/downloads/download_repository.dart';
 import '../features/downloads/downloads_controller.dart';
 import '../features/playback/play_selection.dart';
@@ -33,6 +35,7 @@ import '../features/playback/resume_controller.dart';
 import '../features/tracking/subject_controller.dart';
 import '../features/tracking/tracking_controller.dart';
 import '../features/update/app_update.dart';
+import '../features/update/uninstall.dart';
 import '../integrations/danmaku/bahamut.dart';
 import '../integrations/danmaku/bilibili.dart';
 import '../integrations/danmaku/dandanplay.dart';
@@ -51,9 +54,13 @@ class AppServices {
     this.directory,
     this.credentials,
     this.configuration = const ServiceConfiguration(),
+    this.proxy,
     ApiClient? api,
   }) : api = api ?? ApiClient();
   final String? directory;
+
+  /// Routes HTTP and online playback; installed before any client exists.
+  final NetworkProxy? proxy;
   Credentials? credentials;
   final ServiceConfiguration configuration;
   final ApiClient api;
@@ -88,6 +95,8 @@ class AppServices {
   late final TrackingController personal;
   late final SubjectController subjects;
   late final AppUpdate update;
+  late final ConnectivityCheck connectivity;
+  late final AppUninstall uninstall;
 
   /// The search shown on the resources page.
   late final ResourceSearchController resources;
@@ -187,6 +196,27 @@ class AppServices {
     );
     _dispose.add(() async => sources.dispose());
     await sources.initialize();
+    connectivity = ConnectivityCheck(sources, proxy);
+    final support = (await getApplicationSupportDirectory()).path;
+    final folders = <String>[];
+    for (final folder in [support, dataDirectory!, mediaDirectory]) {
+      if (folders.any(
+        (kept) => p.equals(kept, folder) || p.isWithin(kept, folder),
+      )) {
+        continue;
+      }
+      folders.removeWhere((kept) => p.isWithin(folder, kept));
+      folders.add(folder);
+    }
+    uninstall = AppUninstall(
+      dataFolders: folders,
+      keychainService: Platform.isMacOS
+          ? MacOSCredentials.serviceFor(
+              storage?.credentialIdentity ??
+                  p.join(dataDirectory!, 'credentials'),
+            )
+          : null,
+    );
     releases = ReleaseSearch(api, sources, downloads);
     selection = PlaySelectionRepository(
       store,
@@ -196,7 +226,8 @@ class AppServices {
       sources,
       pikpakTransfer,
     );
-    playback = Playback(library, downloads, danmaku, preferences);
+    playback = Playback(library, downloads, danmaku, preferences, proxy: proxy);
+    selection.remember = () => playback.settings.rememberSource;
     coordinator = PlaybackCoordinator(
       playback,
       selection,

@@ -1,10 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/bittorrent_settings.dart';
-import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
+import 'settings_page.dart';
 
+/// Words the BT settings search matches.
+const bitTorrentKeywords =
+    'bt 下载 做种 上传 限速 速度 同时下载 同时分享 启动时继续 分享率 分享时间 '
+    '连接 端口 监听端口 dht upnp nat 端口映射 ipv6 加密 恢复推荐值';
+
+/// BT download and sharing settings. Switches, menus and sliders apply at
+/// once; a number applies when its field is submitted or left, after
+/// validation.
 class BitTorrentSettingsPanel extends StatefulWidget {
   const BitTorrentSettingsPanel({
     super.key,
@@ -20,14 +28,12 @@ class BitTorrentSettingsPanel extends StatefulWidget {
 
 class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
   final fields = <String, TextEditingController>{};
-  final limited = <String, bool>{};
-  final fieldKeys = <String, GlobalKey>{};
   final focusNodes = <String, FocusNode>{};
   final fieldErrors = <String, String>{};
-  final advancedController = ExpansibleController();
+  final limited = <String, bool>{};
   late Map<String, dynamic> draft;
   String? error;
-  bool saving = false, saved = false;
+  Future<void> _saving = Future.value();
   static const numericKeys = [
     'downloadKiB',
     'uploadKiB',
@@ -40,7 +46,25 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
   @override
   void initState() {
     super.initState();
+    for (final key in numericKeys) {
+      fields[key] = TextEditingController();
+      focusNodes[key] = FocusNode()
+        ..addListener(() {
+          if (!focusNodes[key]!.hasFocus) commit();
+        });
+    }
     load(widget.settings);
+  }
+
+  @override
+  void dispose() {
+    for (final controller in fields.values) {
+      controller.dispose();
+    }
+    for (final node in focusNodes.values) {
+      node.dispose();
+    }
+    super.dispose();
   }
 
   void load(BitTorrentSettings settings) {
@@ -54,20 +78,16 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
           '',
         );
       }
-      (fields[key] ??= TextEditingController()).text = value;
+      fields[key]!.text = value;
     }
-    saved = false;
     fieldErrors.clear();
   }
 
-  void change(VoidCallback update) => setState(() {
-    update();
-    saved = false;
-  });
-
-  Future<void> save() async {
+  /// Validates the draft with the typed numbers and saves it when valid.
+  void commit() {
+    if (!mounted) return;
     final values = {...draft};
-    fieldErrors.clear();
+    final errors = <String, String>{};
     for (final key in numericKeys) {
       if (draft['seedMode'] != 'limited' &&
           ['seedRatio', 'seedMinutes'].contains(key)) {
@@ -86,417 +106,255 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
         'seedMinutes' => (0, 1440, '请输入 0–1440 分钟；0 表示不限'),
         'connectionsPerTask' => (5, 500, '请输入 5–500 个连接'),
         'listenPort' => (0, 65535, '请输入 0–65535；0 表示自动选择'),
-        _ => (1 / 1024, 1024, '请输入大于 0、不超过 1024 MiB/s 的速度'),
+        _ => (1 / 1024, 1024, '请输入大于 0、不超过 1024 的速度'),
       };
       if (value == null ||
           !value.isFinite ||
           value < minimum ||
           value > maximum) {
-        fieldErrors[key] = message;
+        errors[key] = message;
       } else {
         values[key] = key.endsWith('KiB') ? (value * 1024).round() : value;
       }
     }
     if (draft['seedMode'] == 'limited' &&
+        !errors.containsKey('seedRatio') &&
+        !errors.containsKey('seedMinutes') &&
         values['seedRatio'] == 0 &&
         values['seedMinutes'] == 0) {
-      fieldErrors['seedRatio'] = '请设置分享率或分享时间，至少一项大于 0';
-    }
-    if (fieldErrors.isNotEmpty) {
-      setState(() {
-        error = null;
-        saved = false;
-      });
-      final key = fieldErrors.keys.first;
-      if (!key.endsWith('KiB')) advancedController.expand();
-      await WidgetsBinding.instance.endOfFrame;
-      if (!mounted) return;
-      focusNodes[key]?.requestFocus();
-      // Wait for the expanding section before locating its final position.
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      if (!mounted) return;
-      final target = fieldKeys[key]?.currentContext;
-      if (target != null && target.mounted) {
-        await Scrollable.ensureVisible(
-          target,
-          alignment: .35,
-          duration: MediaQuery.disableAnimationsOf(context)
-              ? Duration.zero
-              : const Duration(milliseconds: 220),
-        );
-      }
-      return;
+      errors['seedRatio'] = '分享率和分享时间至少一项大于 0';
     }
     setState(() {
-      saving = true;
+      fieldErrors
+        ..clear()
+        ..addAll(errors);
       error = null;
-      saved = false;
     });
+    if (errors.isNotEmpty) return;
+    final BitTorrentSettings settings;
     try {
-      final settings = BitTorrentSettings.fromJson(values);
-      settings.validate();
-      await widget.onSave(settings);
-      if (mounted) setState(() => saved = true);
-    } catch (_) {
-      if (mounted) setState(() => error = '暂时无法保存设置，请重试。');
-    } finally {
-      if (mounted) setState(() => saving = false);
+      settings = BitTorrentSettings.fromJson(values)..validate();
+    } on FormatException catch (e) {
+      setState(() => error = e.message);
+      return;
     }
+    // Saves apply in order, so a later change never lands before an
+    // earlier one.
+    _saving = _saving.then((_) async {
+      try {
+        await widget.onSave(settings);
+      } catch (_) {
+        if (mounted) setState(() => error = '暂时无法保存设置，请重试。');
+      }
+    });
   }
 
-  Widget numberField(String key, String label, {String? unit, String? hint}) =>
-      SizedBox(
-        key: fieldKeys.putIfAbsent(key, GlobalKey.new),
-        child: TextField(
-          key: PageStorageKey('bittorrent-field:$key'),
-          controller: fields[key],
-          focusNode: focusNodes.putIfAbsent(key, FocusNode.new),
-          enabled: !saving,
-          keyboardType: TextInputType.numberWithOptions(
-            decimal: key == 'seedRatio' || key.endsWith('KiB'),
-          ),
-          decoration: InputDecoration(
-            suffixText: unit,
-            hintText: label,
-            helperText: hint,
-            errorText: fieldErrors[key],
-            errorMaxLines: 2,
-          ),
-          onChanged: (_) => change(() {
-            fieldErrors.remove(key);
-          }),
-        ),
-      );
+  void change(VoidCallback update) {
+    setState(update);
+    commit();
+  }
+
+  Widget numberField(String key, {String? unit, String? hint}) => SizedBox(
+    width: 220,
+    child: TextField(
+      controller: fields[key],
+      focusNode: focusNodes[key],
+      keyboardType: TextInputType.numberWithOptions(
+        decimal: key == 'seedRatio' || key.endsWith('KiB'),
+      ),
+      decoration: InputDecoration(
+        suffixText: unit,
+        hintText: hint,
+        errorText: fieldErrors[key],
+        errorMaxLines: 2,
+      ),
+      onChanged: (_) {
+        if (fieldErrors.containsKey(key)) {
+          setState(() => fieldErrors.remove(key));
+        }
+      },
+      onSubmitted: (_) => commit(),
+    ),
+  );
 
   Widget taskSlider(String key, int maximum) {
     final count = draft[key] as int;
     final value = count == 0 ? maximum + 1 : count;
-    return SliderTheme(
-      data: SliderTheme.of(context).copyWith(
-        showValueIndicator: ShowValueIndicator.onlyForDiscrete,
-        tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 2),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Slider(
-            key: ValueKey('bittorrent-slider:$key'),
-            min: 1,
-            max: maximum + 1.0,
-            divisions: maximum,
-            value: value.toDouble(),
-            label: count == 0 ? '无上限' : '$count',
-            semanticFormatterCallback: (value) =>
-                value > maximum ? '无上限' : '${value.round()} 个任务',
-            onChanged: saving
-                ? null
-                : (value) => change(() {
-                    draft[key] = value > maximum ? 0 : value.round();
-                  }),
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [Text('1'), Text('无上限')],
+    return SizedBox(
+      width: 260,
+      child: SliderTheme(
+        data: SliderTheme.of(context).copyWith(
+          showValueIndicator: ShowValueIndicator.onlyForDiscrete,
+          tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 2),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Slider(
+              min: 1,
+              max: maximum + 1.0,
+              divisions: maximum,
+              value: value.toDouble(),
+              label: count == 0 ? '无上限' : '$count',
+              semanticFormatterCallback: (value) =>
+                  value > maximum ? '无上限' : '${value.round()} 个任务',
+              onChanged: (value) => setState(
+                () => draft[key] = value > maximum ? 0 : value.round(),
+              ),
+              onChangeEnd: (_) => commit(),
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('1', style: Theme.of(context).textTheme.bodySmall),
+                  Text('无上限', style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget row(String title, Widget control, {String? help}) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 12),
-    child: LayoutBuilder(
-      builder: (context, constraints) {
-        final label = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.bodyMedium!
-                        .copyWith(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                if (help != null) ...[
-                  const SizedBox(width: 4),
-                  _HelpHint(message: help),
-                ],
-              ],
-            ),
-          ],
-        );
-        if (constraints.maxWidth < 620) {
-          return SizedBox(
-            width: double.infinity,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                label,
-                const SizedBox(height: 12),
-                SizedBox(width: 260, child: control),
-              ],
-            ),
-          );
-        }
-        return Row(
-          children: [
-            Expanded(child: label),
-            const SizedBox(width: 24),
-            SizedBox(width: 260, child: control),
-          ],
-        );
-      },
-    ),
-  );
-
-  Widget toggle(String key, String title, {String? help}) => row(
-    title,
-    Align(
-      alignment: Alignment.centerRight,
-      child: Switch(
-        key: ValueKey('bittorrent-toggle:$key'),
-        value: draft[key] as bool,
-        onChanged: saving ? null : (value) => change(() => draft[key] = value),
-      ),
-    ),
+  Widget toggle(String key, String title, {String? help}) => SettingRow(
+    title: title,
     help: help,
+    onTap: () => change(() => draft[key] = !(draft[key] as bool)),
+    trailing: Switch(
+      value: draft[key] as bool,
+      onChanged: (value) => change(() => draft[key] = value),
+    ),
   );
 
-  Widget speed(String key, String title) => row(
-    title,
-    Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget speed(String key, String title) => SettingRow(
+    title: title,
+    trailing: Wrap(
+      spacing: Gap.sm,
+      runSpacing: Gap.sm,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
+        if (limited[key]!) numberField(key, unit: 'MiB/s'),
         MelonChoiceMenu<bool>(
           value: limited[key]!,
           options: const {false: '不限速', true: '限制速度'},
-          onSelected: saving
-              ? null
-              : (value) => change(() {
-                  limited[key] = value;
-                  if (value && (double.tryParse(fields[key]!.text) ?? 0) <= 0) {
-                    fields[key]!.text = key == 'downloadKiB' ? '10' : '1';
-                  }
-                }),
+          onSelected: (value) => change(() {
+            limited[key] = value;
+            if (value && (double.tryParse(fields[key]!.text) ?? 0) <= 0) {
+              fields[key]!.text = key == 'downloadKiB' ? '10' : '1';
+            }
+          }),
         ),
-        if (limited[key]!) ...[
-          const SizedBox(height: 8),
-          numberField(key, title, unit: 'MiB/s'),
-        ],
       ],
     ),
   );
 
-  List<Widget> separated(List<Widget> children) => [
-    for (var i = 0; i < children.length; i++) ...[
-      if (i > 0) const Divider(height: 1),
-      children[i],
-    ],
-  ];
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      Expanded(
-        child: SingleChildScrollView(
-          key: const PageStorageKey('settings-downloads'),
-          padding: const EdgeInsets.fromLTRB(pageGutter, 6, pageGutter, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              MelonPanel(
-                child: Column(
-                  children: separated([
-                    speed('downloadKiB', '下载速度'),
-                    speed('uploadKiB', '上传速度'),
-                    row('同时下载', taskSlider('activeDownloads', 5)),
-                    toggle('resumeOnStartup', '启动时继续任务'),
-                    row(
-                      '做种方案',
-                      MelonChoiceMenu<String>(
-                        value: draft['seedMode'] as String,
-                        options: const {
-                          'limited': '适量分享（推荐）',
-                          'off': '停止分享',
-                          'unlimited': '持续分享',
-                        },
-                        onSelected: saving
-                            ? null
-                            : (value) =>
-                                  change(() => draft['seedMode'] = value),
-                      ),
-                      help: '将已下载的内容上传给其他用户，推荐启用维护 BT 网络社区；做种只会在应用运行时进行。',
-                    ),
-                  ]),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Card(
-                child: ExpansionTile(
-                  key: const PageStorageKey('bittorrent-advanced'),
-                  controller: advancedController,
-                  title: Text(
-                    '高级设置',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  subtitle: const Text('分享条件、队列与网络连接'),
-                  tilePadding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 8,
-                  ),
-                  childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: panelBorderRadius,
-                  ),
-                  collapsedShape: const RoundedRectangleBorder(
-                    borderRadius: panelBorderRadius,
-                  ),
-                  children: separated([
-                    if (draft['seedMode'] == 'limited') ...[
-                      row(
-                        '目标分享率',
-                        numberField('seedRatio', '目标分享率', hint: '0 表示不限'),
-                        help: '累计上传量 ÷ 文件总量。0 表示不限，最高 1000；与做种时间任一条件达到即停止。',
-                      ),
-                      row(
-                        '累计分享时间',
-                        numberField(
-                          'seedMinutes',
-                          '累计分享时间',
-                          unit: '分钟',
-                          hint: '0 表示不限，最多 1440 分钟（1 天）',
-                        ),
-                        help: '仅计算实际做种时间，重启不清零。达到分享率或累计时间任一条件即停止。',
-                      ),
-                    ],
-                    row('同时分享', taskSlider('activeSeeds', 3)),
-                    row(
-                      '每任务连接上限',
-                      numberField('connectionsPerTask', '连接数'),
-                      help: '每个下载或做种任务可连接 5–500 位用户。总连接数随实际运行任务数增加，仍受系统可用资源限制。',
-                    ),
-                    row(
-                      '监听端口',
-                      numberField('listenPort', '监听端口'),
-                      help: '0 表示自动选择；固定端口范围 1–65535。',
-                    ),
-                    toggle('dht', 'DHT 节点发现', help: '帮助公共种子发现其他用户；私有种子遵循自身限制。'),
-                    toggle(
-                      'upnp',
-                      '自动端口映射',
-                      help: '通过 UPnP / NAT-PMP 尝试接收入站连接。',
-                    ),
-                    toggle('ipv6', 'IPv6'),
-                    toggle(
-                      'forceEncryption',
-                      '仅连接加密用户',
-                      help: '默认允许协商加密；强制开启可能减少可连接用户。',
-                    ),
-                  ]),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      Material(
-        key: const ValueKey('bittorrent-save-bar'),
-        color: Theme.of(context).scaffoldBackgroundColor,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(pageGutter, 16, pageGutter, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ),
-              Wrap(
-                spacing: 12,
-                runSpacing: 8,
-                children: [
-                  FilledButton.icon(
-                    onPressed: saving ? null : save,
-                    icon: Icon(
-                      saved ? Icons.check : Icons.save_outlined,
-                      size: 18,
-                    ),
-                    label: Text(
-                      saving
-                          ? '正在保存…'
-                          : saved
-                          ? '已保存并应用'
-                          : '保存并应用',
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: saving
-                        ? null
-                        : () => setState(() {
-                            load(const BitTorrentSettings());
-                            error = null;
-                          }),
-                    child: const Text('恢复推荐值'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    ],
+  Widget caption(String text) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, Gap.lg, 20, Gap.xs),
+    child: Text(
+      text,
+      style: Theme.of(context).textTheme.bodySmall
+          ?.copyWith(fontWeight: FontWeight.w700),
+    ),
   );
 
   @override
-  void dispose() {
-    for (final controller in fields.values) {
-      controller.dispose();
-    }
-    for (final node in focusNodes.values) {
-      node.dispose();
-    }
-    advancedController.dispose();
-    super.dispose();
-  }
-}
-
-class _HelpHint extends StatefulWidget {
-  const _HelpHint({required this.message});
-  final String message;
-  @override
-  State<_HelpHint> createState() => _HelpHintState();
-}
-
-class _HelpHintState extends State<_HelpHint> {
-  final tooltip = GlobalKey<TooltipState>();
-  @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      key: tooltip,
-      message: widget.message,
-      child: IconButton(
-        onPressed: () => tooltip.currentState?.ensureTooltipVisible(),
-        icon: const Icon(Icons.help_outline_rounded),
-        iconSize: 14,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-        visualDensity: VisualDensity.compact,
-      ),
+    const divider = Divider(height: 1, indent: 20, endIndent: 20);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        speed('downloadKiB', '下载速度'),
+        divider,
+        speed('uploadKiB', '上传速度'),
+        divider,
+        SettingRow(title: '同时下载', trailing: taskSlider('activeDownloads', 5)),
+        divider,
+        toggle('resumeOnStartup', '启动时继续任务'),
+        caption('分享'),
+        SettingRow(
+          title: '做种方案',
+          help: '将已下载的内容上传给其他用户，推荐启用维护 BT 网络社区；做种只会在应用运行时进行。',
+          trailing: MelonChoiceMenu<String>(
+            value: draft['seedMode'] as String,
+            options: const {
+              'limited': '适量分享（推荐）',
+              'off': '停止分享',
+              'unlimited': '持续分享',
+            },
+            onSelected: (value) => change(() => draft['seedMode'] = value),
+          ),
+        ),
+        if (draft['seedMode'] == 'limited') ...[
+          divider,
+          SettingRow(
+            title: '目标分享率',
+            help: '累计上传量 ÷ 文件总量。0 表示不限，最高 1000；与分享时间任一条件达到即停止。',
+            trailing: numberField('seedRatio', hint: '0 表示不限'),
+          ),
+          divider,
+          SettingRow(
+            title: '累计分享时间',
+            help: '仅计算实际做种时间，重启不清零。达到分享率或累计时间任一条件即停止。最多 1440 分钟（1 天）。',
+            trailing: numberField('seedMinutes', unit: '分钟', hint: '0 表示不限'),
+          ),
+        ],
+        divider,
+        SettingRow(title: '同时分享', trailing: taskSlider('activeSeeds', 3)),
+        caption('连接'),
+        SettingRow(
+          title: '每任务连接上限',
+          help: '每个下载或做种任务可连接 5–500 位用户。总连接数随实际运行任务数增加，仍受系统可用资源限制。',
+          trailing: numberField('connectionsPerTask'),
+        ),
+        divider,
+        SettingRow(
+          title: '监听端口',
+          help: '0 表示自动选择；固定端口范围 1–65535。',
+          trailing: numberField('listenPort'),
+        ),
+        divider,
+        toggle('dht', 'DHT 节点发现', help: '帮助公共种子发现其他用户；私有种子遵循自身限制。'),
+        divider,
+        toggle('upnp', '自动端口映射', help: '通过 UPnP / NAT-PMP 尝试接收入站连接。'),
+        divider,
+        toggle('ipv6', 'IPv6'),
+        divider,
+        toggle('forceEncryption', '仅连接加密用户', help: '默认允许协商加密；强制开启可能减少可连接用户。'),
+        divider,
+        SettingRow(
+          title: '恢复推荐值',
+          subtitle: error,
+          subtitleColor: error == null ? null : coral,
+          trailing: TextButton(
+            onPressed: () {
+              setState(() => load(const BitTorrentSettings()));
+              commit();
+            },
+            child: const Text('恢复推荐值'),
+          ),
+        ),
+      ],
     );
   }
+}
+
+/// Shown instead of the BT settings until download tasks are restored.
+class DownloadsUnavailable extends StatelessWidget {
+  const DownloadsUnavailable({super.key, this.issue});
+  final String? issue;
+
+  @override
+  Widget build(BuildContext context) => SettingRow(
+    leading: issue == null
+        ? const SizedBox.square(
+            dimension: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : const Icon(Icons.error_outline, color: coral),
+    title: issue == null ? '正在恢复缓存任务…' : '缓存任务恢复失败',
+    subtitle: issue,
+  );
 }

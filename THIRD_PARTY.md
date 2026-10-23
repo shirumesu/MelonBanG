@@ -13,6 +13,7 @@ There is no Node.js or Electron process and no external transcoding service.
 | libtorrent | BitTorrent protocol implementation | [Upstream licenses](https://github.com/arvidn/libtorrent/blob/RC_2_1/LICENSE) |
 | SQLite | Local database | [Public domain](https://sqlite.org/copyright.html) |
 | Resource Han Rounded 0.990 (CN Regular, Bold) | Bundled interface typeface | [SIL OFL 1.1](https://github.com/CyanoHao/Resource-Han-Rounded); full text in `assets/fonts/OFL.txt` |
+| Anime4K 4.0.1 GLSL shaders (`assets/shaders/`) | Optional super-resolution in the player | [MIT](https://github.com/bloc97/Anime4K/blob/master/LICENSE); notice in each file and `assets/shaders/LICENSE` |
 | Transparent Akkarin (`assets/images/akkarin.png`) | Artwork placeholder | Fan illustration from [Moegirlpedia Commons](https://zh.moegirl.org.cn/File:Transparent_Akkarin.jpg); license not stated by the host |
 
 The pinned package versions are in `pubspec.lock`. Flutter's generated asset

@@ -15,6 +15,39 @@ class PlaybackPreferences extends ChangeNotifier {
       storage.getString('player-airing-priority') ?? 'bt';
   String get completedPriority =>
       storage.getString('player-completed-priority') ?? 'online';
+
+  /// mpv `hwdec`: `auto`, `auto-copy` (decoded frames copied back to memory,
+  /// for drivers whose direct output misbehaves) or `no`.
+  String get hardwareDecoding => storage.getString('player-hwdec') ?? 'auto';
+
+  /// Anime4K shaders: `off`, `fast` or `quality`.
+  String get superResolution =>
+      storage.getString('player-super-resolution') ?? 'off';
+  bool get skipOpening => storage.getBool('player-skip-opening') ?? false;
+  bool get skipEnding => storage.getBool('player-skip-ending') ?? false;
+
+  /// Each subject keeps the source last played, ahead of the global
+  /// priority, until another one is played.
+  bool get rememberSource => storage.getBool('player-remember-source') ?? true;
+
+  /// Playing an episode starts caching the next aired one from the same
+  /// source family.
+  bool get cacheNext => storage.getBool('player-cache-next') ?? false;
+  Future<void> setHardwareDecoding(String value) =>
+      _string('player-hwdec', value);
+  Future<void> setSuperResolution(String value) =>
+      _string('player-super-resolution', value);
+  Future<void> setSkipOpening(bool value) =>
+      _bool('player-skip-opening', value);
+  Future<void> setSkipEnding(bool value) => _bool('player-skip-ending', value);
+  Future<void> setRememberSource(bool value) =>
+      _bool('player-remember-source', value);
+  Future<void> setCacheNext(bool value) => _bool('player-cache-next', value);
+  Future<void> _bool(String key, bool value) async {
+    await storage.setBool(key, value);
+    notifyListeners();
+  }
+
   Future<void> setSubtitleLanguage(String value) =>
       _string('player-subtitle-language', value);
   Future<void> setAudioLanguage(String value) =>
@@ -28,15 +61,10 @@ class PlaybackPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setAutoplay(bool value) async {
-    await storage.setBool('player-autoplay', value);
-    notifyListeners();
-  }
+  Future<void> setAutoplay(bool value) => _bool('player-autoplay', value);
 
-  Future<void> setAutoMarkWatched(bool value) async {
-    await storage.setBool('player-auto-mark-watched', value);
-    notifyListeners();
-  }
+  Future<void> setAutoMarkWatched(bool value) =>
+      _bool('player-auto-mark-watched', value);
 
   Future<void> resetLanguages() async {
     await storage.remove('player-subtitle-language');

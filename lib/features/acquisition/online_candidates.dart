@@ -17,7 +17,8 @@ import 'title_matching.dart';
 /// rows found so far whenever a site subject adds some.
 ///
 /// With [firstReady], returns as soon as one confident match exists and falls
-/// back to a full search when none does. Manual-only sources (uploads that
+/// back to a full search when none does; with [preferProvider], a match of
+/// that source is awaited until its search ends. Manual-only sources (uploads that
 /// need explicit confirmation) are included only when [includeManual].
 Future<List<PlayCandidate>> onlineCandidates(
   SourceRegistry registry,
@@ -28,6 +29,7 @@ Future<List<PlayCandidate>> onlineCandidates(
   void Function(List<PlayCandidate>)? onUpdate,
   RequestCancellation? cancel,
   bool firstReady = false,
+  String? preferProvider,
   bool includeManual = true,
 }) async {
   final searchNames = names ?? resourceNames(subject);
@@ -36,115 +38,121 @@ Future<List<PlayCandidate>> onlineCandidates(
   final stop = cancel?.listen(operation.cancel);
   final ready = Completer<List<PlayCandidate>>();
   bool confident(PlayCandidate candidate) => !candidate.possibleMatch;
+  final usable = registry
+      .usableOf(SourceKind.online)
+      .where((rule) => includeManual || !rule.manualOnly)
+      .toList();
+  var preferredDone = !usable.any((rule) => rule.id == preferProvider);
+  void completeIfReady() {
+    if (!firstReady || ready.isCompleted) return;
+    if (result.any(
+      (c) => confident(c) && (preferredDone || c.provider == preferProvider),
+    )) {
+      ready.complete(List.of(result));
+    }
+  }
+
   bool accepted(SourceSubject site) =>
       site.direct ||
       (site.choosePart
           ? uploadMatches(subject, episode, site, searchNames)
           : sourceMatchScore(subject, site, searchNames) >= .55);
   final all = Future.wait(
-    registry
-        .usableOf(SourceKind.online)
-        .where((rule) => includeManual || !rule.manualOnly)
-        .map((rule) async {
-          final id = rule.id;
-          final manual = rule.manualOnly;
-          var progress = SourceProgress(
-            sourceId: id,
-            sourceName: rule.name,
-            total: 1,
-          );
-          onProgress?.call(progress);
-          int found() => result.where((e) => e.provider == id).length;
-          try {
-            final matches = await registry.searchSubjects(
-              id,
-              searchNames,
-              cancel: operation,
-              enough: manual
-                  ? (rows) => rows.any(accepted)
-                  : firstReady
-                  ? (rows) => rows.any(
-                      (site) =>
-                          sourceMatchScore(subject, site, searchNames) >= .84,
-                    )
-                  : null,
-            );
-            void publish(Iterable<PlayCandidate> rows) {
-              if (rows.isEmpty) return;
-              result.addAll(rows);
-              onUpdate?.call(List.of(result));
-              if (firstReady && !ready.isCompleted && result.any(confident)) {
-                ready.complete(List.of(result));
-              }
-            }
+    usable.map((rule) async {
+      final id = rule.id;
+      final manual = rule.manualOnly;
+      var progress = SourceProgress(
+        sourceId: id,
+        sourceName: rule.name,
+        total: 1,
+      );
+      onProgress?.call(progress);
+      int found() => result.where((e) => e.provider == id).length;
+      try {
+        final matches = await registry.searchSubjects(
+          id,
+          searchNames,
+          cancel: operation,
+          enough: manual
+              ? (rows) => rows.any(accepted)
+              : firstReady
+              ? (rows) => rows.any(
+                  (site) => sourceMatchScore(subject, site, searchNames) >= .84,
+                )
+              : null,
+        );
+        void publish(Iterable<PlayCandidate> rows) {
+          if (rows.isEmpty) return;
+          result.addAll(rows);
+          onUpdate?.call(List.of(result));
+          completeIfReady();
+        }
 
-            await Future.wait(
-              matches.map((site) async {
-                if (!accepted(site)) return;
-                final score = sourceMatchScore(subject, site, searchNames);
-                if (episode == null || site.choosePart) {
-                  final label = site.choosePart ? '选择分 P' : '选择集数';
-                  publish([
-                    _candidate(
-                      rule,
-                      site,
-                      line: site.line ?? '',
-                      target: OnlineTarget(
-                        candidateId: '$id:${site.id}:${site.line}:$label',
-                        chooseFrom: site,
-                        description: site.description,
-                      ),
-                      possibleMatch: manual || score < .84,
-                      order: result.length,
-                    ),
-                  ]);
-                  return;
-                }
-                final rows = await registry.episodes(
-                  id,
+        await Future.wait(
+          matches.map((site) async {
+            if (!accepted(site)) return;
+            final score = sourceMatchScore(subject, site, searchNames);
+            if (episode == null || site.choosePart) {
+              final label = site.choosePart ? '选择分 P' : '选择集数';
+              publish([
+                _candidate(
+                  rule,
                   site,
-                  cancel: operation,
-                );
-                publish([
-                  for (final (index, row)
-                      in rows
-                          .where(
-                            (row) => sourceEpisodeMatches(row.label, episode),
-                          )
-                          .indexed)
-                    _candidate(
-                      rule,
-                      site,
-                      label: row.label,
-                      line: row.line,
-                      target: OnlineTarget(
-                        candidateId: '$id:${site.id}:${row.line}:${row.label}',
-                        ref: row.ref,
-                        description: site.description,
-                      ),
-                      possibleMatch: manual || score < .84,
-                      order: result.length + index,
-                    ),
-                ]);
-              }),
-            );
-            progress = progress.copyWith(
-              completed: 1,
-              resultCount: found(),
-              status: SearchStatus.ready,
-            );
-          } catch (error) {
-            // Failed sources keep their health while others remain usable.
-            progress = progress.copyWith(
-              completed: 1,
-              failed: 1,
-              resultCount: found(),
-              status: found() == 0 ? SearchStatus.error : SearchStatus.partial,
-              message: '$error',
-            );
-          }
-          onProgress?.call(progress);
-        }),
+                  line: site.line ?? '',
+                  target: OnlineTarget(
+                    candidateId: '$id:${site.id}:${site.line}:$label',
+                    chooseFrom: site,
+                    description: site.description,
+                  ),
+                  possibleMatch: manual || score < .84,
+                  order: result.length,
+                ),
+              ]);
+              return;
+            }
+            final rows = await registry.episodes(id, site, cancel: operation);
+            publish([
+              for (final (index, row)
+                  in rows
+                      .where((row) => sourceEpisodeMatches(row.label, episode))
+                      .indexed)
+                _candidate(
+                  rule,
+                  site,
+                  label: row.label,
+                  line: row.line,
+                  target: OnlineTarget(
+                    candidateId: '$id:${site.id}:${row.line}:${row.label}',
+                    ref: row.ref,
+                    description: site.description,
+                  ),
+                  possibleMatch: manual || score < .84,
+                  order: result.length + index,
+                ),
+            ]);
+          }),
+        );
+        progress = progress.copyWith(
+          completed: 1,
+          resultCount: found(),
+          status: SearchStatus.ready,
+        );
+      } catch (error) {
+        // Failed sources keep their health while others remain usable.
+        progress = progress.copyWith(
+          completed: 1,
+          failed: 1,
+          resultCount: found(),
+          status: found() == 0 ? SearchStatus.error : SearchStatus.partial,
+          message: '$error',
+        );
+      }
+      onProgress?.call(progress);
+      if (id == preferProvider) {
+        preferredDone = true;
+        completeIfReady();
+      }
+    }),
   ).then((_) => List.of(result));
   try {
     final rows = await (firstReady ? Future.any([ready.future, all]) : all);

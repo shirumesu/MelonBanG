@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
@@ -8,6 +9,7 @@ import '../tracking/tracking_repository.dart';
 import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/playback_session.dart';
+import '../../domain/transfer.dart';
 import '../downloads/download_repository.dart';
 import 'play_selection.dart';
 import 'playback.dart';
@@ -105,7 +107,10 @@ class PlaybackCoordinator extends ChangeNotifier {
     playback.resolveNext = _prepareAutoplay;
     playback.addListener(_markWatched);
     _subscriptions.add(
-      playback.player.stream.position.listen((_) => _markWatched()),
+      playback.player.stream.position.listen((_) {
+        _markWatched();
+        _considerCacheNext();
+      }),
     );
     _subscriptions.add(
       playback.errors.listen((reason) {
@@ -177,6 +182,29 @@ class PlaybackCoordinator extends ChangeNotifier {
 
   /// The source last chosen for playback, shown beside the video.
   PlayCandidate? get activeCandidate => _activeCandidate;
+
+  /// The source the playing subject remembers for its next episodes.
+  RememberedSource? remembered;
+
+  /// The session whose next episode was considered for caching.
+  String? _cacheNextSession;
+  RequestCancellation? _cacheNextCancel;
+
+  Future<void> _loadRemembered(int subjectId) async {
+    final value = await selection.remembered(subjectId);
+    if (_closed || _candidateSubject?.id != subjectId) return;
+    remembered = value;
+    notifyListeners();
+  }
+
+  /// Stops preferring the playing subject's remembered source.
+  Future<void> forgetSource() async {
+    final id = _candidateSubject?.id;
+    if (id == null) return;
+    await selection.forget(id);
+    remembered = null;
+    notifyListeners();
+  }
 
   int _nextSelection() {
     _selectionCancel.cancel();
@@ -287,6 +315,8 @@ class PlaybackCoordinator extends ChangeNotifier {
   }) async {
     final request = _nextSelection();
     _activeCandidate = null;
+    // A chosen file has no source choice to show beside it.
+    remembered = null;
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
     shell.enterPlayer();
@@ -593,6 +623,10 @@ class PlaybackCoordinator extends ChangeNotifier {
     final cancellation = _selectionCancel;
     if (!recovery) {
       playback.cancelAutoplay();
+      if (_candidateSubject?.id != item.id) {
+        remembered = null;
+        unawaited(_loadRemembered(item.id));
+      }
       _candidateSubject = item;
       _candidateEpisode = episode;
       _onlineRefreshed = false;
@@ -639,7 +673,13 @@ class PlaybackCoordinator extends ChangeNotifier {
           _activeCandidate = candidate;
           await playback.open(session);
           if (playback.error != null) throw StateError(playback.error!);
-          selection.played(item.id, candidate);
+          // A failed write only loses the preference, not the playback.
+          unawaited(
+            selection
+                .played(item.id, candidate)
+                .then((_) => _loadRemembered(item.id))
+                .catchError((Object _) {}),
+          );
           final sessionId = session.id;
           _firstFrameDeadline?.cancel();
           if (candidate.kind == PlayKind.online) {
@@ -760,6 +800,142 @@ class PlaybackCoordinator extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The main episode after [currentId] once it has aired.
+  static Episode? _nextAired(Subject item, int currentId) {
+    final episodes = item.episodes.where((e) => e.main).toList()
+      ..sort((a, b) => a.sort.compareTo(b.sort));
+    final current = episodes.where((e) => e.id == currentId).firstOrNull;
+    if (current == null) return null;
+    final next = episodes.where((e) => e.sort > current.sort).firstOrNull;
+    final date = next?.aired;
+    if (date != null && date.isAfter(DateTime.now())) return null;
+    return next;
+  }
+
+  /// Starts caching the next episode once the current one has played for a
+  /// while (two minutes, or 30% of a shorter one), so trying out sources
+  /// does not start downloads.
+  void _considerCacheNext() {
+    final current = playback.session;
+    final playing = _activeCandidate;
+    final item = _candidateSubject, episode = _candidateEpisode;
+    if (_closed ||
+        current == null ||
+        current.standalone ||
+        playback.opening ||
+        playback.error != null ||
+        !playback.settings.cacheNext ||
+        playing == null ||
+        item == null ||
+        episode == null ||
+        current.subjectId != item.id ||
+        current.episodeId != episode.id ||
+        _cacheNextSession == current.id) {
+      return;
+    }
+    final position = playback.player.state.position.inMilliseconds / 1000;
+    final duration = playback.player.state.duration.inMilliseconds / 1000;
+    if (position < math.min(120, duration > 0 ? duration * .3 : 120)) return;
+    _cacheNextSession = current.id;
+    unawaited(_cacheNext(item, episode, playing));
+  }
+
+  /// Adds the next aired episode from the playing source's family (BT,
+  /// PikPak or online): its release group or line when that has the
+  /// episode, else the best match of the family. Nothing is added when the
+  /// episode is cached, being cached, or has no such source.
+  Future<void> _cacheNext(
+    Subject item,
+    Episode episode,
+    PlayCandidate playing,
+  ) async {
+    _cacheNextCancel?.cancel();
+    final cancel = _cacheNextCancel = RequestCancellation();
+    String family(PlayCandidate c) =>
+        c.continuityKey.substring(0, c.continuityKey.indexOf(':'));
+    try {
+      final detail = item.episodes.isNotEmpty
+          ? item
+          : await tracking.subject(item.id, forPlayback: true);
+      final next = _nextAired(detail, episode.id);
+      if (next == null || _closed) return;
+      if ((await library.playableEpisodes(item.id)).contains(next.id)) return;
+      if (downloads
+          .snapshot()
+          .forSubject(item.id)
+          .any(
+            (task) =>
+                task.episodeId == next.id &&
+                task.status != DownloadStatus.failed,
+          )) {
+        return;
+      }
+      final wanted = family(playing);
+      final choices =
+          (await selection.candidates(
+            detail,
+            next,
+            includeDownloads: false,
+            useContinuity: true,
+            onlineFirst: wanted == 'online',
+            language: playback.settings.subtitleLanguage,
+            cancel: cancel,
+          )).where(
+            (c) =>
+                !c.possibleMatch &&
+                c.kind != PlayKind.local &&
+                family(c) == wanted &&
+                !(describeCandidate(c).episodeLabel?.contains('–') ?? false) &&
+                switch (c.target) {
+                  ReleaseTarget() => true,
+                  OnlineTarget(:final ref) => ref != null,
+                  DownloadTarget() => false,
+                },
+          );
+      if (_closed || cancel.isCancelled) return;
+      final chosen =
+          choices
+              .where((c) => c.continuityKey == playing.continuityKey)
+              .firstOrNull ??
+          choices
+              .where((c) => playing.line.isNotEmpty && c.line == playing.line)
+              .firstOrNull ??
+          choices.firstOrNull;
+      if (chosen == null) {
+        playback.showNotice('没有找到第 ${next.number} 话的同类资源，未自动缓存');
+        return;
+      }
+      switch (chosen.target) {
+        case ReleaseTarget(candidate: final release):
+          await selection.releases.enqueue(
+            release,
+            method: wanted == 'pikpak' ? CacheMethod.pikpak : CacheMethod.bt,
+            episodeId: next.id,
+          );
+        case OnlineTarget(:final ref?):
+          await downloads.addOnline(
+            ref,
+            title: chosen.title,
+            source: chosen.sourceLabel,
+            subjectId: item.id,
+            episodeId: next.id,
+            coverUrl: item.coverUrl,
+          );
+        default:
+          return;
+      }
+      if (!_closed) playback.showNotice('已开始缓存第 ${next.number} 话');
+    } on RequestCancelled {
+      return;
+    } catch (e) {
+      if (!_closed) {
+        playback.showNotice(
+          '自动缓存下一话失败：${'$e'.replaceFirst('Bad state: ', '')}',
+        );
+      }
+    }
+  }
+
   /// The next aired main episode and how it would play; never starts a new
   /// BT task.
   Future<AutoplayTarget?> _prepareAutoplay(PlaybackSession session) async {
@@ -769,14 +945,8 @@ class PlaybackCoordinator extends ChangeNotifier {
     final item = subject?.id == id
         ? subject!
         : await tracking.subject(id, forPlayback: true);
-    final episodes = item.episodes.where((e) => e.main).toList()
-      ..sort((a, b) => a.sort.compareTo(b.sort));
-    final current = episodes.where((e) => e.id == currentId).firstOrNull;
-    if (current == null) return null;
-    final next = episodes.where((e) => e.sort > current.sort).firstOrNull;
+    final next = _nextAired(item, currentId);
     if (next == null) return null;
-    final date = next.aired;
-    if (date != null && date.isAfter(DateTime.now())) return null;
     if ((await library.playableEpisodes(id)).contains(next.id)) {
       final local = await selection.candidates(
         item,
@@ -847,6 +1017,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     _firstFrameDeadline?.cancel();
     _bufferDeadline?.cancel();
     _selectionCancel.cancel();
+    _cacheNextCancel?.cancel();
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }

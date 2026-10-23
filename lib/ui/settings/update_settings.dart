@@ -2,105 +2,121 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../features/update/app_update.dart';
+import '../../features/update/uninstall.dart';
 import '../../integrations/github/app_releases.dart';
-import '../core/page_widgets.dart';
 import '../core/theme.dart';
 import 'settings_page.dart';
 
-/// Version, update state and the update preferences.
-class UpdateSettings extends StatelessWidget {
-  const UpdateSettings({
-    super.key,
-    required this.update,
-    required this.onRestart,
-  });
+/// Version, update state and preferences, the license and uninstalling.
+SettingsSection aboutSection({
+  required AppUpdate update,
+  required VoidCallback onRestart,
+  required AppUninstall? uninstall,
+  required Future<void> Function(bool wipe) onUninstall,
+}) => SettingsSection(
+  id: 'about',
+  title: '更新与关于',
+  icon: Icons.info_outline,
+  groups: [
+    SettingsGroup([
+      SettingsItem(
+        '版本 更新 检查更新 下载更新 重启',
+        _UpdateStatus(update: update, onRestart: onRestart),
+      ),
+      if (update.unavailable == null) ...[
+        SettingsItem(
+          '自动检查更新 启动',
+          ListenableBuilder(
+            listenable: update,
+            builder: (context, _) => SettingRow(
+              title: '自动检查更新',
+              subtitle: '每次启动时检查 GitHub 上的新版本',
+              onTap: () => update.setAutoCheck(!update.autoCheck),
+              trailing: Switch(
+                value: update.autoCheck,
+                onChanged: update.setAutoCheck,
+              ),
+            ),
+          ),
+        ),
+        SettingsItem(
+          '自动下载更新 后台',
+          ListenableBuilder(
+            listenable: update,
+            builder: (context, _) => SettingRow(
+              title: '自动下载更新',
+              subtitle: '在后台下载，下次重启或退出时安装',
+              onTap: () => update.setAutoDownload(!update.autoDownload),
+              trailing: Switch(
+                value: update.autoDownload,
+                onChanged: update.setAutoDownload,
+              ),
+            ),
+          ),
+        ),
+      ],
+    ], title: '版本'),
+    SettingsGroup([
+      SettingsItem(
+        '开源 许可 gpl 源代码 github',
+        SettingRow(
+          title: '开源许可',
+          subtitle: 'MelonBanG 以 GNU GPL 3.0 许可发布',
+          trailing: OutlinedButton.icon(
+            onPressed: () => launchUrl(
+              Uri.https('github.com', '/$releaseRepository'),
+              mode: LaunchMode.externalApplication,
+            ),
+            icon: const Icon(Icons.open_in_new, size: 18),
+            label: const Text('源代码'),
+          ),
+        ),
+      ),
+      if (uninstall != null)
+        SettingsItem(
+          '卸载 删除 移除 uninstall 清除数据',
+          _UninstallRow(uninstall: uninstall, onUninstall: onUninstall),
+        ),
+    ], title: '关于'),
+  ],
+);
+
+class _UpdateStatus extends StatelessWidget {
+  const _UpdateStatus({required this.update, required this.onRestart});
   final AppUpdate update;
   final VoidCallback onRestart;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: update,
-    builder: (context, _) => PageScroll(
-      key: const PageStorageKey('settings-update'),
+    builder: (context, _) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SectionTitle(title: '版本'),
-        MelonPanel(
-          padding: EdgeInsets.zero,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SettingRow(
-                title: AppUpdate.version.isEmpty
-                    ? 'MelonBanG 开发版本'
-                    : 'MelonBanG ${AppUpdate.version}',
-                subtitle: _status(),
-                subtitleColor: update.phase == UpdatePhase.failed
-                    ? coral
-                    : null,
-                trailing: _action(),
-              ),
-              if (update.phase == UpdatePhase.downloading)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, Gap.lg),
-                  child: LinearProgressIndicator(value: update.progress),
-                ),
-              if (update.release case final release?
-                  when release.notes.isNotEmpty &&
-                      update.phase != UpdatePhase.idle) ...[
-                const Divider(height: 1, indent: 20, endIndent: 20),
-                Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: SelectableText(
-                    release.notes,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-              ],
-            ],
-          ),
+        SettingRow(
+          title: AppUpdate.version.isEmpty
+              ? 'MelonBanG 开发版本'
+              : 'MelonBanG ${AppUpdate.version}',
+          subtitle: _status(),
+          subtitleColor: update.phase == UpdatePhase.failed ? coral : null,
+          trailing: _action(),
         ),
-        if (update.unavailable == null) ...[
-          const SectionTitle(title: '更新方式'),
-          MelonPanel(
-            padding: EdgeInsets.zero,
-            child: Column(
-              children: [
-                SettingRow(
-                  title: '自动检查更新',
-                  subtitle: '每次启动时检查 GitHub 上的新版本',
-                  trailing: Switch(
-                    value: update.autoCheck,
-                    onChanged: update.setAutoCheck,
-                  ),
-                ),
-                SettingRow(
-                  title: '自动下载更新',
-                  subtitle: '在后台下载，下次重启或退出时安装',
-                  trailing: Switch(
-                    value: update.autoDownload,
-                    onChanged: update.setAutoDownload,
-                  ),
-                ),
-              ],
+        if (update.phase == UpdatePhase.downloading)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, Gap.lg),
+            child: LinearProgressIndicator(value: update.progress),
+          ),
+        if (update.release case final release?
+            when release.notes.isNotEmpty &&
+                update.phase != UpdatePhase.idle) ...[
+          const Divider(height: 1, indent: 20, endIndent: 20),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: SelectableText(
+              release.notes,
+              style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
         ],
-        const SectionTitle(title: '关于'),
-        MelonPanel(
-          padding: EdgeInsets.zero,
-          child: SettingRow(
-            title: '开源许可',
-            subtitle: 'MelonBanG 以 GNU GPL 3.0 许可发布',
-            trailing: OutlinedButton.icon(
-              onPressed: () => launchUrl(
-                Uri.https('github.com', '/$releaseRepository'),
-                mode: LaunchMode.externalApplication,
-              ),
-              icon: const Icon(Icons.open_in_new, size: 18),
-              label: const Text('源代码'),
-            ),
-          ),
-        ),
       ],
     ),
   );
@@ -153,5 +169,148 @@ class UpdateSettings extends StatelessWidget {
         label: const Text('检查更新'),
       ),
     };
+  }
+}
+
+class _UninstallRow extends StatelessWidget {
+  const _UninstallRow({required this.uninstall, required this.onUninstall});
+  final AppUninstall uninstall;
+  final Future<void> Function(bool wipe) onUninstall;
+
+  @override
+  Widget build(BuildContext context) => switch (uninstall.kind) {
+    UninstallKind.windowsInstaller => SettingRow(
+      title: '卸载 MelonBanG',
+      subtitle: '关闭应用并打开卸载程序，可以选择保留或删除数据',
+      trailing: OutlinedButton.icon(
+        onPressed: () => _confirmWindows(context),
+        icon: const Icon(Icons.delete_outline, size: 18),
+        label: const Text('卸载…'),
+      ),
+    ),
+    UninstallKind.macOSBundle => SettingRow(
+      title: '卸载 MelonBanG',
+      subtitle: '退出后把应用移到废纸篓，可以选择同时删除所有数据',
+      trailing: OutlinedButton.icon(
+        onPressed: () => _confirmMacOS(context),
+        icon: const Icon(Icons.delete_outline, size: 18),
+        label: const Text('卸载…'),
+      ),
+    ),
+    UninstallKind.portable => SettingRow(
+      title: '卸载 MelonBanG',
+      subtitle: '便携版不需要卸载：退出后删除程序所在的文件夹即可',
+      trailing: OutlinedButton.icon(
+        onPressed: () => launchUrl(Uri.directory(AppUninstall.installation)),
+        icon: const Icon(Icons.folder_open_outlined, size: 18),
+        label: const Text('打开文件夹'),
+      ),
+    ),
+    UninstallKind.unavailable => SettingRow(
+      title: '卸载 MelonBanG',
+      subtitle: AppUpdate.version.isEmpty
+          ? '开发版本不提供卸载'
+          : '请先把 MelonBanG 拖到“应用程序”文件夹再打开',
+    ),
+  };
+
+  Future<void> _confirmWindows(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('卸载 MelonBanG？'),
+        content: const SizedBox(
+          width: 420,
+          child: Text(
+            'MelonBanG 会先关闭，正在进行的播放和下载会停止。随后打开的卸载程序里可以选择保留或删除追番记录、设置和已下载的番剧。',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('关闭并卸载'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await onUninstall(false);
+  }
+
+  Future<void> _confirmMacOS(BuildContext context) async {
+    final wipe = await showDialog<bool>(
+      context: context,
+      builder: (context) => _MacOSUninstallDialog(uninstall: uninstall),
+    );
+    if (wipe != null) await onUninstall(wipe);
+  }
+}
+
+/// Pops with whether to delete the data, or null when cancelled.
+class _MacOSUninstallDialog extends StatefulWidget {
+  const _MacOSUninstallDialog({required this.uninstall});
+  final AppUninstall uninstall;
+  @override
+  State<_MacOSUninstallDialog> createState() => _MacOSUninstallDialogState();
+}
+
+class _MacOSUninstallDialogState extends State<_MacOSUninstallDialog> {
+  bool wipe = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final small = Theme.of(context).textTheme.bodySmall;
+    return AlertDialog(
+      title: const Text('卸载 MelonBanG？'),
+      content: SizedBox(
+        width: 460,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('MelonBanG 会先退出，正在进行的播放和下载会停止，然后应用会被移到废纸篓。'),
+            const SizedBox(height: Gap.lg),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              value: wipe,
+              onChanged: (value) => setState(() => wipe = value ?? false),
+              title: const Text('同时删除所有数据'),
+              subtitle: const Text(
+                '追番记录、播放进度、设置、登录信息和已下载的番剧会被永久删除；已同步到 Bangumi 的收藏不受影响',
+              ),
+            ),
+            if (wipe) ...[
+              const SizedBox(height: Gap.sm),
+              for (final folder in widget.uninstall.dataFolders)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: SelectableText(folder, style: small),
+                ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          style: wipe
+              ? FilledButton.styleFrom(
+                  backgroundColor: scheme.error,
+                  foregroundColor: scheme.onError,
+                )
+              : null,
+          onPressed: () => Navigator.pop(context, wipe),
+          child: Text(wipe ? '退出并删除全部' : '退出并卸载'),
+        ),
+      ],
+    );
   }
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import '../../domain/catalog.dart';
+import '../../core/json.dart';
 import '../../core/network.dart';
 import '../acquisition/resource_metadata.dart';
 import '../../domain/resource_title.dart';
@@ -37,6 +38,33 @@ class PlaySelectionRepository {
   final continuity = <int, String>{};
   final _failures = <String, int>{};
 
+  /// Whether played sources are remembered per subject; set by the app from
+  /// the playback preference.
+  bool Function() remember = () => true;
+  final _remembered = <int, RememberedSource?>{};
+
+  /// The source last played for [subjectId], while remembering is on.
+  Future<RememberedSource?> remembered(int subjectId) async {
+    if (!remember()) return null;
+    if (_remembered.containsKey(subjectId)) return _remembered[subjectId];
+    final saved = await store.get(_rememberedScope, '$subjectId');
+    return _remembered[subjectId] = saved == null
+        ? null
+        : RememberedSource.fromJson(saved);
+  }
+
+  Future<void> forget(int subjectId) async {
+    _remembered[subjectId] = null;
+    await store.remove(_rememberedScope, '$subjectId');
+  }
+
+  Future<void> forgetAll() async {
+    _remembered.clear();
+    await store.replace(_rememberedScope, const {});
+  }
+
+  static const _rememberedScope = 'source_preferences';
+
   /// Cached files, online entries and torrents for [episode], or for the
   /// whole subject without one, ranked for playback. Outside playback,
   /// torrents PikPak's index holds are also PikPak candidates. [terms]
@@ -62,10 +90,15 @@ class PlaySelectionRepository {
     final episodeId = episode?.id;
     final search = terms ?? ResourceTerms.of(subject, episode);
     final found = <String, PlayCandidate>{};
+    // The subject's own last choice outranks the global priority.
+    final preferred = await remembered(subjectId);
+    cancel?.throwIfCancelled();
+    if (preferred != null) onlineFirst = preferred.family == 'online';
     List<PlayCandidate> ranked() => rankPlayCandidates(
       found.values,
       onlineFirst: onlineFirst,
       language: language,
+      remembered: preferred,
       continuity: useContinuity ? continuity[subjectId] : null,
       singleEpisode: episode != null,
     );
@@ -143,11 +176,16 @@ class PlaySelectionRepository {
             onUpdate: add,
             cancel: cancel,
             firstReady: forPlayback && !useContinuity,
+            preferProvider: preferred?.family == 'online'
+                ? preferred!.provider
+                : null,
             includeManual: !forPlayback && !instantOnly,
           )
         : Future<void>.value();
+    // Playback looks torrents up in PikPak's index only for a subject last
+    // played through PikPak.
     final searchCloud =
-        !forPlayback &&
+        (!forPlayback || preferred?.family == 'pikpak') &&
         !instantOnly &&
         cloud.available &&
         registry.isEnabled('pikpak');
@@ -336,8 +374,16 @@ class PlaySelectionRepository {
     }
   }
 
-  void played(int subjectId, PlayCandidate candidate) =>
-      continuity[subjectId] = candidate.continuityKey;
+  /// Records [candidate] as the subject's source for the next episodes, and
+  /// for later runs while remembering is on. Cached files are not choices.
+  Future<void> played(int subjectId, PlayCandidate candidate) async {
+    continuity[subjectId] = candidate.continuityKey;
+    if (!remember() || candidate.kind == PlayKind.local) return;
+    final source = RememberedSource.of(candidate);
+    _remembered[subjectId] = source;
+    await store.put(_rememberedScope, '$subjectId', source.toJson());
+  }
+
   void failed(PlayCandidate candidate) {
     _failures[candidate.id] = (_failures[candidate.id] ?? 0) + 1;
     candidate.health = -_failures[candidate.id]!;
@@ -372,23 +418,82 @@ PlayCandidate releaseCandidate(
   );
 }
 
+/// The source a subject was last played from: its site and line online,
+/// its release group for BT and PikPak.
+class RememberedSource {
+  const RememberedSource({
+    required this.family,
+    required this.provider,
+    required this.line,
+    required this.key,
+    required this.label,
+  });
+
+  factory RememberedSource.of(PlayCandidate candidate) {
+    final key = candidate.continuityKey;
+    return RememberedSource(
+      family: key.substring(0, key.indexOf(':')),
+      provider: candidate.provider,
+      line: candidate.line,
+      key: key,
+      label: candidate.sourceLabel,
+    );
+  }
+
+  factory RememberedSource.fromJson(Json json) => RememberedSource(
+    family: '${json['family'] ?? ''}',
+    provider: '${json['provider'] ?? ''}',
+    line: '${json['line'] ?? ''}',
+    key: '${json['key'] ?? ''}',
+    label: '${json['label'] ?? ''}',
+  );
+
+  /// `online`, `bt` or `pikpak`.
+  final String family;
+  final String provider, line, key, label;
+
+  /// 2 for the same site and line or group and quality, 1 for the same site
+  /// or the same release group, otherwise 0.
+  int affinity(PlayCandidate candidate) {
+    if (candidate.continuityKey == key) return 2;
+    if (candidate.kind == PlayKind.online) {
+      return family == 'online' && candidate.provider == provider ? 1 : 0;
+    }
+    return family != 'online' && line.isNotEmpty && candidate.line == line
+        ? 1
+        : 0;
+  }
+
+  Json toJson() => {
+    'family': family,
+    'provider': provider,
+    'line': line,
+    'key': key,
+    'label': label,
+  };
+}
+
 /// Ranks candidates for playback and recommendation: cached files first, then
-/// online or torrent by [onlineFirst], PikPak last. Within a tier confident
-/// matches precede possible ones, recently failed sources drop, the subject's
-/// previous choice continues, and [resourceScores] orders the rest.
+/// online or torrent by [onlineFirst], PikPak last unless it was [remembered].
+/// Within a tier confident matches precede possible ones, recently failed
+/// sources drop, the subject's remembered source and then this run's choice
+/// continue, and [resourceScores] orders the rest.
 List<PlayCandidate> rankPlayCandidates(
   Iterable<PlayCandidate> candidates, {
   required bool onlineFirst,
+  RememberedSource? remembered,
   String? continuity,
   String language = 'auto',
   bool singleEpisode = true,
 }) {
-  int tier(PlayCandidate c) => switch (c.kind) {
+  final torrents = onlineFirst ? 2.0 : 1.0;
+  double tier(PlayCandidate c) => switch (c.kind) {
     PlayKind.local => 0,
     PlayKind.online => onlineFirst ? 1 : 2,
-    PlayKind.bt => onlineFirst ? 2 : 1,
-    PlayKind.pikpak => 3,
+    PlayKind.bt => torrents,
+    PlayKind.pikpak => remembered?.family == 'pikpak' ? torrents - .5 : 3,
   };
+  int affinity(PlayCandidate c) => remembered?.affinity(c) ?? 0;
   final result = candidates.toList();
   final scores = resourceScores(
     result,
@@ -400,6 +505,7 @@ List<PlayCandidate> rankPlayCandidates(
       tier(a).compareTo(tier(b)),
       (a.possibleMatch ? 1 : 0).compareTo(b.possibleMatch ? 1 : 0),
       b.health.compareTo(a.health),
+      affinity(b).compareTo(affinity(a)),
       (b.continuityKey == continuity ? 1 : 0).compareTo(
         a.continuityKey == continuity ? 1 : 0,
       ),

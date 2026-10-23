@@ -736,7 +736,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                     child: LinearProgressIndicator(
                       value: total == 0 ? 0 : watched / total,
                       minHeight: 6,
-                      color: mint,
+                      color: accentOf(context).accent,
                       backgroundColor: scheme.surfaceContainerHigh,
                     ),
                   ),

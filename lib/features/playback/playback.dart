@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' show Size;
 
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/proxy.dart';
 import '../../domain/catalog.dart';
 import '../../domain/playback_session.dart';
 import '../danmaku/danmaku_controller.dart';
@@ -14,15 +17,31 @@ import '../danmaku/danmaku_repository.dart';
 import '../downloads/download_repository.dart';
 import 'playback_library.dart';
 import 'playback_preferences.dart';
+import 'super_resolution.dart';
 
 class Playback extends ChangeNotifier {
-  Playback(this.library, this.downloads, this.danmaku, this.preferences) {
+  Playback(
+    this.library,
+    this.downloads,
+    this.danmaku,
+    this.preferences, {
+    this.proxy,
+  }) {
     settings = PlaybackPreferences(preferences);
     danmaku.addListener(_danmakuChanged);
     settings.addListener(_settingsChanged);
     _savedRate = preferences.getDouble('player-rate') ?? 1;
     unawaited(player.setRate(_savedRate));
-    video = VideoController(player);
+    _hwdec = settings.hardwareDecoding;
+    video = VideoController(
+      player,
+      configuration: VideoControllerConfiguration(hwdec: _hwdec),
+    );
+    unawaited(_applyShaders());
+    _subscriptions.add(
+      player.stream.videoParams.listen((_) => _scheduleOutputSize()),
+    );
+    _subscriptions.add(player.stream.position.listen(_skipSongs));
     _subscriptions.add(
       errors.listen((value) {
         error ??= value;
@@ -87,6 +106,9 @@ class Playback extends ChangeNotifier {
     final platform = player.platform;
     if (platform is NativePlayer) {
       platform.onLoadHooks.add(() async {
+        if (_httpProxy case final proxy?) {
+          await platform.setProperty('file-local-options/http-proxy', proxy);
+        }
         final format = _lavfFormat;
         if (format == null) return;
         await platform.setProperty('file-local-options/demuxer', 'lavf');
@@ -101,6 +123,9 @@ class Playback extends ChangeNotifier {
   final DownloadRepository downloads;
   final DanmakuController danmaku;
   final SharedPreferences preferences;
+
+  /// Online media goes through the app's proxy; local streams never do.
+  final NetworkProxy? proxy;
   final player = Player(
     configuration: const PlayerConfiguration(title: 'Melonbang', libass: true),
   );
@@ -132,8 +157,26 @@ class Playback extends ChangeNotifier {
 
   /// The lavf format the file being opened is forced to.
   String? _lavfFormat;
+
+  /// mpv's `http-proxy` for the file being opened.
+  String? _httpProxy;
+  late String _hwdec;
+  String _shaders = 'off';
+
+  /// The player's size in physical pixels, for super-resolution output.
+  Size? _display;
+  Timer? _outputTimer;
+
+  /// The OP/ED already skipped automatically in this session, so seeking
+  /// back into one plays it.
+  bool _skippedOpening = false, _skippedEnding = false;
+  double? _lastPosition;
+
+  /// Counts notices, so the same text shown twice appears twice.
+  int noticeRevision = 0;
   void showNotice(String value) {
     notice = value;
+    noticeRevision++;
     notifyListeners();
   }
 
@@ -210,6 +253,8 @@ class Playback extends ChangeNotifier {
     frameStepping = false;
     _manualSubtitle = _scoredSubtitle = _scoredAudio = false;
     openingEnding = null;
+    _skippedOpening = _skippedEnding = false;
+    _lastPosition = null;
     opening = true;
     error = null;
     notifyListeners();
@@ -238,6 +283,13 @@ class Playback extends ChangeNotifier {
           next.streamId != null ? '0' : '5',
         );
         _lavfFormat = playlist != null ? 'hls' : null;
+        final address = Uri.tryParse(next.url);
+        _httpProxy =
+            next.streamId == null &&
+                address != null &&
+                address.isScheme('http') | address.isScheme('https')
+            ? proxy?.serverFor(address)?.url
+            : null;
         // A separate audio track opens as an external file so its requests
         // carry the stream headers; a local manifest's segments would not.
         await platform.command(['change-list', 'audio-files', 'clr', '']);
@@ -346,7 +398,114 @@ class Playback extends ChangeNotifier {
 
   void _settingsChanged() {
     if (!settings.autoplay) cancelAutoplay();
+    final platform = player.platform;
+    if (settings.hardwareDecoding != _hwdec && platform is NativePlayer) {
+      _hwdec = settings.hardwareDecoding;
+      unawaited(platform.setProperty('hwdec', _hwdec));
+    }
+    if (settings.superResolution != _shaders) unawaited(_applyShaders());
     notifyListeners();
+  }
+
+  /// Loads the chosen super-resolution shaders, which mpv applies to the
+  /// current file at once.
+  Future<void> _applyShaders() async {
+    final mode = settings.superResolution;
+    final platform = player.platform;
+    if (platform is! NativePlayer || mode == _shaders) return;
+    _shaders = mode;
+    try {
+      final files = await superResolutionShaders(mode);
+      if (_closed || _shaders != mode) return;
+      await platform.command(['change-list', 'glsl-shaders', 'clr', '']);
+      for (final file in files) {
+        await platform.command(['change-list', 'glsl-shaders', 'append', file]);
+      }
+    } catch (e) {
+      _shaders = 'off';
+      showNotice('超分辨率不可用：$e');
+    }
+    _scheduleOutputSize();
+  }
+
+  /// Tells the player how large it is shown, in physical pixels.
+  void showAt(Size display) {
+    if (_display == display) return;
+    _display = display;
+    _scheduleOutputSize();
+  }
+
+  /// Renders at the shown size while super-resolution is on, so the shaders
+  /// have room to upscale; otherwise at the video's own size, which is
+  /// cheapest. Window resizes settle before the output is reallocated.
+  void _scheduleOutputSize() {
+    _outputTimer?.cancel();
+    _outputTimer = Timer(const Duration(milliseconds: 250), () {
+      if (!_closed) unawaited(_resizeOutput());
+    });
+  }
+
+  Future<void> _resizeOutput() async {
+    final params = player.state.videoParams;
+    final rotated = params.rotate == 90 || params.rotate == 270;
+    final width = ((rotated ? params.dh : params.dw) ?? 0).toDouble();
+    final height = ((rotated ? params.dw : params.dh) ?? 0).toDouble();
+    final display = _display;
+    int? outputWidth, outputHeight;
+    if (settings.superResolution != 'off' &&
+        display != null &&
+        width > 0 &&
+        height > 0) {
+      var scale = math.min(display.width / width, display.height / height);
+      // At most 4K's area; larger outputs only cost GPU time.
+      scale = math.min(scale, math.sqrt(3840 * 2160 / (width * height)));
+      if (scale > 1.05) {
+        outputWidth = (width * scale).round();
+        outputHeight = (height * scale).round();
+      }
+    }
+    try {
+      await video.setSize(width: outputWidth, height: outputHeight);
+    } catch (_) {
+      // The output keeps its previous size.
+    }
+  }
+
+  /// Seeks past the file's OP or ED when playback runs into it, once per
+  /// session; landing inside one by seeking or resuming plays it.
+  void _skipSongs(Duration value) {
+    final position = value.inMilliseconds / 1000;
+    final previous = _lastPosition;
+    _lastPosition = position;
+    final marks = openingEnding;
+    if (marks == null ||
+        previous == null ||
+        opening ||
+        !player.state.playing ||
+        frameStepping) {
+      return;
+    }
+    bool entered(ChapterSpan? span) =>
+        span != null &&
+        position >= span.start &&
+        position < span.end - 3 &&
+        // Chapters are read a moment after the file opens.
+        previous <= span.start + 5 &&
+        previous <= position;
+    if (settings.skipOpening && !_skippedOpening && entered(marks.opening)) {
+      _skippedOpening = true;
+      unawaited(_skipTo(marks.opening!.end, '已跳过片头'));
+    } else if (settings.skipEnding &&
+        !_skippedEnding &&
+        entered(marks.ending)) {
+      _skippedEnding = true;
+      unawaited(_skipTo(marks.ending!.end, '已跳过片尾'));
+    }
+  }
+
+  Future<void> _skipTo(double seconds, String message) async {
+    await player.seek(Duration(milliseconds: (seconds * 1000).round()));
+    showNotice(message);
   }
 
   void _danmakuChanged() {
@@ -582,6 +741,7 @@ class Playback extends ChangeNotifier {
     _timer?.cancel();
     _volumeWrite?.cancel();
     _rateWrite?.cancel();
+    _outputTimer?.cancel();
     cancelAutoplay();
     await preferences.setDouble('player-rate', _savedRate);
     danmaku.removeListener(_danmakuChanged);

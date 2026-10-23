@@ -499,6 +499,7 @@ class AppSidebar extends StatelessWidget {
               'search',
               'resources',
             ].contains(activeRoute));
+    final accent = accentOf(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: Gap.xs),
       child: AnimatedContainer(
@@ -506,14 +507,14 @@ class AppSidebar extends StatelessWidget {
         curve: Curves.easeOut,
         decoration: BoxDecoration(
           borderRadius: controlBorderRadius,
-          gradient: selected ? navigationGradient : null,
+          gradient: selected ? accent.navigation : null,
         ),
         child: Material(
           type: MaterialType.transparency,
           child: ListTile(
             dense: true,
             selected: selected,
-            selectedColor: const Color(0xff08321f),
+            selectedColor: accent.onNavigation,
             iconColor: Theme.of(context).colorScheme.onSurfaceVariant,
             titleTextStyle: Theme.of(context).textTheme.titleSmall,
             selectedTileColor: Colors.transparent,
@@ -529,7 +530,7 @@ class AppSidebar extends StatelessWidget {
                     count,
                     style: TextStyle(
                       fontSize: 11,
-                      color: selected ? const Color(0xff08321f) : mint,
+                      color: selected ? accent.onNavigation : accent.accent,
                       fontWeight: FontWeight.w800,
                     ),
                   ),

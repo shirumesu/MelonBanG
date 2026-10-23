@@ -112,11 +112,14 @@ class SectionTitle extends StatelessWidget {
 }
 
 class MelonBadge extends StatelessWidget {
-  const MelonBadge(this.text, {super.key, this.color = mint});
+  const MelonBadge(this.text, {super.key, this.color});
   final String text;
-  final Color color;
+
+  /// The theme's accent by default.
+  final Color? color;
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? accentOf(context).accent;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final theme = BadgeTheme.of(context);
     return Container(

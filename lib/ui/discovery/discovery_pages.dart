@@ -585,7 +585,7 @@ class _ContinueSection extends StatelessWidget {
         SectionTitle(
           title: '继续观看',
           icon: Icons.play_circle_outline,
-          color: mint,
+          color: accentOf(context).accent,
           top: 0,
           trailing: TextButton(
             onPressed: onOpenTracking,
@@ -701,8 +701,8 @@ class _ResumePosterState extends State<_ResumePoster> {
                               horizontal: 8,
                               vertical: 4,
                             ),
-                            decoration: const BoxDecoration(
-                              color: mint,
+                            decoration: BoxDecoration(
+                              color: accentOf(context).accent,
                               borderRadius: badgeBorderRadius,
                             ),
                             child: Text(
@@ -761,7 +761,7 @@ class _ResumePosterState extends State<_ResumePoster> {
                           child: LinearProgressIndicator(
                             value: (position / duration).clamp(0, 1),
                             minHeight: 4,
-                            color: mint,
+                            color: accentOf(context).accent,
                             backgroundColor: Colors.white24,
                             semanticsLabel: '观看进度',
                           ),
