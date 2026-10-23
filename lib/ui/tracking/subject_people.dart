@@ -272,13 +272,11 @@ class SubjectPeoplePanel extends StatelessWidget {
                   // Filled without distortion; tall portraits keep the face.
                   fit: BoxFit.cover,
                   alignment: Alignment.topCenter,
-                  frameBuilder: (_, child, frame, synchronous) => preview(
-                    ImageFadeIn(
-                      frame: frame,
-                      synchronous: synchronous,
-                      placeholder: placeholder('正在加载头像'),
-                      child: child,
-                    ),
+                  frameBuilder: (_, child, frame, synchronous) => ImageFadeIn(
+                    frame: frame,
+                    synchronous: synchronous,
+                    placeholder: placeholder('正在加载头像'),
+                    child: preview(child),
                   ),
                   errorBuilder: (_, _, _) => placeholder('头像加载失败'),
                 ),
