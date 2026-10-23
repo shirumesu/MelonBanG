@@ -106,7 +106,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     List<String> releaseGroups = const [],
   }) async {
     _requireOpen();
-    if (!client.isSignedIn) throw StateError('请先在视频源页面登录 PikPak');
+    if (!client.isSignedIn) throw StateError('请先在数据源页面登录 PikPak');
     final fingerprint = magnetInfoHash(magnet);
     return downloadTask(
       await _adding.putIfAbsent(
@@ -736,7 +736,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     final (task, file, _) = _video(id, fileId);
     final fetch = _fetch(task, file);
     if (!fetch.done && !client.isSignedIn) {
-      throw StateError('请先在视频源页面登录 PikPak');
+      throw StateError('请先在数据源页面登录 PikPak');
     }
     final server = await (_server ??= HttpServer.bind(
       InternetAddress.loopbackIPv4,

@@ -12,9 +12,7 @@ import '../../domain/danmaku.dart';
 import 'matching.dart';
 
 /// Dandanplay: Bangumi mapping, then title search, then file matching.
-/// Comments sent go to the open danmaku network: stored apart from
-/// Dandanplay's own, and returned to this app's later loads.
-class DandanplayDanmaku implements DanmakuSearch, DanmakuSender {
+class DandanplayDanmaku implements DanmakuSearch {
   DandanplayDanmaku(this.api, this.configuration);
   final ApiClient api;
   final ServiceConfiguration configuration;
@@ -23,6 +21,14 @@ class DandanplayDanmaku implements DanmakuSearch, DanmakuSender {
   String get id => 'dandanplay';
   @override
   String get label => '弹弹play';
+
+  @override
+  String get description =>
+      '先按 Bangumi 条目对应，再按番名和集数搜索，最后按文件匹配；'
+      '包含弹弹play 关联的其他网站弹幕。';
+  @override
+  String? get unconfigured =>
+      configuration.hasDandanplay ? null : '此版本没有弹弹play 应用凭证';
 
   Future<Json> _request(String path, {Json? body}) async {
     if (!configuration.hasDandanplay) {
@@ -201,30 +207,6 @@ class DandanplayDanmaku implements DanmakuSearch, DanmakuSender {
     title: '${item['animeTitle'] ?? '候选番剧'}',
     episode: '${item['episodeTitle'] ?? item['episodeNumber'] ?? ''}',
   );
-
-  @override
-  bool get sendable => configuration.hasDandanplay;
-
-  /// Modes are numbered as loads read them: 4 bottom, 5 top.
-  @override
-  Future<void> send(String locator, DanmakuComment comment) async {
-    final value = await _request(
-      '/api/v2/comment/${int.parse(locator)}/app',
-      body: {
-        'time': (comment.time * 100).round() / 100,
-        'mode': switch (comment.mode) {
-          DanmakuMode.scroll => 1,
-          DanmakuMode.bottom => 4,
-          DanmakuMode.top => 5,
-        },
-        'color': comment.color,
-        'comment': comment.text,
-      },
-    );
-    if (value['success'] != true) {
-      throw StateError('弹幕发送失败：${value['errorMessage'] ?? '未知错误'}');
-    }
-  }
 
   @override
   Future<List<DanmakuComment>> load(String locator) async {

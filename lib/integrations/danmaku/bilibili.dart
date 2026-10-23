@@ -26,6 +26,11 @@ class BilibiliDanmaku implements DanmakuMatcher {
   String get label => 'Bilibili';
 
   @override
+  String get description => '自动匹配番剧区的官方条目；也可以在播放器的弹幕页输入 EP、BV 号或播放链接。';
+  @override
+  String? get unconfigured => null;
+
+  @override
   Future<DanmakuMatch> match(DanmakuQuery query) async {
     final episode = await query.episode();
     final locator = await _locator(episode);

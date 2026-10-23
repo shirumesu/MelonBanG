@@ -239,7 +239,7 @@ class PikPakClient {
   }
 
   Future<void> _refresh({bool force = false}) async {
-    if (_tokens == null) throw const PikPakException('请先在视频源页面登录 PikPak。');
+    if (_tokens == null) throw const PikPakException('请先在数据源页面登录 PikPak。');
     if (!force &&
         _integer(_tokens!['expires_at']) >
             DateTime.now().millisecondsSinceEpoch) {

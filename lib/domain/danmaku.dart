@@ -132,7 +132,10 @@ class DanmakuFile {
 }
 
 class DanmakuQuery {
-  const DanmakuQuery({required this.episode, this.file});
+  const DanmakuQuery({required this.episode, this.episodeId, this.file});
+
+  /// The Bangumi episode being played, when the session is bound to one.
+  final int? episodeId;
 
   /// Resolved lazily and shared by providers; throws [DanmakuUnmatched] when
   /// the episode is unknown.
@@ -151,13 +154,47 @@ abstract interface class DanmakuProvider {
 /// A provider that can find a locator for the playing episode on its own.
 abstract interface class DanmakuMatcher implements DanmakuProvider {
   Future<DanmakuMatch> match(DanmakuQuery query);
+
+  /// What the source holds and how it is matched, for the data sources page.
+  String get description;
+
+  /// Why this build cannot use the source at all; null when it can.
+  String? get unconfigured;
 }
 
 /// A provider that takes comments for an episode it has loaded.
 abstract interface class DanmakuSender implements DanmakuProvider {
-  /// Whether this build can send at all.
-  bool get sendable;
-  Future<void> send(String locator, DanmakuComment comment);
+  /// Why sending is impossible now, such as being signed out; null when
+  /// it can send.
+  String? get unavailable;
+
+  /// Sends [comment] and returns what may still be sent.
+  Future<DanmakuQuota> send(String locator, DanmakuComment comment);
+
+  /// What the viewer may still send.
+  Future<DanmakuQuota> quota();
+}
+
+/// How much one viewer may still send.
+class DanmakuQuota {
+  const DanmakuQuota({
+    required this.limit,
+    required this.remaining,
+    this.wait = Duration.zero,
+  });
+  final int limit, remaining;
+
+  /// Until the next comment may go.
+  final Duration wait;
+}
+
+/// A send turned away for its pace or the daily limit.
+class DanmakuSendRejected implements Exception {
+  const DanmakuSendRejected(this.message, this.quota);
+  final String message;
+  final DanmakuQuota? quota;
+  @override
+  String toString() => message;
 }
 
 /// A matcher whose episodes can also be searched by title.

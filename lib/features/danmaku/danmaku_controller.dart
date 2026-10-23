@@ -76,6 +76,7 @@ class DanmakuController extends ChangeNotifier {
     Future<DanmakuEpisode>? episode;
     final query = DanmakuQuery(
       episode: () => episode ??= repository.episode(current),
+      episodeId: current.episodeId,
       file: current.path == null
           ? null
           : DanmakuFile(
@@ -174,6 +175,9 @@ class DanmakuController extends ChangeNotifier {
         ..status = DanmakuStatus.ready
         ..count = comments.length
         ..locator = locator;
+      if (repository.provider(provider) case final DanmakuSender sender) {
+        unawaited(_refreshQuota(sender));
+      }
     } on _NoMatch catch (e) {
       if (!current()) return;
       source
@@ -194,16 +198,18 @@ class DanmakuController extends ChangeNotifier {
     _merge();
   }
 
-  /// Whether any source of this build takes comments.
-  bool get sendable => repository.matchers.any(
-    (provider) => switch (provider) {
-      DanmakuSender(:final sendable) => sendable,
-      _ => false,
-    },
-  );
+  /// Whether any source takes comments.
+  bool get sendable =>
+      repository.matchers.any((provider) => provider is DanmakuSender);
+
+  /// What the viewer may still send, once known.
+  DanmakuQuota? quota;
+
+  /// The next comment may go from then on.
+  DateTime? sendAfter;
 
   /// The source comments are sent to: an enabled source, loaded for this
-  /// episode, whose provider takes them.
+  /// episode, whose provider takes them now.
   DanmakuSourceState? get sendSource => sources
       .where(
         (source) =>
@@ -211,30 +217,52 @@ class DanmakuController extends ChangeNotifier {
             source.locator != null &&
             source.status == DanmakuStatus.ready &&
             switch (repository.provider(source.id)) {
-              DanmakuSender(:final sendable) => sendable,
+              DanmakuSender(:final unavailable) => unavailable == null,
               _ => false,
             },
       )
       .firstOrNull;
 
-  /// Why nothing can be sent now; null when [sendSource] is ready.
+  /// Why nothing can be sent now; null when [sendSource] can take a
+  /// comment. Waiting between comments does not block.
   String? get sendBlocked {
-    if (sendSource != null) return null;
     if (_target == null) return '播放视频后发送弹幕';
     final senders = [
       for (final source in sources)
-        if (repository.provider(source.id) case DanmakuSender(:final sendable)
-            when sendable)
-          source,
+        if (repository.provider(source.id) is DanmakuSender) source,
     ];
     if (senders.isEmpty) return '暂不能发送弹幕';
-    if (!senders.any((source) => source.enabled)) {
-      return '${senders.first.label}弹幕已关闭';
+    final sender = senders.first;
+    if ((repository.provider(sender.id) as DanmakuSender).unavailable
+        case final reason?) {
+      return reason;
     }
-    if (senders.any((source) => source.status == DanmakuStatus.loading)) {
-      return '正在加载${senders.first.label}弹幕…';
+    if (quota case DanmakuQuota(:final limit, remaining: <= 0)) {
+      return '为防滥用，每天最多发送 $limit 条弹幕';
     }
-    return '本集未匹配${senders.first.label}，无法发送';
+    if (sendSource != null) return null;
+    if (!sender.enabled) return '${sender.label} 弹幕已关闭';
+    if (sender.status == DanmakuStatus.loading) {
+      return '正在加载${sender.label} 弹幕…';
+    }
+    return sender.status == DanmakuStatus.error
+        ? '${sender.label} 弹幕加载失败'
+        : '本集没有关联 Bangumi 章节，无法发送';
+  }
+
+  Future<void> _refreshQuota(DanmakuSender sender) async {
+    if (sender.unavailable != null) return;
+    try {
+      _applyQuota(await sender.quota());
+      notifyListeners();
+    } catch (_) {
+      // Sending reports the limit itself.
+    }
+  }
+
+  void _applyQuota(DanmakuQuota value) {
+    quota = value;
+    sendAfter = DateTime.now().add(value.wait);
   }
 
   /// Sends [text] at [time] in the saved look and shows it at once, framed
@@ -242,8 +270,9 @@ class DanmakuController extends ChangeNotifier {
   Future<void> send(double time, String text) async {
     final target = _target;
     final source = sendSource;
-    if (target == null || source == null) {
-      throw StateError(sendBlocked ?? '暂不能发送弹幕');
+    final blocked = sendBlocked;
+    if (target == null || source == null || blocked != null) {
+      throw StateError(blocked ?? '暂不能发送弹幕');
     }
     final comment = DanmakuComment(
       time,
@@ -253,11 +282,18 @@ class DanmakuController extends ChangeNotifier {
       color: preferences.sendColor,
       own: true,
     );
-    await (repository.provider(source.id) as DanmakuSender).send(
-      source.locator!,
-      comment,
-    );
-    if (!identical(_target, target)) return;
+    final sender = repository.provider(source.id) as DanmakuSender;
+    try {
+      _applyQuota(await sender.send(source.locator!, comment));
+    } on DanmakuSendRejected catch (e) {
+      if (e.quota case final value?) _applyQuota(value);
+      notifyListeners();
+      throw StateError(e.message);
+    }
+    if (!identical(_target, target)) {
+      notifyListeners();
+      return;
+    }
     final list = [...?_comments[source.id]];
     var index = list.length;
     while (index > 0 && list[index - 1].time > time) {
@@ -266,6 +302,27 @@ class DanmakuController extends ChangeNotifier {
     _comments[source.id] = list..insert(index, comment);
     source.count++;
     _merge(sent: comment);
+  }
+
+  /// Whether new sessions load [provider]; the current session follows.
+  void setDefault(String provider, bool enabled) {
+    preferences.setProvider(provider, enabled);
+    final source = sources.where((source) => source.id == provider);
+    if (source.firstOrNull case final source? when source.enabled != enabled) {
+      source.enabled = enabled;
+      _merge();
+    } else {
+      notifyListeners();
+    }
+  }
+
+  /// Reads what the viewer may still send, for the data sources page.
+  Future<void> refreshQuota() async {
+    for (final provider in repository.matchers) {
+      if (provider case final DanmakuSender sender) {
+        await _refreshQuota(sender);
+      }
+    }
   }
 
   void enable(String provider, bool enabled) {

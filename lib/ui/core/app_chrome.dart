@@ -429,8 +429,8 @@ class AppSidebar extends StatelessWidget {
         _nav(
           context,
           'sources',
-          '视频源',
-          Icons.video_library_outlined,
+          '数据源',
+          Icons.hub_outlined,
           sourcesWarning ? '●' : null,
         ),
         _nav(context, 'settings', '设置', Icons.settings_outlined),
