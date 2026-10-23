@@ -15,12 +15,12 @@ import '../../integrations/github/app_releases.dart';
 enum UpdatePhase { idle, checking, available, downloading, ready, failed }
 
 /// Keeps the installed copy current: finds a newer release, downloads and
-/// unpacks it into `.pending` beside the program while the app runs, and
-/// hands it to `updater.exe` as the app exits, which swaps it in.
+/// unpacks it beside the program while the app runs, and swaps it in once the
+/// app has exited: `updater.exe` on Windows, a shell script on macOS.
 class AppUpdate extends ChangeNotifier {
   AppUpdate(this.api, this.preferences) : releases = AppReleases(api);
   static const version = String.fromEnvironment('MELONBANG_VERSION');
-  static const _platform = 'windows-x64';
+  static final _platform = Platform.isMacOS ? 'macos-arm64' : 'windows-x64';
   final ApiClient api;
   final SharedPreferences preferences;
   final AppReleases releases;
@@ -50,17 +50,36 @@ class AppUpdate extends ChangeNotifier {
     notifyListeners();
   }
 
-  String get _installDirectory => File(Platform.resolvedExecutable).parent.path;
-  Directory get _pending => Directory(p.join(_installDirectory, '.pending'));
+  /// The install directory on Windows, the app bundle on macOS.
+  String get _installation => Platform.isMacOS
+      ? p.dirname(p.dirname(p.dirname(Platform.resolvedExecutable)))
+      : File(Platform.resolvedExecutable).parent.path;
+
+  /// On the program's volume, so the swap is a rename. A bundle cannot hold
+  /// it without breaking its signature, so macOS keeps it beside the bundle.
+  Directory get _pending => Directory(
+    Platform.isMacOS
+        ? p.join(
+            p.dirname(_installation),
+            '.${p.basenameWithoutExtension(_installation)}-update',
+          )
+        : p.join(_installation, '.pending'),
+  );
   File get _readyMarker => File(p.join(_pending.path, 'ready.json'));
 
   Future<void> initialize() async {
-    if (!Platform.isWindows || version.isEmpty) {
+    if (!(Platform.isWindows || Platform.isMacOS) || version.isEmpty) {
       unavailable = '开发版本不自动更新';
       return;
     }
-    if (!await File(p.join(_installDirectory, 'updater.exe')).exists()) {
+    if (Platform.isWindows &&
+        !await File(p.join(_installation, 'updater.exe')).exists()) {
       unavailable = '当前安装缺少更新程序，请到 GitHub 下载新版本';
+      return;
+    }
+    // Gatekeeper runs a quarantined app from a read-only random location.
+    if (Platform.isMacOS && _installation.contains('/AppTranslocation/')) {
+      unavailable = '请先把 MelonBanG 拖到“应用程序”文件夹再打开，才能自动更新';
       return;
     }
     if (await _readyMarker.exists()) {
@@ -125,12 +144,28 @@ class AppUpdate extends ChangeNotifier {
       await _fetch(release.package, archive);
       final staging = Directory(p.join(_pending.path, release.version));
       await staging.create();
-      final unpacked = await Process.run(
-        p.join(Platform.environment['SystemRoot']!, 'System32', 'tar.exe'),
-        ['-xf', archive.path, '-C', staging.path],
-      );
+      // ditto keeps the bundle's symbolic links, which its signature covers.
+      final unpacked = Platform.isMacOS
+          ? await Process.run('/usr/bin/ditto', [
+              '-x',
+              '-k',
+              archive.path,
+              staging.path,
+            ])
+          : await Process.run(
+              p.join(
+                Platform.environment['SystemRoot']!,
+                'System32',
+                'tar.exe',
+              ),
+              ['-xf', archive.path, '-C', staging.path],
+            );
       if (unpacked.exitCode != 0) {
         throw StateError('解压失败：${unpacked.stderr}'.trim());
+      }
+      if (Platform.isMacOS &&
+          !await Directory(p.join(staging.path, _bundleName)).exists()) {
+        throw StateError('更新包缺少 $_bundleName');
       }
       await archive.delete();
       // Renamed into place so an interrupted write never leaves a marker
@@ -145,7 +180,9 @@ class AppUpdate extends ChangeNotifier {
       phase = UpdatePhase.ready;
     } on FileSystemException catch (e) {
       phase = UpdatePhase.failed;
-      error = '无法写入安装目录（${e.osError?.message ?? e.message}），请到 GitHub 手动下载新版本';
+      final location = Platform.isMacOS ? ' MelonBanG 所在的文件夹' : '安装目录';
+      error =
+          '无法写入$location（${e.osError?.message ?? e.message}），请到 GitHub 手动下载新版本';
     } catch (e) {
       phase = UpdatePhase.failed;
       error = '下载更新失败：$e';
@@ -195,6 +232,19 @@ class AppUpdate extends ChangeNotifier {
   Future<void> applyOnExit({required bool restart}) async {
     if (phase != UpdatePhase.ready) return;
     final staging = p.join(_pending.path, readyVersion!);
+    if (Platform.isMacOS) {
+      await Process.start('/bin/sh', [
+        '-c',
+        _macOSSwap,
+        'melonbang-update',
+        '$pid',
+        _installation,
+        p.join(staging, _bundleName),
+        _pending.path,
+        if (restart) 'restart',
+      ], mode: ProcessStartMode.detached);
+      return;
+    }
     // The new updater handles the swap, and a temporary copy lets it replace
     // the one inside the install directory.
     final temporary = await Directory.systemTemp.createTemp(
@@ -208,7 +258,7 @@ class AppUpdate extends ChangeNotifier {
         '--pid',
         '$pid',
         '--app-dir',
-        _installDirectory,
+        _installation,
         '--staging',
         staging,
         '--version',
@@ -220,6 +270,28 @@ class AppUpdate extends ChangeNotifier {
     );
   }
 }
+
+/// The bundle inside the macOS update package.
+const _bundleName = 'MelonBanG.app';
+
+/// Arguments: app process, installed bundle, staged bundle, pending
+/// directory, and `restart` to open the app again. Waits for the app to
+/// exit, then renames the staged bundle over the installed one and puts the
+/// old one back if that fails; a failed swap keeps the update for the next
+/// exit. The installed bundle keeps whatever name the person gave it.
+const _macOSSwap = r'''
+while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
+previous="$4/previous.app"
+rm -rf "$previous"
+if mv "$2" "$previous"; then
+  if mv "$3" "$2"; then
+    rm -rf "$4"
+  else
+    mv "$previous" "$2"
+  fi
+fi
+if [ -n "$5" ]; then open "$2"; fi
+''';
 
 class _DigestSink implements Sink<Digest> {
   Digest? value;
