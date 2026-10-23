@@ -128,6 +128,9 @@ class _InstallPageState extends State<InstallPage> {
                       const Text('安装位置', style: note),
                       TextField(
                         controller: location,
+                        // Wraps so that a long path shows its end.
+                        maxLines: null,
+                        textInputAction: TextInputAction.done,
                         style: const TextStyle(fontSize: 13, color: ink),
                         decoration: const InputDecoration.collapsed(
                           hintText: '',

@@ -29,6 +29,21 @@ class StorageLocations {
     }
   }
 
+  /// Nothing has been stored yet, so the first locations can be chosen freely.
+  Future<bool> get fresh async =>
+      !await bootstrap.exists() && !await Directory(defaultData).exists();
+
+  /// Where a fresh installation keeps its media, before anything is stored.
+  Future<void> choose(String mediaPath) async {
+    final folder = Directory(mediaPath);
+    await folder.create(recursive: true);
+    if (!await folder.list().isEmpty) throw StateError('目标文件夹必须为空，避免覆盖现有文件');
+    final probe = File(p.join(mediaPath, '.melonbang-write-check'));
+    await probe.writeAsString('');
+    await probe.delete();
+    await _save({'media': p.normalize(p.absolute(mediaPath))});
+  }
+
   Future<void> _save(Json value) async {
     await bootstrap.parent.create(recursive: true);
     final temporary = File('${bootstrap.path}.tmp');

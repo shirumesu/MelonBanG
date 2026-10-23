@@ -52,6 +52,7 @@ flutter:
   assets:
     - assets/fonts/OFL.txt
     - assets/images/akkarin.png
+    - assets/images/logotype.png
 
   fonts:
     - family: Resource Han Rounded

@@ -71,6 +71,9 @@ class _MelonAppState extends State<MelonApp>
   /// Relaunch once the prepared update has been swapped in on exit.
   bool restartForUpdate = false;
   String? startError;
+
+  /// Set on a first launch until the download location is confirmed.
+  Completer<void>? storageSetup;
   List<String> recentSearches = [];
   Listenable? _controllers;
   Future<void> _fullScreenOperations = Future.value();
@@ -115,6 +118,12 @@ class _MelonAppState extends State<MelonApp>
 
   Future<void> boot() async {
     try {
+      if (await (await service.locate())?.fresh ?? false) {
+        setState(() => storageSetup = Completer());
+        await storageSetup!.future;
+        if (!mounted || closing) return;
+        setState(() => storageSetup = null);
+      }
       await service.start();
       if (!mounted || closing) return;
       coordinator.shell = this;
@@ -797,6 +806,9 @@ class _MelonAppState extends State<MelonApp>
   );
 
   Widget page() {
+    if (storageSetup case final setup?) {
+      return StorageSetup(storage: service.storage!, onDone: setup.complete);
+    }
     if (!ready) {
       return startError == null
           ? Center(

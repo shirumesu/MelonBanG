@@ -525,7 +525,6 @@ class _SetupButtonState extends State<SetupButton> {
               height: 46,
               constraints: BoxConstraints(minWidth: filled ? 112 : 0),
               padding: const EdgeInsets.symmetric(horizontal: 22),
-              alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: _hovered ? hover : background,
                 borderRadius: BorderRadius.circular(14),
@@ -541,6 +540,7 @@ class _SetupButtonState extends State<SetupButton> {
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   if (widget.icon case final icon?) ...[
                     Icon(icon, size: 18, color: foreground),
