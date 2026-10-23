@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
@@ -22,9 +24,14 @@ class _DanmakuLayerState extends State<DanmakuLayer>
   final layout = DanmakuLayout();
   Object? identity;
   bool frozen = false;
+
+  /// Comments sent since the last frame.
+  final sent = <DanmakuComment>[];
+  StreamSubscription<DanmakuComment>? sending;
   @override
   void initState() {
     super.initState();
+    sending = widget.playback.danmaku.sent.listen(sent.add);
     clock.value =
         widget.playback.player.state.position.inMicroseconds /
         Duration.microsecondsPerSecond;
@@ -61,6 +68,7 @@ class _DanmakuLayerState extends State<DanmakuLayer>
 
   @override
   void dispose() {
+    unawaited(sending?.cancel());
     ticker.dispose();
     textCache.clear();
     clock.dispose();
@@ -72,7 +80,13 @@ class _DanmakuLayerState extends State<DanmakuLayer>
     child: RepaintBoundary(
       child: ClipRect(
         child: CustomPaint(
-          painter: DanmakuPainter(widget.playback, clock, textCache, layout),
+          painter: DanmakuPainter(
+            widget.playback,
+            clock,
+            textCache,
+            layout,
+            sent,
+          ),
           size: Size.infinite,
         ),
       ),
@@ -81,23 +95,34 @@ class _DanmakuLayerState extends State<DanmakuLayer>
 }
 
 class DanmakuPainter extends CustomPainter {
-  DanmakuPainter(this.playback, this.clock, this.textCache, this.layout)
-    : super(repaint: clock);
+  DanmakuPainter(
+    this.playback,
+    this.clock,
+    this.textCache,
+    this.layout,
+    this.sent,
+  ) : super(repaint: clock);
   final Playback playback;
   final ValueNotifier<double> clock;
   final DanmakuTextCache textCache;
   final DanmakuLayout layout;
+
+  /// Sent comments waiting to enter; taken by the next frame.
+  final List<DanmakuComment> sent;
   @override
   void paint(Canvas canvas, Size size) {
     final preferences = playback.danmaku.preferences;
     if (!preferences.enabled || size.isEmpty) {
       layout.clear();
       textCache.clear();
+      sent.clear();
       return;
     }
     textCache.beginFrame();
     final visible = layout.update(
       comments: playback.danmaku.visible,
+      revision: playback.danmaku.revision,
+      sent: [...sent],
       time: clock.value,
       viewport: size,
       fontSize: preferences.size,
@@ -108,15 +133,23 @@ class DanmakuPainter extends CustomPainter {
       shield: preferences.shield,
       measure: (item) => _text(item).size,
     );
+    sent.clear();
     for (final entry in visible) {
-      if (preferences.stroke) {
-        _text(
-          entry.item,
-          outline: true,
-        ).paint(canvas, entry.boundsAt(clock.value, size.width).topLeft);
+      final bounds = entry.boundsAt(clock.value, size.width);
+      if (entry.item.own) {
+        // The viewer's own comment is framed, as players mark one just sent.
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(bounds.inflate(3), const Radius.circular(4)),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5
+            ..color = Colors.white.withValues(alpha: preferences.opacity),
+        );
       }
-      _text(entry.item)
-          .paint(canvas, entry.boundsAt(clock.value, size.width).topLeft);
+      if (preferences.stroke) {
+        _text(entry.item, outline: true).paint(canvas, bounds.topLeft);
+      }
+      _text(entry.item).paint(canvas, bounds.topLeft);
     }
     textCache.endFrame();
   }

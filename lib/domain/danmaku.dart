@@ -7,6 +7,7 @@ class DanmakuComment {
     required this.source,
     this.mode = DanmakuMode.scroll,
     this.color = 0xffffff,
+    this.own = false,
   });
 
   /// A valid comment, or null when time/text/mode are unusable.
@@ -40,6 +41,10 @@ class DanmakuComment {
 
   /// 0xRRGGBB.
   final int color;
+
+  /// Sent from this app in the current session; drawn framed and never
+  /// merged or filtered away.
+  final bool own;
 }
 
 /// `#rrggbb`, or null.
@@ -146,6 +151,13 @@ abstract interface class DanmakuProvider {
 /// A provider that can find a locator for the playing episode on its own.
 abstract interface class DanmakuMatcher implements DanmakuProvider {
   Future<DanmakuMatch> match(DanmakuQuery query);
+}
+
+/// A provider that takes comments for an episode it has loaded.
+abstract interface class DanmakuSender implements DanmakuProvider {
+  /// Whether this build can send at all.
+  bool get sendable;
+  Future<void> send(String locator, DanmakuComment comment);
 }
 
 /// A matcher whose episodes can also be searched by title.

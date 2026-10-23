@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../domain/danmaku.dart';
@@ -12,6 +14,9 @@ class DanmakuSourceState {
   bool enabled;
   DanmakuStatus status = DanmakuStatus.idle;
   int count = 0;
+
+  /// The loaded episode, where sent comments go.
+  String? locator;
 
   /// Why an unmatched source loaded nothing.
   String? message;
@@ -38,6 +43,12 @@ class DanmakuController extends ChangeNotifier {
   List<DanmakuComment> visible = const [];
   final _comments = <String, List<DanmakuComment>>{};
   final _loads = <String, Object>{};
+
+  /// Changes whenever [visible] changes, except by a sent comment, which
+  /// the player places itself on [sent] without laying out the rest again.
+  int revision = 0;
+  final _sent = StreamController<DanmakuComment>.broadcast();
+  Stream<DanmakuComment> get sent => _sent.stream;
 
   /// Starts a session with each provider's saved default enable state.
   void begin(DanmakuTarget target) {
@@ -79,18 +90,18 @@ class DanmakuController extends ChangeNotifier {
         if (source.enabled && source.id != repository.local.id)
           _load(source.id, () async {
             final provider = repository.matcher(source.id);
+            Future<(String, List<DanmakuComment>)> load(String locator) async =>
+                (locator, await provider.load(locator));
             if (current.embedded case (final id, final locator)
                 when id == source.id) {
-              return provider.load(locator);
+              return load(locator);
             }
             final saved = current.matchKey == null
                 ? null
                 : await repository.savedLocator(current.matchKey!, source.id);
-            if (saved != null) return provider.load(saved);
+            if (saved != null) return load(saved);
             final match = await provider.match(query);
-            if (match.locator case final locator?) {
-              return provider.load(locator);
-            }
+            if (match.locator case final locator?) return load(locator);
             throw _NoMatch(match);
           }),
     ]);
@@ -99,8 +110,8 @@ class DanmakuController extends ChangeNotifier {
   /// Loads a chosen or typed locator and remembers it for this media.
   Future<void> load(String provider, String locator) => _load(
     provider,
-    () => repository.provider(provider).load(locator),
-    save: locator,
+    () async => (locator, await repository.provider(provider).load(locator)),
+    save: true,
   );
 
   bool searchable(String provider) =>
@@ -132,8 +143,8 @@ class DanmakuController extends ChangeNotifier {
 
   Future<void> _load(
     String provider,
-    Future<List<DanmakuComment>> Function() fetch, {
-    String? save,
+    Future<(String, List<DanmakuComment>)> Function() fetch, {
+    bool save = false,
   }) async {
     final target = _target;
     if (target == null) return;
@@ -144,6 +155,7 @@ class DanmakuController extends ChangeNotifier {
     source
       ..status = DanmakuStatus.loading
       ..count = 0
+      ..locator = null
       ..error = null
       ..message = null
       ..candidates = const [];
@@ -151,16 +163,17 @@ class DanmakuController extends ChangeNotifier {
     bool current() =>
         identical(_target, target) && identical(_loads[provider], ticket);
     try {
-      final comments = await fetch();
+      final (locator, comments) = await fetch();
       if (!current()) return;
-      if (save != null && target.matchKey != null) {
-        await repository.saveLocator(target.matchKey!, provider, save);
+      if (save && target.matchKey != null) {
+        await repository.saveLocator(target.matchKey!, provider, locator);
         if (!current()) return;
       }
       _comments[provider] = comments;
       source
         ..status = DanmakuStatus.ready
-        ..count = comments.length;
+        ..count = comments.length
+        ..locator = locator;
     } on _NoMatch catch (e) {
       if (!current()) return;
       source
@@ -181,6 +194,80 @@ class DanmakuController extends ChangeNotifier {
     _merge();
   }
 
+  /// Whether any source of this build takes comments.
+  bool get sendable => repository.matchers.any(
+    (provider) => switch (provider) {
+      DanmakuSender(:final sendable) => sendable,
+      _ => false,
+    },
+  );
+
+  /// The source comments are sent to: an enabled source, loaded for this
+  /// episode, whose provider takes them.
+  DanmakuSourceState? get sendSource => sources
+      .where(
+        (source) =>
+            source.enabled &&
+            source.locator != null &&
+            source.status == DanmakuStatus.ready &&
+            switch (repository.provider(source.id)) {
+              DanmakuSender(:final sendable) => sendable,
+              _ => false,
+            },
+      )
+      .firstOrNull;
+
+  /// Why nothing can be sent now; null when [sendSource] is ready.
+  String? get sendBlocked {
+    if (sendSource != null) return null;
+    if (_target == null) return '播放视频后发送弹幕';
+    final senders = [
+      for (final source in sources)
+        if (repository.provider(source.id) case DanmakuSender(:final sendable)
+            when sendable)
+          source,
+    ];
+    if (senders.isEmpty) return '暂不能发送弹幕';
+    if (!senders.any((source) => source.enabled)) {
+      return '${senders.first.label}弹幕已关闭';
+    }
+    if (senders.any((source) => source.status == DanmakuStatus.loading)) {
+      return '正在加载${senders.first.label}弹幕…';
+    }
+    return '本集未匹配${senders.first.label}，无法发送';
+  }
+
+  /// Sends [text] at [time] in the saved look and shows it at once, framed
+  /// as the viewer's own.
+  Future<void> send(double time, String text) async {
+    final target = _target;
+    final source = sendSource;
+    if (target == null || source == null) {
+      throw StateError(sendBlocked ?? '暂不能发送弹幕');
+    }
+    final comment = DanmakuComment(
+      time,
+      text.trim(),
+      source: source.id,
+      mode: preferences.sendMode,
+      color: preferences.sendColor,
+      own: true,
+    );
+    await (repository.provider(source.id) as DanmakuSender).send(
+      source.locator!,
+      comment,
+    );
+    if (!identical(_target, target)) return;
+    final list = [...?_comments[source.id]];
+    var index = list.length;
+    while (index > 0 && list[index - 1].time > time) {
+      index--;
+    }
+    _comments[source.id] = list..insert(index, comment);
+    source.count++;
+    _merge(sent: comment);
+  }
+
   void enable(String provider, bool enabled) {
     sources.firstWhere((source) => source.id == provider).enabled = enabled;
     _merge();
@@ -188,7 +275,7 @@ class DanmakuController extends ChangeNotifier {
   }
 
   /// Linear multiway merge of the enabled sources' sorted lists.
-  void _merge() {
+  void _merge({DanmakuComment? sent}) {
     final lists = [
       for (final source in sources)
         if (source.enabled) _comments[source.id] ?? const <DanmakuComment>[],
@@ -209,17 +296,23 @@ class DanmakuController extends ChangeNotifier {
       merged.add(lists[earliest][positions[earliest]++]);
     }
     comments = merged;
-    _refresh();
+    _refresh(sent: sent);
   }
 
-  void _refresh() {
+  void _refresh({DanmakuComment? sent}) {
     visible = preferences.visible(comments);
+    if (sent == null) {
+      revision++;
+    } else {
+      _sent.add(sent);
+    }
     notifyListeners();
   }
 
   @override
   void dispose() {
     preferences.removeListener(_refresh);
+    unawaited(_sent.close());
     super.dispose();
   }
 }

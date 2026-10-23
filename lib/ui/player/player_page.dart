@@ -104,6 +104,8 @@ class PlayerPageState extends State<PlayerPage> {
   final focus = FocusNode();
   final menuCloseFocus = FocusNode();
   final danmakuMenuFocus = FocusNode();
+  final danmakuDraft = TextEditingController();
+  final danmakuInput = FocusNode();
 
   bool controls = true;
   bool controlsHovered = false, controlsFocused = false, controlsPopup = false;
@@ -185,6 +187,8 @@ class PlayerPageState extends State<PlayerPage> {
     focus.dispose();
     menuCloseFocus.dispose();
     danmakuMenuFocus.dispose();
+    danmakuDraft.dispose();
+    danmakuInput.dispose();
     hideTimer?.cancel();
     feedbackTimer?.cancel();
     super.dispose();
@@ -368,6 +372,15 @@ class PlayerPageState extends State<PlayerPage> {
   }
 
   KeyEventResult handleKey(FocusNode node, KeyEvent event) {
+    // Typing a comment: keys edit the text, and Escape returns to the video.
+    if (danmakuInput.hasFocus) {
+      if (event is KeyDownEvent &&
+          event.logicalKey == LogicalKeyboardKey.escape) {
+        focus.requestFocus();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
     if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
       return handleRight(event);
     }
@@ -435,6 +448,11 @@ class PlayerPageState extends State<PlayerPage> {
     } else if (event.logicalKey == LogicalKeyboardKey.keyD) {
       playback.toggleDanmaku();
       showFeedback(playback.danmakuEnabled ? '弹幕已开启' : '弹幕已关闭');
+    } else if ((event.logicalKey == LogicalKeyboardKey.enter ||
+            event.logicalKey == LogicalKeyboardKey.numpadEnter) &&
+        playback.danmaku.sendBlocked == null &&
+        danmakuInput.context != null) {
+      danmakuInput.requestFocus();
     } else {
       return KeyEventResult.ignored;
     }
@@ -977,6 +995,30 @@ class PlayerPageState extends State<PlayerPage> {
                             onFeedback: showFeedback,
                             onStepFrame: (forward) =>
                                 unawaited(stepFrame(forward)),
+                            danmakuDraft: danmakuDraft,
+                            danmakuInput: danmakuInput,
+                            onDanmakuInputDone: () {
+                              focus.requestFocus();
+                              reveal();
+                            },
+                            danmakuMenu: (visibility) => ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxHeight: math.max(
+                                  120,
+                                  constraints.maxHeight - 160,
+                                ),
+                              ),
+                              child: DanmakuQuickSettings(
+                                visibility: visibility,
+                                closeFocusNode: menuCloseFocus,
+                                preferences: playback.danmaku.preferences,
+                                onClose: closeMenu,
+                                // The panel is hidden in immersive modes.
+                                onOpenSources: immersive
+                                    ? null
+                                    : () => showPanel(PlayerPanelTab.danmaku),
+                              ),
+                            ),
                             onNext: switch (nextEpisode) {
                               null => null,
                               final next => () => widget.onEpisode(next),
@@ -988,55 +1030,6 @@ class PlayerPageState extends State<PlayerPage> {
                             onReveal: reveal,
                             onFullscreen: fullscreen,
                             onWindowFullScreen: windowFullscreen,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                key: const ValueKey('player-menu'),
-                right: 12,
-                bottom: transportInset,
-                child: ExcludeFocus(
-                  excluding: !danmakuMenu,
-                  child: IgnorePointer(
-                    ignoring: !danmakuMenu,
-                    child: TweenAnimationBuilder<double>(
-                      tween: Tween(end: danmakuMenu ? 1 : 0),
-                      duration: motionDuration(context),
-                      curve: Curves.easeOutCubic,
-                      // The glass fades itself: an Opacity around its
-                      // backdrop blur would blur nothing on some renderers.
-                      builder: (_, value, _) => Offstage(
-                        offstage: value == 0,
-                        child: Transform.translate(
-                          offset: Offset(0, 5 * (1 - value)),
-                          child: Transform.scale(
-                            scale: .98 + .02 * value,
-                            alignment: Alignment.bottomRight,
-                            child: SizedBox(
-                              width: math.min(312, constraints.maxWidth - 24),
-                              child: ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  maxHeight: math.max(
-                                    120,
-                                    constraints.maxHeight - 160,
-                                  ),
-                                ),
-                                child: DanmakuQuickSettings(
-                                  visibility: value,
-                                  closeFocusNode: menuCloseFocus,
-                                  preferences: playback.danmaku.preferences,
-                                  onClose: closeMenu,
-                                  // The panel is hidden in immersive modes.
-                                  onOpenSources: immersive
-                                      ? null
-                                      : () => showPanel(PlayerPanelTab.danmaku),
-                                ),
-                              ),
-                            ),
                           ),
                         ),
                       ),

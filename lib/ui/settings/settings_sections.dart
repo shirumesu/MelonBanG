@@ -313,18 +313,6 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
               '兼容模式：可避开个别驱动的花屏、黑屏\n'
               '关闭：只用 CPU 解码',
         ),
-        choice(
-          '超分 超分辨率 anime4k 画质 放大 增强',
-          '超分辨率',
-          const {'off': '关闭', 'fast': '效率', 'quality': '质量'},
-          () => prefs.superResolution,
-          prefs.setSuperResolution,
-          subtitle: '用 Anime4K 把画面放大到窗口分辨率',
-          help:
-              '效率：适合核显\n'
-              '质量：需要较强的独立显卡\n'
-              '视频不小于窗口时只修线条，不放大',
-        ),
       ], title: '画面'),
       SettingsGroup([
         choice(

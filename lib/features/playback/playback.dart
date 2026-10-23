@@ -167,6 +167,15 @@ class Playback extends ChangeNotifier {
   Size? _display;
   Timer? _outputTimer;
 
+  /// What super-resolution does at the current size: the video's own size
+  /// and, when the shaders upscale it, the size they render. Null while it
+  /// is off or no video is shown.
+  ({Size source, Size? output})? upscale;
+
+  /// Announces [upscale] once it is known, after the player turned
+  /// super-resolution on or changed its chain.
+  bool _announceUpscale = false;
+
   /// The OP/ED already skipped automatically in this session, so seeking
   /// back into one plays it.
   bool _skippedOpening = false, _skippedEnding = false;
@@ -407,6 +416,19 @@ class Playback extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Turns super-resolution on with the last chosen chain, or off.
+  Future<void> toggleSuperResolution() => setSuperResolution(
+    settings.superResolution == 'off' ? settings.superResolutionChain : 'off',
+  );
+
+  /// Chooses the super-resolution chain from the player, which then says
+  /// what it does to the video.
+  Future<void> setSuperResolution(String mode) async {
+    _announceUpscale = mode != 'off';
+    await settings.setSuperResolution(mode);
+    if (mode == 'off') showNotice('超分已关闭');
+  }
+
   /// Loads the chosen super-resolution shaders, which mpv applies to the
   /// current file at once.
   Future<void> _applyShaders() async {
@@ -423,6 +445,7 @@ class Playback extends ChangeNotifier {
       }
     } catch (e) {
       _shaders = 'off';
+      _announceUpscale = false;
       showNotice('超分辨率不可用：$e');
     }
     _scheduleOutputSize();
@@ -452,11 +475,14 @@ class Playback extends ChangeNotifier {
     final height = ((rotated ? params.dw : params.dh) ?? 0).toDouble();
     final display = _display;
     int? outputWidth, outputHeight;
-    if (settings.superResolution != 'off' &&
+    final on =
+        settings.superResolution != 'off' &&
         display != null &&
         width > 0 &&
-        height > 0) {
-      var scale = math.min(display.width / width, display.height / height);
+        height > 0;
+    var scale = 1.0;
+    if (on) {
+      scale = math.min(display.width / width, display.height / height);
       // At most 4K's area; larger outputs only cost GPU time.
       scale = math.min(scale, math.sqrt(3840 * 2160 / (width * height)));
       if (scale > 1.05) {
@@ -468,6 +494,30 @@ class Playback extends ChangeNotifier {
       await video.setSize(width: outputWidth, height: outputHeight);
     } catch (_) {
       // The output keeps its previous size.
+    }
+    if (_closed) return;
+    // Anime4K's upscaling passes run only above 1.2×; below that only its
+    // restoration does.
+    final next = on
+        ? (
+            source: Size(width, height),
+            output: scale > 1.2
+                ? Size(outputWidth!.toDouble(), outputHeight!.toDouble())
+                : null,
+          )
+        : null;
+    final changed = next != upscale;
+    upscale = next;
+    if (_announceUpscale && settings.superResolution != 'off') {
+      _announceUpscale = false;
+      showNotice(switch (next) {
+        null => '超分已开启',
+        (:final source, output: final output?) =>
+          '超分 ${resolutionLabel(source)} → ${resolutionLabel(output)}',
+        _ => '超分已开启 · 画面不小于窗口，只修复线条',
+      });
+    } else if (changed) {
+      notifyListeners();
     }
   }
 
@@ -508,10 +558,9 @@ class Playback extends ChangeNotifier {
     showNotice(message);
   }
 
-  void _danmakuChanged() {
-    danmakuRevision++;
-    notifyListeners();
-  }
+  // The layer lays comments out again by the controller's own revision,
+  // which a sent comment leaves alone.
+  void _danmakuChanged() => notifyListeners();
 
   Future<void> selectSubtitle(SubtitleTrack track) async {
     cancelAutoplay();

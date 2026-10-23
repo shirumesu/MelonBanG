@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -51,4 +52,12 @@ Future<String> _copy(Directory folder, String name) async {
     await partial.rename(file.path);
   }
   return file.path;
+}
+
+/// 4K, 2K, or the short side such as 1080P, by the long side of [size].
+String resolutionLabel(Size size) {
+  final long = math.max(size.width, size.height);
+  if (long >= 3800) return '4K';
+  if (long >= 2500) return '2K';
+  return '${math.min(size.width, size.height).round()}P';
 }

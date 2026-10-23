@@ -1,14 +1,15 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/json.dart' show coverAddress;
 import '../../domain/catalog.dart';
 import '../core/account_avatar.dart';
 import '../core/action_feedback.dart';
+import '../core/bbcode.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
@@ -794,67 +795,35 @@ void _reveal(BuildContext context) =>
       );
     });
 
-/// Text cut to [maxLines] with 展开 / 收起 when it is longer; 展开 follows the
-/// ellipsis on the last line. Plain text ends at the last punctuation in the
-/// second half of the shown lines, or is cut where the lines end.
-class _ClampedText extends StatefulWidget {
-  _ClampedText.plain(
-    String text, {
+/// A post in Bangumi BBCode shown to [maxLines] lines of text, with 展开 /
+/// 收起 below when it is longer; stickers, pictures and quotes count by the
+/// room they take.
+class _ClampedPost extends StatefulWidget {
+  const _ClampedPost(
+    this.source, {
     required this.maxLines,
     this.truncated = false,
     this.onExpand,
-  }) : span = TextSpan(text: text),
-       punctuation = true;
-  const _ClampedText.rich(this.span, {required this.maxLines})
-    : punctuation = false,
-      truncated = false,
-      onExpand = null;
-  final TextSpan span;
+  });
+  final String source;
   final int maxLines;
-  final bool punctuation;
 
-  /// The text goes on past [span], so 展开 shows even when it fits.
+  /// The post goes on past [source], so 展开 shows even when it fits.
   final bool truncated;
 
-  /// Replaces expanding in place, for text read in full elsewhere.
+  /// Replaces expanding in place, for posts read in full elsewhere.
   final VoidCallback? onExpand;
 
   @override
-  State<_ClampedText> createState() => _ClampedTextState();
+  State<_ClampedPost> createState() => _ClampedPostState();
 }
 
-class _ClampedTextState extends State<_ClampedText>
+class _ClampedPostState extends State<_ClampedPost>
     with AutomaticKeepAliveClientMixin {
-  static const _breaks = '。，、；：！？…,.;:!?～~ ';
-  static const _closers = '）)」』】》”’"';
-  bool _expanded = false;
-  late final _expand = TapGestureRecognizer()
-    ..onTap = () => (widget.onExpand ?? _toggle)();
+  bool _expanded = false, _overflows = false;
 
   @override
   bool get wantKeepAlive => _expanded;
-
-  @override
-  void dispose() {
-    _expand.dispose();
-    super.dispose();
-  }
-
-  /// How much of [text] to show before the ellipsis when the shown lines
-  /// end at [end].
-  int _cut(String text, int end) {
-    // One character makes room for the ellipsis.
-    final shown = text.substring(0, math.max(0, end - 1));
-    if (widget.punctuation) {
-      for (var i = shown.length - 1; i >= shown.length ~/ 2; i--) {
-        if (_closers.contains(shown[i])) return i + 1;
-        if (_breaks.contains(shown[i])) {
-          return shown.substring(0, i).trimRight().length;
-        }
-      }
-    }
-    return shown.trimRight().length;
-  }
 
   void _toggle() {
     setState(() => _expanded = !_expanded);
@@ -865,84 +834,112 @@ class _ClampedTextState extends State<_ClampedText>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final style = DefaultTextStyle.of(context).style.merge(_postText);
-        final span = TextSpan(style: style, children: [widget.span]);
-        TextPainter layout(InlineSpan text) => TextPainter(
-          text: text,
-          maxLines: widget.maxLines,
-          textDirection: Directionality.of(context),
-          textScaler: MediaQuery.textScalerOf(context),
-        )..layout(maxWidth: constraints.maxWidth);
-        final painter = layout(span);
-        final clamped = painter.didExceedMaxLines;
-        if (!clamped && !widget.truncated || _expanded) {
-          painter.dispose();
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SelectableText.rich(span),
-              if (_expanded)
-                TextButton(
-                  style: _compactButton,
-                  onPressed: _toggle,
-                  child: const Text('收起'),
-                ),
-            ],
-          );
-        }
-        final link = TextSpan(
-          text: '展开',
-          style: style.copyWith(color: Theme.of(context).colorScheme.primary),
-          recognizer: _expand,
-        );
-        TextSpan ending(TextSpan shown) => TextSpan(
-          style: style,
-          children: [
-            shown,
-            const TextSpan(text: '…'),
-            link,
-          ],
-        );
-        var text = ending(widget.span);
-        final whole = layout(text);
-        if (clamped || whole.didExceedMaxLines) {
-          final label = layout(link);
-          final end = painter
-              .getPositionForOffset(
-                Offset(constraints.maxWidth - label.width, painter.height - 1),
-              )
-              .offset;
-          label.dispose();
-          text = ending(_prefix(widget.span, _cut(span.toPlainText(), end)));
-        }
-        whole.dispose();
-        painter.dispose();
-        return Text.rich(text);
-      },
+    final post = BBCode(widget.source, style: _postText);
+    if (_expanded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          post,
+          TextButton(
+            style: _compactButton,
+            onPressed: _toggle,
+            child: const Text('收起'),
+          ),
+        ],
+      );
+    }
+    final line = MediaQuery.textScalerOf(context)
+        .scale(_postText.fontSize! * _postText.height!);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _HeightClamp(
+          maxHeight: line * widget.maxLines,
+          onOverflow: (value) {
+            if (mounted && value != _overflows) {
+              setState(() => _overflows = value);
+            }
+          },
+          child: post,
+        ),
+        if (_overflows || widget.truncated)
+          TextButton(
+            style: _compactButton,
+            onPressed: widget.onExpand ?? _toggle,
+            child: const Text('展开'),
+          ),
+      ],
     );
   }
 }
 
-/// The first [length] characters of [span], keeping their styles.
-TextSpan _prefix(TextSpan span, int length) {
-  var left = length;
-  TextSpan take(TextSpan span) {
-    final text = span.text ?? '';
-    final shown = text.substring(0, math.min(left, text.length));
-    left -= shown.length;
-    return TextSpan(
-      text: shown,
-      style: span.style,
-      children: [
-        for (final child in span.children ?? const <InlineSpan>[])
-          if (left > 0) take(child as TextSpan),
-      ],
-    );
+/// Shows at most [maxHeight] of its child and reports whether the rest was
+/// cut off.
+class _HeightClamp extends SingleChildRenderObjectWidget {
+  const _HeightClamp({
+    required this.maxHeight,
+    required this.onOverflow,
+    super.child,
+  });
+  final double maxHeight;
+  final ValueChanged<bool> onOverflow;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderHeightClamp(maxHeight, onOverflow);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderHeightClamp renderObject,
+  ) {
+    renderObject
+      ..maxHeight = maxHeight
+      ..onOverflow = onOverflow;
+  }
+}
+
+class _RenderHeightClamp extends RenderProxyBox {
+  _RenderHeightClamp(this._maxHeight, this.onOverflow);
+  double _maxHeight;
+  ValueChanged<bool> onOverflow;
+  bool? _reported;
+
+  set maxHeight(double value) {
+    if (value == _maxHeight) return;
+    _maxHeight = value;
+    markNeedsLayout();
   }
 
-  return take(span);
+  @override
+  void performLayout() {
+    final child = this.child!;
+    child.layout(
+      constraints.copyWith(minHeight: 0, maxHeight: double.infinity),
+      parentUsesSize: true,
+    );
+    final overflows = child.size.height > _maxHeight + .5;
+    size = constraints.constrain(
+      Size(child.size.width, math.min(child.size.height, _maxHeight)),
+    );
+    if (overflows != _reported) {
+      _reported = overflows;
+      final report = onOverflow;
+      WidgetsBinding.instance.addPostFrameCallback((_) => report(overflows));
+    }
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    if (_reported != true) return super.paint(context, offset);
+    layer = context.pushClipRect(
+      needsCompositing,
+      offset,
+      Offset.zero & size,
+      super.paint,
+      oldLayer: layer as ClipRectLayer?,
+    );
+  }
 }
 
 /// A review's summary in three lines; 展开 reads the whole post, since the
@@ -989,10 +986,7 @@ class _ReviewState extends State<_Review> with AutomaticKeepAliveClientMixin {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SelectableText.rich(
-            bbcodeSpan(context, content.data!),
-            style: _postText,
-          ),
+          BBCode(content.data!, style: _postText),
           TextButton(
             style: _compactButton,
             onPressed: _toggle,
@@ -1006,8 +1000,8 @@ class _ReviewState extends State<_Review> with AutomaticKeepAliveClientMixin {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _ClampedText.plain(
-          bbcodeSpan(context, summary).toPlainText(),
+        _ClampedPost(
+          summary,
           maxLines: 3,
           truncated: widget.summary.runes.length >= _summaryLimit,
           onExpand: _toggle,
@@ -1086,7 +1080,7 @@ class _TopicThreadState extends State<_TopicThread>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (posts.firstOrNull case final first?)
-          _ClampedText.rich(bbcodeSpan(context, first.content), maxLines: 4),
+          _ClampedPost(first.content, maxLines: 4),
         if (floors.isNotEmpty)
           Container(
             key: _replies,
@@ -1316,10 +1310,7 @@ class _PostTile extends StatelessWidget {
                 if (post.content.trim().isEmpty)
                   Text('（内容已删除）', style: small)
                 else
-                  _ClampedText.rich(
-                    bbcodeSpan(context, post.content),
-                    maxLines: 6,
-                  ),
+                  _ClampedPost(post.content, maxLines: 6),
               ],
             ),
           ),
@@ -1327,62 +1318,6 @@ class _PostTile extends StatelessWidget {
       ),
     );
   }
-}
-
-final _bbcodeTags = RegExp(
-  r'\[(/?)(b|i|u|s|url|img|mask|quote|color|size|font|code|align|left|right|center|sticker|user|subject)(?:=[^\]]*)?\]|\(bgm\d+\)',
-  caseSensitive: false,
-);
-
-/// Bangumi BBCode as styled text: bold, italic, underline and strike keep
-/// their look, spoilers stay blacked out, quotes are muted, images become
-/// [图片], and other tags and stickers are dropped.
-TextSpan bbcodeSpan(BuildContext context, String raw) {
-  final scheme = Theme.of(context).colorScheme;
-  final text = raw.replaceAll('\r\n', '\n').trim();
-  final open = <String, int>{};
-  final spans = <InlineSpan>[];
-  bool on(String tag) => (open[tag] ?? 0) > 0;
-  void add(String value) {
-    if (value.isEmpty) return;
-    spans.add(
-      TextSpan(
-        text: value,
-        style: TextStyle(
-          fontWeight: on('b') ? FontWeight.w700 : null,
-          fontStyle: on('i') ? FontStyle.italic : null,
-          decoration: TextDecoration.combine([
-            if (on('u')) TextDecoration.underline,
-            if (on('s')) TextDecoration.lineThrough,
-          ]),
-          color: on('mask')
-              ? scheme.onSurface
-              : on('quote')
-              ? scheme.onSurfaceVariant
-              : null,
-          backgroundColor: on('mask') ? scheme.onSurface : null,
-        ),
-      ),
-    );
-  }
-
-  var start = 0;
-  var image = false;
-  for (final match in _bbcodeTags.allMatches(text)) {
-    if (!image) add(text.substring(start, match.start));
-    start = match.end;
-    final tag = match[2]?.toLowerCase();
-    if (tag == null) continue;
-    final closing = match[1] == '/';
-    if (tag == 'img') {
-      image = !closing;
-      if (image) add('[图片]');
-      continue;
-    }
-    open[tag] = math.max(0, (open[tag] ?? 0) + (closing ? -1 : 1));
-  }
-  if (!image) add(text.substring(start));
-  return TextSpan(children: spans);
 }
 
 /// A 1–10 score as five stars in half steps, as Bangumi shows comments.
