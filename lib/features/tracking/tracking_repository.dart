@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../core/error_message.dart';
 import '../../domain/catalog.dart';
 import '../../domain/collection_edit.dart';
 import '../../core/json.dart';
@@ -365,7 +366,7 @@ class TrackingRepository {
       _changed();
       await flush();
     } catch (e) {
-      if (user == account.userId) lastSyncError = e.toString();
+      if (user == account.userId) lastSyncError = errorMessage(e);
       _changed();
       rethrow;
     }
@@ -559,7 +560,7 @@ class TrackingRepository {
             blocked.add(entity);
             error ??= input['kind'] == 'episode' && e.status == 400
                 ? '章节 ${input['episodeId']} 同步失败，请先收藏对应番剧后重试。'
-                : e.toString();
+                : errorMessage(e);
           } finally {
             _sendingSequence = null;
           }
@@ -567,7 +568,7 @@ class TrackingRepository {
       }
       if (user == account.userId) lastSyncError = error;
     } catch (e) {
-      if (user == account.userId) lastSyncError = e.toString();
+      if (user == account.userId) lastSyncError = errorMessage(e);
     }
     if (changed || previousError != lastSyncError) _changed();
   }

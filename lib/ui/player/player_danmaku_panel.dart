@@ -1,6 +1,7 @@
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/error_message.dart';
 import '../../domain/danmaku.dart';
 import '../../features/danmaku/danmaku_controller.dart';
 import '../../features/playback/playback.dart';
@@ -89,7 +90,7 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
       if (mounted && ticket == _loadRequest) setState(() => editing = null);
     } catch (error) {
       if (mounted && ticket == _loadRequest) {
-        setState(() => loadError = '弹幕加载失败：$error');
+        setState(() => loadError = '弹幕加载失败：${errorMessage(error)}');
       }
     } finally {
       if (mounted && ticket == _loadRequest) setState(() => loading = false);
@@ -124,7 +125,7 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
       }
     } catch (error) {
       if (mounted && ticket == _searchRequest) {
-        setState(() => searchError = '搜索失败：$error');
+        setState(() => searchError = '搜索失败：${errorMessage(error)}');
       }
     } finally {
       if (mounted && ticket == _searchRequest) {

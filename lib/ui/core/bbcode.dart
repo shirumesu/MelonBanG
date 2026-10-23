@@ -21,31 +21,6 @@ class BBCode extends StatefulWidget {
   State<BBCode> createState() => _BBCodeState();
 }
 
-/// The text of [source] without markup, stickers or spoilers, for
-/// summaries and labels.
-String bbcodePlainText(String source) {
-  final buffer = StringBuffer();
-  void write(List<_Node> nodes) {
-    for (final node in nodes) {
-      switch (node) {
-        case _Text(:final text) || _Code(:final text):
-          buffer.write(text);
-        case _Sticker():
-          break;
-        case _Tag(name: 'img'):
-          buffer.write('[图片]');
-        case _Tag(name: 'mask'):
-          buffer.write('[剧透]');
-        case _Tag(:final children):
-          write(children);
-      }
-    }
-  }
-
-  write(_Parser(_normalized(source)).parse());
-  return buffer.toString();
-}
-
 String _normalized(String source) => source.replaceAll('\r\n', '\n').trim();
 
 class _BBCodeState extends State<BBCode> {

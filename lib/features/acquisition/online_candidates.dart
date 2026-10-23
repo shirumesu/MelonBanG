@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../core/error_message.dart';
 import '../../domain/catalog.dart';
 import '../../core/network.dart';
 import 'resource_metadata.dart';
@@ -144,7 +145,7 @@ Future<List<PlayCandidate>> onlineCandidates(
           failed: 1,
           resultCount: found(),
           status: found() == 0 ? SearchStatus.error : SearchStatus.partial,
-          message: '$error',
+          message: errorMessage(error),
         );
       }
       onProgress?.call(progress);

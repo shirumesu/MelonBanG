@@ -4,6 +4,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import '../../core/error_message.dart';
 import '../../core/storage_locations.dart';
 import '../../core/storage_usage.dart';
 import '../core/action_feedback.dart';
@@ -147,7 +148,7 @@ class _StorageSettingsState extends State<StorageSettings> {
         mediaPath: media ? selected : null,
       );
     } catch (e) {
-      error = '$e'.replaceFirst('Bad state: ', '');
+      error = errorMessage(e);
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -311,7 +312,7 @@ class _StorageSetupState extends State<StorageSetup> {
     } catch (e) {
       setState(() {
         busy = false;
-        error = '$e'.replaceFirst('Bad state: ', '');
+        error = errorMessage(e);
       });
     }
   }

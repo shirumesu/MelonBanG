@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import '../../core/error_message.dart';
 import '../../domain/catalog.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
@@ -235,7 +236,7 @@ class PlaySelectionRepository {
         }
       } catch (error) {
         cloudFailed++;
-        cloudIssue = '$error';
+        cloudIssue = errorMessage(error);
       } finally {
         if (cloudTurns.isNotEmpty) {
           cloudTurns.removeAt(0).complete();

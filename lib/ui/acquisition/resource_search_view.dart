@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/error_message.dart';
 import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/resource_title.dart';
@@ -302,10 +303,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       if (mounted) setState(() => downloadTasks[id] = task.id);
     } catch (error) {
       if (mounted) {
-        setState(
-          () => downloadErrors[id] =
-              '添加失败：${error.toString().replaceFirst('Bad state: ', '')}',
-        );
+        setState(() => downloadErrors[id] = '添加失败：${errorMessage(error)}');
       }
     } finally {
       if (mounted) setState(() => adding.remove(id));
@@ -347,11 +345,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       await widget.onPlay(candidate, target);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(error.toString().replaceFirst('Bad state: ', '')),
-          ),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(errorMessage(error))));
       }
     } finally {
       if (mounted) setState(() => opening = null);

@@ -284,7 +284,7 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
           '自动标记为看过',
           () => prefs.autoMarkWatched,
           prefs.setAutoMarkWatched,
-          subtitle: '播放进度达到 80% 时将本话标为看过',
+          subtitle: '播放进度达到 80% 时将本话标为已看',
         ),
         toggle(
           'op 片头 跳过',

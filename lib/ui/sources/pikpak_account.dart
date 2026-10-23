@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/error_message.dart';
 import '../../domain/sources.dart';
 import '../core/page_widgets.dart';
 
@@ -65,7 +66,7 @@ class _PikPakAccountState extends State<PikPakAccount> {
             error = 'PikPak 需要网页验证，请完成验证后重试。';
             captcha = Uri.parse(failure.url);
           } else {
-            error = '$failure'.replaceFirst('Bad state: ', '');
+            error = errorMessage(failure);
           }
         });
       }

@@ -1119,7 +1119,7 @@ class _FailureCard extends StatelessWidget {
           ),
           const SizedBox(height: Gap.md),
           Text(
-            reason.replaceFirst('Bad state: ', ''),
+            reason,
             textAlign: TextAlign.center,
             maxLines: 6,
             overflow: TextOverflow.ellipsis,

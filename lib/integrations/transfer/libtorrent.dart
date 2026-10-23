@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:libtorrent_flutter/libtorrent_flutter.dart' as lt;
 import 'package:path/path.dart' as p;
 
+import '../../core/error_message.dart';
 import '../../core/json.dart';
 import '../../core/store.dart';
 import '../../domain/torrent_identity.dart';
@@ -129,7 +130,7 @@ class LibtorrentTransfer implements TorrentTransfer {
         _attach(task, restoring: true);
       } catch (e) {
         task['status'] = 'failed';
-        task['errorMessage'] = e.toString();
+        task['errorMessage'] = errorMessage(e);
       }
     }
     _schedule();
@@ -720,7 +721,8 @@ class LibtorrentTransfer implements TorrentTransfer {
           }
         } catch (error, stack) {
           for (final id in values.keys) {
-            _tasks[id]?['persistenceError'] = '下载记录保存失败，将自动重试：$error';
+            _tasks[id]?['persistenceError'] =
+                '下载记录保存失败，将自动重试：${errorMessage(error)}';
           }
           for (final waiter in waiters) {
             waiter.completeError(error, stack);

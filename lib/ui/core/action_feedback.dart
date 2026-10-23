@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/error_message.dart';
 import 'motion.dart';
 import 'theme.dart';
 
@@ -22,7 +23,7 @@ class ActionFeedback extends ChangeNotifier {
     try {
       result = await action();
     } catch (e) {
-      result = e.toString().replaceFirst('Bad state: ', '');
+      result = errorMessage(e);
     }
     if (_disposed) return;
     busy = false;

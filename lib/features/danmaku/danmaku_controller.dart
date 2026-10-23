@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../core/error_message.dart';
 import '../../domain/danmaku.dart';
 import 'danmaku_preferences.dart';
 import 'danmaku_repository.dart';
@@ -195,7 +196,7 @@ class DanmakuController extends ChangeNotifier {
       if (!current()) return;
       source
         ..status = DanmakuStatus.error
-        ..error = e.toString();
+        ..error = errorMessage(e);
     }
     _merge();
   }

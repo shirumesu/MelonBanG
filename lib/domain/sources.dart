@@ -55,7 +55,6 @@ final class SourceInstance {
   final int minEngine;
   final Json config;
   bool get supported => minEngine <= sourceEngineVersion;
-  String get homepage => website ?? baseUrls.firstOrNull ?? '';
 }
 
 /// A versioned rule set, as served by Melon API or bundled with the app.

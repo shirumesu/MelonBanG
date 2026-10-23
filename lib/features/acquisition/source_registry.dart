@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/error_message.dart';
 import '../../core/hls_playlist.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
@@ -132,7 +133,7 @@ class SourceRegistry extends ChangeNotifier {
       }
       _notify();
     } catch (error) {
-      updateIssue = '规则更新失败，继续使用$ruleOrigin：$error';
+      updateIssue = '规则更新失败，继续使用$ruleOrigin：${errorMessage(error)}';
       _notify();
       rethrow;
     }
@@ -148,7 +149,7 @@ class SourceRegistry extends ChangeNotifier {
     health[id] = error is SourceVerificationRequired
         ? SourceHealth.verification
         : SourceHealth.error;
-    errors[id] = '$error';
+    errors[id] = errorMessage(error);
     _notify();
   }
 

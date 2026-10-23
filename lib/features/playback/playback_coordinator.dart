@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 
+import '../../core/error_message.dart';
 import '../../core/network.dart';
 import '../tracking/tracking_repository.dart';
 import '../../domain/catalog.dart';
@@ -352,7 +353,7 @@ class PlaybackCoordinator extends ChangeNotifier {
       isCurrent: () => request == _selectionRequest,
     );
     if (failure case final error?) {
-      _failPreparing(ticket, '$error'.replaceFirst('Bad state: ', ''));
+      _failPreparing(ticket, errorMessage(error));
     }
   }
 
@@ -571,7 +572,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     } on RequestCancelled {
       return;
     } catch (e) {
-      _failPreparing(ticket, e.toString().replaceFirst('Bad state: ', ''));
+      _failPreparing(ticket, errorMessage(e));
       return;
     }
     _failPreparing(ticket, '没能开始播放，可以换一个资源再试');
@@ -698,7 +699,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     );
     if (failure != null && !_closed && request == _selectionRequest) {
       if (recovery) throw failure!;
-      await _recover('$failure');
+      await _recover(errorMessage(failure!));
     }
   }
 
@@ -762,7 +763,7 @@ class PlaybackCoordinator extends ChangeNotifier {
           );
           if (playback.error == null) return;
         } catch (error) {
-          reason = '$error';
+          reason = errorMessage(error);
         }
       }
       if (!_closed && request == _selectionRequest) {
@@ -783,7 +784,6 @@ class PlaybackCoordinator extends ChangeNotifier {
     PlayCandidate candidate,
     String reason,
   ) {
-    reason = reason.replaceFirst('Bad state: ', '');
     _retryPreparing = () =>
         prepare(item, episode, () => playCandidate(candidate, item, episode));
     if (preparing == null && playback.uri == null) {
@@ -929,9 +929,7 @@ class PlaybackCoordinator extends ChangeNotifier {
       return;
     } catch (e) {
       if (!_closed) {
-        playback.showNotice(
-          '自动缓存下一话失败：${'$e'.replaceFirst('Bad state: ', '')}',
-        );
+        playback.showNotice('自动缓存下一话失败：${errorMessage(e)}');
       }
     }
   }
