@@ -300,7 +300,8 @@ class _MotionPulseState extends State<MotionPulse>
 }
 
 /// An image's [frameBuilder] body: the picture fades in over [placeholder]
-/// once decoded, and shows at once when it was already in memory.
+/// once decoded, and shows at once when it was already in memory. Until then
+/// the placeholder keeps the pointer, so its tooltip and tap handling apply.
 class ImageFadeIn extends StatelessWidget {
   const ImageFadeIn({
     super.key,
@@ -320,11 +321,14 @@ class ImageFadeIn extends StatelessWidget {
       fit: StackFit.passthrough,
       children: [
         ExcludeSemantics(excluding: frame != null, child: placeholder),
-        AnimatedOpacity(
-          opacity: frame == null ? 0 : 1,
-          duration: motionDuration(context, 240),
-          curve: Curves.easeOut,
-          child: child,
+        IgnorePointer(
+          ignoring: frame == null,
+          child: AnimatedOpacity(
+            opacity: frame == null ? 0 : 1,
+            duration: motionDuration(context, 240),
+            curve: Curves.easeOut,
+            child: child,
+          ),
         ),
       ],
     );
