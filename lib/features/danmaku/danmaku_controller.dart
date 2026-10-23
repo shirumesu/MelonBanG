@@ -115,6 +115,8 @@ class DanmakuController extends ChangeNotifier {
     save: true,
   );
 
+  bool manual(String provider) =>
+      (repository.provider(provider) as DanmakuMatcher).manual;
   bool searchable(String provider) =>
       repository.provider(provider) is DanmakuSearch;
   Future<List<DanmakuCandidate>> search(String provider, String title) =>
@@ -278,8 +280,8 @@ class DanmakuController extends ChangeNotifier {
       time,
       text.trim(),
       source: source.id,
-      mode: preferences.sendMode,
-      color: preferences.sendColor,
+      mode: preferences.sendStyle.value.mode,
+      color: preferences.sendStyle.value.color,
       own: true,
     );
     final sender = repository.provider(source.id) as DanmakuSender;

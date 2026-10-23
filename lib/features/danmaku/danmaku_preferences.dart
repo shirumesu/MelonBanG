@@ -49,10 +49,12 @@ class DanmakuPreferences extends ChangeNotifier {
       colorful = saved['colorful'] as bool? ?? true;
       stroke = saved['stroke'] as bool? ?? true;
       merge = saved['merge'] as bool? ?? true;
-      sendMode =
-          DanmakuMode.values.asNameMap()[saved['sendMode']] ??
-          DanmakuMode.scroll;
-      sendColor = number(saved['sendColor'] ?? 0xffffff).toInt() & 0xffffff;
+      sendStyle.value = (
+        mode:
+            DanmakuMode.values.asNameMap()[saved['sendMode']] ??
+            DanmakuMode.scroll,
+        color: number(saved['sendColor'] ?? 0xffffff).toInt() & 0xffffff,
+      );
       providers = object(saved['providers'])
           .map((key, value) => MapEntry(key, value == true));
       filters =
@@ -69,6 +71,7 @@ class DanmakuPreferences extends ChangeNotifier {
     } on FormatException catch (_) {
       /* Keep defaults if old preferences are unreadable. */
     }
+    sendStyle.addListener(_save);
   }
   final SharedPreferences storage;
   bool enabled = true,
@@ -83,9 +86,12 @@ class DanmakuPreferences extends ChangeNotifier {
   double size = 25, opacity = .9, area = .6;
   int density = 1, speed = 2;
 
-  /// The look of comments sent from the player.
-  DanmakuMode sendMode = DanmakuMode.scroll;
-  int sendColor = 0xffffff;
+  /// The look of comments sent from the player. It notifies on its own:
+  /// the display preferences lay out the shown comments again on change.
+  final sendStyle = ValueNotifier<({DanmakuMode mode, int color})>((
+    mode: DanmakuMode.scroll,
+    color: 0xffffff,
+  ));
 
   /// Scroll speed multipliers from 极慢 to 极快, spanning Bilibili's 0.4–1.6.
   static const speeds = [.4, .7, 1.0, 1.3, 1.6];
@@ -95,6 +101,11 @@ class DanmakuPreferences extends ChangeNotifier {
   bool sourceEnabled(String provider) => providers[provider] ?? true;
   void update(VoidCallback change) {
     change();
+    _save();
+    notifyListeners();
+  }
+
+  void _save() {
     storage.setString(
       'danmaku-preferences',
       jsonEncode({
@@ -112,8 +123,8 @@ class DanmakuPreferences extends ChangeNotifier {
         'colorful': colorful,
         'stroke': stroke,
         'merge': merge,
-        'sendMode': sendMode.name,
-        'sendColor': sendColor,
+        'sendMode': sendStyle.value.mode.name,
+        'sendColor': sendStyle.value.color,
         'providers': providers,
       }),
     );
@@ -121,7 +132,6 @@ class DanmakuPreferences extends ChangeNotifier {
       'danmaku-filters',
       jsonEncode(filters.map((rule) => rule.toJson()).toList()),
     );
-    notifyListeners();
   }
 
   void resetDisplay() => update(() {

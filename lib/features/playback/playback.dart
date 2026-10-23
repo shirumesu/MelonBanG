@@ -439,10 +439,12 @@ class Playback extends ChangeNotifier {
     try {
       final files = await superResolutionShaders(mode);
       if (_closed || _shaders != mode) return;
-      await platform.command(['change-list', 'glsl-shaders', 'clr', '']);
-      for (final file in files) {
-        await platform.command(['change-list', 'glsl-shaders', 'append', file]);
-      }
+      // One write, so a quick toggle cannot interleave with a chain still
+      // being appended.
+      await platform.setProperty(
+        'glsl-shaders',
+        files.join(Platform.isWindows ? ';' : ':'),
+      );
     } catch (e) {
       _shaders = 'off';
       _announceUpscale = false;

@@ -292,14 +292,20 @@ void VideoOutput::Resize(int64_t required_width, int64_t required_height) {
             }
           }
         });
+    std::lock_guard<std::mutex> lock(textures_mutex_);
     texture_id_ = 0;
   }
   // H/W
   if (surface_manager_ != nullptr) {
-    // Destroy internal ID3D11Texture2D & EGLSurface & create new with updated
-    // dimensions while preserving previous EGLDisplay & EGLContext.
-    surface_manager_->SetSize(static_cast<int32_t>(required_width),
-                              static_cast<int32_t>(required_height));
+    {
+      // MelonBanG: Flutter's raster thread copies from the surface in the
+      // texture callback, which must not overlap its recreation.
+      std::lock_guard<std::mutex> lock(textures_mutex_);
+      // Destroy internal ID3D11Texture2D & EGLSurface & create new with
+      // updated dimensions while preserving previous EGLDisplay & EGLContext.
+      surface_manager_->SetSize(static_cast<int32_t>(required_width),
+                                static_cast<int32_t>(required_height));
+    }
     auto texture = std::make_unique<FlutterDesktopGpuSurfaceDescriptor>();
     texture->struct_size = sizeof(FlutterDesktopGpuSurfaceDescriptor);
     texture->handle = surface_manager_->handle();
@@ -312,22 +318,25 @@ void VideoOutput::Resize(int64_t required_width, int64_t required_height) {
         std::make_unique<flutter::TextureVariant>(flutter::GpuSurfaceTexture(
             kFlutterDesktopGpuSurfaceTypeDxgiSharedHandle, [&](auto, auto) {
               std::lock_guard<std::mutex> lock(textures_mutex_);
-              if (texture_id_) {
-                surface_manager_->Read();
-                return textures_.at(texture_id_).get();
-              } else {
+              // MelonBanG: the previous texture stays registered until
+              // Flutter frees it, so its callback also lands here, while the
+              // current texture may be unset.
+              auto texture = textures_.find(texture_id_);
+              if (texture == textures_.end()) {
                 return (FlutterDesktopGpuSurfaceDescriptor*)nullptr;
               }
+              surface_manager_->Read();
+              return texture->second.get();
             }));
     // Register new texture.
-    texture_id_ =
+    auto id =
         registrar_->texture_registrar()->RegisterTexture(texture_variant.get());
-    std::cout << "media_kit: VideoOutput: Create Texture: " << texture_id_
-              << std::endl;
+    std::cout << "media_kit: VideoOutput: Create Texture: " << id << std::endl;
     std::lock_guard<std::mutex> lock(textures_mutex_);
-    textures_.emplace(std::make_pair(texture_id_, std::move(texture)));
-    texture_variants_.emplace(
-        std::make_pair(texture_id_, std::move(texture_variant)));
+    textures_.emplace(std::make_pair(id, std::move(texture)));
+    texture_variants_.emplace(std::make_pair(id, std::move(texture_variant)));
+    // MelonBanG: set only once stored, where the texture callbacks look it up.
+    texture_id_ = id;
     // Notify public texture update callback.
     texture_update_callback_(texture_id_, required_width, required_height);
   }
@@ -342,22 +351,22 @@ void VideoOutput::Resize(int64_t required_width, int64_t required_height) {
     auto texture_variant = std::make_unique<flutter::TextureVariant>(
         flutter::PixelBufferTexture([&](auto, auto) {
           std::lock_guard<std::mutex> lock(textures_mutex_);
-          if (texture_id_) {
-            return pixel_buffer_textures_.at(texture_id_).get();
-          } else {
+          // MelonBanG: see the H/W callback.
+          auto texture = pixel_buffer_textures_.find(texture_id_);
+          if (texture == pixel_buffer_textures_.end()) {
             return (FlutterDesktopPixelBuffer*)nullptr;
           }
+          return texture->second.get();
         }));
     // Register new texture.
-    texture_id_ =
+    auto id =
         registrar_->texture_registrar()->RegisterTexture(texture_variant.get());
-    std::cout << "media_kit: VideoOutput: Create Texture: " << texture_id_
-              << std::endl;
+    std::cout << "media_kit: VideoOutput: Create Texture: " << id << std::endl;
     std::lock_guard<std::mutex> lock(textures_mutex_);
     pixel_buffer_textures_.emplace(
-        std::make_pair(texture_id_, std::move(pixel_buffer_texture)));
-    texture_variants_.emplace(
-        std::make_pair(texture_id_, std::move(texture_variant)));
+        std::make_pair(id, std::move(pixel_buffer_texture)));
+    texture_variants_.emplace(std::make_pair(id, std::move(texture_variant)));
+    texture_id_ = id;
     // Notify public texture update callback.
     texture_update_callback_(texture_id_, required_width, required_height);
   }

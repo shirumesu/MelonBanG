@@ -85,3 +85,16 @@ patch skips the automatic resize while a fixed size is set. MelonBanG fixes the
 output to the displayed size only while super-resolution shaders are enabled,
 so they have room to upscale, and clears it otherwise. Revalidate the output
 size after switching files of different dimensions with the setting on.
+
+## Windows texture resize
+
+`VideoOutput::Resize` assigned the new texture ID before storing its descriptor,
+and recreated the ANGLE surface without the textures lock. Flutter's raster
+thread keeps calling the previous texture's callback until it frees it, and that
+callback looked up the current ID with `unordered_map::at`; in the gap it threw
+`std::out_of_range` and the process aborted (0xc0000409 in flutter_windows.dll,
+seen in two crash dumps while toggling super-resolution, which resizes the output
+on every toggle and display change). The callbacks now use `find` and return
+null when the ID is not stored, the ID is set under the lock after the descriptor
+is stored, and the surface is recreated under the same lock so `Read` never copies
+from a surface being replaced.

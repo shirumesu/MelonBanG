@@ -263,6 +263,8 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
                     child: Text(
                       open
                           ? '收起'
+                          : !danmaku.manual(source.id)
+                          ? '详情'
                           : source.status == DanmakuStatus.ready
                           ? '更换'
                           : '匹配',
@@ -288,6 +290,15 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
   Widget matching(DanmakuSourceState source) {
     final small = Theme.of(context).textTheme.bodySmall;
     final scheme = Theme.of(context).colorScheme;
+    if (!danmaku.manual(source.id)) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(Gap.sm, 0, Gap.sm, Gap.sm),
+        child: Text(
+          '随播放的章节自动匹配，无需手动选择',
+          style: small?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+      );
+    }
     final searchable = danmaku.searchable(source.id);
     Widget choice(DanmakuCandidate match) => ListTile(
       dense: true,

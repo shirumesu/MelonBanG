@@ -31,6 +31,8 @@ class MelonDanmaku implements DanmakuMatcher, DanmakuSender {
       '登录 Bangumi 后可以在播放器里发送：每 3 秒一条，每天最多 200 条。';
   @override
   String? get unconfigured => null;
+  @override
+  bool get manual => false;
 
   Uri _uri(String path) => Uri.parse('$melonApiOrigin/v1/danmaku/$path');
 

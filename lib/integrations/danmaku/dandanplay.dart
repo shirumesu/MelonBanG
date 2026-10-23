@@ -29,6 +29,8 @@ class DandanplayDanmaku implements DanmakuSearch {
   @override
   String? get unconfigured =>
       configuration.hasDandanplay ? null : '此版本没有弹弹play 应用凭证';
+  @override
+  bool get manual => true;
 
   Future<Json> _request(String path, {Json? body}) async {
     if (!configuration.hasDandanplay) {

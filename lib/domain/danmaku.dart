@@ -160,6 +160,10 @@ abstract interface class DanmakuMatcher implements DanmakuProvider {
 
   /// Why this build cannot use the source at all; null when it can.
   String? get unconfigured;
+
+  /// Whether the viewer can pick its episode by hand; false when the
+  /// playing episode alone decides it.
+  bool get manual;
 }
 
 /// A provider that takes comments for an episode it has loaded.
