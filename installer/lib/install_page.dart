@@ -86,7 +86,7 @@ class _InstallPageState extends State<InstallPage> {
     step: step,
     mode: switch (step) {
       _Step.options => error == null ? BotMode.idle : BotMode.error,
-      _Step.installing => BotMode.morph,
+      _Step.installing => BotMode.spin,
       _Step.done => BotMode.cheer,
     },
     tone: error == null ? BotTone.mint : BotTone.coral,

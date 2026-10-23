@@ -84,7 +84,7 @@ class _UninstallPageState extends State<UninstallPage> {
     step: step,
     mode: switch (step) {
       _Step.confirm => wipe ? BotMode.error : BotMode.idle,
-      _Step.waiting => BotMode.sleep,
+      _Step.waiting => BotMode.pause,
       _Step.removing => BotMode.shrink,
       _Step.done => BotMode.hop,
       _Step.failed => BotMode.error,

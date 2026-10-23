@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F6FCF8"/><stop offset="1" stop-color="#E2F3E9"/></linearGradient>
+<filter id="ps" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0F3D30" flood-opacity=".22"/></filter>
+<clipPath id="pc"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath></defs>
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" filter="url(#ps)"/>
+<g clip-path="url(#pc)"><g transform="translate(110 290) rotate(-28) scale(1.25)" fill="#22B388" fill-opacity="0.07"><path d="M0 0 C40 -70 150 -90 230 -40 C170 20 70 40 0 0 Z"/></g><g transform="translate(170 350) rotate(14) scale(0.8)" fill="#22B388" fill-opacity="0.05"><path d="M0 0 C40 -70 150 -90 230 -40 C170 20 70 40 0 0 Z"/></g>
+<path d="M460 934 C 660 834 800 864 934 724" fill="none" stroke="#FFFFFF" stroke-opacity=".55" stroke-width="34" stroke-linecap="round"/></g><g><circle cx="512" cy="512" r="300" fill="#22B388"/><circle cx="512" cy="512" r="180" fill="#FFFFFF"/><path d="M452.06 435.04 Q437 392 476.59 414.62 L594.91 482.23 Q647 512 594.91 541.77 L476.59 609.38 Q437 632 452.06 588.96 L467.9 543.71 Q479 512 467.9 480.29 Z" fill="#FF6B81"/></g></svg>
