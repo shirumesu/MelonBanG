@@ -136,6 +136,7 @@ class AppServices {
     } else {
       await locate();
       await storage!.migrate();
+      unawaited(storage!.prepare());
       dataDirectory = storage!.data;
     }
     await Directory(dataDirectory!).create(recursive: true);
