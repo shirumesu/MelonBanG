@@ -2,9 +2,9 @@
 
 <img src="assets/brand/logotype.svg" alt="MelonBanG" width="420">
 
-<p><b>追番？轻而易举！一个桌面应用全搞定!</b></p>
+<h3>追番？轻而易举！一个桌面应用全搞定!</h3>
 
-> 一个原生桌面追番客户端。番剧信息和收藏来自 [Bangumi][bangumi]，资源来自在线源和 BT，自带缓存、播放器和弹幕，找番、下载、观看、记进度在一个应用里完成。
+<sub>一个原生桌面追番客户端。番剧信息和收藏来自 [Bangumi][bangumi]，资源来自在线源和 BT，自带缓存、播放器和弹幕，找番、下载、观看、记进度在一个应用里完成。</sub>
 
 <p>
   <a href="https://github.com/shirumesu/MelonBanG/releases"><img alt="版本" src="https://img.shields.io/github/v/release/shirumesu/MelonBanG?include_prereleases&label=%E7%89%88%E6%9C%AC&color=22B388"></a>
@@ -15,39 +15,46 @@
 </p>
 
 <p>
-  <a href="#下载">下载</a> ·
-  <a href="#常见问题">常见问题</a> ·
-  <a href="#从源码构建">从源码构建</a>
+  <a href="#下载"><img alt="下载" src="https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-22B388?style=for-the-badge&logo=github&logoColor=white"></a>
+  <a href="#常见问题"><img alt="常见问题" src="https://img.shields.io/badge/%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98-FF6B81?style=for-the-badge"></a>
+  <a href="#从源码构建"><img alt="从源码构建" src="https://img.shields.io/badge/%E4%BB%8E%E6%BA%90%E7%A0%81%E6%9E%84%E5%BB%BA-0F5C46?style=for-the-badge&logo=flutter&logoColor=white"></a>
+  <a href="https://github.com/shirumesu/MelonBanG/issues"><img alt="反馈" src="https://img.shields.io/badge/%E5%8F%8D%E9%A6%88%E9%97%AE%E9%A2%98-555555?style=for-the-badge"></a>
 </p>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/screenshots/home-dark.webp">
-  <img alt="MelonBanG 首页" src=".github/screenshots/home-light.webp">
+  <img alt="MelonBanG 首页" src=".github/screenshots/home-light.webp" width="720">
 </picture>
+<br><sub>首页 · 跟随系统切换浅色 / 深色</sub>
 
 </div>
 
 <div align="center">
 
-| 番剧详情 | 资源搜索 |
-| :---: | :---: |
-| 简介、剧集、收藏一屏看完，点一下就播 | 在线源、BT、本地缓存一次搜完，按字幕组和画质筛选 |
-| <img alt="番剧详情" src=".github/screenshots/detail.webp"> | <img alt="资源搜索" src=".github/screenshots/resources.webp"> |
-| **缓存** | **播放器** |
-| BT 边下边播，支持 PikPak 云端加速 | mpv 内核，弹幕、Anime4K 超分、自动跳片头片尾 |
-| <img alt="缓存" src=".github/screenshots/cache.webp"> | <img alt="播放器" src=".github/screenshots/player.webp"> |
-
+<table>
+<tr>
+  <td width="25%"><img alt="番剧详情" src=".github/screenshots/detail.webp"></td>
+  <td width="25%"><img alt="资源搜索" src=".github/screenshots/resources.webp"></td>
+  <td width="25%"><img alt="缓存" src=".github/screenshots/cache.webp"></td>
+  <td width="25%"><img alt="播放器" src=".github/screenshots/player.webp"></td>
+</tr>
+<tr align="center">
+  <td><b>番剧详情</b><br><sub>简介、剧集、收藏一屏看完</sub></td>
+  <td><b>资源搜索</b><br><sub>在线源 + BT + 缓存，按字幕组筛选</sub></td>
+  <td><b>缓存</b><br><sub>BT 边下边播，PikPak 加速</sub></td>
+  <td><b>播放器</b><br><sub>弹幕、Anime4K 超分、跳片头片尾</sub></td>
+</tr>
+</table>
 </div>
 
 ## 功能
 
-- 本季热度、每周时间表、继续观看
-- 登录 Bangumi 后双向同步收藏、评分和观看进度
-- 资源合并搜索：在线源、BT（蜜柑计划、动漫花园）、PikPak
-- 内置 BT 引擎，边下边播
-- 弹幕：弹弹play、哔哩哔哩、巴哈姆特动画疯，以及 MelonBanG 自己的弹幕服务
-- 硬件解码、ASS 字幕、倍速、Anime4K 实时超分
-- 浅色 / 深色主题，可按番剧封面取色
+- [x] 本季热度、每周时间表、今日更新
+- [x] Bangumi 双向同步收藏、评分和观看进度
+- [x] 资源聚合：在线、BT、pikpak
+- [x] 内置 BT、硬件解码、Anime4K 超分引擎，支持边下边播
+- [x] 弹幕支持弹弹play、b站、巴哈姆特，自主维护 Melon 的弹幕服务
+- [x] 多色主题（我知道 Ai 感很重但我不会设计，在学习了）
 
 ## 下载
 
@@ -59,18 +66,18 @@
 | macOS | macOS 13 及以上，Apple 芯片 | `MelonBanG-<版本>-macos-arm64.dmg` |
 
 > [!NOTE]
-> 目前处于 alpha 阶段，可能会遇到问题，欢迎在 [Issues](https://github.com/shirumesu/MelonBanG/issues) 反馈。
+> 目前处于早期阶段，可能会遇到各种问题，欢迎在 [Issues](https://github.com/shirumesu/MelonBanG/issues) 反馈。
 
 <details>
 <summary><b>macOS 提示「无法验证开发者」</b></summary>
 
-安装包没有经过 Apple 公证，第一次打开会被拦下。把应用拖进「应用程序」后，在 **系统设置 → 隐私与安全性** 点 **仍要打开**，或在终端运行：
+由于我没有钱购买 $99/1y 的苹果开发者订阅，被 Apple 鉴定为安卓用户，因此第一次打开会被拦下。把应用拖进「应用程序」后，在 **系统设置 → 隐私与安全性** 点 **仍要打开**，或在终端运行：
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/MelonBanG.app
 ```
 
-更新后首次读取登录信息时如果弹出钥匙串授权，选 **始终允许**。
+更新后首次读取登录信息时会弹出钥匙串授权，选 **始终允许** 即可，钥匙串仅用于相关登录功能，不会上传任何你的密码和凭证。
 
 </details>
 
@@ -86,7 +93,7 @@ MelonBanG 本身不存储、不提供任何视频。资源来自公开的 BT 网
 <details>
 <summary><b>不登录 Bangumi 能用吗？</b></summary>
 
-能。浏览、搜索、下载和播放都不需要登录；登录后才能同步收藏和发送弹幕。
+能。浏览、搜索、下载和播放都不需要登录；不过登录后才能同步收藏和发送弹幕。
 
 </details>
 
@@ -98,13 +105,16 @@ MelonBanG 本身不存储、不提供任何视频。资源来自公开的 BT 网
 </details>
 
 <details>
-<summary><b>开着代理时 BT 没速度</b></summary>
+<summary><b> BT 没速度</b></summary>
 
-TUN / 全局模式的代理可能让 BT 连不上 Tracker 和 DHT。给 MelonBanG 加一条直连规则即可，例如 Clash：
+请检查代理设置，TUN / 全局模式的代理可能让 BT 连不上 Tracker 和 DHT。
+增加一条直连规则即可，以 Clash 为例：
 
 ```yaml
 - PROCESS-NAME,melonbang.exe,DIRECT
 ```
+
+如果问题无法改善，请考虑更快速的 Pikpak 方式或者播放/缓存在线源。
 
 </details>
 
@@ -127,22 +137,17 @@ flutter pub get
 flutter run -d windows   # 或 -d macos
 ```
 
-## 致谢
+## 致谢与许可
 
 - [Bangumi 番组计划][bangumi]、[弹弹play 开放平台][dandanplay]
 - [media-kit](https://github.com/media-kit/media-kit) / [mpv](https://mpv.io)、[libtorrent](https://libtorrent.org)、[Anime4K][anime4k]
 - [Resource Han Rounded](https://github.com/CyanoHao/Resource-Han-Rounded)、[Rclone](https://github.com/rclone/rclone)
 - [Kazumi](https://github.com/Predidit/Kazumi)、[Animeko](https://github.com/open-ani/animeko)：同类优秀项目
 
-第三方许可证见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+本项目以 [GPL-3.0](LICENSE) 开源，第三方许可证见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
-## 免责声明
+<sub>本项目仅供学习交流，使用者需遵守所在地的法律法规。MelonBanG 不对通过它获取的任何内容负责，也不收集任何使用数据。</sub>
 
-本项目仅供学习交流，使用者需遵守所在地的法律法规。MelonBanG 不对通过它获取的任何内容负责，也不收集任何使用数据。
-
-## 许可证
-
-[GPL-3.0](LICENSE)
 
 [bangumi]: https://bgm.tv
 [dandanplay]: https://www.dandanplay.com
