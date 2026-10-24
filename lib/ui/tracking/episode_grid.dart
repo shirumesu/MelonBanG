@@ -230,7 +230,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
               child: first + index != label
                   ? null
                   : Tooltip(
-                      message: '特别篇：总集篇、未放送的单集、特番等\n不计入话数，自动连播和缓存下一话会跳过',
+                      message: specialsHelp,
                       child: Center(
                         child: Text(
                           'SP',
@@ -269,7 +269,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
           return Semantics(
             button: true,
             label:
-                '${episode.label}${episode.main ? '' : '（特别篇）'} ${watched ? '已看' : (aired ? '未看' : '未更新')}',
+                '${episode.placedLabel} ${watched ? '已看' : (aired ? '未看' : '未更新')}',
             onTap: () => widget.onSelect(episode),
             child: AnimatedContainer(
               duration: motionDuration(context, 120),
@@ -293,7 +293,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                     color: foreground,
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
-                  child: Text(episode.number, maxLines: 1),
+                  child: EpisodeNumber(episode),
                 ),
               ),
             ),
@@ -459,6 +459,42 @@ class _EpisodeGridState extends State<EpisodeGrid> {
           ],
         );
       },
+    );
+  }
+}
+
+/// Explains the specials under the main episodes.
+const specialsHelp =
+    'SP、OVA、番外、总集篇等，按 Bangumi 的编号列出\n'
+    '下方小字是放送位置，17.5 即在第 17、18 话之间播出\n'
+    '自动连播按放送顺序一起播放，总集篇可在设置中跳过';
+
+/// An episode's number in a grid cell, with where a special aired beneath
+/// it in smaller type.
+class EpisodeNumber extends StatelessWidget {
+  const EpisodeNumber(this.episode, {super.key});
+  final Episode episode;
+
+  @override
+  Widget build(BuildContext context) {
+    final between = episode.between;
+    if (between == null) return Text(episode.number, maxLines: 1);
+    final color = DefaultTextStyle.of(context).style.color;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(episode.number, maxLines: 1, style: const TextStyle(height: 1.1)),
+        Text(
+          between,
+          maxLines: 1,
+          style: TextStyle(
+            fontSize: 9,
+            height: 1.1,
+            fontWeight: FontWeight.w500,
+            color: color?.withValues(alpha: .7),
+          ),
+        ),
+      ],
     );
   }
 }

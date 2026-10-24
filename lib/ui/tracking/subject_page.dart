@@ -452,13 +452,22 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   EpisodeStatus _episodeStatus(Episode episode) =>
       _episodeOverrides[episode.id] ?? episode.status;
 
-  Episode? _nextEpisode(List<Episode> episodes) =>
-      episodes.where(_isResume).firstOrNull ??
-      episodes
-          .where((e) => e.main && _episodeStatus(e) != EpisodeStatus.watched)
-          .firstOrNull ??
-      episodes.where((e) => e.main).lastOrNull ??
-      episodes.firstOrNull;
+  /// The episode to resume, else the first unwatched main episode or
+  /// special aired after the run (an OVA or 番外), else the last main
+  /// episode. Specials within the run are left to autoplay.
+  Episode? _nextEpisode(List<Episode> episodes) {
+    final last = episodes.lastIndexWhere((e) => e.main);
+    return episodes.where(_isResume).firstOrNull ??
+        episodes.indexed
+            .where(
+              (e) =>
+                  (e.$2.main || e.$1 > last) &&
+                  _episodeStatus(e.$2) != EpisodeStatus.watched,
+            )
+            .firstOrNull
+            ?.$2 ??
+        (last < 0 ? episodes.firstOrNull : episodes[last]);
+  }
 
   bool _isResume(Episode episode) =>
       widget.resume?.episodeId == episode.id &&
@@ -478,7 +487,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     return TextSpan(
       children: [
         TextSpan(
-          text: '${episode.label}  ${episode.title}',
+          text: '${episode.placedLabel}  ${episode.title}',
           style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
         ),
         for (final detail in [
@@ -615,20 +624,23 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     final episodes = item.episodes;
-    // Interludes are watched in place but counted with neither total.
-    final main = episodes.where((e) => e.main).toList();
-    final watched = main
-        .where((e) => _episodeStatus(e) == EpisodeStatus.watched)
-        .length;
-    final total = math.max(item.episodeTotal ?? 0, main.length);
+    // Counted as Bangumi counts progress: every watched episode, specials
+    // included, up to the episode count.
+    final total = math.max(
+      item.episodeTotal ?? 0,
+      episodes.where((e) => e.main).length,
+    );
+    final watched = math.min(
+      episodes.where((e) => _episodeStatus(e) == EpisodeStatus.watched).length,
+      total,
+    );
     final next = _nextEpisode(episodes);
     // Like Animeko, a finished subject offers its last episode quietly.
     final done =
         next != null &&
         !_episodesLoading &&
         !_isResume(next) &&
-        main.isNotEmpty &&
-        watched == main.length;
+        _episodeStatus(next) == EpisodeStatus.watched;
     final now = DateTime.now();
     _rebuildAt(
       ([

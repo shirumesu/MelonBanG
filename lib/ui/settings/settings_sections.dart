@@ -278,11 +278,18 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
     groups: [
       SettingsGroup([
         toggle(
-          '连续播放 下一集 特别篇 总集篇',
+          '连续播放 下一集 特别篇 sp ova 番外',
           '自动连播',
           () => prefs.autoplay,
           prefs.setAutoplay,
-          subtitle: '播完 5 秒后播放下一话，跳过总集篇等特别篇',
+          subtitle: '播完 5 秒后播放下一话，SP、OVA、番外按放送顺序一起连播',
+        ),
+        toggle(
+          '总集篇 跳过 特别篇 下一集',
+          '跳过总集篇',
+          () => prefs.skipRecaps,
+          prefs.setSkipRecaps,
+          subtitle: '自动连播、下一话和缓存下一话不选总集篇',
         ),
         toggle(
           '看过 进度 标记',
@@ -386,12 +393,12 @@ SettingsSection sourcesSection(
           ),
         ),
         SettingsItem(
-          '自动 缓存 下一集 下一话 预下载 特别篇',
+          '自动 缓存 下一集 下一话 预下载',
           _watch(
             prefs,
             (context) => SettingRow(
               title: '播放时缓存下一话',
-              subtitle: '一话看了两分钟后，用同一字幕组或线路缓存已播出的下一话，跳过特别篇',
+              subtitle: '一话看了两分钟后，用同一字幕组或线路缓存已播出的下一话',
               onTap: () => prefs.setCacheNext(!prefs.cacheNext),
               trailing: _switch(prefs.cacheNext, prefs.setCacheNext),
             ),

@@ -797,13 +797,13 @@ class PlaybackCoordinator extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// The main episode listed after [currentId] once it has aired, passing
-  /// over interludes. Specials outside the run are listed after it, so none
-  /// follows them.
-  static Episode? _nextAired(Subject item, int currentId) {
-    final index = item.episodes.indexWhere((e) => e.id == currentId);
-    if (index < 0) return null;
-    final next = item.episodes.skip(index + 1).where((e) => e.main).firstOrNull;
+  /// The episode broadcast after [currentId] once it has aired, specials
+  /// included, passing over recaps when the settings say so.
+  Episode? _nextAired(Subject item, int currentId) {
+    final next = item.after(
+      currentId,
+      skipRecaps: playback.settings.skipRecaps,
+    );
     final date = next?.aired;
     if (date != null && date.isAfter(DateTime.now())) return null;
     return next;
