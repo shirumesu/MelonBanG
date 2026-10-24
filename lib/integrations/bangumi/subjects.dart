@@ -47,14 +47,14 @@ class BangumiSubjects {
   }
 
   /// Main episodes in order, the first page then the remaining pages, and
-  /// last the specials that belong to the main run ([_inRun]).
+  /// last the specials ([_specials]).
   Stream<List<Json>> episodes(int id) async* {
     final main = <Json>[];
     await for (final page in _episodePages(id, 0)) {
       main.addAll(page);
       yield page;
     }
-    yield _inRun(main, [
+    yield _specials(main, [
       await for (final page in _episodePages(id, 1)) ...page,
     ]);
   }
@@ -74,18 +74,20 @@ class BangumiSubjects {
     }
   }
 
-  /// The specials Bangumi files inside the main run: a fractional one
-  /// between or right after main episodes (an 11.5 recap) as an interlude,
-  /// and integral ones continuing the last number (an unaired 13th) as main
-  /// episodes. Specials numbered over or before main episodes are
-  /// promotional programmes and left out. Bangumi numbers specials across
-  /// seasons, so they take the main episodes' offset from it.
-  List<Json> _inRun(List<Json> main, List<Json> specials) {
-    if (main.isEmpty) return const [];
+  /// Every special, by Bangumi's number. Those inside the main run take the
+  /// main episodes' numbering, since Bangumi numbers specials across
+  /// seasons: a fractional one between or right after main episodes (an
+  /// 11.5 recap) as an interlude, and integral ones continuing the last
+  /// number (an unaired 13th) as main episodes. The rest, such as
+  /// promotional programmes numbered over or before main episodes, keep
+  /// Bangumi's number as specials.
+  List<Json> _specials(List<Json> main, List<Json> specials) {
     final numbers = {for (final e in main) number(e['absolute'])};
-    final first = numbers.reduce(min);
-    var last = numbers.reduce(max);
-    final offset = number(main.first['absolute']) - number(main.first['sort']);
+    final first = numbers.isEmpty ? 0 : numbers.reduce(min);
+    var last = numbers.isEmpty ? 0 : numbers.reduce(max);
+    final offset = main.isEmpty
+        ? 0
+        : number(main.first['absolute']) - number(main.first['sort']);
     final found = <Json>[];
     for (final e
         in specials..sort(
@@ -93,8 +95,13 @@ class BangumiSubjects {
         )) {
       final across = number(e['absolute']);
       final interlude = across != across.roundToDouble();
-      if (across <= first || numbers.contains(across)) continue;
-      if (interlude ? across > last + 1 : across != last + 1) continue;
+      if (main.isEmpty ||
+          across <= first ||
+          numbers.contains(across) ||
+          (interlude ? across > last + 1 : across != last + 1)) {
+        found.add({...e, 'type': 'special', 'ep': e['sort']});
+        continue;
+      }
       if (!interlude) last = across;
       final sort = across - offset;
       found.add({

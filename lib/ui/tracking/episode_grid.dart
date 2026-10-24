@@ -10,7 +10,8 @@ import '../core/motion.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
 
-/// All episodes as numbered cells. Click plays the episode's cache or opens
+/// All episodes as numbered cells, the specials after the main episodes on
+/// rows of their own behind an SP label. Click plays the episode's cache or opens
 /// its resources, right-click offers more, and a long press marks; while still pressed,
 /// dragging selects the range from the pressed cell to the pointer, so
 /// dragging back shrinks it. Releasing well outside the cells, the right
@@ -55,9 +56,18 @@ class _EpisodeGridState extends State<EpisodeGrid> {
   int? anchorId, currentId;
   bool outside = false;
 
+  /// Main episodes in order, then the specials by number as Bangumi lists
+  /// them.
+  List<Episode> get ordered => [
+    for (final episode in widget.episodes)
+      if (episode.main) episode,
+    ...widget.episodes.where((e) => !e.main).toList()
+      ..sort((a, b) => a.sort.compareTo(b.sort)),
+  ];
+
   Set<int> get dragIds {
     if (dragStatus == null) return const {};
-    final ids = [for (final episode in widget.episodes) _id(episode)];
+    final ids = [for (final episode in ordered) _id(episode)];
     final a = ids.indexOf(anchorId!), b = ids.indexOf(currentId!);
     if (a < 0 || b < 0) return const {};
     return ids.sublist(math.min(a, b), math.max(a, b) + 1).toSet();
@@ -104,7 +114,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
     final commit = status != null && !outside;
     final dragIds = this.dragIds;
     final episodes = [
-      for (final episode in widget.episodes)
+      for (final episode in ordered)
         if (dragIds.contains(_id(episode)) &&
             widget.statusOf(episode) != status)
           episode,
@@ -154,20 +164,33 @@ class _EpisodeGridState extends State<EpisodeGrid> {
         );
         final width =
             (constraints.maxWidth - _gap * (columns - 1)) / columns - .01;
-        final episodes = widget.episodes;
-        final rows = (episodes.length / columns).ceil();
+        final episodes = ordered;
+        final main = episodes.where((e) => e.main).length;
+        final specials = episodes.length - main;
+        // Cells by position: the specials start a row after the main
+        // episodes, behind the SP label at [label]; other gaps are null.
+        final slots = <Episode?>[
+          ...episodes.take(main),
+          if (specials > 0) ...[
+            ...List.filled((columns - main % columns) % columns, null),
+            null,
+            ...episodes.skip(main),
+          ],
+        ];
+        final label = specials > 0 ? slots.length - specials - 1 : -1;
+        final rows = (slots.length / columns).ceil();
         final collapsible = rows > _rows;
-        var first = 0, count = episodes.length;
+        var first = 0, count = slots.length;
         if (collapsible && !expanded) {
-          final next = episodes.indexWhere((e) => e.id == widget.nextId);
+          final next = slots.indexWhere((e) => e?.id == widget.nextId);
           final row = ((next < 0 ? 0 : next) ~/ columns - 1).clamp(
             0,
             rows - _rows,
           );
           first = row * columns;
-          count = math.min(episodes.length - first, _rows * columns);
+          count = math.min(slots.length - first, _rows * columns);
         }
-        final visible = episodes.sublist(first, first + count);
+        final visible = slots.sublist(first, first + count);
         final visibleRows = (visible.length / columns).ceil();
         final gridHeight = visibleRows * (_height + _gap) - _gap;
         int? indexAt(Offset position) {
@@ -176,7 +199,9 @@ class _EpisodeGridState extends State<EpisodeGrid> {
           final row = (position.dy / (_height + _gap)).floor();
           if (column >= columns) return null;
           final index = row * columns + column;
-          return index < visible.length ? index : null;
+          return index < visible.length && visible[index] != null
+              ? index
+              : null;
         }
 
         final selected = dragIds;
@@ -188,7 +213,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
               position.dx > constraints.maxWidth + _cancelMargin ||
               position.dy > gridHeight + _cancelMargin;
           final index = indexAt(position);
-          final id = index == null || away ? currentId : _id(visible[index]);
+          final id = index == null || away ? currentId : _id(visible[index]!);
           if (away == outside && id == currentId) return;
           setState(() {
             outside = away;
@@ -198,6 +223,27 @@ class _EpisodeGridState extends State<EpisodeGrid> {
 
         Widget cell(int index) {
           final episode = visible[index];
+          if (episode == null) {
+            return SizedBox(
+              width: width,
+              height: _height,
+              child: first + index != label
+                  ? null
+                  : Tooltip(
+                      message: '特别篇：总集篇、未放送的单集、特番等\n不计入话数，自动连播和缓存下一话会跳过',
+                      child: Center(
+                        child: Text(
+                          'SP',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ),
+            );
+          }
           final status = selected.contains(_id(episode))
               ? dragStatus!
               : widget.statusOf(episode);
@@ -223,7 +269,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
           return Semantics(
             button: true,
             label:
-                '第 ${episode.number} 话${episode.main ? '' : '（特别篇）'} ${watched ? '已看' : (aired ? '未看' : '未更新')}',
+                '${episode.label}${episode.main ? '' : '（特别篇）'} ${watched ? '已看' : (aired ? '未看' : '未更新')}',
             onTap: () => widget.onSelect(episode),
             child: AnimatedContainer(
               duration: motionDuration(context, 120),
@@ -238,30 +284,17 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                       : border,
                 ),
               ),
-              child: Stack(
-                children: [
-                  if (!episode.main)
-                    Positioned(
-                      left: 2,
-                      top: 2,
-                      child: InterludeMark(size: 9, color: foreground),
-                    ),
-                  Center(
-                    child: Padding(
-                      padding: EdgeInsets.only(left: episode.main ? 0 : 5),
-                      child: AnimatedDefaultTextStyle(
-                        duration: motionDuration(context, 120),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: foreground,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
-                        child: Text(episode.number, maxLines: 1),
-                      ),
-                    ),
+              child: Center(
+                child: AnimatedDefaultTextStyle(
+                  duration: motionDuration(context, 120),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: foreground,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
-                ],
+                  child: Text(episode.number, maxLines: 1),
+                ),
               ),
             ),
           );
@@ -311,14 +344,17 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                             ..onTapUp = (details) {
                               final index = indexAt(details.localPosition);
                               if (index != null) {
-                                widget.onSelect(visible[index]);
+                                widget.onSelect(visible[index]!);
                               }
                             }
                             ..onSecondaryTapUp = (details) {
                               final index = indexAt(details.localPosition);
                               if (index != null && dragStatus == null) {
                                 unawaited(
-                                  _menu(details.globalPosition, visible[index]),
+                                  _menu(
+                                    details.globalPosition,
+                                    visible[index]!,
+                                  ),
                                 );
                               }
                             },
@@ -333,7 +369,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                           (recognizer) => recognizer
                             ..onLongPressStart = (details) {
                               final index = indexAt(details.localPosition);
-                              if (index != null) _start(visible[index]);
+                              if (index != null) _start(visible[index]!);
                             }
                             ..onLongPressMoveUpdate = (details) {
                               drag(details.localPosition);
@@ -350,7 +386,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                       final index = indexAt(event.localPosition);
                       if (index != hovered) {
                         setState(() => hovered = index);
-                        widget.onHover(index == null ? null : visible[index]);
+                        widget.onHover(index == null ? null : visible[index]!);
                       }
                     },
                     onExit: (_) {
@@ -391,20 +427,6 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                     ),
                     '未更新',
                   ),
-                  if (episodes.any((e) => !e.main))
-                    Tooltip(
-                      message: '夹在正片之间的总集篇、特番等\n不计入话数，自动连播和缓存下一话会跳过',
-                      child: legend(
-                        Padding(
-                          padding: const EdgeInsets.only(right: 4),
-                          child: InterludeMark(
-                            size: 12,
-                            color: scheme.onSurfaceVariant,
-                          ),
-                        ),
-                        '特别篇',
-                      ),
-                    ),
                   if (hint == null)
                     Tooltip(
                       message: '点击观看已缓存的一话，未缓存时选择资源\n长按标为已看，按住拖动可选多话\n右键查看更多操作',
@@ -429,9 +451,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                       ),
                       onPressed: () => setState(() => expanded = !expanded),
-                      child: Text(
-                        expanded ? '收起' : '展开全部 ${episodes.length} 话',
-                      ),
+                      child: Text(expanded ? '收起' : '展开全部 $main 话'),
                     ),
                 ],
               ),
@@ -441,16 +461,4 @@ class _EpisodeGridState extends State<EpisodeGrid> {
       },
     );
   }
-}
-
-/// Marks an interlude, a special such as an 11.5 recap, as a branch off the
-/// main episodes in the grids that list it in place.
-class InterludeMark extends StatelessWidget {
-  const InterludeMark({super.key, required this.size, required this.color});
-  final double size;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) =>
-      Icon(Icons.call_split_rounded, size: size, color: color);
 }

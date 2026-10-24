@@ -317,7 +317,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('确认条目匹配'),
-          content: Text('请确认所选资源对应第 ${target.number} 话：\n${candidate.title}'),
+          content: Text('请确认所选资源对应${target.label}：\n${candidate.title}'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -650,7 +650,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                   ),
                   if (shownEpisode != null) ...[
                     const SizedBox(height: 2),
-                    Text('第 ${shownEpisode.number} 话', style: small),
+                    Text(shownEpisode.label, style: small),
                   ],
                 ],
               ),
@@ -1101,7 +1101,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           ...notesOf(candidate),
           ...results.unstated(candidate),
           if (target != null && target.sort != info.episode)
-            '对应第 ${target.number} 话',
+            '对应${target.label}',
         ],
         warnings: [
           ...warningsOf(candidate),
@@ -1136,6 +1136,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     return ResourceEpisodeRow(
       label: target == null
           ? info.episodeLabel!
+          : target.numberedApart
+          ? target.label
           : '第 ${target.number.padLeft(2, '0')} 话',
       wide: wide,
       title: info.title,
@@ -1334,7 +1336,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             label: item.label,
             wide: wide,
             notes: [
-              if (searched != null) '作为第 ${searched!.number} 话',
+              if (searched != null) '作为${searched!.label}',
               ?item.description,
             ],
             warnings: [if (target == null) '未对应本作剧集'],

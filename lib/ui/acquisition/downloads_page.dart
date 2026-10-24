@@ -495,7 +495,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
       null => null,
     };
     final label = switch (episode) {
-      final episode? => '第 ${episode.number} 话',
+      final episode? => episode.label,
       null when task.videos.length > 1 => '合集',
       null => '—',
     };
@@ -799,7 +799,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
               SizedBox(
                 width: 66,
                 child: Text(switch (episodes[file.id]) {
-                  final episode? => '第 ${episode.number} 话',
+                  final episode? => episode.label,
                   null => '—',
                 }, style: const TextStyle(fontSize: 13)),
               ),

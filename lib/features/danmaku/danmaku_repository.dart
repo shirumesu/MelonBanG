@@ -55,11 +55,14 @@ class DanmakuRepository {
     final subjectId = target.subjectId;
     if (subjectId == null) throw const DanmakuUnmatched('缺少番剧信息');
     final detail = await catalog.subject(subjectId);
+    final episode = _matchingEpisode(target, detail);
+    // Matchers find episodes by number, which SP1 shares with episode 1.
+    if (episode.numberedApart) throw const DanmakuUnmatched('特别篇暂不匹配弹幕');
     return DanmakuEpisode(
       subjectId: subjectId,
       title: detail.title,
       names: resourceNames(detail),
-      number: _matchingEpisode(target, detail).sort,
+      number: episode.sort,
     );
   }
 }

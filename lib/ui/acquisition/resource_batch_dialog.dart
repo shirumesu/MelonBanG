@@ -192,12 +192,12 @@ class _BatchDialogState extends State<_BatchDialog> {
             );
       return Tooltip(
         message: !held
-            ? '这个资源没有第 ${episode.number} 话'
+            ? '这个资源没有${episode.label}'
             : added
             ? '已加入缓存'
             : cached
             ? '已有其他缓存'
-            : '第 ${episode.number} 话',
+            : episode.label,
         child: Material(
           type: MaterialType.transparency,
           child: InkWell(

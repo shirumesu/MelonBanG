@@ -6,7 +6,7 @@ String resourceEpisodeKeyword(Episode? episode) {
   if (episode == null) return '';
   final sort = episode.sort;
   return sort == sort.roundToDouble()
-      ? sort.toInt().toString().padLeft(2, '0')
+      ? '${episode.numberedApart ? 'SP' : ''}${sort.toInt().toString().padLeft(2, '0')}'
       : sort.toString();
 }
 
@@ -23,7 +23,7 @@ Episode? keywordEpisode(Subject subject, String keyword, Episode? chapter) {
   final match = RegExp(r'\d+(?:\.5)?').allMatches(text).lastOrNull;
   if (match == null) return null;
   final number = double.parse(match[0]!);
-  final episodes = subject.episodes;
+  final episodes = subject.episodes.where((e) => !e.numberedApart);
   return episodes.where((e) => e.sort == number).firstOrNull ??
       episodes.where((e) => e.absolute == number).firstOrNull;
 }

@@ -159,9 +159,10 @@ class Episode {
   /// often use instead of [sort]: season 2 episode 1 can be episode 29.
   final double? absolute;
 
-  /// False for an interlude: a special between main episodes, such as an
-  /// 11.5 recap. Interludes are listed in place but do not count towards
-  /// the episode total and autoplay passes over them.
+  /// False for a special: an interlude between main episodes, such as an
+  /// 11.5 recap, or one outside the run, such as a promotional programme.
+  /// Specials do not count towards the episode total and autoplay passes
+  /// over them.
   final bool main;
   final String? name, nameCn, airDate;
   final int? durationSeconds;
@@ -171,6 +172,13 @@ class Episode {
   /// The episode number as shown: `12`, or `12.5`.
   String get number =>
       sort == sort.roundToDouble() ? '${sort.toInt()}' : '$sort';
+
+  /// A special whose number main episodes also use (SP1 beside episode 1),
+  /// so it is named and matched as a special rather than by its number.
+  bool get numberedApart => !main && sort == sort.roundToDouble();
+
+  /// `第 12 话`, `第 11.5 话`, or `SP1`.
+  String get label => numberedApart ? 'SP$number' : '第 $number 话';
   bool get watched => status == EpisodeStatus.watched;
   DateTime? get aired => DateTime.tryParse(airDate ?? '');
 
