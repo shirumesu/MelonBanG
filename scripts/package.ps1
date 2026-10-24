@@ -23,8 +23,6 @@ try {
 
   Push-Location 'installer'
   try {
-    & $flutterCommand pub get
-    if ($LASTEXITCODE -ne 0) { throw 'Installer dependency resolution failed.' }
     & $flutterCommand build windows --release "--build-name=$version" "--dart-define=MELONBANG_VERSION=$version"
     if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
   } finally { Pop-Location }

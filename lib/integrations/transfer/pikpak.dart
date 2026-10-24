@@ -655,6 +655,30 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     _emit();
   }
 
+  /// Deletes [fileIds] of a finished task; its other files stay.
+  @override
+  Future<void> removeFiles(String id, Set<String> fileIds) async {
+    _requireOpen();
+    final task = _task(id);
+    if (task['complete'] != true) throw StateError('文件尚未下载完成');
+    final files = objects(task['files']);
+    for (final file in files) {
+      if (!fileIds.contains('${file['id']}')) continue;
+      if (_fetches.remove('$id/${file['id']}') case final fetch?) {
+        _streams.removeWhere((_, value) => value == fetch);
+        await fetch.close();
+      }
+      final local = File('${file['path']}');
+      if (await local.exists()) await local.delete();
+    }
+    task['files'] = [
+      for (final file in files)
+        if (!fileIds.contains('${file['id']}')) file,
+    ];
+    await _persist(task);
+    _emit();
+  }
+
   Future<void> _stopWorker(String id) async {
     if (_runningId != id) return;
     if (_halt?.isCompleted == false) _halt!.complete();

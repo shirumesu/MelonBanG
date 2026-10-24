@@ -30,8 +30,6 @@ try {
   } elseif (-not $Development) {
     throw 'Copy .env.service.example.json to .env.service.json and fill the service registrations, or pass -ConfigurationFile. Use -Development to build without them.'
   }
-  & $flutterCommand pub get
-  if ($LASTEXITCODE -ne 0) { throw 'Dependency resolution failed.' }
   & $flutterCommand @buildArguments
   if ($LASTEXITCODE -ne 0) { throw 'Windows build failed.' }
   $releaseDirectory = Join-Path $projectDirectory 'build/windows/x64/runner/Release'

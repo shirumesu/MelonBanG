@@ -125,6 +125,7 @@ class LibtorrentTransfer implements TorrentTransfer {
     await _engine();
     var attached = 0;
     for (final task in _tasks.values.toList()) {
+      if (task['detached'] == true) continue;
       if (attached++ % 8 == 0) await Future<void>.delayed(Duration.zero);
       try {
         _attach(task, restoring: true);
@@ -196,6 +197,12 @@ class LibtorrentTransfer implements TorrentTransfer {
         'downloadedBytes': info.totalDone,
         'complete': !checking && info.isFinished,
       });
+      if (!wasComplete && task['complete'] == true) {
+        lt.LibtorrentFlutter.instance.saveResume(
+          entry.value,
+          _resumePath(task),
+        );
+      }
       if (info.errorMsg.isNotEmpty) {
         task['status'] = 'failed';
         _verifying.remove(id);
@@ -347,9 +354,19 @@ class LibtorrentTransfer implements TorrentTransfer {
     final engine = lt.LibtorrentFlutter.instance;
     final metadata = task['metadataPath'];
     final localMetadata = metadata != null && File('$metadata').existsSync();
-    // Verify restored local data without entering a network transfer state.
-    final verify = restoring && (task['kind'] == 'torrent' || localMetadata);
-    final handle = task['kind'] == 'magnet' && !localMetadata
+    final resume = restoring && File(_resumePath(task)).existsSync();
+    // Verify restored local data without entering a network transfer state;
+    // with resume data that only compares file sizes.
+    final verify =
+        restoring && (task['kind'] == 'torrent' || localMetadata || resume);
+    final handle = resume
+        ? engine.addResume(
+            _resumePath(task),
+            '${task['savePath']}',
+            !verify,
+            verify,
+          )
+        : task['kind'] == 'magnet' && !localMetadata
         ? engine.addMagnet(
             '${task['input']}',
             '${task['savePath']}',
@@ -374,6 +391,11 @@ class LibtorrentTransfer implements TorrentTransfer {
       }
     }
   }
+
+  /// Where the task's fast-resume data is kept: written once it finishes
+  /// and at close, so a restart does not hash its files again.
+  String _resumePath(Json task) =>
+      p.join(directory, 'metadata', '${task['fingerprint']}.resume');
 
   @override
   List<DownloadTask> tasks() => [
@@ -485,6 +507,16 @@ class LibtorrentTransfer implements TorrentTransfer {
         .where((t) => t['fingerprint'] == fingerprint)
         .firstOrNull;
     if (existing != null) {
+      // Adding a torrent some files of which were deleted fetches them again.
+      if (existing['detached'] == true) {
+        existing.remove('detached');
+        existing['seedStopReason'] = null;
+        await _engine();
+        _attach(existing, restoring: true);
+        _schedule();
+        await _persist('${existing['id']}', existing);
+        _emit();
+      }
       if (releaseGroups.isNotEmpty &&
           ((existing['releaseGroups'] as List?)?.isEmpty ?? true)) {
         existing['releaseGroups'] = List<String>.of(releaseGroups);
@@ -543,6 +575,66 @@ class LibtorrentTransfer implements TorrentTransfer {
     _schedule();
     await _persist(id, task);
     _emit();
+  }
+
+  /// Deletes [fileIds] of a finished task. Its torrent leaves the session
+  /// for good, since it cannot seed without them: the other files stay as
+  /// plain cached files.
+  @override
+  Future<void> removeFiles(String id, Set<String> fileIds) async {
+    await ready;
+    _requireOpen();
+    final task = _tasks[id];
+    if (task == null) throw StateError('下载任务不存在');
+    if (task['complete'] != true) throw StateError('文件尚未下载完成');
+    if (_handles.remove(id) case final handle?) {
+      lt.LibtorrentFlutter.instance.removeTorrent(handle);
+    }
+    _running.remove(id);
+    _verifying.remove(id);
+    _checkingFiles.remove(id);
+    _uploaded.remove(id);
+    _fileReadAt.remove(id);
+    final files = _files[id]!;
+    _files[id] = task['files'] = [
+      for (final file in files)
+        if (!fileIds.contains(file['id'])) file,
+    ];
+    task.addAll({
+      'detached': true,
+      'status': 'completed',
+      'seedingStopped': false,
+      'seedStopReason': SeedStop.trimmed.name,
+      'downloadSpeedBytesPerSecond': 0,
+      'uploadSpeedBytesPerSecond': 0,
+      'peerCount': 0,
+    });
+    final resume = File(_resumePath(task));
+    if (await resume.exists()) await resume.delete();
+    _schedule();
+    await _persist(id, task);
+    _emit();
+    for (final file in files) {
+      if (fileIds.contains(file['id'])) {
+        await _deleteReleased('${file['path']}');
+      }
+    }
+  }
+
+  /// Deletes a file of a torrent that just left the session; the engine
+  /// closes its files shortly after, and Windows refuses to delete them until
+  /// it has.
+  Future<void> _deleteReleased(String path) async {
+    final file = File(path);
+    for (var attempt = 1; ; attempt++) {
+      try {
+        if (await file.exists()) await file.delete();
+        return;
+      } on FileSystemException {
+        if (attempt == 20) rethrow;
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      }
+    }
   }
 
   @override
@@ -621,6 +713,8 @@ class LibtorrentTransfer implements TorrentTransfer {
     if (metadata != null && await File('$metadata').exists()) {
       await File('$metadata').delete();
     }
+    final resume = File(_resumePath(task));
+    if (await resume.exists()) await resume.delete();
   }
 
   void _requireOpen() {
@@ -766,6 +860,12 @@ class LibtorrentTransfer implements TorrentTransfer {
       if (_initializing != null) {
         await _initializing;
         await _subscription?.cancel();
+        for (final MapEntry(key: id, value: handle) in _handles.entries) {
+          final task = _tasks[id]!;
+          if (task['status'] != 'checking') {
+            lt.LibtorrentFlutter.instance.saveResume(handle, _resumePath(task));
+          }
+        }
         await Future.wait([
           for (final task in _tasks.values) _persist('${task['id']}', task),
         ]);

@@ -119,6 +119,9 @@ typedef void (*lt_alert_callback)(int alert_type, lt_torrent_id id,
 
 /* Export complete metadata for offline recovery. */
 TORRENT_API int lt_save_metadata(lt_session_t session, lt_torrent_id id, const char* path);
+/* Export fast-resume data; lt_add_resume restores the torrent from it without
+   hashing its files again. */
+TORRENT_API int lt_save_resume(lt_session_t session, lt_torrent_id id, const char* path);
 
 /* session */
 /* Android/OpenSSL trust-store setup. Call before lt_create_session(). */
@@ -149,6 +152,10 @@ TORRENT_API lt_torrent_id lt_add_torrent_file(lt_session_t session,
                                               const char* file_path,
                                               const char* save_path,
                                               int add_flags);
+TORRENT_API lt_torrent_id lt_add_resume(lt_session_t session,
+                                        const char* resume_path,
+                                        const char* save_path,
+                                        int add_flags);
 TORRENT_API void lt_remove_torrent(lt_session_t session,
                                    lt_torrent_id id, int delete_files);
 TORRENT_API void lt_pause_torrent(lt_session_t session, lt_torrent_id id);

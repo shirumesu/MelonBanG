@@ -24,8 +24,9 @@ enum DownloadStatus {
   failed,
 }
 
-/// Why a finished BT task no longer seeds.
-enum SeedStop { manual, ratio, time, disabled }
+/// Why a finished BT task no longer seeds; [trimmed] once some of its files
+/// were deleted, which leaves the rest as plain cached files.
+enum SeedStop { manual, ratio, time, disabled, trimmed }
 
 /// What a task's pause/resume control does now.
 enum TaskToggle { pause, resume, stopSeeding, resumeSeeding }
@@ -273,6 +274,9 @@ abstract interface class TorrentTransfer implements Transfer {
     String? coverUrl,
     List<String> releaseGroups,
   });
+
+  /// Deletes [fileIds] of a finished task and keeps its other files.
+  Future<void> removeFiles(String id, Set<String> fileIds);
 }
 
 /// Saves online entries: HLS segments or direct files, read again from the

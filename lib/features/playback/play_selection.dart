@@ -120,11 +120,19 @@ class PlaySelectionRepository {
             ? downloads.snapshot().forSubject(subjectId)
             : const <DownloadTask>[]) {
       final bound = binding?['downloadId'] == task.id;
-      if (episodeId != null && !bound && task.episodeId != episodeId) continue;
+      final file = episode == null
+          ? null
+          : episodeFiles(subject, task)[episode.id];
+      if (episodeId != null &&
+          !bound &&
+          file == null &&
+          task.episodeId != episodeId) {
+        continue;
+      }
       try {
         final media = downloads.media(
           task.id,
-          fileId: bound ? binding!['fileId'] as String? : null,
+          fileId: bound ? binding!['fileId'] as String? : file?.id,
         );
         if (media.incomplete && task.cloud && !registry.isEnabled('pikpak')) {
           continue;

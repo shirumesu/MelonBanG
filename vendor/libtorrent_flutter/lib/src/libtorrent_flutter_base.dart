@@ -326,6 +326,27 @@ class LibtorrentFlutter implements Finalizable {
     }
   }
 
+  /// Add a torrent from fast-resume data written by [saveResume]: its
+  /// verified pieces are trusted, so only file sizes are checked.
+  int addResume(
+    String resumePath, [
+    String? savePath,
+    bool startPaused = false,
+    bool stopWhenReady = false,
+  ]) {
+    final r = resumePath.toNativeUtf8();
+    final s = (savePath ?? _defaultSavePath).toNativeUtf8();
+    try {
+      final id = _b.addResume(
+          _session, r, s, (startPaused ? 2 : 0) | (stopWhenReady ? 4 : 0));
+      if (id < 0) throw Exception(_b.lastError().toDartString());
+      return id;
+    } finally {
+      malloc.free(r);
+      malloc.free(s);
+    }
+  }
+
   /// Remove a torrent. Optionally delete downloaded files.
   void removeTorrent(int id, {bool deleteFiles = false}) {
     _b.removeTorrent(_session, id, deleteFiles ? 1 : 0);
@@ -344,6 +365,17 @@ class LibtorrentFlutter implements Finalizable {
     final nativePath = path.toNativeUtf8();
     try {
       return _b.saveMetadata(_session, id, nativePath) == 1;
+    } finally {
+      malloc.free(nativePath);
+    }
+  }
+
+  /// Write fast-resume data for [addResume]; false while the torrent has no
+  /// metadata or the file cannot be written.
+  bool saveResume(int id, String path) {
+    final nativePath = path.toNativeUtf8();
+    try {
+      return _b.saveResume(_session, id, nativePath) == 1;
     } finally {
       malloc.free(nativePath);
     }

@@ -325,7 +325,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('播放'),
+              child: const Text('观看'),
             ),
           ],
         ),
@@ -366,8 +366,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       cached: {
         for (final task in controller.downloads.snapshot().forSubject(
           subject.id,
-        ))
-          ?task.episodeId,
+        )) ...{?task.episodeId, ...episodeFiles(subject, task).keys},
       },
     );
     if (chosen == null || !mounted) return;
