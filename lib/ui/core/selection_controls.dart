@@ -530,13 +530,16 @@ class MelonFilterMenu<T> extends StatelessWidget {
           Row(
             children: [
               for (final finer in option.more)
-                MenuItemButton(
-                  style: pill(selected.contains(finer.value)),
-                  onPressed: () => pick(finer.value),
-                  child: centred(
-                    finer.label,
-                    32,
-                    selected.contains(finer.value),
+                SizedBox(
+                  width: 34,
+                  child: MenuItemButton(
+                    style: pill(selected.contains(finer.value)),
+                    onPressed: () => pick(finer.value),
+                    child: centred(
+                      finer.label,
+                      34,
+                      selected.contains(finer.value),
+                    ),
                   ),
                 ),
             ],
