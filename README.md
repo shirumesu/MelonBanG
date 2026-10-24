@@ -4,6 +4,8 @@
 
 <p><b>追番？轻而易举！一个桌面应用全搞定!</b></p>
 
+> 一个原生桌面追番客户端。番剧信息和收藏来自 [Bangumi][bangumi]，资源来自在线源和 BT，自带缓存、播放器和弹幕，找番、下载、观看、记进度在一个应用里完成。
+
 <p>
   <a href="https://github.com/shirumesu/MelonBanG/releases"><img alt="版本" src="https://img.shields.io/github/v/release/shirumesu/MelonBanG?include_prereleases&label=%E7%89%88%E6%9C%AC&color=22B388"></a>
   <a href="https://github.com/shirumesu/MelonBanG/releases"><img alt="下载量" src="https://img.shields.io/github/downloads/shirumesu/MelonBanG/total?label=%E4%B8%8B%E8%BD%BD&color=FF6B81"></a>
@@ -24,8 +26,6 @@
 </picture>
 
 </div>
-
-MelonBanG 是一个原生桌面追番客户端。番剧信息和收藏来自 [Bangumi][bangumi]，资源来自在线源和 BT，自带缓存、播放器和弹幕，找番、下载、观看、记进度在一个应用里完成。
 
 <div align="center">
 
