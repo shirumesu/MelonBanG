@@ -14,12 +14,12 @@
   <img alt="Flutter" src="https://img.shields.io/badge/Flutter-02569B?logo=flutter&logoColor=white">
 </p>
 
-<p>
-  <a href="#下载"><img alt="下载" src="https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-22B388?style=for-the-badge&logo=github&logoColor=white"></a>
-  <a href="#常见问题"><img alt="常见问题" src="https://img.shields.io/badge/%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98-FF6B81?style=for-the-badge"></a>
-  <a href="#从源码构建"><img alt="从源码构建" src="https://img.shields.io/badge/%E4%BB%8E%E6%BA%90%E7%A0%81%E6%9E%84%E5%BB%BA-0F5C46?style=for-the-badge&logo=flutter&logoColor=white"></a>
-  <a href="https://github.com/shirumesu/MelonBanG/issues"><img alt="反馈" src="https://img.shields.io/badge/%E5%8F%8D%E9%A6%88%E9%97%AE%E9%A2%98-555555?style=for-the-badge"></a>
-</p>
+<h4>
+  <a href="#下载">下载</a> &nbsp;｜&nbsp;
+  <a href="#常见问题">常见问题</a> &nbsp;｜&nbsp;
+  <a href="#从源码构建">从源码构建</a> &nbsp;｜&nbsp;
+  <a href="https://github.com/shirumesu/MelonBanG/issues">反馈问题</a>
+</h4>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/screenshots/home-dark.webp">
@@ -33,16 +33,12 @@
 
 <table>
 <tr>
-  <td width="25%"><img alt="番剧详情" src=".github/screenshots/detail.webp"></td>
-  <td width="25%"><img alt="资源搜索" src=".github/screenshots/resources.webp"></td>
-  <td width="25%"><img alt="缓存" src=".github/screenshots/cache.webp"></td>
-  <td width="25%"><img alt="播放器" src=".github/screenshots/player.webp"></td>
+  <td width="50%" align="center"><img alt="番剧详情" src=".github/screenshots/detail.webp"><br><sub>番剧详情</sub></td>
+  <td width="50%" align="center"><img alt="资源搜索" src=".github/screenshots/resources.webp"><br><sub>资源搜索</sub></td>
 </tr>
-<tr align="center">
-  <td><b>番剧详情</b><br><sub>简介、剧集、收藏一屏看完</sub></td>
-  <td><b>资源搜索</b><br><sub>在线源 + BT + 缓存，按字幕组筛选</sub></td>
-  <td><b>缓存</b><br><sub>BT 边下边播，PikPak 加速</sub></td>
-  <td><b>播放器</b><br><sub>弹幕、Anime4K 超分、跳片头片尾</sub></td>
+<tr>
+  <td width="50%" align="center"><img alt="缓存" src=".github/screenshots/cache.webp"><br><sub>缓存</sub></td>
+  <td width="50%" align="center"><img alt="播放器" src=".github/screenshots/player.webp"><br><sub>播放器</sub></td>
 </tr>
 </table>
 </div>
