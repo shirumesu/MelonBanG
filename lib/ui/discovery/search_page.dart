@@ -232,18 +232,22 @@ class _Filters extends StatelessWidget {
         MelonFilterMenu<String>(
           label: '时间',
           multiple: false,
-          columns: 5,
+          columns: 3,
           summary: query.before
               ? '更早'
               : '$year年${query.month == null ? '' : '${query.month}月'}',
-          tooltip: '按放送年份或季度筛选',
+          tooltip: '按放送年份筛选，悬停年份可选季度',
           sections: [
             MelonFilterSection([
-              for (var y = now + 1; y > now - 10; y--) ...[
-                MelonFilterOption('$y', '$y年'),
-                for (final month in const [1, 4, 7, 10])
-                  MelonFilterOption('$y-$month', '$month月'),
-              ],
+              for (var y = now + 1; y > now - 10; y--)
+                MelonFilterOption(
+                  '$y',
+                  '$y年',
+                  more: [
+                    for (final month in const [1, 4, 7, 10])
+                      MelonFilterOption('$y-$month', '$month月'),
+                  ],
+                ),
               MelonFilterOption('<${now - 9}', '更早'),
             ]),
           ],

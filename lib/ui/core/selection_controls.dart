@@ -361,12 +361,17 @@ class MelonFilterOption<T> {
     this.detail,
     this.detailColor,
     this.enabled = true,
+    this.more = const [],
   });
   final T value;
   final String label;
   final String? detail;
   final Color? detailColor;
   final bool enabled;
+
+  /// Finer choices shown while the pointer rests on this one, such as a
+  /// year's quarters.
+  final List<MelonFilterOption<T>> more;
 }
 
 class MelonFilterSection<T> {
@@ -444,57 +449,108 @@ class MelonFilterMenu<T> extends StatelessWidget {
         child: Icon(Icons.check_rounded, size: 12, color: scheme.onPrimary),
       ),
     );
-    Widget item(MelonFilterOption<T> option) => MenuItemButton(
-      closeOnActivate: !multiple,
-      style: ButtonStyle(
-        minimumSize: WidgetStatePropertyAll(Size(columns == 1 ? 200 : 0, 38)),
-        shape: const WidgetStatePropertyAll(
+    final menu = MenuController();
+    final style = MenuStyle(
+      backgroundColor: WidgetStatePropertyAll(menuSurface(context)),
+      surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+      padding: const WidgetStatePropertyAll(EdgeInsets.all(5)),
+      shape: const WidgetStatePropertyAll(
+        RoundedRectangleBorder(borderRadius: controlBorderRadius),
+      ),
+      elevation: const WidgetStatePropertyAll(3),
+    );
+    Widget mark(bool value) => multiple
+        ? check(value)
+        : SizedBox.square(
+            dimension: 16,
+            child: value
+                ? Icon(Icons.check_rounded, size: 16, color: scheme.primary)
+                : null,
+          );
+    late Widget Function(MelonFilterOption<T>) item;
+    // Hovering opens the finer choices; a click still picks the option
+    // itself, so the label takes the tap before the submenu button does.
+    Widget withMore(MelonFilterOption<T> option) => SubmenuButton(
+      menuStyle: style,
+      style: const ButtonStyle(
+        padding: WidgetStatePropertyAll(EdgeInsets.only(right: 8)),
+        minimumSize: WidgetStatePropertyAll(Size(0, 38)),
+        shape: WidgetStatePropertyAll(
           RoundedRectangleBorder(borderRadius: controlBorderRadius),
         ),
       ),
-      onPressed: option.enabled || selected.contains(option.value)
-          ? () => onToggle(option.value, !selected.contains(option.value))
-          : null,
-      leadingIcon: multiple
-          ? check(selected.contains(option.value))
-          : SizedBox.square(
-              dimension: 16,
-              child: selected.contains(option.value)
-                  ? Icon(Icons.check_rounded, size: 16, color: scheme.primary)
-                  : null,
-            ),
-      trailingIcon: option.detail == null
-          ? null
-          : Padding(
-              padding: const EdgeInsets.only(left: Gap.lg),
-              child: Text(
-                option.detail!,
-                style: small?.copyWith(
-                  color: option.detailColor,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
+      menuChildren: [
+        Row(
+          children: [
+            for (final finer in option.more)
+              SizedBox(width: 84, child: item(finer)),
+          ],
+        ),
+      ],
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          onToggle(option.value, !selected.contains(option.value));
+          if (!multiple) menu.close();
+        },
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 0, 10),
+          child: Row(
+            children: [
+              mark(
+                selected.contains(option.value) ||
+                    option.more.any((finer) => selected.contains(finer.value)),
               ),
-            ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 220),
-        child: Text(option.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+              const SizedBox(width: 12),
+              Text(option.label),
+            ],
+          ),
+        ),
       ),
     );
+    item = (option) => option.more.isNotEmpty
+        ? withMore(option)
+        : MenuItemButton(
+            closeOnActivate: !multiple,
+            style: ButtonStyle(
+              minimumSize: WidgetStatePropertyAll(
+                Size(columns == 1 ? 200 : 0, 38),
+              ),
+              shape: const WidgetStatePropertyAll(
+                RoundedRectangleBorder(borderRadius: controlBorderRadius),
+              ),
+            ),
+            onPressed: option.enabled || selected.contains(option.value)
+                ? () => onToggle(option.value, !selected.contains(option.value))
+                : null,
+            leadingIcon: mark(selected.contains(option.value)),
+            trailingIcon: option.detail == null
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(left: Gap.lg),
+                    child: Text(
+                      option.detail!,
+                      style: small?.copyWith(
+                        color: option.detailColor,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 220),
+              child: Text(
+                option.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          );
     return MenuAnchor(
+      controller: menu,
       crossAxisUnconstrained: false,
-      style: MenuStyle(
-        backgroundColor: WidgetStatePropertyAll(menuSurface(context)),
-        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-        padding: const WidgetStatePropertyAll(EdgeInsets.all(5)),
-        shape: const WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: controlBorderRadius),
-        ),
-        elevation: const WidgetStatePropertyAll(3),
+      style: style.copyWith(
         maximumSize: WidgetStatePropertyAll(
-          Size(
-            columns > 1 ? columns * 112.0 + 10 : 360,
-            columns > 1 ? 480 : 440,
-          ),
+          Size(columns > 1 ? columns * 112.0 + 10 : 360, 440),
         ),
       ),
       menuChildren: [

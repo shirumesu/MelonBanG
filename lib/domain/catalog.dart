@@ -547,6 +547,15 @@ class SubjectQuery {
         : SubjectQuery(keyword: value);
   }
 
+  /// The quarter [date] belongs to (see [airDates]).
+  factory SubjectQuery.season(DateTime date) {
+    final start = DateTime(date.year, date.month + (date.day >= 25 ? 1 : 0));
+    return SubjectQuery(
+      year: start.year,
+      month: (start.month - 1) ~/ 3 * 3 + 1,
+    );
+  }
+
   /// A tag clicked on a subject: one of Bangumi's public tags offered below
   /// becomes that filter, any other searches by tag.
   factory SubjectQuery.ofTag(String name) => kinds.contains(name)
@@ -582,6 +591,24 @@ class SubjectQuery {
 
   /// Aired before [year] instead of within it.
   final bool before;
+
+  /// Bangumi `air_date` conditions for the chosen time. Shows premiering in
+  /// the last week of the month before belong to a season (葬送的芙莉莲,
+  /// 2023-09-29, is an October show), so a quarter starts on the 25th of that
+  /// month; a year spans its four quarters.
+  List<String> get airDates {
+    final year = this.year;
+    if (year == null) return const [];
+    String start(int year, int month) =>
+        DateTime(year, month - 1, 25).toIso8601String().substring(0, 10);
+    final month = this.month;
+    return before
+        ? ['<${start(year, 1)}']
+        : month == null
+        ? ['>=${start(year, 1)}', '<${start(year + 1, 1)}']
+        : ['>=${start(year, month)}', '<${start(year, month + 3)}'];
+  }
+
   final SubjectSort? sort;
 
   /// Matching only ranks title hits; without a keyword results go by heat.

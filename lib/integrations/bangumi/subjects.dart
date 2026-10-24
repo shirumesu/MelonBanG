@@ -23,10 +23,6 @@ class BangumiSubjects {
     required int limit,
     required int offset,
   }) async {
-    String day(int year, [int month = 1]) =>
-        '$year-${'$month'.padLeft(2, '0')}-01';
-    final year = query.year;
-    final month = query.month;
     final metaTags = [
       ?query.kind,
       ?query.source,
@@ -45,15 +41,7 @@ class BangumiSubjects {
             'nsfw': false,
             if (query.tag case final tag?) 'tag': [tag],
             if (metaTags.isNotEmpty) 'meta_tags': metaTags,
-            if (year != null)
-              'air_date': query.before
-                  ? ['<${day(year)}']
-                  : month == null
-                  ? ['>=${day(year)}', '<${day(year + 1)}']
-                  : [
-                      '>=${day(year, month)}',
-                      '<${month > 9 ? day(year + 1) : day(year, month + 3)}',
-                    ],
+            if (query.airDates.isNotEmpty) 'air_date': query.airDates,
             // Unranked subjects would otherwise lead the ranking.
             if (query.order == SubjectSort.rank) 'rank': ['>0'],
           },
