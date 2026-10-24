@@ -208,7 +208,9 @@ class _StorageSettingsState extends State<StorageSettings> {
                   ),
                 ],
                 const SizedBox(height: 20),
-                const Text('现有数据会在后台复制，期间可以照常使用。复制完成后重新打开应用即可切换位置，原目录保留。'),
+                const Text(
+                  '同一磁盘内会在重新打开应用时直接移动；跨磁盘时先在后台复制，期间可以照常使用，复制完成后重新打开应用即可切换。切换后会删除原位置的文件。',
+                ),
                 const SizedBox(height: 12),
                 const Text('迁移完成前请保持原位置和新位置的磁盘连接。'),
               ],
@@ -267,8 +269,8 @@ class _StorageSettingsState extends State<StorageSettings> {
             )
           else if (copied)
             Text(
-              '文件已复制，重新打开应用后切换到新位置'
-              '${(copy?.left ?? 0) > 0 ? '，${copy!.left} 个正在使用的文件届时补上' : ''}。',
+              '重新打开应用即可完成迁移，并删除原位置的文件'
+              '${(copy?.left ?? 0) > 0 ? '；${copy!.left} 个正在使用的文件届时补上' : ''}。',
               style: small,
             )
           else ...[
@@ -284,7 +286,7 @@ class _StorageSettingsState extends State<StorageSettings> {
               style: small,
             ),
             const SizedBox(height: 4),
-            Text('期间可以照常使用，复制完成后重新打开应用即可切换。', style: small),
+            Text('期间可以照常使用，复制完成后重新打开应用即可完成迁移。', style: small),
           ],
           const SizedBox(height: 12),
           Wrap(
