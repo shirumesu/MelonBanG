@@ -451,15 +451,12 @@ class PlaybackCoordinator extends ChangeNotifier {
         language: playback.settings.subtitleLanguage,
       );
       if (_closed || request != _selectionRequest) return;
-      final cached = local.where(
-        (candidate) => candidate.kind == PlayKind.local,
-      );
       // A cache that cannot open is reported rather than replaced by
-      // another source.
-      if (cached.isEmpty) {
+      // another source; an unfinished one streams from its transfer.
+      if (local.isEmpty) {
         throw StateError('第 ${episode.number} 话的缓存暂时无法播放');
       }
-      await playCandidate(cached.first, item, episode);
+      await playCandidate(local.first, item, episode);
       return;
     }
     playback.showNotice('正在查找第 ${episode.number} 话资源');
