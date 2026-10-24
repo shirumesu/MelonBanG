@@ -582,7 +582,6 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     _requireOpen();
     final task = _task(id);
     task['manualPaused'] = true;
-    task['status'] = 'paused';
     await _stopWorker(id);
     if (task['complete'] != true) task['status'] = 'paused';
     task['downloadSpeedBytesPerSecond'] = 0;

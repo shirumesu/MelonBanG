@@ -49,12 +49,8 @@ class DownloadRepository {
     List<String> releaseGroups = const [],
   }) async {
     await ready;
-    final uri = Uri.tryParse(input.trim());
-    if (uri?.scheme != 'magnet') {
-      throw const FormatException('磁力链接缺少有效的 BT info hash');
-    }
     return _transfer(method).addMagnet(
-      uri!,
+      Uri.parse(input.trim()),
       subjectId: subjectId,
       episodeId: episodeId,
       coverUrl: coverUrl,
@@ -72,7 +68,6 @@ class DownloadRepository {
     List<String> releaseGroups = const [],
   }) async {
     await ready;
-    if (bytes.isEmpty) throw const FormatException('种子文件为空');
     return _transfer(method).addTorrent(
       bytes,
       name,

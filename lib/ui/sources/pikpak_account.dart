@@ -84,11 +84,7 @@ class _PikPakAccountState extends State<PikPakAccount> {
   });
 
   Future<void> openCaptcha(Uri url) async {
-    try {
-      if (await launchUrl(url, mode: LaunchMode.externalApplication)) {
-        return;
-      }
-    } catch (_) {}
+    if (await launchUrl(url, mode: LaunchMode.externalApplication)) return;
     if (mounted) setState(() => error = '无法打开验证页面，请稍后重试。');
   }
 

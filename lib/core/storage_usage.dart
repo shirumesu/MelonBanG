@@ -1,6 +1,7 @@
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 
 import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as p;
@@ -21,37 +22,20 @@ class StorageUsage {
           : p.normalize(p.absolute(path));
     }
 
-    try {
-      data = canonical(data);
-      media = canonical(media);
-    } on FileSystemException {
-      return const StorageUsage();
-    }
-    int? size(String path) {
-      try {
-        return _directoryBytes(path);
-      } on FileSystemException {
-        return null;
-      } on ProcessException {
-        return null;
-      }
-    }
-
-    var dataBytes = size(data);
-    var mediaBytes = size(media);
+    data = canonical(data);
+    media = canonical(media);
+    var dataBytes = _directoryBytes(data);
+    var mediaBytes = _directoryBytes(media);
     // Default media lives inside data; each category must count it only once.
+    // Files can change between the two walks, so never go below zero.
     if (p.equals(data, media) || p.isWithin(data, media)) {
-      dataBytes = _subtract(dataBytes, mediaBytes);
+      dataBytes = max(0, dataBytes - mediaBytes);
     } else if (p.isWithin(media, data)) {
-      mediaBytes = _subtract(mediaBytes, dataBytes);
+      mediaBytes = max(0, mediaBytes - dataBytes);
     }
     return StorageUsage(dataBytes: dataBytes, mediaBytes: mediaBytes);
   }
 }
-
-int? _subtract(int? total, int? excluded) => total == null || excluded == null
-    ? null
-    : (total - excluded).clamp(0, total);
 
 int _directoryBytes(String path) {
   final type = FileSystemEntity.typeSync(path);

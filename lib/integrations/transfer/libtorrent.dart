@@ -54,7 +54,6 @@ class LibtorrentTransfer implements TorrentTransfer {
   Future<void> saveSettings(BitTorrentSettings value) async {
     await ready;
     _requireOpen();
-    value.validate();
     await store.put('settings', 'bittorrent', value.toJson());
     settings = value;
     if (_initializing != null) {
@@ -74,15 +73,12 @@ class LibtorrentTransfer implements TorrentTransfer {
   Future<void> loadPreferences() => _loadingPreferences ??= _loadPreferences();
 
   Future<void> _loadPreferences() async {
-    _requireOpen();
     settings = BitTorrentSettings.fromStoredJson(
       await store.get('settings', 'bittorrent') ?? {},
     );
-    settings.validate();
   }
 
   Future<void> _restore() async {
-    _requireOpen();
     await loadPreferences();
     final restored = await store.list('downloads');
     restored.sort(
@@ -415,8 +411,6 @@ class LibtorrentTransfer implements TorrentTransfer {
     String? coverUrl,
     List<String> releaseGroups = const [],
   }) async {
-    await ready;
-    if (_closed) throw StateError('下载器已关闭');
     return downloadTask(
       await _add(
         'magnet',
@@ -441,8 +435,6 @@ class LibtorrentTransfer implements TorrentTransfer {
     String? coverUrl,
     List<String> releaseGroups = const [],
   }) async {
-    await ready;
-    if (_closed) throw StateError('下载器已关闭');
     final fingerprint = torrentInfoHash(bytes);
     return downloadTask(
       await _add(
@@ -500,9 +492,8 @@ class LibtorrentTransfer implements TorrentTransfer {
     List<String> releaseGroups = const [],
   }) async {
     await ready;
-    if (_closed) throw StateError('下载器已关闭');
     await _removing[fingerprint];
-    if (_closed) throw StateError('下载器已关闭');
+    _requireOpen();
     final existing = _tasks.values
         .where((t) => t['fingerprint'] == fingerprint)
         .firstOrNull;
@@ -526,9 +517,7 @@ class LibtorrentTransfer implements TorrentTransfer {
       return existing;
     }
     final resolvedCover = coverUrl ?? await cachedCover(store, subjectId);
-    if (_closed) throw StateError('下载器已关闭');
     await _engine();
-    if (_closed) throw StateError('下载器已关闭');
     if (metadataBytes != null) {
       final pending = File('$input.pending');
       await pending.writeAsBytes(metadataBytes, flush: true);
@@ -537,7 +526,7 @@ class LibtorrentTransfer implements TorrentTransfer {
     final id = newId();
     final savePath = p.join(directory, id);
     await Directory(savePath).create(recursive: true);
-    if (_closed) throw StateError('下载器已关闭');
+    // Closing waits for this add, then saves and disposes what it attached.
     final task = <String, dynamic>{
       'id': id,
       'createdAt': DateTime.now().millisecondsSinceEpoch,

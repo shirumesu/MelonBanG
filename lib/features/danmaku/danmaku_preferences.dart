@@ -32,46 +32,41 @@ class DanmakuFilter {
 
 class DanmakuPreferences extends ChangeNotifier {
   DanmakuPreferences(this.storage) {
-    try {
-      final saved = object(
-        jsonDecode(storage.getString('danmaku-preferences') ?? '{}'),
-      );
-      enabled = saved['enabled'] as bool? ?? true;
-      size = number(saved['size'] ?? 25).clamp(14, 36).toDouble();
-      opacity = number(saved['opacity'] ?? .9).clamp(.1, 1).toDouble();
-      area = number(saved['area'] ?? .6).clamp(.2, 1).toDouble();
-      density = number(saved['density'] ?? 1).toInt().clamp(0, 3);
-      speed = number(saved['speed'] ?? 2).toInt().clamp(0, 4);
-      overlap = saved['overlap'] as bool? ?? false;
-      shield = saved['shield'] as bool? ?? false;
-      scroll = saved['scroll'] as bool? ?? true;
-      top = saved['top'] as bool? ?? true;
-      bottom = saved['bottom'] as bool? ?? true;
-      colorful = saved['colorful'] as bool? ?? true;
-      stroke = saved['stroke'] as bool? ?? true;
-      merge = saved['merge'] as bool? ?? true;
-      sendStyle.value = (
-        mode:
-            DanmakuMode.values.asNameMap()[saved['sendMode']] ??
-            DanmakuMode.scroll,
-        color: number(saved['sendColor'] ?? 0xffffff).toInt() & 0xffffff,
-      );
-      providers = object(saved['providers'])
-          .map((key, value) => MapEntry(key, value == true));
-      filters =
-          objects(jsonDecode(storage.getString('danmaku-filters') ?? '[]'))
-              .map(
-                (rule) => DanmakuFilter(
-                  '${rule['pattern'] ?? ''}',
-                  isRegex: rule['isRegex'] == true,
-                  enabled: rule['enabled'] != false,
-                ),
-              )
-              .where((rule) => rule.pattern.isNotEmpty)
-              .toList();
-    } on FormatException catch (_) {
-      /* Keep defaults if old preferences are unreadable. */
-    }
+    final saved = object(
+      jsonDecode(storage.getString('danmaku-preferences') ?? '{}'),
+    );
+    enabled = saved['enabled'] as bool? ?? true;
+    size = number(saved['size'] ?? 25).clamp(14, 36).toDouble();
+    opacity = number(saved['opacity'] ?? .9).clamp(.1, 1).toDouble();
+    area = number(saved['area'] ?? .6).clamp(.2, 1).toDouble();
+    density = number(saved['density'] ?? 1).toInt().clamp(0, 3);
+    speed = number(saved['speed'] ?? 2).toInt().clamp(0, 4);
+    overlap = saved['overlap'] as bool? ?? false;
+    shield = saved['shield'] as bool? ?? false;
+    scroll = saved['scroll'] as bool? ?? true;
+    top = saved['top'] as bool? ?? true;
+    bottom = saved['bottom'] as bool? ?? true;
+    colorful = saved['colorful'] as bool? ?? true;
+    stroke = saved['stroke'] as bool? ?? true;
+    merge = saved['merge'] as bool? ?? true;
+    sendStyle.value = (
+      mode:
+          DanmakuMode.values.asNameMap()[saved['sendMode']] ??
+          DanmakuMode.scroll,
+      color: number(saved['sendColor'] ?? 0xffffff).toInt() & 0xffffff,
+    );
+    providers = object(saved['providers'])
+        .map((key, value) => MapEntry(key, value == true));
+    filters = objects(jsonDecode(storage.getString('danmaku-filters') ?? '[]'))
+        .map(
+          (rule) => DanmakuFilter(
+            '${rule['pattern'] ?? ''}',
+            isRegex: rule['isRegex'] == true,
+            enabled: rule['enabled'] != false,
+          ),
+        )
+        .where((rule) => rule.pattern.isNotEmpty)
+        .toList();
     sendStyle.addListener(_save);
   }
   final SharedPreferences storage;

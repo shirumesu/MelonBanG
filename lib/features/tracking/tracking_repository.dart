@@ -133,26 +133,15 @@ class TrackingRepository {
   };
 
   Future<void> setCollection(int subjectId, CollectionChange change) async {
-    final status = change.status, comment = change.comment;
+    final status = change.status, comment = change.comment, tags = change.tags;
     var score = change.score;
-    var tags = change.tags;
     final completeEpisodes = change.completeEpisodes;
-    if (subjectId <= 0 || (score != null && (score < 0 || score > 10))) {
-      throw const FormatException('收藏信息无效');
-    }
-    tags = tags == null ? null : normalizeCollectionTags(tags);
-    if (comment != null && comment.runes.length > collectionCommentLimit) {
-      throw const FormatException('吐槽最多 $collectionCommentLimit 字');
-    }
     final user = account.userId;
     final current =
         await store.get(_collection(user), '$subjectId') ??
         _row(await catalog.subject(subjectId));
     if (_closed || user != account.userId) throw StateError('账号已经切换');
     if ((status?.key ?? current['status'] ?? 'wish') == 'wish') {
-      if (score != null && score > 0) {
-        throw const FormatException('想看状态不能评分，请先选择其他收藏状态');
-      }
       if (status == CollectionStatus.wish && number(current['userScore']) > 0) {
         _heldScores['$user:$subjectId'] = number(current['userScore']).toInt();
         score = 0;
@@ -171,9 +160,6 @@ class TrackingRepository {
     };
     List<int> episodeIds = [];
     if (completeEpisodes) {
-      if ((status?.key ?? current['status']) != 'completed') {
-        throw const FormatException('仅在标为看过时完成全部正片');
-      }
       final detail = await catalog.subject(subjectId);
       episodeIds = detail.episodes
           .where((episode) => episode.main && episode.id > 0)
@@ -227,7 +213,6 @@ class TrackingRepository {
     int episodeId,
     EpisodeStatus status,
   ) async {
-    if (episodeId <= 0 || subjectId <= 0) throw const FormatException('章节编号无效');
     if (_closed) throw StateError('收藏服务已关闭');
     final user = account.userId;
     await store.mutate(
@@ -259,9 +244,6 @@ class TrackingRepository {
         await setEpisode(subjectId, id, status);
       }
       return;
-    }
-    if (episodeIds.any((id) => id <= 0) || subjectId <= 0) {
-      throw const FormatException('章节编号无效');
     }
     if (_closed) throw StateError('收藏服务已关闭');
     final user = account.userId;

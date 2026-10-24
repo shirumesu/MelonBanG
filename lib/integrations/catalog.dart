@@ -328,7 +328,6 @@ class CatalogRepository implements Catalog {
     FutureOr<void> Function(Subject)? onAvailable,
     bool forPlayback = false,
   }) async {
-    if (id <= 0) throw const FormatException('番剧编号无效');
     // Detail and list caches have distinct keys; a search cannot erase detail.
     final response = object(
       await _cached(
