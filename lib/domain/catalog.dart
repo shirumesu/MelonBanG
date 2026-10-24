@@ -612,8 +612,9 @@ class SubjectQuery {
   final SubjectSort? sort;
 
   /// Matching only ranks title hits; without a keyword results go by heat.
-  SubjectSort get order =>
-      sort ?? (keyword.isEmpty ? SubjectSort.heat : SubjectSort.match);
+  SubjectSort get order => keyword.isEmpty
+      ? (sort == null || sort == SubjectSort.match ? SubjectSort.heat : sort!)
+      : sort ?? SubjectSort.match;
 
   /// The text the search field shows for this query.
   String get text => keyword.isNotEmpty
@@ -641,6 +642,7 @@ class SubjectQuery {
   ].join('|');
 
   SubjectQuery copyWith({
+    String? keyword,
     Object? tag = _same,
     Object? kind = _same,
     Object? source = _same,
@@ -651,7 +653,7 @@ class SubjectQuery {
     bool? before,
     SubjectSort? sort,
   }) => SubjectQuery(
-    keyword: keyword,
+    keyword: keyword ?? this.keyword,
     tag: tag == _same ? this.tag : tag as String?,
     kind: kind == _same ? this.kind : kind as String?,
     source: source == _same ? this.source : source as String?,

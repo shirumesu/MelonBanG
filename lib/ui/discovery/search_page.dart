@@ -67,7 +67,9 @@ class _SearchPageState extends State<SearchPage> {
                   ? '“${query.keyword}” 的搜索结果'
                   : query.tag != null
                   ? '#${query.tag}'
-                  : '筛选结果',
+                  : query.filtered
+                  ? '筛选结果'
+                  : '全部番剧',
               // Bangumi counts at most 1000 matches.
               subtitle: results.isEmpty && busy
                   ? null
@@ -232,13 +234,13 @@ class _Filters extends StatelessWidget {
         MelonFilterMenu<String>(
           label: '时间',
           multiple: false,
-          columns: 3,
+          columns: 4,
           summary: query.before
               ? '更早'
               : '$year年${query.month == null ? '' : '${query.month}月'}',
-          tooltip: '按放送年份筛选，悬停年份可选季度',
+          tooltip: '按放送时间筛选',
           sections: [
-            MelonFilterSection([
+            MelonFilterSection(title: '点年份选全年，移到年份上可选季度', [
               for (var y = now + 1; y > now - 10; y--)
                 MelonFilterOption(
                   '$y',

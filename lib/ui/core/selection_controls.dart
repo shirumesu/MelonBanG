@@ -369,8 +369,8 @@ class MelonFilterOption<T> {
   final Color? detailColor;
   final bool enabled;
 
-  /// Finer choices shown while the pointer rests on this one, such as a
-  /// year's quarters.
+  /// Finer choices shown below this one in a grid, such as a year's
+  /// quarters.
   final List<MelonFilterOption<T>> more;
 }
 
@@ -450,15 +450,6 @@ class MelonFilterMenu<T> extends StatelessWidget {
       ),
     );
     final menu = MenuController();
-    final style = MenuStyle(
-      backgroundColor: WidgetStatePropertyAll(menuSurface(context)),
-      surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-      padding: const WidgetStatePropertyAll(EdgeInsets.all(5)),
-      shape: const WidgetStatePropertyAll(
-        RoundedRectangleBorder(borderRadius: controlBorderRadius),
-      ),
-      elevation: const WidgetStatePropertyAll(3),
-    );
     Widget mark(bool value) => multiple
         ? check(value)
         : SizedBox.square(
@@ -467,90 +458,72 @@ class MelonFilterMenu<T> extends StatelessWidget {
                 ? Icon(Icons.check_rounded, size: 16, color: scheme.primary)
                 : null,
           );
-    late Widget Function(MelonFilterOption<T>) item;
-    // Hovering opens the finer choices; a click still picks the option
-    // itself, so the label takes the tap before the submenu button does.
-    Widget withMore(MelonFilterOption<T> option) => SubmenuButton(
-      menuStyle: style,
-      style: const ButtonStyle(
-        padding: WidgetStatePropertyAll(EdgeInsets.only(right: 8)),
-        minimumSize: WidgetStatePropertyAll(Size(0, 38)),
-        shape: WidgetStatePropertyAll(
+    // Options with finer choices sit in a grid of cells that show those
+    // choices below the option, so moving down to them crosses no other.
+    final cells = sections.any(
+      (section) => section.options.any((option) => option.more.isNotEmpty),
+    );
+    final width = cells ? 128.0 : 112.0;
+    void pick(T value) {
+      onToggle(value, !selected.contains(value));
+      if (!multiple) menu.close();
+    }
+
+    Widget cell(MelonFilterOption<T> option) => _FilterCell(
+      label: option.label,
+      selected: selected.contains(option.value),
+      onTap: () => pick(option.value),
+      finer: [
+        for (final finer in option.more)
+          (
+            finer.label,
+            selected.contains(finer.value),
+            () => pick(finer.value),
+          ),
+      ],
+    );
+    Widget item(MelonFilterOption<T> option) => MenuItemButton(
+      closeOnActivate: !multiple,
+      style: ButtonStyle(
+        minimumSize: WidgetStatePropertyAll(Size(columns == 1 ? 200 : 0, 38)),
+        shape: const WidgetStatePropertyAll(
           RoundedRectangleBorder(borderRadius: controlBorderRadius),
         ),
       ),
-      menuChildren: [
-        Row(
-          children: [
-            for (final finer in option.more)
-              SizedBox(width: 84, child: item(finer)),
-          ],
-        ),
-      ],
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          onToggle(option.value, !selected.contains(option.value));
-          if (!multiple) menu.close();
-        },
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 0, 10),
-          child: Row(
-            children: [
-              mark(
-                selected.contains(option.value) ||
-                    option.more.any((finer) => selected.contains(finer.value)),
+      onPressed: option.enabled || selected.contains(option.value)
+          ? () => onToggle(option.value, !selected.contains(option.value))
+          : null,
+      leadingIcon: mark(selected.contains(option.value)),
+      trailingIcon: option.detail == null
+          ? null
+          : Padding(
+              padding: const EdgeInsets.only(left: Gap.lg),
+              child: Text(
+                option.detail!,
+                style: small?.copyWith(
+                  color: option.detailColor,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
               ),
-              const SizedBox(width: 12),
-              Text(option.label),
-            ],
-          ),
-        ),
+            ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 220),
+        child: Text(option.label, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
     );
-    item = (option) => option.more.isNotEmpty
-        ? withMore(option)
-        : MenuItemButton(
-            closeOnActivate: !multiple,
-            style: ButtonStyle(
-              minimumSize: WidgetStatePropertyAll(
-                Size(columns == 1 ? 200 : 0, 38),
-              ),
-              shape: const WidgetStatePropertyAll(
-                RoundedRectangleBorder(borderRadius: controlBorderRadius),
-              ),
-            ),
-            onPressed: option.enabled || selected.contains(option.value)
-                ? () => onToggle(option.value, !selected.contains(option.value))
-                : null,
-            leadingIcon: mark(selected.contains(option.value)),
-            trailingIcon: option.detail == null
-                ? null
-                : Padding(
-                    padding: const EdgeInsets.only(left: Gap.lg),
-                    child: Text(
-                      option.detail!,
-                      style: small?.copyWith(
-                        color: option.detailColor,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                  ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 220),
-              child: Text(
-                option.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          );
     return MenuAnchor(
       controller: menu,
       crossAxisUnconstrained: false,
-      style: style.copyWith(
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(menuSurface(context)),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        padding: const WidgetStatePropertyAll(EdgeInsets.all(5)),
+        shape: const WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: controlBorderRadius),
+        ),
+        elevation: const WidgetStatePropertyAll(3),
         maximumSize: WidgetStatePropertyAll(
-          Size(columns > 1 ? columns * 112.0 + 10 : 360, 440),
+          Size(columns > 1 ? columns * width + 10 : 360, 440),
         ),
       ),
       menuChildren: [
@@ -568,7 +541,10 @@ class MelonFilterMenu<T> extends StatelessWidget {
               Row(
                 children: [
                   for (final option in section.options.skip(i).take(columns))
-                    SizedBox(width: 112, child: item(option)),
+                    SizedBox(
+                      width: width,
+                      child: cells ? cell(option) : item(option),
+                    ),
                 ],
               ),
         ],
@@ -643,6 +619,116 @@ class MelonFilterMenu<T> extends StatelessWidget {
                 ),
         );
       },
+    );
+  }
+}
+
+/// A grid option with its finer choices below, shown while the pointer or
+/// focus is on it or one of them is picked.
+class _FilterCell extends StatefulWidget {
+  const _FilterCell({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.finer,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final List<(String, bool, VoidCallback)> finer;
+
+  @override
+  State<_FilterCell> createState() => _FilterCellState();
+}
+
+class _FilterCellState extends State<_FilterCell> {
+  var _hovered = false, _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final picked = widget.finer.any((finer) => finer.$2);
+    final open = widget.finer.isNotEmpty && (_hovered || _focused || picked);
+    Widget choice(
+      String label,
+      bool on,
+      VoidCallback onTap,
+      double height,
+      TextStyle? style,
+    ) => Material(
+      color: on ? scheme.primaryContainer : Colors.transparent,
+      borderRadius: controlBorderRadius,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: controlBorderRadius,
+        child: SizedBox(
+          height: height,
+          child: Center(
+            child: Text(
+              label,
+              style: style?.copyWith(
+                color: on ? scheme.onPrimaryContainer : null,
+                fontWeight: on ? FontWeight.w700 : null,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Focus(
+        canRequestFocus: false,
+        skipTraversal: true,
+        onFocusChange: (value) => setState(() => _focused = value),
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              choice(
+                widget.label,
+                widget.selected,
+                widget.onTap,
+                34,
+                text.bodyMedium?.copyWith(
+                  color: picked ? scheme.primary : null,
+                ),
+              ),
+              const SizedBox(height: 2),
+              SizedBox(
+                height: 26,
+                child: AnimatedOpacity(
+                  opacity: open ? 1 : 0,
+                  duration: motionDuration(context, 120),
+                  child: IgnorePointer(
+                    ignoring: !open,
+                    child: ExcludeFocus(
+                      excluding: !open,
+                      child: Row(
+                        children: [
+                          for (final (label, on, onTap) in widget.finer)
+                            Expanded(
+                              child: choice(
+                                label,
+                                on,
+                                onTap,
+                                26,
+                                text.bodySmall,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
