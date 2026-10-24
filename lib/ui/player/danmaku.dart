@@ -63,11 +63,26 @@ class _DanmakuLayerState extends State<DanmakuLayer>
       );
       identity = nextIdentity;
       frozen = false;
-    })..start();
+    });
+    widget.playback.danmaku.preferences.addListener(_toggle);
+    _toggle();
+  }
+
+  /// Hidden comments request no frames; shown again, the clock rebases.
+  void _toggle() {
+    final enabled = widget.playback.danmaku.preferences.enabled;
+    if (enabled == ticker.isActive) return;
+    if (enabled) {
+      frozen = true;
+      ticker.start();
+    } else {
+      ticker.stop();
+    }
   }
 
   @override
   void dispose() {
+    widget.playback.danmaku.preferences.removeListener(_toggle);
     unawaited(sending?.cancel());
     ticker.dispose();
     textCache.clear();
@@ -101,7 +116,7 @@ class DanmakuPainter extends CustomPainter {
     this.textCache,
     this.layout,
     this.sent,
-  ) : super(repaint: clock);
+  ) : super(repaint: Listenable.merge([clock, playback.danmaku.preferences]));
   final Playback playback;
   final ValueNotifier<double> clock;
   final DanmakuTextCache textCache;
