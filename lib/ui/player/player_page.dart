@@ -130,7 +130,10 @@ class PlayerPageState extends State<PlayerPage> {
   /// The last confirmation shown, kept while it fades out.
   String shownFeedback = '';
   bool shownBoost = false;
-  Timer? hideTimer, feedbackTimer;
+  Timer? hideTimer, feedbackTimer, overloadTimer;
+
+  /// The super-resolution overload suggestion on screen.
+  String? overload;
   StreamSubscription<bool>? playingSubscription;
   String? sessionId;
   int lastNotice = 0;
@@ -144,6 +147,7 @@ class PlayerPageState extends State<PlayerPage> {
     sessionId = playback.session?.id;
     // Notices from before this page was shown are not repeated.
     lastNotice = playback.noticeRevision;
+    syncOverload();
     playback.addListener(refresh);
     widget.panelOpen.addListener(refresh);
     playingSubscription = player.stream.playing.listen((_) => reveal());
@@ -173,6 +177,7 @@ class PlayerPageState extends State<PlayerPage> {
       lastNotice = playback.noticeRevision;
       showFeedback(playback.notice!);
     }
+    syncOverload();
     final next = playback.session?.id;
     if (next != sessionId) {
       sessionId = next;
@@ -199,6 +204,7 @@ class PlayerPageState extends State<PlayerPage> {
     danmakuInput.dispose();
     hideTimer?.cancel();
     feedbackTimer?.cancel();
+    overloadTimer?.cancel();
     super.dispose();
   }
 
@@ -227,6 +233,19 @@ class PlayerPageState extends State<PlayerPage> {
     feedbackTimer = Timer(const Duration(milliseconds: 900), () {
       if (mounted) setState(() => feedback = null);
     });
+  }
+
+  /// A new overload suggestion goes away by itself after a while.
+  void syncOverload() {
+    if (playback.overloaded == overload) return;
+    overload = playback.overloaded;
+    overloadTimer?.cancel();
+    if (overload != null) dismissOverloadLater();
+  }
+
+  void dismissOverloadLater() {
+    overloadTimer?.cancel();
+    overloadTimer = Timer(const Duration(seconds: 6), playback.dismissOverload);
   }
 
   /// Opens the side panel on [tab].
@@ -941,6 +960,32 @@ class PlayerPageState extends State<PlayerPage> {
                     );
                   },
                 ),
+              if (playback.overloaded case final mode? when failure == null)
+                AnimatedPositioned(
+                  duration: motionDuration(context),
+                  curve: Curves.easeOutCubic,
+                  left: pageGutter,
+                  right: pageGutter,
+                  bottom: controls ? transportInset : pageGutter,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: MotionAppear(
+                      offset: 8,
+                      milliseconds: 260,
+                      // Stays while the pointer is on it.
+                      child: MouseRegion(
+                        onEnter: (_) => overloadTimer?.cancel(),
+                        onExit: (_) => dismissOverloadLater(),
+                        child: _OverloadCard(
+                          quality: mode == 'quality',
+                          onChoose: (mode) =>
+                              unawaited(playback.setSuperResolution(mode)),
+                          onClose: playback.dismissOverload,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               if (playback.autoplayTarget != null ||
                   playback.autoplayMessage != null)
                 Positioned(
@@ -1201,6 +1246,74 @@ class _FailureCard extends StatelessWidget {
 }
 
 /// Jumps past the OP or ED the file's chapters mark.
+/// Says the GPU cannot keep up with super-resolution and offers the
+/// efficient chain or turning it off.
+class _OverloadCard extends StatelessWidget {
+  const _OverloadCard({
+    required this.quality,
+    required this.onChoose,
+    required this.onClose,
+  });
+  final bool quality;
+  final ValueChanged<String> onChoose;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final buttonStyle = TextButton.styleFrom(
+      foregroundColor: Colors.white,
+      backgroundColor: Colors.white.withValues(alpha: .1),
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: Gap.md),
+      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+    );
+    return Material(
+      color: overlaySurface,
+      borderRadius: controlBorderRadius,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.speed_rounded, size: 18, color: Colors.white70),
+            const SizedBox(width: Gap.sm),
+            Flexible(
+              child: Text(
+                quality ? '超分质量档负载过高，正在掉帧' : '超分负载过高，正在掉帧',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
+            ),
+            const SizedBox(width: Gap.md),
+            if (quality) ...[
+              TextButton(
+                style: buttonStyle,
+                onPressed: () => onChoose('fast'),
+                child: const Text('切换效率'),
+              ),
+              const SizedBox(width: Gap.xs),
+            ],
+            TextButton(
+              style: buttonStyle,
+              onPressed: () => onChoose('off'),
+              child: const Text('关闭超分'),
+            ),
+            IconButton(
+              tooltip: '关闭',
+              onPressed: onClose,
+              iconSize: 16,
+              visualDensity: VisualDensity.compact,
+              color: Colors.white70,
+              icon: const Icon(Icons.close_rounded),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SkipButton extends StatelessWidget {
   const _SkipButton({required this.label, required this.onPressed});
   final String label;
