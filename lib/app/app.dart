@@ -306,7 +306,8 @@ class _MelonAppState extends State<MelonApp>
     'subject' => 'subject:${subjects.id}',
     'resources' =>
       'resources:${resources.state.subject?.id}:${resources.state.episode?.id}',
-    'search' => 'search:${discovery.search.query}',
+    // Filters change in place; a new keyword or tag is another page.
+    'search' => 'search:${discovery.search.query.text}',
     _ => route,
   };
 
@@ -498,17 +499,30 @@ class _MelonAppState extends State<MelonApp>
     unawaited(widget.preferences.remove('recentSearches'));
   }
 
+  /// Searches typed text, where `#百合` searches the tag 百合.
   Future<void> searchSubjects({String? query}) async {
-    final requestedQuery = query ?? search.text.trim();
-    if (!ready || requestedQuery.isEmpty) return;
-    search.text = requestedQuery;
+    final text = query ?? search.text.trim();
+    if (text.isEmpty) return;
+    await searchCatalogue(SubjectQuery.parse(text));
+  }
+
+  /// Opens the search page for [query].
+  Future<void> searchCatalogue(SubjectQuery query) async {
+    if (!ready) return;
+    search.text = query.text;
     searchFocus.unfocus();
-    rememberSearch(requestedQuery);
+    if (query.text.isNotEmpty) rememberSearch(query.text);
     leavePlayer();
     if (route != 'search') rememberLocation();
     nextNavigation();
     setState(() => route = 'search');
-    await discovery.searchSubjects(requestedQuery);
+    await discovery.searchSubjects(query);
+  }
+
+  /// Changes the filters or order of the search page in place.
+  Future<void> refineSearch(SubjectQuery query) {
+    search.text = query.text;
+    return discovery.searchSubjects(query);
   }
 
   void navigate(String target) {
@@ -1027,7 +1041,11 @@ class _MelonAppState extends State<MelonApp>
           onOpenSubject: openSubject,
         );
       case 'search':
-        return SearchPage(discovery: discovery, onOpenSubject: openSubject);
+        return SearchPage(
+          discovery: discovery,
+          onOpenSubject: openSubject,
+          onQuery: refineSearch,
+        );
       case 'calendar':
         return CalendarPage(
           calendar: discovery.calendar,
@@ -1083,6 +1101,7 @@ class _MelonAppState extends State<MelonApp>
             perform(() => coordinator.openEpisode(subjects.subject!, episode)),
           ),
           onOpenSubject: openSubject,
+          onSearch: searchCatalogue,
           onError: showError,
         );
       case 'resources':

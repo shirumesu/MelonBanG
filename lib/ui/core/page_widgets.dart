@@ -113,11 +113,21 @@ class SectionTitle extends StatelessWidget {
 }
 
 class MelonBadge extends StatelessWidget {
-  const MelonBadge(this.text, {super.key, this.color});
+  const MelonBadge(
+    this.text, {
+    super.key,
+    this.color,
+    this.onTap,
+    this.tooltip,
+  });
   final String text;
 
   /// The theme's accent by default.
   final Color? color;
+
+  /// Makes the badge a link, such as a tag that searches the catalogue.
+  final VoidCallback? onTap;
+  final String? tooltip;
   @override
   Widget build(BuildContext context) {
     final color = this.color ?? accentOf(context).accent;
@@ -125,7 +135,7 @@ class MelonBadge extends StatelessWidget {
     final theme = BadgeTheme.of(context);
     final duration = motionDuration(context, 200);
     // A status that changes, such as a finished download, shifts colour.
-    return AnimatedContainer(
+    final badge = AnimatedContainer(
       duration: duration,
       constraints: BoxConstraints(minHeight: theme.largeSize!),
       padding: theme.padding,
@@ -144,6 +154,19 @@ class MelonBadge extends StatelessWidget {
           ),
         ),
         child: Text(text),
+      ),
+    );
+    if (onTap == null) return badge;
+    return Tooltip(
+      message: tooltip ?? '',
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: badgeBorderRadius,
+          hoverColor: color.withValues(alpha: dark ? .16 : .1),
+          child: badge,
+        ),
       ),
     );
   }

@@ -211,12 +211,17 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
   final suggestions = OverlayPortalController();
   final anchor = LayerLink();
 
+  String get typed => widget.controller.text.trim();
+
   List<String> get options {
-    final text = widget.controller.text.trim().toLowerCase();
+    final text = typed.toLowerCase();
     return widget.recent
         .where((item) => text.isEmpty || item.toLowerCase().contains(text))
         .toList();
   }
+
+  /// Typed text can also be searched as a tag, written `#text`.
+  bool get offersTag => typed.isNotEmpty && !typed.startsWith('#');
 
   @override
   void initState() {
@@ -242,7 +247,8 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
   }
 
   void sync() {
-    final visible = widget.focusNode.hasFocus && options.isNotEmpty;
+    final visible =
+        widget.focusNode.hasFocus && (offersTag || options.isNotEmpty);
     if (visible) {
       suggestions.show();
     } else {
@@ -289,29 +295,46 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
                           padding: const EdgeInsets.symmetric(vertical: Gap.xs),
                           shrinkWrap: true,
                           children: [
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(14, 0, 6, 0),
-                              child: Row(
-                                children: [
-                                  Text(
-                                    '最近搜索',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall,
-                                  ),
-                                  const Spacer(),
-                                  TextButton(
-                                    onPressed: widget.onClearRecent,
-                                    child: const Text('清除'),
-                                  ),
-                                ],
+                            if (offersTag)
+                              ListTile(
+                                dense: true,
+                                visualDensity: VisualDensity.compact,
+                                leading: const Icon(
+                                  Icons.sell_outlined,
+                                  size: 18,
+                                ),
+                                title: Text('按标签搜索 #$typed', maxLines: 1),
+                                onTap: () => widget.onSearch('#$typed'),
                               ),
-                            ),
+                            if (options.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(14, 0, 6, 0),
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      '最近搜索',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall,
+                                    ),
+                                    const Spacer(),
+                                    TextButton(
+                                      onPressed: widget.onClearRecent,
+                                      child: const Text('清除'),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             for (final option in options)
                               ListTile(
                                 dense: true,
                                 visualDensity: VisualDensity.compact,
-                                leading: const Icon(Icons.history, size: 18),
+                                leading: Icon(
+                                  option.startsWith('#')
+                                      ? Icons.sell_outlined
+                                      : Icons.history,
+                                  size: 18,
+                                ),
                                 title: Text(option, maxLines: 1),
                                 onTap: () => widget.onSearch(option),
                               ),
@@ -333,7 +356,7 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
             onSubmitted: (value) => widget.onSearch(value.trim()),
             decoration: InputDecoration(
               fillColor: scheme.surface,
-              hintText: '搜索番剧',
+              hintText: '搜索番剧或 #标签',
               contentPadding: const EdgeInsets.symmetric(horizontal: 10),
               enabledBorder: OutlineInputBorder(
                 borderRadius: controlBorderRadius,

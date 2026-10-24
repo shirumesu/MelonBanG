@@ -377,6 +377,7 @@ class MelonFilterSection<T> {
 
 /// Multi-select filter: a compact button that opens a checklist and stays open
 /// while toggling. [active] fills the button so applied filters stand out.
+/// Without [multiple] it picks one option, marked by a check, and closes.
 class MelonFilterMenu<T> extends StatelessWidget {
   const MelonFilterMenu({
     super.key,
@@ -391,6 +392,8 @@ class MelonFilterMenu<T> extends StatelessWidget {
     this.tooltip,
     this.actions = const [],
     this.compact = false,
+    this.multiple = true,
+    this.columns = 1,
   });
 
   final String label;
@@ -412,6 +415,10 @@ class MelonFilterMenu<T> extends StatelessWidget {
 
   /// Text-only trigger for use inside a field.
   final bool compact;
+  final bool multiple;
+
+  /// Options per row, for long lists of short names.
+  final int columns;
 
   @override
   Widget build(BuildContext context) {
@@ -437,6 +444,42 @@ class MelonFilterMenu<T> extends StatelessWidget {
         child: Icon(Icons.check_rounded, size: 12, color: scheme.onPrimary),
       ),
     );
+    Widget item(MelonFilterOption<T> option) => MenuItemButton(
+      closeOnActivate: !multiple,
+      style: ButtonStyle(
+        minimumSize: WidgetStatePropertyAll(Size(columns == 1 ? 200 : 0, 38)),
+        shape: const WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: controlBorderRadius),
+        ),
+      ),
+      onPressed: option.enabled || selected.contains(option.value)
+          ? () => onToggle(option.value, !selected.contains(option.value))
+          : null,
+      leadingIcon: multiple
+          ? check(selected.contains(option.value))
+          : SizedBox.square(
+              dimension: 16,
+              child: selected.contains(option.value)
+                  ? Icon(Icons.check_rounded, size: 16, color: scheme.primary)
+                  : null,
+            ),
+      trailingIcon: option.detail == null
+          ? null
+          : Padding(
+              padding: const EdgeInsets.only(left: Gap.lg),
+              child: Text(
+                option.detail!,
+                style: small?.copyWith(
+                  color: option.detailColor,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 220),
+        child: Text(option.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      ),
+    );
     return MenuAnchor(
       crossAxisUnconstrained: false,
       style: MenuStyle(
@@ -447,7 +490,9 @@ class MelonFilterMenu<T> extends StatelessWidget {
           RoundedRectangleBorder(borderRadius: controlBorderRadius),
         ),
         elevation: const WidgetStatePropertyAll(3),
-        maximumSize: const WidgetStatePropertyAll(Size(360, 440)),
+        maximumSize: WidgetStatePropertyAll(
+          Size(columns > 1 ? columns * 112.0 + 10 : 360, 440),
+        ),
       ),
       menuChildren: [
         for (final (index, section) in sections.indexed) ...[
@@ -457,41 +502,16 @@ class MelonFilterMenu<T> extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
               child: Text(title, style: small?.copyWith(fontSize: 11)),
             ),
-          for (final option in section.options)
-            MenuItemButton(
-              closeOnActivate: false,
-              style: const ButtonStyle(
-                minimumSize: WidgetStatePropertyAll(Size(200, 38)),
-                shape: WidgetStatePropertyAll(
-                  RoundedRectangleBorder(borderRadius: controlBorderRadius),
-                ),
+          if (columns == 1)
+            for (final option in section.options) item(option)
+          else
+            for (var i = 0; i < section.options.length; i += columns)
+              Row(
+                children: [
+                  for (final option in section.options.skip(i).take(columns))
+                    SizedBox(width: 112, child: item(option)),
+                ],
               ),
-              onPressed: option.enabled || selected.contains(option.value)
-                  ? () =>
-                        onToggle(option.value, !selected.contains(option.value))
-                  : null,
-              leadingIcon: check(selected.contains(option.value)),
-              trailingIcon: option.detail == null
-                  ? null
-                  : Padding(
-                      padding: const EdgeInsets.only(left: Gap.lg),
-                      child: Text(
-                        option.detail!,
-                        style: small?.copyWith(
-                          color: option.detailColor,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                    ),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 220),
-                child: Text(
-                  option.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ),
         ],
         if (actions.isNotEmpty) ...[
           const Divider(height: 9, indent: 8, endIndent: 8),

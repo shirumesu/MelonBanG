@@ -511,6 +511,124 @@ class ScheduleDay {
   final List<Subject> items;
 }
 
+enum SubjectSort {
+  match('最佳匹配'),
+  heat('按热度'),
+  rank('按排名'),
+  score('按评分');
+
+  const SubjectSort(this.label);
+  final String label;
+}
+
+const _same = Object();
+
+/// A catalogue search: a title keyword or a Bangumi tag, narrowed by
+/// Bangumi's public tags (kind, source, region, genres) and air time.
+class SubjectQuery {
+  const SubjectQuery({
+    this.keyword = '',
+    this.tag,
+    this.kind,
+    this.source,
+    this.region,
+    this.genres = const {},
+    this.year,
+    this.month,
+    this.before = false,
+    this.sort,
+  });
+
+  /// Typed text; `#百合` searches the tag 百合.
+  factory SubjectQuery.parse(String text) {
+    final value = text.trim();
+    return value.startsWith('#') && value.length > 1
+        ? SubjectQuery(tag: value.substring(1).trim())
+        : SubjectQuery(keyword: value);
+  }
+
+  /// Bangumi's public tags offered as filters, as bgm.tv's browser lists
+  /// them, without ones that match almost nothing.
+  static const kinds = ['TV', 'WEB', 'OVA', '剧场版', '动态漫画'];
+  static const sources = ['原创', '漫画改', '小说改', '游戏改', '影视改'];
+  static const regions = ['日本', '中国', '欧美', '韩国'];
+  static const genreTags = [
+    '科幻', '喜剧', '同人', '百合', '校园', '惊悚', '后宫', '机战', // bgm.tv order
+    '悬疑', '恋爱', '奇幻', '推理', '运动', '耽美', '音乐', '战斗',
+    '冒险', '萌系', '穿越', '玄幻', '乙女', '恐怖', '历史', '日常',
+    '剧情', '武侠', '短片集', '美食', '职场',
+  ];
+
+  final String keyword;
+  final String? tag, kind, source, region;
+
+  /// All of them apply.
+  final Set<String> genres;
+
+  /// Air year; with [month], the quarter starting that month.
+  final int? year, month;
+
+  /// Aired before [year] instead of within it.
+  final bool before;
+  final SubjectSort? sort;
+
+  /// Matching only ranks title hits; without a keyword results go by heat.
+  SubjectSort get order =>
+      sort ?? (keyword.isEmpty ? SubjectSort.heat : SubjectSort.match);
+
+  /// The text the search field shows for this query.
+  String get text => keyword.isNotEmpty
+      ? keyword
+      : tag == null
+      ? ''
+      : '#$tag';
+
+  bool get filtered =>
+      kind != null ||
+      source != null ||
+      region != null ||
+      genres.isNotEmpty ||
+      year != null;
+
+  String get key => [
+    keyword.toLowerCase(),
+    tag ?? '',
+    kind ?? '',
+    source ?? '',
+    region ?? '',
+    (genres.toList()..sort()).join('+'),
+    '${before ? '<' : ''}${year ?? ''}-${month ?? ''}',
+    order.name,
+  ].join('|');
+
+  SubjectQuery copyWith({
+    Object? tag = _same,
+    Object? kind = _same,
+    Object? source = _same,
+    Object? region = _same,
+    Set<String>? genres,
+    Object? year = _same,
+    Object? month = _same,
+    bool? before,
+    SubjectSort? sort,
+  }) => SubjectQuery(
+    keyword: keyword,
+    tag: tag == _same ? this.tag : tag as String?,
+    kind: kind == _same ? this.kind : kind as String?,
+    source: source == _same ? this.source : source as String?,
+    region: region == _same ? this.region : region as String?,
+    genres: genres ?? this.genres,
+    year: year == _same ? this.year : year as int?,
+    month: month == _same ? this.month : month as int?,
+    before: before ?? this.before,
+    sort: sort ?? this.sort,
+  );
+
+  /// The same keyword, tag and order without filters.
+  SubjectQuery get unfiltered =>
+      SubjectQuery(keyword: keyword, tag: tag, sort: sort);
+}
+
 class SubjectResults {
   const SubjectResults({
     required this.items,
@@ -648,7 +766,7 @@ abstract interface class Catalog implements SubjectCovers {
   /// The locally cached detail, without a request.
   Future<Subject?> cached(int id);
   Future<SubjectResults> search(
-    String keyword, {
+    SubjectQuery query, {
     int offset = 0,
     void Function(SubjectResults)? onCached,
   });

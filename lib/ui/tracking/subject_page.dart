@@ -39,6 +39,7 @@ class SubjectPage extends StatelessWidget {
     required this.onPlayEpisode,
     required this.onOpenEpisode,
     required this.onOpenSubject,
+    required this.onSearch,
     required this.onError,
   });
   final SubjectController subjects;
@@ -54,6 +55,9 @@ class SubjectPage extends StatelessWidget {
   /// An episode cell clicked: plays its cache, or lets the user pick a source.
   final ValueChanged<Episode> onOpenEpisode;
   final ValueChanged<Subject> onOpenSubject;
+
+  /// A tag, the air quarter or the kind clicked: searches the catalogue.
+  final ValueChanged<SubjectQuery> onSearch;
   final ValueChanged<Object> onError;
 
   @override
@@ -83,6 +87,7 @@ class SubjectPage extends StatelessWidget {
         onPlayEpisode: onPlayEpisode,
         onOpenEpisode: onOpenEpisode,
         onOpenSubject: onOpenSubject,
+        onSearch: onSearch,
         onRetry: () => unawaited(subjects.open(subject!).catchError(onError)),
       );
     },
@@ -99,6 +104,7 @@ class _SubjectDetail extends StatefulWidget {
     required this.onPlayEpisode,
     required this.onOpenEpisode,
     required this.onOpenSubject,
+    required this.onSearch,
     required this.onRetry,
     this.resume,
     this.airings = const [],
@@ -122,6 +128,7 @@ class _SubjectDetail extends StatefulWidget {
   final ValueChanged<Episode?> onFindResources;
   final ValueChanged<Episode> onPlayEpisode, onOpenEpisode;
   final ValueChanged<Subject> onOpenSubject;
+  final ValueChanged<SubjectQuery> onSearch;
 
   /// Loads the parts that failed again.
   final VoidCallback onRetry;
@@ -140,7 +147,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   int _completeOffer = 0;
   int _nudges = 0;
   bool _savingCollection = false;
-  bool _summaryExpanded = false, _infoExpanded = false;
+  bool _summaryExpanded = false, _infoExpanded = false, _tagsExpanded = false;
   Timer? _feedbackTimer;
   final _episodeOverrides = <int, EpisodeStatus>{};
   String? _episodeError;
@@ -661,6 +668,13 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         ? '已看完'
         : '观看${next.label}';
     final date = DateTime.tryParse('${item.airDate}');
+    final tags = item.tags
+        .where(
+          (tag) =>
+              tag.name != (item.platform ?? '动画') &&
+              !RegExp(r'^\d{4}年').hasMatch(tag.name),
+        )
+        .toList();
     final score = item.score ?? 0;
     final summary =
         item.summary ?? (_loadingPart('subject') ? '正在加载简介…' : '暂无简介');
@@ -687,19 +701,39 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           runSpacing: 6,
           children: [
             if (date != null)
-              MelonBadge('${date.year}年${date.month}月', color: coral)
+              MelonBadge(
+                '${date.year}年${date.month}月',
+                color: coral,
+                tooltip: '同季度番剧',
+                onTap: () => widget.onSearch(
+                  SubjectQuery(
+                    year: date.year,
+                    month: (date.month - 1) ~/ 3 * 3 + 1,
+                  ),
+                ),
+              )
             else if (item.airDate case final airDate?)
               MelonBadge(airDate, color: coral),
-            MelonBadge(item.platform ?? '动画', color: sky),
-            for (final tag
-                in item.tags
-                    .where(
-                      (tag) =>
-                          tag.name != (item.platform ?? '动画') &&
-                          !RegExp(r'^\d{4}年').hasMatch(tag.name),
-                    )
-                    .take(3))
-              MelonBadge(tag.name, color: grape),
+            MelonBadge(
+              item.platform ?? '动画',
+              color: sky,
+              onTap: SubjectQuery.kinds.contains(item.platform)
+                  ? () => widget.onSearch(SubjectQuery(kind: item.platform))
+                  : null,
+            ),
+            for (final tag in _tagsExpanded ? tags : tags.take(3))
+              MelonBadge(
+                tag.name,
+                color: grape,
+                onTap: () => widget.onSearch(SubjectQuery(tag: tag.name)),
+              ),
+            if (tags.length > 3)
+              MelonBadge(
+                _tagsExpanded ? '收起' : '+${tags.length - 3}',
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                tooltip: _tagsExpanded ? null : '显示全部标签',
+                onTap: () => setState(() => _tagsExpanded = !_tagsExpanded),
+              ),
           ],
         ),
         const SizedBox(height: Gap.lg),
