@@ -106,6 +106,7 @@ class Playback extends ChangeNotifier {
     // the file loads revert to unset when it ends.
     final platform = player.platform;
     if (platform is NativePlayer) {
+      unawaited(platform.observeProperty('frame-drop-count', _framesDropped));
       platform.onLoadHooks.add(() async {
         if (_httpProxy case final proxy?) {
           await platform.setProperty('file-local-options/http-proxy', proxy);
@@ -176,6 +177,16 @@ class Playback extends ChangeNotifier {
   /// Announces [upscale] once it is known, after the player turned
   /// super-resolution on or changed its chain.
   bool _announceUpscale = false;
+
+  /// The super-resolution chain the GPU cannot keep up with, while the
+  /// player suggests a lighter choice; suggested once per file and chain.
+  String? overloaded;
+  String? _overloadSuggested;
+  int _droppedFrames = 0;
+
+  /// Seconds of [_dropClock] in which mpv dropped frames, over the last ten.
+  final _dropSeconds = <int>{};
+  final _dropClock = Stopwatch()..start();
 
   /// The OP/ED already skipped automatically in this session, so seeking
   /// back into one plays it.
@@ -426,8 +437,43 @@ class Playback extends ChangeNotifier {
   /// what it does to the video.
   Future<void> setSuperResolution(String mode) async {
     _announceUpscale = mode != 'off';
+    overloaded = null;
     await settings.setSuperResolution(mode);
     if (mode == 'off') showNotice('超分已关闭');
+  }
+
+  void dismissOverload() {
+    overloaded = null;
+    notifyListeners();
+  }
+
+  /// Suggests a lighter super-resolution chain when mpv drops frames in
+  /// half of the last ten seconds of playback. A seek or the shaders
+  /// compiling drop frames within a second or two, and an occasional
+  /// dropped frame goes unnoticed.
+  Future<void> _framesDropped(String value) async {
+    final count = int.parse(value);
+    final dropped = count > _droppedFrames;
+    _droppedFrames = count;
+    final mode = settings.superResolution;
+    final state = player.state;
+    if (!dropped ||
+        mode == 'off' ||
+        opening ||
+        frameStepping ||
+        !state.playing ||
+        state.buffering) {
+      return;
+    }
+    final second = _dropClock.elapsed.inSeconds;
+    _dropSeconds
+      ..removeWhere((value) => second - value >= 10)
+      ..add(second);
+    final key = '$uri $mode';
+    if (_dropSeconds.length < 5 || _overloadSuggested == key) return;
+    _overloadSuggested = key;
+    overloaded = mode;
+    notifyListeners();
   }
 
   /// Loads the chosen super-resolution shaders, which mpv applies to the
@@ -437,6 +483,7 @@ class Playback extends ChangeNotifier {
     final platform = player.platform;
     if (platform is! NativePlayer || mode == _shaders) return;
     _shaders = mode;
+    _dropSeconds.clear();
     try {
       final files = await superResolutionShaders(mode);
       if (_closed || _shaders != mode) return;
