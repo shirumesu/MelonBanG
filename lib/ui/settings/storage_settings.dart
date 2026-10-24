@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import '../../core/error_message.dart';
 import '../../core/storage_locations.dart';
 import '../../core/storage_usage.dart';
+import '../../features/update/uninstall.dart';
 import '../core/action_feedback.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
@@ -133,14 +134,44 @@ class _StorageSettingsState extends State<StorageSettings> {
     throw StateError('Unreachable storage size');
   }
 
+  /// The folder to move to for the [chosen] one. A folder that already holds
+  /// other files gets a MelonBanG subfolder. The install directory is
+  /// replaced by updates and removed on uninstall, so media there goes to its
+  /// downloads folder, which both leave in place, and data cannot go there.
+  Future<String> target(String chosen, bool media) async {
+    var target = p.normalize(chosen);
+    final folder = Directory(target);
+    if (await folder.exists() && !await folder.list().isEmpty) {
+      target = p.join(target, 'MelonBanG');
+    }
+    final installation = AppUninstall.installation;
+    if (!p.equals(installation, target) && !p.isWithin(installation, target)) {
+      return target;
+    }
+    if (!media || !Platform.isWindows) {
+      throw StateError('不能放在安装目录里，更新或卸载时会被删除，请选择其他位置');
+    }
+    final downloads = p.join(installation, 'downloads');
+    return p.equals(downloads, target) || p.isWithin(downloads, target)
+        ? target
+        : downloads;
+  }
+
   Future<void> choose(bool media) async {
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      final selected = await getDirectoryPath(confirmButtonText: '选择文件夹');
-      if (selected == null || !mounted) return;
+      final picked = await getDirectoryPath(confirmButtonText: '选择文件夹');
+      if (picked == null || !mounted) return;
+      final selected = await target(picked, media);
+      await widget.storage!.check(
+        dataPath: media ? null : selected,
+        mediaPath: media ? selected : null,
+      );
+      final inside = p.isWithin(AppUninstall.installation, selected);
+      if (!mounted) return;
       final confirmed = await showMelonDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -154,6 +185,24 @@ class _StorageSettingsState extends State<StorageSettings> {
                 const Text('新位置'),
                 const SizedBox(height: 8),
                 SelectableText(selected),
+                if (!p.equals(selected, picked)) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    inside
+                        ? '所选位置在安装目录里，将使用其中的 downloads 文件夹，更新时不会被替换。'
+                        : '所选文件夹里已有其他文件，将使用其中的 MelonBanG 文件夹，避免混在一起。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                if (inside) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    '卸载时选择删除数据，或手动删除安装目录，已下载的番剧会被一起删除。',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 20),
                 const Text('下次启动时会复制并校验现有数据，完成后切换位置。原目录保留，迁移完成前请保持磁盘连接。'),
                 const SizedBox(height: 12),
