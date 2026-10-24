@@ -351,7 +351,7 @@ Future<int> _copyTrees(
     }
   }
 
-  var done = 0, reported = 0, left = 0;
+  var done = 0, left = 0;
   var saved = DateTime.now();
   Future<void> save() async {
     for (final MapEntry(key: target, value: manifest) in manifests.entries) {
@@ -360,33 +360,26 @@ Future<int> _copyTrees(
     saved = DateTime.now();
   }
 
-  void progress(String file, {bool now = false}) {
-    if (!now && done - reported < 32 << 20) return;
-    reported = done;
+  void progress(String file) {
     if (cancelled()) throw StateError('迁移已取消');
     report(done, total, file);
   }
 
-  progress('', now: true);
+  progress('');
   try {
     for (final (target, relative, file, stat) in files) {
       final manifest = manifests[target]!;
       final output = File(p.join(target, relative));
       final record = [stat.size, stat.modified.microsecondsSinceEpoch];
-      final start = done;
       if (listEquals(manifest[relative] as List?, record) &&
           await output.exists()) {
         done += stat.size;
         continue;
       }
-      final name = p.basename(file.path);
-      progress(name, now: true);
+      progress(p.basename(file.path));
       try {
-        await _copyFile(file, output, (bytes) {
-          done += bytes;
-          progress(name);
-        });
-        await output.setLastModified(stat.modified);
+        // The system's own copy, which also keeps the file's dates.
+        await file.copy(output.path);
         // Written to while copying; the next pass copies it again.
         final after = await file.stat();
         if (after.size == stat.size && after.modified == stat.modified) {
@@ -400,40 +393,13 @@ Future<int> _copyTrees(
         if (strict) rethrow;
         left++;
       }
-      done = start + stat.size;
+      done += stat.size;
       if (DateTime.now().difference(saved).inSeconds >= 2) await save();
     }
   } finally {
     await save();
   }
   return left;
-}
-
-/// Copies [source] to [target] a megabyte at a time; [copied] receives the
-/// bytes written along the way.
-Future<void> _copyFile(
-  File source,
-  File target,
-  void Function(int bytes) copied,
-) async {
-  final input = await source.open();
-  try {
-    final output = await target.open(mode: FileMode.write);
-    try {
-      for (
-        var chunk = await input.read(1 << 20);
-        chunk.isNotEmpty;
-        chunk = await input.read(1 << 20)
-      ) {
-        await output.writeFrom(chunk);
-        copied(chunk.length);
-      }
-    } finally {
-      await output.close();
-    }
-  } finally {
-    await input.close();
-  }
 }
 
 /// Removes what move [id] copied from [source] into [target]: files at the
