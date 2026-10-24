@@ -29,7 +29,7 @@ class DanmakuQuickSettings extends StatelessWidget {
   Widget build(BuildContext context) => Theme(
     data: overlayTheme(),
     child: OverlayGlass(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: panelBorderRadius,
       visibility: visibility,
       child: ListenableBuilder(
         listenable: preferences,

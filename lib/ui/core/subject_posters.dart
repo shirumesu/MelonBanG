@@ -458,13 +458,14 @@ class SubjectPoster extends StatefulWidget {
     required this.onOpen,
     this.rank,
     required this.tracking,
+    this.statusBadge = true,
     this.badge,
     this.personalScore = false,
   });
   final Subject item;
   final ValueChanged<Subject> onOpen;
   final int? rank;
-  final bool tracking, personalScore;
+  final bool tracking, statusBadge, personalScore;
 
   /// Replaces the collection status badge with a highlighted label.
   final String? badge;
@@ -585,7 +586,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
                         ),
                       ),
                     )
-                  else if (tracking && status != null)
+                  else if (tracking && widget.statusBadge && status != null)
                     Positioned(
                       top: 10,
                       left: 10,

@@ -145,7 +145,7 @@ class _MelonSegmentedControlState<T> extends State<MelonSegmentedControl<T>> {
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             color: scheme.surface,
-                            borderRadius: BorderRadius.circular(9),
+                            borderRadius: BorderRadius.circular(5),
                             boxShadow: [
                               BoxShadow(
                                 color: Theme.of(context).shadowColor,
@@ -207,7 +207,7 @@ class _MelonSegmentedControlState<T> extends State<MelonSegmentedControl<T>> {
                                               widget.onChanged!(entries[i].key);
                                             }
                                           },
-                                    borderRadius: BorderRadius.circular(9),
+                                    borderRadius: BorderRadius.circular(5),
                                     child: Center(
                                       child: Padding(
                                         padding: const EdgeInsets.symmetric(

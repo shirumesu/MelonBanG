@@ -136,9 +136,12 @@ class MelonBadge extends StatelessWidget {
       child: AnimatedDefaultTextStyle(
         duration: duration,
         style: theme.textStyle!.copyWith(
-          color: dark
-              ? Color.lerp(color, Colors.white, .25)
-              : Color.lerp(color, Colors.black, .28),
+          color: badgeInk(
+            dark
+                ? Color.lerp(color, Colors.white, .25)!
+                : Color.lerp(color, Colors.black, .28)!,
+            dark,
+          ),
         ),
         child: Text(text),
       ),

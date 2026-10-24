@@ -880,7 +880,7 @@ class ResourceEpisodePanel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(26, 0, 8, 10),
       child: Material(
         color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: const BorderRadius.all(Radius.circular(10)),
+        borderRadius: controlBorderRadius,
         clipBehavior: Clip.antiAlias,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),

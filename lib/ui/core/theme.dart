@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_color_utilities/material_color_utilities.dart';
 
 // Layout and spacing tokens; Spec topics/ui/design/foundations.md explains
 // their use.
@@ -18,10 +19,10 @@ const gold = Color(0xffffb83d);
 const sky = Color(0xff8bbcf6);
 const grape = Color(0xffb6a4f0);
 
-const posterBorderRadius = BorderRadius.all(Radius.circular(14));
-const panelBorderRadius = BorderRadius.all(Radius.circular(16));
-const controlBorderRadius = BorderRadius.all(Radius.circular(12));
-const badgeBorderRadius = BorderRadius.all(Radius.circular(8));
+const posterBorderRadius = BorderRadius.all(Radius.circular(8));
+const panelBorderRadius = BorderRadius.all(Radius.circular(12));
+const controlBorderRadius = BorderRadius.all(Radius.circular(8));
+const badgeBorderRadius = BorderRadius.all(Radius.circular(6));
 
 /// Accent-dependent colours the colour scheme has no role for.
 @immutable
@@ -63,6 +64,11 @@ class MelonAccent extends ThemeExtension<MelonAccent> {
 /// The theme's [MelonAccent].
 MelonAccent accentOf(BuildContext context) =>
     Theme.of(context).extension<MelonAccent>()!;
+
+/// [tint] at one perceived lightness, so badges of every hue read alike:
+/// yellow and blue otherwise come out paler than red and green.
+Color badgeInk(Color tint, bool dark) =>
+    Color((Hct.fromInt(tint.toARGB32())..tone = dark ? 76 : 46).toInt());
 
 /// [raised] lifts the poster under the pointer.
 List<BoxShadow> posterShadows(BuildContext context, {bool raised = false}) {
@@ -143,7 +149,7 @@ ThemeData appTheme(bool dark, {Color accent = mint}) {
         onSurface: dark ? const Color(0xffe7eef1) : const Color(0xff263833),
         onSurfaceVariant: dark
             ? const Color(0xffa0afb9)
-            : const Color(0xff6f7d78),
+            : const Color(0xff66736e),
         outlineVariant: dark
             ? const Color(0xff354052)
             : const Color(0xffe1e8e3),
@@ -201,7 +207,7 @@ ThemeData appTheme(bool dark, {Color accent = mint}) {
       isDense: true,
       filled: true,
       fillColor: scheme.surfaceContainerHigh,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       hintStyle: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
       border: inputBorder,
       enabledBorder: inputBorder,
@@ -219,8 +225,8 @@ ThemeData appTheme(bool dark, {Color accent = mint}) {
       style: FilledButton.styleFrom(
         backgroundColor: scheme.primaryContainer,
         foregroundColor: scheme.onPrimaryContainer,
-        minimumSize: const Size(64, 40),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        minimumSize: const Size(64, 36),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
         textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
         shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
       ),
@@ -231,8 +237,8 @@ ThemeData appTheme(bool dark, {Color accent = mint}) {
         backgroundColor: scheme.surface,
         side: BorderSide(color: scheme.outlineVariant),
         shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
-        minimumSize: const Size(64, 40),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        minimumSize: const Size(64, 36),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
       ),
     ),

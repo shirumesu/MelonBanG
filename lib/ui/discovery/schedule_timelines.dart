@@ -150,7 +150,7 @@ class _TodayTimelineState extends State<TodayTimeline> {
                 const Spacer(),
                 TextButton(
                   onPressed: widget.onCalendar,
-                  child: const Text('时间表 →'),
+                  child: const Text('时间表'),
                 ),
               ],
             ),
@@ -509,7 +509,7 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                               width: 80,
                               height: 108,
                               child: ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: posterBorderRadius,
                                 child: SubjectCover(
                                   url: item.coverUrl,
                                   title: item.title,
