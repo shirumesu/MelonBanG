@@ -37,9 +37,11 @@ class Appearance extends ChangeNotifier {
   /// Before theme modes there was only a light/dark switch.
   ThemeChoice get mode =>
       ThemeChoice.values.asNameMap()[preferences.getString('theme-mode')] ??
-      (preferences.getBool('dark') == true
-          ? ThemeChoice.dark
-          : ThemeChoice.light);
+      switch (preferences.getBool('dark')) {
+        true => ThemeChoice.dark,
+        false => ThemeChoice.light,
+        null => ThemeChoice.system,
+      };
 
   /// A preset id, or `system` for the system accent colour.
   String get accent => preferences.getString('theme-accent') ?? 'mint';
