@@ -1,9 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
@@ -21,7 +19,7 @@ class MoveCopy {
     this.left,
   });
 
-  /// Bytes read so far, copying and then verifying each file, of [total].
+  /// Bytes copied so far of [total].
   final int done, total;
   final String file;
   final String? error;
@@ -151,11 +149,12 @@ class StorageLocations {
     bool current() => pending?['id'] == plan['id'];
     copy.value = const MoveCopy();
     try {
-      final left = await _pass(plan, strict: false, (done, total, file) {
-        if (current()) {
-          copy.value = MoveCopy(done: done, total: total, file: file);
-        }
-      });
+      final left = await _pass(
+        plan,
+        strict: false,
+        (done, total, file) =>
+            copy.value = MoveCopy(done: done, total: total, file: file),
+      );
       if (!current()) return;
       await _save({
         ..._state,
@@ -188,32 +187,19 @@ class StorageLocations {
     if (plan['media'] != media) (media, '${plan['media']}', null),
   ];
 
-  /// Copies the folders [plan] moves in an isolate, reporting progress, and
-  /// returns how many files were left for a later pass.
+  /// Copies the folders [plan] moves until it is cancelled, reporting
+  /// progress, and returns how many files were left for a later pass.
   Future<int> _pass(
     Json plan,
     void Function(int done, int total, String file) report, {
     required bool strict,
-  }) async {
-    final trees = _trees(plan);
-    final id = '${plan['id']}', bootstrap = this.bootstrap.path;
-    final progress = ReceivePort()
-      ..listen((message) {
-        final (done, total, file) = message as (int, int, String);
-        report(done, total, file);
-      });
-    try {
-      return await _copyInIsolate(
-        trees,
-        id,
-        bootstrap,
-        strict,
-        progress.sendPort,
-      );
-    } finally {
-      progress.close();
-    }
-  }
+  }) => _copyTrees(
+    _trees(plan),
+    '${plan['id']}',
+    strict: strict,
+    cancelled: () => pending?['id'] != plan['id'],
+    report: report,
+  );
 
   /// Runs before any database, credentials or torrent handles have been
   /// opened, once the background copy has finished: copies what has changed
@@ -301,30 +287,19 @@ const _marker = '.melonbang-migration';
 /// What each copied file was copied from: relative path → [size, modified].
 const _manifest = '.melonbang-migration-files';
 
-/// Runs [_copyTrees] in its own isolate; top level, so the closure sent there
-/// holds nothing but these arguments.
-Future<int> _copyInIsolate(
-  List<(String, String, String?)> trees,
-  String id,
-  String bootstrap,
-  bool strict,
-  SendPort progress,
-) => Isolate.run(() => _copyTrees(trees, id, bootstrap, strict, progress));
-
-/// Copies each (source, target, excluded) tree of move [id], verifying every
-/// file and skipping those an earlier pass copied that have not changed
-/// since. With [strict], at the switch, every file must copy and files since
-/// removed from a source are removed from its target; otherwise a file that
-/// cannot be copied now, such as one being written, is left for later, and
-/// the pass stops once the move is no longer pending in [bootstrap]. Sends
-/// (done, total, file) progress and returns how many files were left.
+/// Copies each (source, target, excluded) tree of move [id], skipping files
+/// an earlier pass copied that have not changed since. With [strict], at the
+/// switch, every file must copy and files since removed from a source are
+/// removed from its target; otherwise a file that cannot be copied now, such
+/// as one being written, is left for later, and the pass stops once
+/// [cancelled]. Returns how many files were left.
 Future<int> _copyTrees(
   List<(String, String, String?)> trees,
-  String id,
-  String bootstrap,
-  bool strict,
-  SendPort progress,
-) async {
+  String id, {
+  required bool strict,
+  required bool Function() cancelled,
+  required void Function(int done, int total, String file) report,
+}) async {
   final files = <(String, String, File, FileStat)>[];
   final manifests = <String, Json>{};
   var total = 0;
@@ -362,7 +337,7 @@ Future<int> _copyTrees(
       } else if (entity is File) {
         final stat = await entity.stat();
         files.add((target, relative, entity, stat));
-        total += stat.size * 2;
+        total += stat.size;
       } else {
         throw FileSystemException('数据目录中包含链接，请先移除链接再迁移', entity.path);
       }
@@ -390,19 +365,14 @@ Future<int> _copyTrees(
     saved = DateTime.now();
   }
 
-  void report(String file, {bool now = false}) {
+  void progress(String file, {bool now = false}) {
     if (!now && done - reported < 32 << 20) return;
     reported = done;
-    if (!strict) {
-      final pending = object(
-        jsonDecode(File(bootstrap).readAsStringSync()),
-      )['pending'];
-      if (pending is! Map || pending['id'] != id) throw StateError('迁移已取消');
-    }
-    progress.send((done, total, file));
+    if (cancelled()) throw StateError('迁移已取消');
+    report(done, total, file);
   }
 
-  report('', now: true);
+  progress('', now: true);
   try {
     for (final (target, relative, file, stat) in files) {
       final manifest = manifests[target]!;
@@ -411,15 +381,15 @@ Future<int> _copyTrees(
       final start = done;
       if (listEquals(manifest[relative] as List?, record) &&
           await output.exists()) {
-        done += stat.size * 2;
+        done += stat.size;
         continue;
       }
       final name = p.basename(file.path);
-      report(name, now: true);
+      progress(name, now: true);
       try {
         await _copyFile(file, output, (bytes) {
           done += bytes;
-          report(name);
+          progress(name);
         });
         await output.setLastModified(stat.modified);
         // Written to while copying; the next pass copies it again.
@@ -435,7 +405,7 @@ Future<int> _copyTrees(
         if (strict) rethrow;
         left++;
       }
-      done = start + stat.size * 2;
+      done = start + stat.size;
       if (DateTime.now().difference(saved).inSeconds >= 2) await save();
     }
   } finally {
@@ -444,39 +414,31 @@ Future<int> _copyTrees(
   return left;
 }
 
-/// Copies [source] to [target] while hashing it, then checks the copy reads
-/// back the same; [read] receives the bytes read along the way.
+/// Copies [source] to [target] a megabyte at a time; [copied] receives the
+/// bytes written along the way.
 Future<void> _copyFile(
   File source,
   File target,
-  void Function(int bytes) read,
+  void Function(int bytes) copied,
 ) async {
-  late Digest digest;
-  final hash = sha256.startChunkedConversion(
-    ChunkedConversionSink<Digest>.withCallback(
-      (digests) => digest = digests.single,
-    ),
-  );
-  final output = await target.open(mode: FileMode.write);
+  final input = await source.open();
   try {
-    await for (final chunk in source.openRead()) {
-      hash.add(chunk);
-      read(chunk.length);
-      await output.writeFrom(chunk);
+    final output = await target.open(mode: FileMode.write);
+    try {
+      for (
+        var chunk = await input.read(1 << 20);
+        chunk.isNotEmpty;
+        chunk = await input.read(1 << 20)
+      ) {
+        await output.writeFrom(chunk);
+        copied(chunk.length);
+      }
+    } finally {
+      await output.close();
     }
   } finally {
-    await output.close();
+    await input.close();
   }
-  hash.close();
-  final copied = await sha256
-      .bind(
-        target.openRead().map((chunk) {
-          read(chunk.length);
-          return chunk;
-        }),
-      )
-      .first;
-  if (copied != digest) throw FileSystemException('文件迁移校验失败', source.path);
 }
 
 /// Removes what move [id] copied from [source] into [target]: files at the
