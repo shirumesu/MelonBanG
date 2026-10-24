@@ -115,7 +115,8 @@ class StorageLocations {
     return (nextData, nextMedia);
   }
 
-  /// Plans a move and starts copying it in the background.
+  /// Plans a move. Folders on another volume start copying in the
+  /// background; those on the same one move by renaming at the switch.
   Future<void> schedule({String? dataPath, String? mediaPath}) async {
     final (nextData, nextMedia) = await check(
       dataPath: dataPath,
@@ -128,9 +129,33 @@ class StorageLocations {
       'data': data,
       'media': media,
       'credentialIdentity': credentialIdentity,
-      'pending': {'data': nextData, 'media': nextMedia, 'id': newId()},
+      'pending': {
+        'data': nextData,
+        'media': nextMedia,
+        'id': newId(),
+        'rename': [
+          if (nextData != data && await _sameVolume(data, nextData)) 'data',
+          if (nextMedia != media && await _sameVolume(media, nextMedia))
+            'media',
+        ],
+      },
     });
     unawaited(prepare());
+  }
+
+  /// Whether [target] is on [source]'s volume, where a folder moves by
+  /// renaming; across volumes the rename fails.
+  static Future<bool> _sameVolume(String source, String target) async {
+    final probe = await Directory(p.join(target, '.melonbang-volume-check'))
+        .create(recursive: true);
+    try {
+      await (await probe.rename(p.join(source, '.melonbang-volume-check')))
+          .delete();
+      return true;
+    } on FileSystemException {
+      await probe.delete();
+      return false;
+    }
   }
 
   /// Copies the pending move while the app keeps using the current folders,
@@ -171,25 +196,34 @@ class StorageLocations {
     await _save({..._state}..remove('pending'));
     copy.value = null;
     await _copying;
-    for (final (source, target, _) in _trees(plan)) {
+    for (final (source, target, _, _) in _trees(plan)) {
       await _discard(source, target, '${plan['id']}');
     }
   }
 
-  /// Each (source, target, excluded) folder [plan] moves.
-  List<(String, String, String?)> _trees(Json plan) => [
-    if (plan['data'] != data) (data, '${plan['data']}', media),
-    if (plan['media'] != media) (media, '${plan['media']}', null),
-  ];
+  /// Each folder [plan] moves: (source, target, excluded, renamed).
+  List<(String, String, String?, bool)> _trees(Json plan) {
+    final renamed = plan['rename'] as List;
+    return [
+      if (plan['data'] != data)
+        (data, '${plan['data']}', media, renamed.contains('data')),
+      if (plan['media'] != media)
+        (media, '${plan['media']}', null, renamed.contains('media')),
+    ];
+  }
 
-  /// Copies the folders [plan] moves until it is cancelled, reporting
-  /// progress, and returns how many files were left for a later pass.
+  /// Copies the folders [plan] moves to another volume until it is
+  /// cancelled, reporting progress, and returns how many files were left for
+  /// a later pass.
   Future<int> _pass(
     Json plan,
     void Function(int done, int total, String file) report, {
     required bool strict,
   }) => _copyTrees(
-    _trees(plan),
+    [
+      for (final (source, target, excluded, renamed) in _trees(plan))
+        if (!renamed) (source, target, excluded),
+    ],
     '${plan['id']}',
     strict: strict,
     cancelled: () => pending?['id'] != plan['id'],
@@ -198,12 +232,16 @@ class StorageLocations {
 
   /// Runs before any database, credentials or torrent handles have been
   /// opened, once the background copy has finished: copies what has changed
-  /// since, then switches to the new folders.
+  /// since, renames folders on the same volume, switches to the new folders
+  /// and deletes what was copied from the old ones.
   Future<void> migrate() async {
     final plan = pending;
     if (plan == null || plan['copied'] != true) return;
     final oldMedia = media;
     final nextData = '${plan['data']}', nextMedia = '${plan['media']}';
+    // Media inside the data folder moves first, so the data folder is left
+    // empty once its own files have moved.
+    final trees = _trees(plan).reversed.toList();
     await _pass(
       plan,
       strict: true,
@@ -213,6 +251,11 @@ class StorageLocations {
             : '正在完成迁移 ${done * 100 ~/ total}%：$file',
       ),
     );
+    for (final (source, target, excluded, renamed) in trees) {
+      if (!renamed) continue;
+      onProgress?.call('正在移动：${p.basename(source)}');
+      await _rename(source, target, excluded);
+    }
     if (nextMedia != oldMedia) {
       final database = File(p.join(nextData, 'melonbang.sqlite'));
       if (await database.exists()) {
@@ -270,10 +313,13 @@ class StorageLocations {
     await _save(
       {..._state, 'data': nextData, 'media': nextMedia}..remove('pending'),
     );
-    for (final (_, target, _) in _trees(plan)) {
+    for (final (source, target, excluded, renamed) in trees) {
+      if (renamed) continue;
+      onProgress?.call('正在删除原位置的文件…');
+      await _removeMoved(source, excluded);
       await File(p.join(target, _manifest)).delete();
+      await File(p.join(target, _marker)).delete();
     }
-    // Originals remain a recovery copy; never recursively delete a user-selected folder.
   }
 }
 
@@ -351,7 +397,7 @@ Future<int> _copyTrees(
     }
   }
 
-  var done = 0, left = 0;
+  var done = 0, reported = 0, left = 0;
   var saved = DateTime.now();
   Future<void> save() async {
     for (final MapEntry(key: target, value: manifest) in manifests.entries) {
@@ -360,26 +406,37 @@ Future<int> _copyTrees(
     saved = DateTime.now();
   }
 
-  void progress(String file) {
+  void progress(String file, {bool now = false}) {
+    if (!now && done - reported < 32 << 20) return;
+    reported = done;
     if (cancelled()) throw StateError('迁移已取消');
     report(done, total, file);
   }
 
-  progress('');
+  progress('', now: true);
   try {
     for (final (target, relative, file, stat) in files) {
       final manifest = manifests[target]!;
       final output = File(p.join(target, relative));
       final record = [stat.size, stat.modified.microsecondsSinceEpoch];
+      final start = done;
       if (listEquals(manifest[relative] as List?, record) &&
-          await output.exists()) {
+          await output.exists() &&
+          await output.length() == stat.size) {
         done += stat.size;
         continue;
       }
-      progress(p.basename(file.path));
+      final name = p.basename(file.path);
+      progress(name, now: true);
       try {
-        // The system's own copy, which also keeps the file's dates.
-        await file.copy(output.path);
+        await _copyFile(file, output, (bytes) {
+          done += bytes;
+          progress(name);
+        });
+        await output.setLastModified(stat.modified);
+        if (await output.length() != stat.size) {
+          throw FileSystemException('文件迁移后大小不一致', file.path);
+        }
         // Written to while copying; the next pass copies it again.
         final after = await file.stat();
         if (after.size == stat.size && after.modified == stat.modified) {
@@ -393,13 +450,89 @@ Future<int> _copyTrees(
         if (strict) rethrow;
         left++;
       }
-      done += stat.size;
+      done = start + stat.size;
       if (DateTime.now().difference(saved).inSeconds >= 2) await save();
     }
   } finally {
     await save();
   }
   return left;
+}
+
+/// Copies [source] to [target] in 8 MiB blocks, reading the next block
+/// while the last one is written, as the system's own copy does; [copied]
+/// receives each block's length.
+Future<void> _copyFile(
+  File source,
+  File target,
+  void Function(int bytes) copied,
+) async {
+  final input = await source.open();
+  final output = await target.open(mode: FileMode.write);
+  try {
+    var (writing, reading) = (Uint8List(8 << 20), Uint8List(8 << 20));
+    var length = await input.readInto(writing);
+    while (length > 0) {
+      final next = await Future.wait([
+        output.writeFrom(writing, 0, length),
+        input.readInto(reading),
+      ]);
+      copied(length);
+      (writing, reading) = (reading, writing);
+      length = next[1] as int;
+    }
+  } finally {
+    await output.close();
+    await input.close();
+  }
+}
+
+/// Moves [source]'s entries into [target] on the same volume, leaving
+/// [excluded] in place, then removes [source] once empty.
+Future<void> _rename(String source, String target, String? excluded) async {
+  Future<void> move(String from, String to) async {
+    await Directory(to).create(recursive: true);
+    for (final entity in await Directory(
+      from,
+    ).list(followLinks: false).toList()) {
+      final destination = p.join(to, p.basename(entity.path));
+      if (excluded != null && p.equals(entity.path, excluded)) continue;
+      if (excluded != null && p.isWithin(entity.path, excluded)) {
+        await move(entity.path, destination);
+      } else {
+        await entity.rename(destination);
+      }
+    }
+  }
+
+  // A start interrupted after the rename finds nothing left to move.
+  if (!await Directory(source).exists()) return;
+  await move(source, target);
+  if (await Directory(source).list().isEmpty) await Directory(source).delete();
+}
+
+/// Deletes what was copied out of [source], leaving [excluded] in place,
+/// and [source] itself once empty.
+Future<void> _removeMoved(String source, String? excluded) async {
+  final folders = <Directory>[Directory(source)];
+  await for (final entity in Directory(
+    source,
+  ).list(recursive: true, followLinks: false)) {
+    if (excluded != null &&
+        (p.equals(entity.path, excluded) ||
+            p.isWithin(excluded, entity.path))) {
+      continue;
+    }
+    if (entity is Directory) {
+      folders.add(entity);
+    } else {
+      await entity.delete();
+    }
+  }
+  // Listed parents first, so reversed each folder comes before its parent.
+  for (final folder in folders.reversed) {
+    if (await folder.list().isEmpty) await folder.delete();
+  }
 }
 
 /// Removes what move [id] copied from [source] into [target]: files at the
