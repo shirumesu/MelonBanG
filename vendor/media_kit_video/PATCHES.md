@@ -98,3 +98,21 @@ on every toggle and display change). The callbacks now use `find` and return
 null when the ID is not stored, the ID is set under the lock after the descriptor
 is stored, and the surface is recreated under the same lock so `Read` never copies
 from a surface being replaced.
+
+## Windows render scheduling
+
+mpv notifies a render for every frame and also without one, and a render with
+super-resolution can outlast the notifications. Each notification queued its own
+render, so a slow chain built a backlog that redrew the current frame through the
+whole shader chain. `NotifyRender` now queues one render that serves every
+notification before it starts, and `NeedsRender` skips a render, and the texture
+frame notification, unless `mpv_render_context_update` reports a new frame or the
+surface was recreated. The update runs with the context current, since it can load
+the hardware decoding interop.
+
+`ANGLESurfaceManager` draws into two internal textures in turn. `Read`, called on
+Flutter's raster thread, copies the last finished one, and the mutex covers only
+that copy and the swap, so the raster thread no longer waits for a render: a 42 ms
+4K super-resolution render had held Flutter, and the comments above the video, to
+about 45 frames per second. Revalidate playback, pausing, seeking, resizing and
+super-resolution toggling after upgrades.
