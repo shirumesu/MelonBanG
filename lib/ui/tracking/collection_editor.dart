@@ -215,7 +215,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
       color: scheme.surface,
       elevation: 6,
       shadowColor: Colors.black26,
-      borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+      borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
       clipBehavior: Clip.antiAlias,
       child: SizedBox(
         width: 440,

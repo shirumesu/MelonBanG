@@ -505,7 +505,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         InkWell(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: controlBorderRadius,
           onTap: () => setState(
             () => details ? expanded.remove(task.id) : expanded.add(task.id),
           ),
@@ -875,7 +875,7 @@ class _SubjectCoverLinkState extends State<_SubjectCoverLink> {
       width: 58,
       height: 78,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(6),
         child: Stack(
           fit: StackFit.expand,
           children: [

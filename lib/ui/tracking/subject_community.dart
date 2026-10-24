@@ -449,7 +449,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
       DecoratedSliver(
         decoration: BoxDecoration(
           color: CardTheme.of(context).color ?? Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: panelBorderRadius,
         ),
         sliver: SliverPadding(
           padding: const EdgeInsets.all(20),

@@ -632,7 +632,7 @@ class _ContinueSection extends StatelessWidget {
           top: 0,
           trailing: TextButton(
             onPressed: onOpenTracking,
-            child: const Text('全部追番 →'),
+            child: const Text('全部追番'),
           ),
         ),
         if (posters.isEmpty)
@@ -655,6 +655,9 @@ class _ContinueSection extends StatelessWidget {
                       item: item,
                       onOpen: onOpenSubject,
                       tracking: true,
+                      // Every show here is being watched; only news earns
+                      // a badge.
+                      statusBadge: false,
                       badge: airingToday.contains(item.id) ? '今日更新' : null,
                     );
             },
