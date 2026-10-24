@@ -4,7 +4,7 @@
 
 <h3>追番？轻而易举！一个桌面应用全搞定!</h3>
 
-<sub>一个原生桌面追番客户端。番剧信息和收藏来自 [Bangumi][bangumi]，资源来自在线源和 BT，自带缓存、播放器和弹幕，找番、下载、观看、记进度在一个应用里完成。</sub>
+<sub>基于 [Bangumi][bangumi] 的 Windows / macOS 原生追番客户端</sub>
 
 <p>
   <a href="https://github.com/shirumesu/MelonBanG/releases"><img alt="版本" src="https://img.shields.io/github/v/release/shirumesu/MelonBanG?include_prereleases&label=%E7%89%88%E6%9C%AC&color=22B388"></a>
@@ -21,11 +21,11 @@
   <a href="https://github.com/shirumesu/MelonBanG/issues">反馈问题</a>
 </h4>
 
+<sub>首页</sub><br>
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/screenshots/home-dark.webp">
   <img alt="MelonBanG 首页" src=".github/screenshots/home-light.webp" width="720">
 </picture>
-<br><sub>首页 · 跟随系统切换浅色 / 深色</sub>
 
 </div>
 
@@ -33,12 +33,12 @@
 
 <table>
 <tr>
-  <td width="50%" align="center"><img alt="番剧详情" src=".github/screenshots/detail.webp"><br><sub>番剧详情</sub></td>
-  <td width="50%" align="center"><img alt="资源搜索" src=".github/screenshots/resources.webp"><br><sub>资源搜索</sub></td>
+  <td width="50%" align="center"><sub>番剧详情</sub><br><img alt="番剧详情" src=".github/screenshots/detail.webp"></td>
+  <td width="50%" align="center"><sub>资源搜索</sub><br><img alt="资源搜索" src=".github/screenshots/resources.webp"></td>
 </tr>
 <tr>
-  <td width="50%" align="center"><img alt="缓存" src=".github/screenshots/cache.webp"><br><sub>缓存</sub></td>
-  <td width="50%" align="center"><img alt="播放器" src=".github/screenshots/player.webp"><br><sub>播放器</sub></td>
+  <td width="50%" align="center"><sub>缓存</sub><br><img alt="缓存" src=".github/screenshots/cache.webp"></td>
+  <td width="50%" align="center"><sub>播放器</sub><br><img alt="播放器" src=".github/screenshots/player.webp"></td>
 </tr>
 </table>
 </div>
