@@ -86,14 +86,14 @@ class StorageLocations {
         if (p.equals(target, current) ||
             p.isWithin(current, target) ||
             p.isWithin(target, current)) {
-          throw StateError('请选择与现有数据目录分开的空文件夹');
+          throw StateError('新位置不能在现有的数据文件夹里，也不能包含它们');
         }
       }
       final folder = Directory(target);
       final created = !await folder.exists();
       try {
         await folder.create(recursive: true);
-        if (!await folder.list().isEmpty) {
+        if (!await isEmptyFolder(target)) {
           throw StateError('目标文件夹必须为空，避免覆盖现有文件');
         }
         final probe = File(p.join(target, '.melonbang-write-check'));
@@ -323,6 +323,16 @@ class StorageLocations {
   }
 }
 
+/// Files Finder and Explorer leave in folders they show.
+const _systemFiles = {'.DS_Store', '.localized', 'desktop.ini', 'Thumbs.db'};
+
+/// Whether [path] holds nothing but files Finder and Explorer leave in
+/// folders they show, so a folder just made there still counts as empty.
+Future<bool> isEmptyFolder(String path) =>
+    Directory(path)
+        .list()
+        .every((entry) => _systemFiles.contains(p.basename(entry.path)));
+
 const _marker = '.melonbang-migration';
 
 /// What each copied file was copied from: relative path → [size, modified].
@@ -350,7 +360,7 @@ Future<int> _copyTrees(
     if (await marker.exists()) {
       if (await marker.readAsString() != id) throw StateError('目标目录属于另一项迁移');
     } else {
-      if (!await Directory(target).list().isEmpty) {
+      if (!await isEmptyFolder(target)) {
         throw StateError('目标目录已包含其他文件，迁移已停止');
       }
       await marker.writeAsString(id, flush: true);
