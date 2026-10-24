@@ -281,14 +281,14 @@ class PlayerPageState extends State<PlayerPage> {
     return KeyEventResult.handled;
   }
 
-  /// The next episode by order.
+  /// The next main episode by order, passing over interludes.
   Episode? get nextEpisode {
     final episodes = widget.subject?.episodes ?? const <Episode>[];
     final index = episodes.indexWhere(
       (e) => e.id == playback.session?.episodeId,
     );
-    if (index < 0 || index + 1 >= episodes.length) return null;
-    return episodes[index + 1];
+    if (index < 0) return null;
+    return episodes.skip(index + 1).where((e) => e.main).firstOrNull;
   }
 
   void toggleMenu() {

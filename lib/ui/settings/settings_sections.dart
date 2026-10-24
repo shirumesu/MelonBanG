@@ -278,11 +278,11 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
     groups: [
       SettingsGroup([
         toggle(
-          '连续播放 下一集',
+          '连续播放 下一集 特别篇 总集篇',
           '自动连播',
           () => prefs.autoplay,
           prefs.setAutoplay,
-          subtitle: '播完 5 秒后播放下一话',
+          subtitle: '播完 5 秒后播放下一话，跳过总集篇等特别篇',
         ),
         toggle(
           '看过 进度 标记',
@@ -386,12 +386,12 @@ SettingsSection sourcesSection(
           ),
         ),
         SettingsItem(
-          '自动 缓存 下一集 下一话 预下载',
+          '自动 缓存 下一集 下一话 预下载 特别篇',
           _watch(
             prefs,
             (context) => SettingRow(
               title: '播放时缓存下一话',
-              subtitle: '一话看了两分钟后，用同一字幕组或线路缓存已播出的下一话',
+              subtitle: '一话看了两分钟后，用同一字幕组或线路缓存已播出的下一话，跳过特别篇',
               onTap: () => prefs.setCacheNext(!prefs.cacheNext),
               trailing: _switch(prefs.cacheNext, prefs.setCacheNext),
             ),

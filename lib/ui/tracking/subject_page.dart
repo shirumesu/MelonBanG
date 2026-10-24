@@ -455,7 +455,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   Episode? _nextEpisode(List<Episode> episodes) =>
       episodes.where(_isResume).firstOrNull ??
       episodes
-          .where((e) => _episodeStatus(e) != EpisodeStatus.watched)
+          .where((e) => e.main && _episodeStatus(e) != EpisodeStatus.watched)
           .firstOrNull ??
       episodes.firstOrNull;
 
@@ -614,10 +614,12 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     final episodes = item.episodes;
-    final watched = episodes
+    // Interludes are watched in place but counted with neither total.
+    final main = episodes.where((e) => e.main).toList();
+    final watched = main
         .where((e) => _episodeStatus(e) == EpisodeStatus.watched)
         .length;
-    final total = item.episodeTotal ?? episodes.length;
+    final total = math.max(item.episodeTotal ?? 0, main.length);
     final next = _nextEpisode(episodes);
     final now = DateTime.now();
     _rebuildAt(
@@ -635,7 +637,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         ? '暂无剧集'
         : '${_isResume(next)
               ? '继续观看'
-              : episodes.isNotEmpty && watched == episodes.length
+              : main.isNotEmpty && watched == main.length
               ? '重看'
               : '观看'}第 ${next.number} 话';
     final date = DateTime.tryParse('${item.airDate}');

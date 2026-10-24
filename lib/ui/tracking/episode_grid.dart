@@ -220,11 +220,10 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                   scheme.onSurfaceVariant.withValues(alpha: .45),
                   scheme.surfaceContainerHigh,
                 );
-          final label = episode.main ? episode.number : 'SP${episode.number}';
           return Semantics(
             button: true,
             label:
-                '第 ${episode.number} 话 ${watched ? '已看' : (aired ? '未看' : '未更新')}',
+                '第 ${episode.number} 话${episode.main ? '' : '（特别篇）'} ${watched ? '已看' : (aired ? '未看' : '未更新')}',
             onTap: () => widget.onSelect(episode),
             child: AnimatedContainer(
               duration: motionDuration(context, 120),
@@ -239,17 +238,30 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                       : border,
                 ),
               ),
-              child: Center(
-                child: AnimatedDefaultTextStyle(
-                  duration: motionDuration(context, 120),
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: foreground,
-                    fontFeatures: const [FontFeature.tabularFigures()],
+              child: Stack(
+                children: [
+                  if (!episode.main)
+                    Positioned(
+                      left: 2,
+                      top: 2,
+                      child: InterludeMark(size: 9, color: foreground),
+                    ),
+                  Center(
+                    child: Padding(
+                      padding: EdgeInsets.only(left: episode.main ? 0 : 5),
+                      child: AnimatedDefaultTextStyle(
+                        duration: motionDuration(context, 120),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: foreground,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                        child: Text(episode.number, maxLines: 1),
+                      ),
+                    ),
                   ),
-                  child: Text(label, maxLines: 1),
-                ),
+                ],
               ),
             ),
           );
@@ -379,6 +391,20 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                     ),
                     '未更新',
                   ),
+                  if (episodes.any((e) => !e.main))
+                    Tooltip(
+                      message: '夹在正片之间的总集篇、特番等\n不计入话数，自动连播和缓存下一话会跳过',
+                      child: legend(
+                        Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: InterludeMark(
+                            size: 12,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                        '特别篇',
+                      ),
+                    ),
                   if (hint == null)
                     Tooltip(
                       message: '点击观看已缓存的一话，未缓存时选择资源\n长按标为已看，按住拖动可选多话\n右键查看更多操作',
@@ -415,4 +441,16 @@ class _EpisodeGridState extends State<EpisodeGrid> {
       },
     );
   }
+}
+
+/// Marks an interlude, a special such as an 11.5 recap, as a branch off the
+/// main episodes in the grids that list it in place.
+class InterludeMark extends StatelessWidget {
+  const InterludeMark({super.key, required this.size, required this.color});
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) =>
+      Icon(Icons.call_split_rounded, size: size, color: color);
 }

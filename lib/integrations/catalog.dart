@@ -387,7 +387,12 @@ class CatalogRepository implements Catalog {
         }),
         part('episodes', () async {
           await for (final page in bangumi.episodes(id)) {
-            parts['episodes'] = [...?parts['episodes'] as List?, ...page];
+            // Specials arrive last and take their place by Bangumi's number.
+            parts['episodes'] = [...?parts['episodes'] as List?, ...page]
+              ..sort(
+                (a, b) =>
+                    number(a['absolute']).compareTo(number(b['absolute'])),
+              );
             publish();
           }
         }),
@@ -418,7 +423,7 @@ class CatalogRepository implements Catalog {
   Json _subjectJson(int id, dynamic value) {
     final data = _summary(object(object(value)['data']));
     data['episodes'] = objects(data['episodes'])
-        .where((e) => e['type'] == null || e['type'] == 'main')
+        .where((e) => const [null, 'main', 'interlude'].contains(e['type']))
         .map(
           (e) => {
             ...e,

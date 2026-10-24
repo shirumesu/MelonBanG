@@ -158,6 +158,10 @@ class Episode {
   /// Bangumi's number across seasons (`sort`), which releases of a sequel
   /// often use instead of [sort]: season 2 episode 1 can be episode 29.
   final double? absolute;
+
+  /// False for an interlude: a special between main episodes, such as an
+  /// 11.5 recap. Interludes are listed in place but do not count towards
+  /// the episode total and autoplay passes over them.
   final bool main;
   final String? name, nameCn, airDate;
   final int? durationSeconds;

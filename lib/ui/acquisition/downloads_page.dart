@@ -495,8 +495,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
       null => null,
     };
     final label = switch (episode) {
-      final episode? when episode.main => '第 ${episode.number} 话',
-      final episode? => 'SP${episode.number}',
+      final episode? => '第 ${episode.number} 话',
       null when task.videos.length > 1 => '合集',
       null => '—',
     };
