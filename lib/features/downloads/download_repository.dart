@@ -136,30 +136,18 @@ class DownloadRepository {
     }
   }
 
+  /// Deletes [fileIds] of a finished BT or PikPak task.
+  Future<void> removeFiles(String id, Set<String> fileIds) async {
+    await ready;
+    await (_owner(id) as TorrentTransfer).removeFiles(id, fileIds);
+  }
+
   TransferMedia media(String id, {String? fileId}) =>
       _owner(id).media(id, fileId: fileId);
 
   Future<TransferMedia> openMedia(String id, {String? fileId}) async {
     await ready;
     return _owner(id).openMedia(id, fileId: fileId);
-  }
-
-  /// The most complete playable download of an episode.
-  TransferMedia episodeMedia(int subjectId, int episodeId) {
-    final tasks =
-        snapshot()
-            .forSubject(subjectId)
-            .where((task) => task.episodeId == episodeId)
-            .toList()
-          ..sort((a, b) => b.progress.compareTo(a.progress));
-    for (final task in tasks) {
-      try {
-        return media(task.id);
-      } on StateError {
-        continue;
-      }
-    }
-    throw StateError('该章节尚无可播放下载，请选择资源或具体视频文件');
   }
 
   void releaseStreamsExcept(int? keep) {

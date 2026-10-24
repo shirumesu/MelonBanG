@@ -196,8 +196,8 @@ class ResourcePlayButton extends StatelessWidget {
               ),
             )
           : Icon(Icons.play_arrow_rounded, size: 18, color: scheme.onPrimary),
-      label: showLabel ? (playing ? '打开中' : '播放') : null,
-      tooltip: instant || playing ? '播放' : '播放，同时下载到本机',
+      label: showLabel ? (playing ? '打开中' : '观看') : null,
+      tooltip: instant || playing ? '观看' : '观看，同时下载到本机',
       width: resourcePlayWidth(labelled: showLabel),
       background: scheme.primary,
       foreground: scheme.onPrimary,

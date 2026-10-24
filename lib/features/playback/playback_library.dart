@@ -8,6 +8,7 @@ import '../../domain/catalog.dart';
 import '../../domain/playback_session.dart';
 import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
+import '../acquisition/title_matching.dart';
 import '../downloads/download_repository.dart';
 
 /// Saved position of an episode.
@@ -42,6 +43,16 @@ class PlaybackLibrary {
     final media = await downloads.openMedia(id, fileId: fileId);
     subjectId ??= media.subjectId;
     episodeId ??= media.episodeId;
+    // A video of a batch plays as the episode its name gives.
+    if (episodeId == null && subjectId != null) {
+      if (await catalog.cached(subjectId) case final subject?) {
+        episodeId = episodeFiles(subject, downloads.snapshot().task(id)!)
+            .entries
+            .where((entry) => entry.value.id == media.file.id)
+            .firstOrNull
+            ?.key;
+      }
+    }
     if (media.online case final stream?) {
       return online(
         stream,
@@ -136,6 +147,7 @@ class PlaybackLibrary {
   }
 
   Future<bool> _available(
+    Subject? subject,
     int subjectId,
     int episodeId, {
     Json? binding,
@@ -146,12 +158,11 @@ class PlaybackLibrary {
     }
     try {
       final TransferMedia media;
-      if (binding?['downloadId'] case final String id) {
-        media = downloads.contains(id)
-            ? downloads.media(id, fileId: binding!['fileId'] as String?)
-            : downloads.episodeMedia(subjectId, episodeId);
+      if (binding?['downloadId'] case final String id
+          when downloads.contains(id)) {
+        media = downloads.media(id, fileId: binding!['fileId'] as String?);
       } else {
-        media = downloads.episodeMedia(subjectId, episodeId);
+        media = _episodeMedia(subject, subjectId, episodeId);
       }
       return media.incomplete || await File(media.file.path).exists();
     } on StateError {
@@ -159,7 +170,27 @@ class PlaybackLibrary {
     }
   }
 
+  /// The most complete playable download of an episode: a task cached for
+  /// it, or a video of one of the subject's batches named after it.
+  TransferMedia _episodeMedia(Subject? subject, int subjectId, int episodeId) {
+    final found = <TransferMedia>[];
+    for (final task in downloads.snapshot().forSubject(subjectId)) {
+      final file = subject == null
+          ? null
+          : episodeFiles(subject, task)[episodeId];
+      if (file == null && task.episodeId != episodeId) continue;
+      try {
+        found.add(downloads.media(task.id, fileId: file?.id));
+      } on StateError {
+        continue;
+      }
+    }
+    found.sort((a, b) => b.file.progress.compareTo(a.file.progress));
+    return found.firstOrNull ?? (throw StateError('该章节尚无可播放下载，请选择资源或具体视频文件'));
+  }
+
   Future<Set<int>> playableEpisodes(int subjectId) async {
+    final subject = await catalog.cached(subjectId);
     final ids = <int>{};
     final bindings = await store.entries(
       'episode_files',
@@ -174,10 +205,12 @@ class PlaybackLibrary {
     }
     for (final task in downloads.snapshot().forSubject(subjectId)) {
       if (task.episodeId case final int episodeId) ids.add(episodeId);
+      if (subject != null) ids.addAll(episodeFiles(subject, task).keys);
     }
     final available = <int>{};
     for (final id in ids) {
       if (await _available(
+        subject,
         subjectId,
         id,
         binding: bindings['$subjectId:$id'],
@@ -253,14 +286,16 @@ class PlaybackLibrary {
             !position.isFinite ||
             !duration.isFinite ||
             position <= 0 ||
-            duration <= position ||
-            (!await _available(subjectId, episodeId) &&
-                await store.get('online_episodes', '$subjectId:$episodeId') ==
-                    null)) {
+            duration <= position) {
           continue;
         }
-        final detail =
-            await catalog.cached(subjectId) ?? Subject(id: subjectId);
+        final cached = await catalog.cached(subjectId);
+        if (!await _available(cached, subjectId, episodeId) &&
+            await store.get('online_episodes', '$subjectId:$episodeId') ==
+                null) {
+          continue;
+        }
+        final detail = cached ?? Subject(id: subjectId);
         subjects.add(subjectId);
         if (accept != null && !await accept(detail, episodeId)) continue;
         result.add(

@@ -52,8 +52,12 @@ peers before the application's queue/seeding policy takes effect. Auto-managemen
 stays disabled: DownloadRepository owns queue admission and explicit pause state.
 
 `lt_save_metadata` exports acquired metadata (including tracker tiers) so magnets
-can be restored from a torrent file without rediscovering metadata online. Data
-pieces are still verified on restart, rather than assumed valid through seed mode.
+can be restored from a torrent file without rediscovering metadata online.
+`lt_save_resume` writes libtorrent fast-resume data (verified pieces plus the info
+dictionary, written to a `.pending` file and renamed into place) and
+`lt_add_resume` restores a torrent from it, so a restart compares file sizes
+instead of hashing every piece; libtorrent falls back to a full check when the
+files do not match. Torrent-file and resume adds share one `add_params` helper.
 Torrent files load with `load_torrent_file`; metadata exports use
 `get_resume_data(save_info_dict)` and `write_torrent_file_buf`, allowing missing v2
 piece layers while a magnet is incomplete. File queries combine `layout()` with

@@ -31,7 +31,9 @@
 
 #include <libtorrent/load_torrent.hpp>
 #include <libtorrent/write_resume_data.hpp>
+#include <libtorrent/read_resume_data.hpp>
 #include <fstream>
+#include <iterator>
 #include <filesystem>
 #include <libtorrent/session.hpp>
 #include <libtorrent/session_params.hpp>
@@ -2181,6 +2183,34 @@ TORRENT_API lt_torrent_id lt_add_magnet(lt_session_t session,
     } catch (const std::exception& e) { set_err(e.what()); return -1; }
 }
 
+// Adds a torrent read from a .torrent file or from fast-resume data.
+static lt_torrent_id add_params(SessionWrapper* sw, lt::add_torrent_params atp,
+                                const char* path, int add_flags) {
+    lt::error_code ec;
+    atp.save_path = path;
+    if (add_flags & 2) atp.flags |= lt::torrent_flags::paused;
+    else atp.flags &= ~lt::torrent_flags::paused;
+    if (add_flags & 4) atp.flags |= lt::torrent_flags::stop_when_ready;
+    atp.flags &= ~lt::torrent_flags::auto_managed;
+
+    if (add_flags & 1) {
+        atp.storage_mode = lt::storage_mode_sparse;
+        atp.flags |= lt::torrent_flags::stop_when_ready;
+    }
+
+    lt::torrent_handle h = sw->session.add_torrent(std::move(atp), ec);
+    if (ec) { set_err(ec.message()); return -1; }
+    h.set_max_connections(sw->bt_config.connections_limit);
+
+    int64_t id = sw->next_id.fetch_add(1);
+    {
+        std::lock_guard<std::mutex> lk(sw->mu);
+        sw->handles[id] = h;
+        if (add_flags & 1) sw->ephemeral_torrents.insert(id);
+    }
+    set_err(""); return id;
+}
+
 TORRENT_API lt_torrent_id lt_add_torrent_file(lt_session_t session,
                                               const char* fp, const char* path,
                                               int add_flags) {
@@ -2190,28 +2220,26 @@ TORRENT_API lt_torrent_id lt_add_torrent_file(lt_session_t session,
         lt::error_code ec;
         auto atp = lt::load_torrent_file(fp, ec, {});
         if (ec) { set_err(ec.message()); return -1; }
-        atp.save_path = path;
-        if (add_flags & 2) atp.flags |= lt::torrent_flags::paused;
-        else atp.flags &= ~lt::torrent_flags::paused;
-        if (add_flags & 4) atp.flags |= lt::torrent_flags::stop_when_ready;
-        atp.flags &= ~lt::torrent_flags::auto_managed;
+        return add_params(sw, std::move(atp), path, add_flags);
+    } catch (const std::exception& e) { set_err(e.what()); return -1; }
+}
 
-        if (add_flags & 1) {
-            atp.storage_mode = lt::storage_mode_sparse;
-            atp.flags |= lt::torrent_flags::stop_when_ready;
-        }
-
-        lt::torrent_handle h = sw->session.add_torrent(std::move(atp), ec);
+// Restores a torrent from lt_save_resume data: its verified pieces are taken
+// as they are, so only file sizes are checked instead of hashing every piece.
+TORRENT_API lt_torrent_id lt_add_resume(lt_session_t session,
+                                        const char* resume_path,
+                                        const char* path, int add_flags) {
+    if (!session || !resume_path || !path) { set_err("null arg"); return -1; }
+    auto* sw = to_sw(session);
+    try {
+        std::ifstream file(std::filesystem::u8path(resume_path), std::ios::binary);
+        const std::vector<char> bytes{std::istreambuf_iterator<char>(file),
+                                      std::istreambuf_iterator<char>()};
+        if (file.bad()) { set_err("cannot read resume data"); return -1; }
+        lt::error_code ec;
+        auto atp = lt::read_resume_data(bytes, ec);
         if (ec) { set_err(ec.message()); return -1; }
-        h.set_max_connections(sw->bt_config.connections_limit);
-
-        int64_t id = sw->next_id.fetch_add(1);
-        {
-            std::lock_guard<std::mutex> lk(sw->mu);
-            sw->handles[id] = h;
-            if (add_flags & 1) sw->ephemeral_torrents.insert(id);
-        }
-        set_err(""); return id;
+        return add_params(sw, std::move(atp), path, add_flags);
     } catch (const std::exception& e) { set_err(e.what()); return -1; }
 }
 
@@ -2273,6 +2301,31 @@ TORRENT_API int lt_save_metadata(lt_session_t session, lt_torrent_id id,
         file.write(bytes.data(), bytes.size());
         file.close();
         return file ? 1 : 0;
+    } catch (...) { return 0; }
+}
+
+// Persist fast-resume data (verified pieces and the info dictionary) for
+// lt_add_resume. Written beside the target first, so a crash never leaves a
+// truncated file.
+TORRENT_API int lt_save_resume(lt_session_t session, lt_torrent_id id,
+                               const char* path) {
+    if (!session || !path) return 0;
+    auto* sw = to_sw(session);
+    std::lock_guard<std::mutex> lk(sw->mu);
+    try {
+        auto it = sw->handles.find(id);
+        if (it == sw->handles.end() || !it->second.torrent_file()) return 0;
+        const auto bytes = lt::write_resume_data_buf(
+            it->second.get_resume_data(lt::torrent_handle::save_info_dict));
+        const auto target = std::filesystem::u8path(path);
+        auto pending = target;
+        pending += ".pending";
+        std::ofstream file(pending, std::ios::binary | std::ios::trunc);
+        file.write(bytes.data(), bytes.size());
+        file.close();
+        if (!file) return 0;
+        std::filesystem::rename(pending, target);
+        return 1;
     } catch (...) { return 0; }
 }
 

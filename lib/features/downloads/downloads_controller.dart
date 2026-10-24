@@ -56,17 +56,11 @@ class DownloadsController {
     if (changed) availability.value++;
   }
 
-  Future<void> addMagnet(String uri) async {
-    await ready();
-    await downloads.addMagnet(uri, method: CacheMethod.bt);
-  }
-
-  Future<void> addTorrent(Uint8List bytes, String name) async {
-    await ready();
-    await downloads.addTorrent(bytes, name, method: CacheMethod.bt);
-  }
-
   Future<void> remove(String id) => downloads.remove(id);
+
+  /// Deletes [fileIds] of a finished task; a BT task then no longer seeds.
+  Future<void> removeFiles(String id, Set<String> fileIds) =>
+      downloads.removeFiles(id, fileIds);
 
   /// Does what [DownloadTask.toggle] names.
   Future<void> toggle(DownloadTask task) => switch (task.toggle) {

@@ -5,6 +5,7 @@ import 'package:pinyin/pinyin.dart';
 import '../../domain/catalog.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
+import '../../domain/transfer.dart';
 
 /// Simplified, width-folded title without punctuation, plus its season.
 (String, int) normalizeSourceTitle(String input) {
@@ -134,6 +135,52 @@ Episode? releaseEpisode(Subject subject, ResourceTitleInfo info) {
     if (match != null || info.season == null) return match;
   }
   return episodes.where((e) => e.sort == number).firstOrNull;
+}
+
+/// The videos of [task], a download of [subject], by the main episode each
+/// holds: its own episode for a single video cached for one, otherwise the
+/// number a video's name gives (`S02E03`, `[03]`, ` - 03(51)`), within the
+/// season or across seasons. The task already belongs to the subject, so the
+/// season a name states is checked only against one the subject's title
+/// states. Episodes that several videos claim are left out.
+Map<int, DownloadFile> episodeFiles(Subject subject, DownloadTask task) {
+  final videos = task.videos;
+  if (task.episodeId case final id? when videos.length == 1) {
+    return {id: videos.single};
+  }
+  final episodes = subject.episodes.where((e) => e.main).toList();
+  final season = [
+    subject.title,
+    ?subject.name,
+    ?subject.nameCn,
+  ].map(resourceSeason).nonNulls.firstOrNull;
+  final found = <int, DownloadFile>{}, claimed = <int>{};
+  for (final file in videos) {
+    final info = describeResource(file.name);
+    final number = info.episode;
+    if (number == null ||
+        (info.season != null && season != null && info.season != season)) {
+      continue;
+    }
+    final across = info.absoluteEpisode ?? number;
+    final episode =
+        episodes
+            .where(
+              (e) =>
+                  e.absolute != null &&
+                  e.absolute != e.sort &&
+                  e.absolute == across,
+            )
+            .firstOrNull ??
+        episodes.where((e) => e.sort == number).firstOrNull;
+    if (episode == null) continue;
+    if (!claimed.add(episode.id)) {
+      found.remove(episode.id);
+    } else {
+      found[episode.id] = file;
+    }
+  }
+  return found;
 }
 
 /// Whether a release may hold [episode]: a single-episode release must be

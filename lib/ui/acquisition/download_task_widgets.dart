@@ -39,7 +39,7 @@ class DownloadTaskStatus extends StatelessWidget {
             if (downloadOrigin(task) case final origin?)
               MelonBadge(origin, color: sky),
             if (measured) ...[
-              Text('${(progress * 100).toStringAsFixed(0)}%', style: small),
+              Text('${(progress * 100).floor()}%', style: small),
               Text('↓ ${transferRate(task.downloadSpeed)}', style: small),
             ],
             if (task.status == DownloadStatus.seeding)
@@ -66,66 +66,54 @@ class DownloadTaskStatus extends StatelessWidget {
   }
 }
 
-/// Plays the task's video, or lets the user choose one of several; while
-/// none can play it stays visible, disabled, and says why.
+/// Watches the task's video, or lets the user choose one of several; while
+/// none can play it stays visible, disabled, and says why. An icon button,
+/// for rows of a list.
 class DownloadPlayButton extends StatelessWidget {
   const DownloadPlayButton({
     super.key,
     required this.task,
     required this.onPlay,
-    this.compact = false,
   });
   final DownloadTask task;
   final void Function(String id, String? fileId) onPlay;
-
-  /// An icon button, for narrow lists.
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final videos = task.videos;
     final blocked = playBlocked(task);
     final choose = videos.length > 1;
-    final label = choose ? '选择文件' : '播放';
-    final VoidCallback? onPressed = blocked != null
-        ? null
-        : choose
-        ? () => chooseDownloadVideo(context, task, onPlay)
-        : () => onPlay(task.id, videos.single.id);
-    final tooltip = blocked ?? (task.complete ? label : '$label，同时继续下载');
-    if (compact) {
-      return IconButton(
-        tooltip: tooltip,
-        onPressed: onPressed,
-        icon: Icon(
-          choose ? Icons.playlist_play_rounded : Icons.play_arrow_rounded,
-          size: 20,
-        ),
-      );
-    }
-    return Tooltip(
-      message: tooltip,
-      child: FilledButton.icon(
-        onPressed: onPressed,
-        icon: const Icon(Icons.play_arrow_rounded, size: 19),
-        label: Text(label),
+    final label = choose ? '选择视频' : '观看';
+    return IconButton(
+      tooltip: blocked ?? (task.complete ? label : '$label，同时继续下载'),
+      onPressed: blocked != null
+          ? null
+          : choose
+          ? () => chooseDownloadVideo(context, task, onPlay)
+          : () => onPlay(task.id, videos.single.id),
+      icon: Icon(
+        choose ? Icons.playlist_play_rounded : Icons.play_arrow_rounded,
+        size: 20,
       ),
     );
   }
 }
 
 /// Pauses or resumes the download, or stops or resumes seeding; hidden when
-/// the task has nothing to toggle.
+/// the task has nothing to toggle. An icon button in rows of a list, or
+/// beside a task's watch button a labelled one in the same shape.
 class DownloadToggleButton extends StatelessWidget {
   const DownloadToggleButton({
     super.key,
     required this.task,
     required this.onToggle,
     this.size,
+    this.labelled = false,
   });
   final DownloadTask task;
   final ValueChanged<DownloadTask> onToggle;
   final double? size;
+  final bool labelled;
 
   @override
   Widget build(BuildContext context) {
@@ -140,6 +128,13 @@ class DownloadToggleButton extends StatelessWidget {
       TaskToggle.stopSeeding => Icons.stop_circle_outlined,
       TaskToggle.resumeSeeding => Icons.upload_rounded,
     };
+    if (labelled) {
+      return OutlinedButton.icon(
+        onPressed: () => onToggle(task),
+        icon: MotionSwap(value: icon, child: Icon(icon, size: 19)),
+        label: Text(toggleLabel(toggle)),
+      );
+    }
     return IconButton(
       tooltip: toggleLabel(toggle),
       onPressed: () => onToggle(task),
@@ -176,7 +171,7 @@ Future<void> chooseDownloadVideo(
             subtitle: Text(
               file.progress >= 1
                   ? size
-                  : '$size  ${(file.progress * 100).toStringAsFixed(0)}%',
+                  : '$size  ${(file.progress * 100).floor()}%',
             ),
             trailing: const Icon(Icons.play_arrow_rounded, size: 20),
             onTap: () {

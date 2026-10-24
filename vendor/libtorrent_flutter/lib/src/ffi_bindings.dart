@@ -357,8 +357,11 @@ class TorrentBridgeBindings {
   late final LtSetAlertCallback setAlertCallback;
   late final int Function(Pointer<LtSessionOpaque>, int, Pointer<Utf8>)
       saveMetadata;
+  late final int Function(Pointer<LtSessionOpaque>, int, Pointer<Utf8>)
+      saveResume;
   late final LtAddMagnet addMagnet;
   late final LtAddTorrentFile addTorrentFile;
+  late final LtAddTorrentFile addResume;
   late final LtRemoveTorrent removeTorrent;
   late final LtPauseTorrent pauseTorrent;
   late final LtResumeTorrent resumeTorrent;
@@ -401,11 +404,18 @@ class TorrentBridgeBindings {
         Int32 Function(Pointer<LtSessionOpaque>, Int64, Pointer<Utf8>),
         int Function(
             Pointer<LtSessionOpaque>, int, Pointer<Utf8>)>('lt_save_metadata');
+    saveResume = _lib.lookupFunction<
+        Int32 Function(Pointer<LtSessionOpaque>, Int64, Pointer<Utf8>),
+        int Function(
+            Pointer<LtSessionOpaque>, int, Pointer<Utf8>)>('lt_save_resume');
     addMagnet = _lib
         .lookup<NativeFunction<_AddMagnetN>>('lt_add_magnet')
         .asFunction<LtAddMagnet>();
     addTorrentFile = _lib
         .lookup<NativeFunction<_AddTorrentFileN>>('lt_add_torrent_file')
+        .asFunction<LtAddTorrentFile>();
+    addResume = _lib
+        .lookup<NativeFunction<_AddTorrentFileN>>('lt_add_resume')
         .asFunction<LtAddTorrentFile>();
     removeTorrent = _lib
         .lookup<NativeFunction<_RemoveTorrentN>>('lt_remove_torrent')

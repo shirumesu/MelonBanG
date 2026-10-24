@@ -125,7 +125,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
         position.dy,
       ),
       items: [
-        const PopupMenuItem(value: 'play', child: Text('播放')),
+        const PopupMenuItem(value: 'play', child: Text('观看')),
         const PopupMenuItem(value: 'resources', child: Text('查找资源')),
         PopupMenuItem(value: 'mark', child: Text(watched ? '标为未看' : '标为已看')),
       ],
@@ -381,7 +381,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                   ),
                   if (hint == null)
                     Tooltip(
-                      message: '点击播放已缓存的一话，未缓存时选择资源\n长按标为已看，按住拖动可选多话\n右键查看更多操作',
+                      message: '点击观看已缓存的一话，未缓存时选择资源\n长按标为已看，按住拖动可选多话\n右键查看更多操作',
                       child: Icon(
                         Icons.help_outline_rounded,
                         size: 14,

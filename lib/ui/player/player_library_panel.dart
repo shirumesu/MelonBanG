@@ -8,6 +8,7 @@ import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/playback_session.dart';
 import '../../domain/transfer.dart';
+import '../../features/acquisition/title_matching.dart';
 import '../../features/playback/play_selection.dart';
 import '../../features/playback/playback.dart';
 import '../acquisition/download_labels.dart';
@@ -22,15 +23,17 @@ import '../core/theme.dart';
 import '../tracking/subject_community.dart';
 import 'player_danmaku_panel.dart';
 
-/// A task whose single video file can be played (finished or streaming).
-DownloadTask? playableTask(List<DownloadTask> tasks, int episodeId) => tasks
-    .where(
-      (task) =>
-          task.episodeId == episodeId &&
-          task.playable &&
-          task.videos.length == 1,
-    )
-    .firstOrNull;
+/// A download of one episode: a task cached for it, or the episode's video
+/// in a batch; [file] is null until the task's files are known.
+typedef EpisodeCache = ({DownloadTask task, DownloadFile? file});
+
+extension on EpisodeCache {
+  double get progress => file?.progress ?? task.progress;
+  bool get complete => progress >= 1;
+
+  /// Its video can be played, finished or streaming.
+  bool get playable => file != null && task.playable;
+}
 
 enum PlayerPanelTab { episodes, discussion, danmaku }
 
@@ -315,10 +318,19 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
   @override
   Widget build(BuildContext context) {
     final small = Theme.of(context).textTheme.bodySmall;
-    final tasks = widget.downloads.forSubject(widget.subject?.id);
-    final byEpisode = <int?, List<DownloadTask>>{};
+    final subject = widget.subject;
+    final tasks = widget.downloads.forSubject(subject?.id);
+    final byEpisode = <int, List<EpisodeCache>>{};
     for (final task in tasks) {
-      byEpisode.putIfAbsent(task.episodeId, () => []).add(task);
+      final files = subject == null
+          ? const <int, DownloadFile>{}
+          : episodeFiles(subject, task);
+      for (final MapEntry(key: id, value: file) in files.entries) {
+        byEpisode.putIfAbsent(id, () => []).add((task: task, file: file));
+      }
+      if (task.episodeId case final id? when !files.containsKey(id)) {
+        byEpisode.putIfAbsent(id, () => []).add((task: task, file: null));
+      }
     }
     final shown =
         hovered ??
@@ -384,17 +396,18 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
       !(episode.aired?.isAfter(DateTime.now()) ?? false);
 
   /// The hovered or playing episode: title, then its state.
-  Widget episodeLine(Episode episode, List<DownloadTask> tasks) {
+  Widget episodeLine(Episode episode, List<EpisodeCache> caches) {
     final small = Theme.of(context).textTheme.bodySmall;
-    final playable = playableTask(tasks, episode.id);
-    final task = playable ?? tasks.firstOrNull;
+    final cache =
+        caches.where((cache) => cache.playable).firstOrNull ??
+        caches.firstOrNull;
     final state = [
       if (episode.watched) '已看',
       if (!aired(episode)) '未更新',
-      if (task != null)
-        task.complete
+      if (cache != null)
+        cache.complete
             ? '已缓存'
-            : '${downloadStatus(task)} ${(task.progress * 100).floor()}%',
+            : '${downloadStatus(cache.task)} ${(cache.progress * 100).floor()}%',
     ].join('  ');
     return Row(
       children: [
@@ -552,12 +565,12 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
     );
   }
 
-  Widget cell(Episode episode, List<DownloadTask> tasks) {
+  Widget cell(Episode episode, List<EpisodeCache> caches) {
     final scheme = Theme.of(context).colorScheme;
     final playing = episode.id == episodeId;
-    final playable = playableTask(tasks, episode.id);
+    final playable = caches.where((cache) => cache.playable).firstOrNull;
     final downloading = playable == null
-        ? tasks.where((task) => !task.complete).firstOrNull
+        ? caches.where((cache) => !cache.complete).firstOrNull
         : null;
     final released = aired(episode);
     final cached = playable != null;
@@ -661,7 +674,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
         Offset.zero & overlay.size,
       ),
       items: [
-        if (!playing) const PopupMenuItem(value: 'play', child: Text('播放')),
+        if (!playing) const PopupMenuItem(value: 'play', child: Text('观看')),
         const PopupMenuItem(value: 'resources', child: Text('查找资源')),
         PopupMenuItem(
           value: 'mark',
@@ -726,7 +739,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
           ),
         ),
         Tooltip(
-          message: '点击播放：有缓存直接播放，否则按来源设置选择资源\n右键：查找资源、标为已看',
+          message: '点击观看：有缓存直接观看，否则按来源设置选择资源\n右键：查找资源、标为已看',
           child: Icon(
             Icons.help_outline_rounded,
             size: 16,
@@ -836,11 +849,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                   onToggle: toggleTask,
                   size: 18,
                 ),
-                DownloadPlayButton(
-                  task: task,
-                  onPlay: widget.onPlayFile,
-                  compact: true,
-                ),
+                DownloadPlayButton(task: task, onPlay: widget.onPlayFile),
               ],
             ),
             const SizedBox(height: 4),

@@ -976,7 +976,7 @@ class PlayerPageState extends State<PlayerPage> {
                                 children: [
                                   TextButton(
                                     onPressed: playback.playAutoplay,
-                                    child: const Text('立即播放'),
+                                    child: const Text('立即观看'),
                                   ),
                                   TextButton(
                                     onPressed: playback.cancelAutoplay,

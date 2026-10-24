@@ -634,10 +634,10 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         : next == null
         ? '暂无剧集'
         : '${_isResume(next)
-              ? '继续播放'
+              ? '继续观看'
               : episodes.isNotEmpty && watched == episodes.length
               ? '重看'
-              : '播放'}第 ${next.number} 话';
+              : '观看'}第 ${next.number} 话';
     final date = DateTime.tryParse('${item.airDate}');
     final score = item.score ?? 0;
     final summary =
