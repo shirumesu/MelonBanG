@@ -41,6 +41,8 @@ dependency_overrides:
     path: vendor/file_selector_macos
   media_kit_libs_macos_video:
     path: vendor/media_kit_libs_macos_video
+  media_kit_libs_windows_video:
+    path: vendor/media_kit_libs_windows_video
 
 flutter:
   config:
