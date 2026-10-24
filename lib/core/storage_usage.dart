@@ -106,3 +106,73 @@ class _WindowsAllocatedBytes {
     }
   }
 }
+
+/// The volume a folder is on and the space left on it for this user.
+class DiskSpace {
+  const DiskSpace(this.volume, this.free);
+
+  /// Where the volume is mounted, such as `D:\` or `/Volumes/Media`.
+  final String volume;
+  final int free;
+
+  /// Whether this is the Windows system drive, which slows the whole system
+  /// down once it fills up.
+  bool get system =>
+      Platform.isWindows &&
+      p.equals(volume, '${Platform.environment['SystemDrive']}\\');
+
+  /// The volume of [path], which need not exist yet.
+  static Future<DiskSpace> of(String path) =>
+      Isolate.run(() => _diskSpace(path));
+}
+
+DiskSpace _diskSpace(String path) {
+  var existing = p.normalize(p.absolute(path));
+  while (!Directory(existing).existsSync() && p.dirname(existing) != existing) {
+    existing = p.dirname(existing);
+  }
+  if (Platform.isMacOS) {
+    final result = Process.runSync('/bin/df', ['-kP', existing]);
+    // "Filesystem 1024-blocks Used Available Capacity Mounted on".
+    final match = RegExp(r'\s(\d+)\s+(\d+)\s+(\d+)\s+\d+%\s+(.+)$')
+        .firstMatch('${result.stdout}'.trim().split('\n').last);
+    if (result.exitCode != 0 || match == null) {
+      throw FileSystemException('Cannot read free space', path);
+    }
+    return DiskSpace(match.group(4)!, int.parse(match.group(3)!) * 1024);
+  }
+  if (Platform.isWindows) {
+    final kernel = DynamicLibrary.open('kernel32.dll');
+    final volumePath = kernel
+        .lookupFunction<
+          Int32 Function(Pointer<Utf16>, Pointer<Utf16>, Uint32),
+          int Function(Pointer<Utf16>, Pointer<Utf16>, int)
+        >('GetVolumePathNameW');
+    final freeSpace = kernel
+        .lookupFunction<
+          Int32 Function(
+            Pointer<Utf16>,
+            Pointer<Uint64>,
+            Pointer<Uint64>,
+            Pointer<Uint64>,
+          ),
+          int Function(
+            Pointer<Utf16>,
+            Pointer<Uint64>,
+            Pointer<Uint64>,
+            Pointer<Uint64>,
+          )
+        >('GetDiskFreeSpaceExW');
+    return using((arena) {
+      final name = existing.toNativeUtf16(allocator: arena);
+      final volume = arena<Uint16>(261).cast<Utf16>();
+      final free = arena<Uint64>();
+      if (volumePath(name, volume, 261) == 0 ||
+          freeSpace(name, free, nullptr, nullptr) == 0) {
+        throw FileSystemException('Cannot read free space', path);
+      }
+      return DiskSpace(volume.toDartString(), free.value);
+    });
+  }
+  throw UnsupportedError('Unsupported storage platform');
+}

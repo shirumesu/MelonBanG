@@ -150,16 +150,35 @@ class Installer {
   Future<bool> isInstalled(String location) =>
       File(p.join(location, 'melonbang.exe')).exists();
 
-  /// The media folder for [chosen] next to an install at [location]. One that
-  /// already holds other files gets a MelonBanG subfolder, and the install
-  /// folder itself a downloads one, so media never mixes with other files.
+  /// The media folder for [chosen] next to an install at [location], by the
+  /// app's own rules (`storageTarget`): a drive's root or a folder that
+  /// already holds other files gets a MelonBanG Media subfolder, and the
+  /// install folder its downloads one, which updates leave in place.
   Future<String> mediaTarget(String chosen, String location) async {
-    final media = p.normalize(chosen);
-    if (p.equals(media, location)) return p.join(media, 'downloads');
-    final folder = Directory(media);
-    if (!await folder.exists() || await folder.list().isEmpty) return media;
-    return p.join(media, 'MelonBanG');
+    var media = p.normalize(chosen);
+    if (p.dirname(media) == media ||
+        await Directory(media).exists() && !await _empty(media)) {
+      media = p.join(media, 'MelonBanG Media');
+    }
+    final downloads = p.join(location, 'downloads');
+    if (!p.equals(location, media) && !p.isWithin(location, media) ||
+        p.equals(downloads, media) ||
+        p.isWithin(downloads, media)) {
+      return media;
+    }
+    return downloads;
   }
+
+  /// Whether [path] holds nothing but files Explorer leaves in folders it
+  /// shows, as the app's `isEmptyFolder` counts it.
+  Future<bool> _empty(String path) => Directory(path).list().every(
+    (entry) => const {
+      '.DS_Store',
+      '.localized',
+      'desktop.ini',
+      'Thumbs.db',
+    }.contains(p.basename(entry.path)),
+  );
 
   Future<void> install(
     String location, {
@@ -236,7 +255,7 @@ class Installer {
     final folder = Directory(media);
     try {
       await folder.create(recursive: true);
-      if (!await folder.list().isEmpty) {
+      if (!await _empty(media)) {
         throw const InstallError('下载位置必须是空文件夹，请重新选择');
       }
       final probe = File(p.join(media, '.melonbang-write-check'));

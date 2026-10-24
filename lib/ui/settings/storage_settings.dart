@@ -43,6 +43,66 @@ SettingsSection storageSection({
   ],
 );
 
+/// The folder to use for the [chosen] one. Like Steam and Windows do for
+/// their libraries, a drive's root or a folder that already holds other files
+/// gets a subfolder of its own, so nothing mixes with the files there. The
+/// install directory is replaced by updates and removed on uninstall, so
+/// media there goes to its downloads folder, which both leave in place, and
+/// data cannot go there.
+Future<String> storageTarget(String chosen, {required bool media}) async {
+  var target = p.normalize(chosen);
+  final root =
+      p.dirname(target) == target ||
+      (Platform.isMacOS && p.dirname(target) == '/Volumes');
+  if (root ||
+      await Directory(target).exists() && !await isEmptyFolder(target)) {
+    target = p.join(target, media ? 'MelonBanG Media' : 'MelonBanG');
+  }
+  final installation = AppUninstall.installation;
+  if (!p.equals(installation, target) && !p.isWithin(installation, target)) {
+    return target;
+  }
+  if (!media || !Platform.isWindows) {
+    throw StateError('不能放在安装目录里，更新或卸载时会被删除，请选择其他位置');
+  }
+  final downloads = p.join(installation, 'downloads');
+  return p.equals(downloads, target) || p.isWithin(downloads, target)
+      ? target
+      : downloads;
+}
+
+/// Whether [path] is in a folder a cloud drive keeps in sync: OneDrive on
+/// Windows; iCloud Drive and the drives of Dropbox, Google Drive and OneDrive
+/// on macOS.
+bool cloudSynced(String path) {
+  final environment = Platform.environment;
+  final roots = Platform.isWindows
+      ? [
+          environment['OneDrive'],
+          environment['OneDriveConsumer'],
+          environment['OneDriveCommercial'],
+        ].nonNulls
+      : [
+          p.join(environment['HOME']!, 'Library', 'Mobile Documents'),
+          p.join(environment['HOME']!, 'Library', 'CloudStorage'),
+        ];
+  return roots.any((root) => p.equals(root, path) || p.isWithin(root, path));
+}
+
+const _syncedNote = '这个位置在网盘的同步文件夹里，下载时会被不停同步，占满网络，文件也可能因同步冲突损坏，建议换个位置。';
+
+String size(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  var value = bytes.toDouble();
+  for (final unit in ['KiB', 'MiB', 'GiB', 'TiB']) {
+    value /= 1024;
+    if (value < 1024 || unit == 'TiB') {
+      return '${value.toStringAsFixed(1)} $unit';
+    }
+  }
+  throw StateError('Unreachable storage size');
+}
+
 class StorageSettings extends StatefulWidget {
   const StorageSettings({
     super.key,
@@ -126,41 +186,6 @@ class _StorageSettingsState extends State<StorageSettings> {
     return '已用 ${size(bytes)}';
   }
 
-  String size(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    var value = bytes.toDouble();
-    for (final unit in ['KiB', 'MiB', 'GiB', 'TiB']) {
-      value /= 1024;
-      if (value < 1024 || unit == 'TiB') {
-        return '${value.toStringAsFixed(1)} $unit';
-      }
-    }
-    throw StateError('Unreachable storage size');
-  }
-
-  /// The folder to move to for the [chosen] one. A folder that already holds
-  /// other files gets a MelonBanG subfolder. The install directory is
-  /// replaced by updates and removed on uninstall, so media there goes to its
-  /// downloads folder, which both leave in place, and data cannot go there.
-  Future<String> target(String chosen, bool media) async {
-    var target = p.normalize(chosen);
-    final folder = Directory(target);
-    if (await folder.exists() && !await folder.list().isEmpty) {
-      target = p.join(target, 'MelonBanG');
-    }
-    final installation = AppUninstall.installation;
-    if (!p.equals(installation, target) && !p.isWithin(installation, target)) {
-      return target;
-    }
-    if (!media || !Platform.isWindows) {
-      throw StateError('不能放在安装目录里，更新或卸载时会被删除，请选择其他位置');
-    }
-    final downloads = p.join(installation, 'downloads');
-    return p.equals(downloads, target) || p.isWithin(downloads, target)
-        ? target
-        : downloads;
-  }
-
   Future<void> choose(bool media) async {
     setState(() {
       busy = true;
@@ -169,11 +194,26 @@ class _StorageSettingsState extends State<StorageSettings> {
     try {
       final picked = await getDirectoryPath(confirmButtonText: '选择文件夹');
       if (picked == null || !mounted) return;
-      final selected = await target(picked, media);
+      final current = media ? widget.mediaDirectory : widget.dataDirectory;
+      final selected = await storageTarget(picked, media: media);
+      if (p.equals(picked, current) || p.equals(selected, current)) {
+        throw StateError(media ? '媒体缓存已经在这个位置' : '应用数据已经在这个位置');
+      }
       await widget.storage!.check(
         dataPath: media ? null : selected,
         mediaPath: media ? selected : null,
       );
+      final (space, source) = await (
+        DiskSpace.of(selected),
+        DiskSpace.of(current),
+      ).wait;
+      // Within a volume the folder is renamed and takes no extra space.
+      final needed = space.volume == source.volume
+          ? null
+          : media
+          ? usage?.mediaBytes
+          : usage?.dataBytes;
+      final short = needed != null && needed > space.free;
       final inside = p.isWithin(AppUninstall.installation, selected);
       if (!mounted) return;
       final confirmed = await showMelonDialog<bool>(
@@ -194,8 +234,33 @@ class _StorageSettingsState extends State<StorageSettings> {
                   Text(
                     inside
                         ? '所选位置在安装目录里，将使用其中的 downloads 文件夹，更新时不会被替换。'
-                        : '所选文件夹里已有其他文件，将使用其中的 MelonBanG 文件夹，避免混在一起。',
+                        : '将在所选位置下新建 ${p.basename(selected)} 文件夹，不会和那里的其他文件混在一起。',
                     style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Text(
+                  '所在磁盘可用 ${size(space.free)}'
+                  '${needed == null ? '' : '，迁移约需 ${size(needed)}'}'
+                  '${short ? '，空间不足' : ''}',
+                  style: short
+                      ? TextStyle(color: Theme.of(context).colorScheme.error)
+                      : Theme.of(context).textTheme.bodySmall,
+                ),
+                if (media && space.system) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '这是系统盘。番剧很占空间，系统盘空间紧张会拖慢整个系统，建议选择其他磁盘。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                if (cloudSynced(selected)) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _syncedNote,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
                 ],
                 if (inside) ...[
@@ -222,7 +287,7 @@ class _StorageSettingsState extends State<StorageSettings> {
               child: const Text('取消'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: short ? null : () => Navigator.pop(context, true),
               child: const Text('确认迁移'),
             ),
           ],
@@ -417,20 +482,37 @@ class StorageSetup extends StatefulWidget {
 
 class _StorageSetupState extends State<StorageSetup> {
   late String media = widget.storage.media;
+  DiskSpace? space;
   bool busy = false;
   String? error;
 
-  /// A folder that already holds other files gets a MelonBanG subfolder.
+  @override
+  void initState() {
+    super.initState();
+    measure();
+  }
+
+  Future<void> measure() async {
+    final measured = media;
+    final result = await DiskSpace.of(measured);
+    if (mounted && measured == media) setState(() => space = result);
+  }
+
   Future<void> pick() async {
-    final selected = await getDirectoryPath(confirmButtonText: '选择文件夹');
-    if (selected == null) return;
-    final folder = Directory(selected);
-    final empty = !await folder.exists() || await folder.list().isEmpty;
-    if (!mounted) return;
-    setState(() {
-      media = empty ? selected : p.join(selected, 'MelonBanG');
-      error = null;
-    });
+    final picked = await getDirectoryPath(confirmButtonText: '选择文件夹');
+    if (picked == null) return;
+    try {
+      final selected = await storageTarget(picked, media: true);
+      if (!mounted) return;
+      setState(() {
+        media = selected;
+        space = null;
+        error = null;
+      });
+      await measure();
+    } catch (e) {
+      if (mounted) setState(() => error = errorMessage(e));
+    }
   }
 
   Future<void> confirm() async {
@@ -472,6 +554,21 @@ class _StorageSetupState extends State<StorageSetup> {
                     Text('下载位置', style: text.titleSmall),
                     const SizedBox(height: 8),
                     SelectableText(media, style: text.bodySmall),
+                    if (space case final space?)
+                      Text(
+                        '所在磁盘可用 ${size(space.free)}'
+                        '${space.system ? '（系统盘）' : ''}',
+                        style: text.bodySmall,
+                      ),
+                    if (cloudSynced(media)) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _syncedNote,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     OutlinedButton.icon(
                       onPressed: busy ? null : pick,
