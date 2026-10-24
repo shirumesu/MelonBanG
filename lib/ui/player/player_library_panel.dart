@@ -20,6 +20,7 @@ import '../core/motion.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
+import '../tracking/episode_grid.dart';
 import '../tracking/subject_community.dart';
 import 'player_danmaku_panel.dart';
 
@@ -351,7 +352,9 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                 height: 20,
                 child: shown == null
                     ? Text(
-                        episodes.isEmpty ? '暂无剧集信息' : '共 ${episodes.length} 话',
+                        episodes.isEmpty
+                            ? '暂无剧集信息'
+                            : '共 ${episodes.where((e) => e.main).length} 话',
                         style: small,
                       )
                     : episodeLine(shown, byEpisode[shown.id] ?? const []),
@@ -628,6 +631,12 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                           ),
                         ),
                 ),
+                if (!episode.main && !playing)
+                  Positioned(
+                    left: 4,
+                    top: 4,
+                    child: InterludeMark(size: 10, color: foreground),
+                  ),
                 if (cached && !playing)
                   Positioned(
                     right: 5,
@@ -735,6 +744,14 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                 '下载中',
               ),
               item(box(scheme.surfaceContainerHigh), '未更新'),
+              if (episodes.any((e) => !e.main))
+                Tooltip(
+                  message: '夹在正片之间的总集篇、特番等\n不计入话数，自动连播和缓存下一话会跳过',
+                  child: item(
+                    InterludeMark(size: 12, color: scheme.onSurfaceVariant),
+                    '特别篇',
+                  ),
+                ),
             ],
           ),
         ),

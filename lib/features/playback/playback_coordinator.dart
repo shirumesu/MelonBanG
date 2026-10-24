@@ -797,13 +797,15 @@ class PlaybackCoordinator extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// The main episode after [currentId] once it has aired.
+  /// The main episode after [currentId] once it has aired, passing over
+  /// interludes; after an interlude it is the main episode that follows.
   static Episode? _nextAired(Subject item, int currentId) {
-    final episodes = item.episodes.where((e) => e.main).toList()
-      ..sort((a, b) => a.sort.compareTo(b.sort));
-    final current = episodes.where((e) => e.id == currentId).firstOrNull;
+    final current = item.episodes.where((e) => e.id == currentId).firstOrNull;
     if (current == null) return null;
-    final next = episodes.where((e) => e.sort > current.sort).firstOrNull;
+    final next =
+        (item.episodes.where((e) => e.main && e.sort > current.sort).toList()
+              ..sort((a, b) => a.sort.compareTo(b.sort)))
+            .firstOrNull;
     final date = next?.aired;
     if (date != null && date.isAfter(DateTime.now())) return null;
     return next;

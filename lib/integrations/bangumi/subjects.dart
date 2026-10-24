@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import '../../core/json.dart';
 import '../../core/network.dart';
 
@@ -44,10 +46,22 @@ class BangumiSubjects {
     };
   }
 
-  /// Main episodes in order: the first page, then the remaining pages.
+  /// Main episodes in order, the first page then the remaining pages, and
+  /// last the specials that belong to the main run ([_inRun]).
   Stream<List<Json>> episodes(int id) async* {
+    final main = <Json>[];
+    await for (final page in _episodePages(id, 0)) {
+      main.addAll(page);
+      yield page;
+    }
+    yield _inRun(main, [
+      await for (final page in _episodePages(id, 1)) ...page,
+    ]);
+  }
+
+  Stream<List<Json>> _episodePages(int id, int type) async* {
     String page(int offset) =>
-        '/v0/episodes?subject_id=$id&type=0&limit=$_episodePage&offset=$offset';
+        '/v0/episodes?subject_id=$id&type=$type&limit=$_episodePage&offset=$offset';
     final first = object(await _get(page(0)));
     yield _episodes(first, id);
     final total = number(first['total']).toInt();
@@ -58,6 +72,39 @@ class BangumiSubjects {
     for (final response in rest) {
       yield _episodes(object(response), id);
     }
+  }
+
+  /// The specials Bangumi files inside the main run: a fractional one
+  /// between or right after main episodes (an 11.5 recap) as an interlude,
+  /// and integral ones continuing the last number (an unaired 13th) as main
+  /// episodes. Specials numbered over or before main episodes are
+  /// promotional programmes and left out. Bangumi numbers specials across
+  /// seasons, so they take the main episodes' offset from it.
+  List<Json> _inRun(List<Json> main, List<Json> specials) {
+    if (main.isEmpty) return const [];
+    final numbers = {for (final e in main) number(e['absolute'])};
+    final first = numbers.reduce(min);
+    var last = numbers.reduce(max);
+    final offset = number(main.first['absolute']) - number(main.first['sort']);
+    final found = <Json>[];
+    for (final e
+        in specials..sort(
+          (a, b) => number(a['absolute']).compareTo(number(b['absolute'])),
+        )) {
+      final across = number(e['absolute']);
+      final interlude = across != across.roundToDouble();
+      if (across <= first || numbers.contains(across)) continue;
+      if (interlude ? across > last + 1 : across != last + 1) continue;
+      if (!interlude) last = across;
+      final sort = across - offset;
+      found.add({
+        ...e,
+        'type': interlude ? 'interlude' : 'main',
+        'sort': sort,
+        'ep': sort,
+      });
+    }
+    return found;
   }
 
   Future<List<Json>> characters(int id) async => [

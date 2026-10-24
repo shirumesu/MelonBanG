@@ -97,14 +97,11 @@ bool sourceEpisodeMatches(String label, Episode episode) {
       .toUpperCase();
   final special = RegExp(r'SP|OVA|OAD|特别').hasMatch(normalized);
   final main = episode.main;
-  if (special == main) return false;
-  final parsed = describeResource('[$normalized]').episodeLabel;
+  // An interlude is named by its number (11.5) or as a special.
+  if (special && main) return false;
   final match = RegExp(r'(?:第|EP\s*|SP\s*|OVA\s*|OAD\s*)?(\d+(?:\.\d+)?)')
       .firstMatch(normalized);
-  if (match == null) {
-    return !main && episode.sort == 1 && parsed != null;
-  }
-  return double.tryParse(match[1]!) == episode.sort;
+  return match != null && double.tryParse(match[1]!) == episode.sort;
 }
 
 /// The episode of [subject] a single-episode release holds. Releases of a
@@ -115,7 +112,7 @@ bool sourceEpisodeMatches(String label, Episode episode) {
 Episode? releaseEpisode(Subject subject, ResourceTitleInfo info) {
   final number = info.episode;
   if (number == null) return null;
-  final episodes = subject.episodes.where((e) => e.main);
+  final episodes = subject.episodes;
   final sequel = episodes.any(
     (e) => e.absolute != null && e.absolute != e.sort,
   );
@@ -137,7 +134,7 @@ Episode? releaseEpisode(Subject subject, ResourceTitleInfo info) {
   return episodes.where((e) => e.sort == number).firstOrNull;
 }
 
-/// The videos of [task], a download of [subject], by the main episode each
+/// The videos of [task], a download of [subject], by the episode each
 /// holds: its own episode for a single video cached for one, otherwise the
 /// number a video's name gives (`S02E03`, `[03]`, ` - 03(51)`), within the
 /// season or across seasons. The task already belongs to the subject, so the
@@ -148,7 +145,7 @@ Map<int, DownloadFile> episodeFiles(Subject subject, DownloadTask task) {
   if (task.episodeId case final id? when videos.length == 1) {
     return {id: videos.single};
   }
-  final episodes = subject.episodes.where((e) => e.main).toList();
+  final episodes = subject.episodes;
   final season = [
     subject.title,
     ?subject.name,

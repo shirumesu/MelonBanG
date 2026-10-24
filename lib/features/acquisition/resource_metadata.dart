@@ -11,7 +11,7 @@ String resourceEpisodeKeyword(Episode? episode) {
 }
 
 /// The episode an episode term names: [chapter] for its own keyword, else
-/// the main episode numbered so within or across seasons (`03`, `S01E03`,
+/// the episode numbered so within or across seasons (`03`, `S01E03`,
 /// `第3话`). Null for an empty or unrecognized term, which searches the whole
 /// subject.
 Episode? keywordEpisode(Subject subject, String keyword, Episode? chapter) {
@@ -23,9 +23,9 @@ Episode? keywordEpisode(Subject subject, String keyword, Episode? chapter) {
   final match = RegExp(r'\d+(?:\.5)?').allMatches(text).lastOrNull;
   if (match == null) return null;
   final number = double.parse(match[0]!);
-  final main = subject.episodes.where((e) => e.main);
-  return main.where((e) => e.sort == number).firstOrNull ??
-      main.where((e) => e.absolute == number).firstOrNull;
+  final episodes = subject.episodes;
+  return episodes.where((e) => e.sort == number).firstOrNull ??
+      episodes.where((e) => e.absolute == number).firstOrNull;
 }
 
 /// Resource names are catalogue aliases, never guessed from a release title.

@@ -190,7 +190,6 @@ class _BatchDialogState extends State<_BatchDialog> {
               scheme.onSurfaceVariant.withValues(alpha: .4),
               scheme.surfaceContainerHigh,
             );
-      final label = episode.main ? episode.number : 'SP${episode.number}';
       return Tooltip(
         message: !held
             ? '这个资源没有第 ${episode.number} 话'
@@ -219,7 +218,7 @@ class _BatchDialogState extends State<_BatchDialog> {
                   added
                       ? Icon(Icons.check_rounded, size: 15, color: foreground)
                       : Text(
-                          label,
+                          episode.number,
                           maxLines: 1,
                           style: TextStyle(
                             fontSize: 12,
