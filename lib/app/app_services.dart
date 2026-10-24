@@ -123,11 +123,6 @@ class AppServices {
     final locations = StorageLocations(
       File(p.join(support, 'storage.json')),
       p.join(support, 'native'),
-      // A released Windows copy keeps media beside the program, on the drive
-      // picked at install, instead of filling the system drive.
-      Platform.isWindows && AppUpdate.version.isNotEmpty
-          ? p.join(AppUninstall.installation, 'downloads')
-          : p.join(support, 'native', 'downloads'),
     );
     locations.onProgress = (message) => startupStatus.value = message;
     await locations.load();

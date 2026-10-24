@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 
 import 'bot.dart';
 import 'install.dart';
 import 'shell.dart';
 
-enum _Step { options, installing, done }
+enum _Step { options, media, installing, done }
 
 class InstallPage extends StatefulWidget {
   const InstallPage({super.key, required this.installer});
@@ -19,6 +20,12 @@ class _InstallPageState extends State<InstallPage> {
   var step = _Step.options;
   var desktop = true, startMenu = true;
   bool updating = false;
+
+  /// The app has no data yet, so the media page follows the options.
+  bool firstInstall = false;
+
+  /// Where downloads go, once the media page has been shown.
+  String? media;
   double progress = 0;
   String current = '';
   String? error;
@@ -37,6 +44,7 @@ class _InstallPageState extends State<InstallPage> {
       }
     });
     installer.defaultLocation().then((value) => location.text = value);
+    fresh().then((value) => setState(() => firstInstall = value));
     installer.contents.then((value) => setState(() => bytes = value.bytes));
   }
 
@@ -45,8 +53,22 @@ class _InstallPageState extends State<InstallPage> {
     if (picked != null) location.text = picked;
   }
 
-  Future<void> install() async {
+  Future<void> browseMedia() async {
+    final picked = await installer.pickMedia(media!, location.text.trim());
+    if (picked != null) setState(() => media = picked);
+  }
+
+  Future<void> next() async {
     location.text = await installer.target(location.text.trim());
+    if (updating || !firstInstall) return install();
+    setState(() {
+      step = _Step.media;
+      media ??= mediaIn(const {});
+      error = null;
+    });
+  }
+
+  Future<void> install() async {
     setState(() {
       step = _Step.installing;
       error = null;
@@ -55,6 +77,7 @@ class _InstallPageState extends State<InstallPage> {
     try {
       await installer.install(
         location.text.trim(),
+        media: media,
         desktop: desktop,
         startMenu: startMenu,
         onProgress: (value, file) => setState(() {
@@ -71,7 +94,7 @@ class _InstallPageState extends State<InstallPage> {
   }
 
   void fail(String message) => setState(() {
-    step = _Step.options;
+    step = media == null ? _Step.options : _Step.media;
     error = message;
     errors++;
   });
@@ -85,7 +108,8 @@ class _InstallPageState extends State<InstallPage> {
   Widget build(BuildContext context) => SetupShell(
     step: step,
     mode: switch (step) {
-      _Step.options => error == null ? BotMode.idle : BotMode.error,
+      _Step.options ||
+      _Step.media => error == null ? BotMode.idle : BotMode.error,
       _Step.installing => BotMode.spin,
       _Step.done => BotMode.cheer,
     },
@@ -93,6 +117,7 @@ class _InstallPageState extends State<InstallPage> {
     closable: step != _Step.installing,
     content: switch (step) {
       _Step.options => _options(),
+      _Step.media => _media(),
       _Step.installing => _installing(),
       _Step.done => _done(),
     },
@@ -222,8 +247,12 @@ class _InstallPageState extends State<InstallPage> {
               ),
             ),
             SetupButton(
-              updating ? '更新' : '安装',
-              onPressed: install,
+              updating
+                  ? '更新'
+                  : firstInstall
+                  ? '下一步'
+                  : '安装',
+              onPressed: next,
               trailing: Icons.arrow_forward_rounded,
             ),
           ],
@@ -231,6 +260,115 @@ class _InstallPageState extends State<InstallPage> {
       ),
     ],
   );
+
+  Widget _media() {
+    final media = this.media!;
+    final inside = p.isWithin(location.text.trim(), media);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Rise(0, Text('下载位置', style: heading)),
+        const SizedBox(height: 10),
+        const Rise(1, Text('番剧会下载到这里。视频很占空间，建议放在剩余空间较大的磁盘上。', style: intro)),
+        const SizedBox(height: 30),
+        Rise(
+          2,
+          Shake(
+            trigger: errors,
+            child: Panel(
+              ring: error == null ? null : coral,
+              child: Row(
+                children: [
+                  const Icon(Icons.download_outlined, size: 20, color: deep),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('媒体缓存', style: note),
+                        Text(
+                          media,
+                          style: const TextStyle(fontSize: 13, color: ink),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: browseMedia,
+                    style: TextButton.styleFrom(
+                      foregroundColor: deep,
+                      textStyle: const TextStyle(fontSize: 13),
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(10)),
+                      ),
+                    ),
+                    child: const Text('更改'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (inside) ...[
+          const SizedBox(height: 10),
+          const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: EdgeInsets.only(top: 2),
+                child: Icon(Icons.warning_amber_rounded, size: 15, color: gold),
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '下载位置在安装目录里：卸载时选择删除数据，或手动删除安装目录，已下载的番剧会被一起删除。',
+                  style: TextStyle(fontSize: 12, height: 1.6, color: ink),
+                ),
+              ),
+            ],
+          ),
+        ],
+        if (error case final message?) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.error_outline, size: 15, color: danger),
+              const SizedBox(width: 8),
+              Text(
+                message,
+                style: const TextStyle(fontSize: 12, color: danger),
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 10),
+        const Rise(3, Text('之后可以在 设置 › 存储 › 媒体缓存 里更改', style: note)),
+        const Spacer(),
+        Rise(
+          4,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              SetupButton(
+                '上一步',
+                onPressed: () => setState(() {
+                  step = _Step.options;
+                  error = null;
+                }),
+                style: ActionStyle.ghost,
+              ),
+              const SizedBox(width: 10),
+              SetupButton(
+                '安装',
+                onPressed: install,
+                trailing: Icons.arrow_forward_rounded,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
   Widget _installing() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
