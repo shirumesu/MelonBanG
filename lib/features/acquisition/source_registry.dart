@@ -90,15 +90,11 @@ class SourceRegistry extends ChangeNotifier {
   Future<void> initialize() async {
     final cached = preferences.getString('online-source-rules');
     if (cached != null) {
-      try {
-        final value = object(jsonDecode(cached));
-        // A snapshot cached by an older engine lacks rules this client runs.
-        if (value['clientEngine'] == sourceEngineVersion) {
-          snapshot = SourceSnapshot.fromJson(value);
-          ruleOrigin = '本地缓存';
-        }
-      } catch (_) {
-        /* Keep the bundled snapshot if the cache cannot be read. */
+      final value = object(jsonDecode(cached));
+      // A snapshot cached by an older engine lacks rules this client runs.
+      if (value['clientEngine'] == sourceEngineVersion) {
+        snapshot = SourceSnapshot.fromJson(value);
+        ruleOrigin = '本地缓存';
       }
     }
     unawaited(refreshRules().catchError((Object _) {}));

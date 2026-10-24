@@ -29,52 +29,37 @@ abstract final class SystemSettings {
 
   /// The system accent colour, or null when it cannot be read.
   static Future<Color?> accentColor() async {
-    try {
-      if (Platform.isMacOS) {
-        final value = await _channel.invokeMethod<int>('accentColor');
-        return value == null ? null : Color(value);
-      }
-      if (Platform.isWindows) {
-        // ABGR, as DWM stores it.
-        final value = _Registry.dword(
-          r'Software\Microsoft\Windows\DWM',
-          'AccentColor',
-        );
-        if (value == null) return null;
-        return Color.fromARGB(
-          0xff,
-          value & 0xff,
-          (value >> 8) & 0xff,
-          (value >> 16) & 0xff,
-        );
-      }
-    } catch (_) {
-      // Settings without an accent colour keep the app's own.
+    if (Platform.isMacOS) {
+      final value = await _channel.invokeMethod<int>('accentColor');
+      return value == null ? null : Color(value);
     }
-    return null;
+    // ABGR, as DWM stores it.
+    final value = _Registry.dword(
+      r'Software\Microsoft\Windows\DWM',
+      'AccentColor',
+    );
+    if (value == null) return null;
+    return Color.fromARGB(
+      0xff,
+      value & 0xff,
+      (value >> 8) & 0xff,
+      (value >> 16) & 0xff,
+    );
   }
 
   /// The system's manual proxy configuration; automatic configuration
   /// scripts (PAC) are not evaluated.
   static Future<SystemProxy> proxy() async {
-    try {
-      if (Platform.isMacOS) {
-        final value = await _channel.invokeMapMethod<String, Object?>('proxy');
-        if (value == null) return const SystemProxy();
-        return SystemProxy(
-          http: value['http'] as String?,
-          https: value['https'] as String?,
-          exceptions: [
-            for (final item in value['exceptions'] as List? ?? const [])
-              '$item',
-          ],
-        );
-      }
-      if (Platform.isWindows) return _windowsProxy();
-    } catch (_) {
-      // An unreadable configuration is treated as no proxy.
-    }
-    return const SystemProxy();
+    if (Platform.isWindows) return _windowsProxy();
+    final value = await _channel.invokeMapMethod<String, Object?>('proxy');
+    if (value == null) return const SystemProxy();
+    return SystemProxy(
+      http: value['http'] as String?,
+      https: value['https'] as String?,
+      exceptions: [
+        for (final item in value['exceptions'] as List? ?? const []) '$item',
+      ],
+    );
   }
 
   static SystemProxy _windowsProxy() {

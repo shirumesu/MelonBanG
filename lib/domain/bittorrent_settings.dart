@@ -75,32 +75,6 @@ class BitTorrentSettings {
     'forceEncryption': forceEncryption,
   };
 
-  void validate() {
-    if (!['off', 'limited', 'unlimited'].contains(seedMode) ||
-        !seedRatio.isFinite ||
-        seedRatio < 0 ||
-        seedRatio > 1000 ||
-        seedMinutes < 0 ||
-        seedMinutes > 1440 ||
-        (seedMode == 'limited' && seedRatio == 0 && seedMinutes == 0)) {
-      throw const FormatException('限量做种需至少设置一个停止条件；分享率 0–1000，时长 0–1440 分钟');
-    }
-    if (downloadKiB < 0 ||
-        downloadKiB > 1048576 ||
-        uploadKiB < 0 ||
-        uploadKiB > 1048576 ||
-        activeDownloads < 0 ||
-        activeDownloads > 5 ||
-        activeSeeds < 0 ||
-        activeSeeds > 3 ||
-        connectionsPerTask < 5 ||
-        connectionsPerTask > 500 ||
-        listenPort < 0 ||
-        listenPort > 65535) {
-      throw const FormatException('请检查限速、任务数量、连接数及端口范围');
-    }
-  }
-
   SeedStop? stopReason(int totalBytes, int uploadedBytes, double seedSeconds) {
     if (seedMode == 'off') return SeedStop.disabled;
     if (seedMode == 'unlimited') return null;

@@ -336,10 +336,8 @@ class Playback extends ChangeNotifier {
       var resume = preferences.getDouble('progress:${next.progressKey}');
       if (next.subjectId case final subjectId?) {
         if (next.episodeId case final episodeId?) {
-          try {
-            final saved = await library.progress(subjectId, episodeId);
-            if (saved != null) resume = saved.completed ? 0 : saved.position;
-          } catch (_) {}
+          final saved = await library.progress(subjectId, episodeId);
+          if (saved != null) resume = saved.completed ? 0 : saved.position;
         }
       }
       if (next.startSeconds != null) resume = next.startSeconds;

@@ -117,21 +117,16 @@ class PlaybackLibrary {
 
   Future<void> activate(PlaybackSession session) async {
     final subjectId = session.subjectId, episodeId = session.episodeId;
-    try {
-      if (subjectId != null && episodeId != null) {
-        if (session.downloadId case final downloadId?) {
-          await store.put('episode_files', '$subjectId:$episodeId', {
-            'downloadId': downloadId,
-            'fileId': session.fileId,
-          });
-        } else {
-          await store.put('online_episodes', '$subjectId:$episodeId', {
-            'online': true,
-          });
-        }
-      }
-    } catch (_) {
-      // Playback remains usable when its library binding cannot be saved.
+    if (subjectId == null || episodeId == null) return;
+    if (session.downloadId case final downloadId?) {
+      await store.put('episode_files', '$subjectId:$episodeId', {
+        'downloadId': downloadId,
+        'fileId': session.fileId,
+      });
+    } else {
+      await store.put('online_episodes', '$subjectId:$episodeId', {
+        'online': true,
+      });
     }
   }
 

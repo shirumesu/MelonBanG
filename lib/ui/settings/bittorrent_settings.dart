@@ -160,13 +160,7 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
       error = null;
     });
     if (errors.isNotEmpty) return;
-    final BitTorrentSettings settings;
-    try {
-      settings = BitTorrentSettings.fromJson(values)..validate();
-    } on FormatException catch (e) {
-      setState(() => error = e.message);
-      return;
-    }
+    final settings = BitTorrentSettings.fromJson(values);
     // Saves apply in order, so a later change never lands before an
     // earlier one.
     _saving = _saving.then((_) async {
