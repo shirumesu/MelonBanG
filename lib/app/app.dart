@@ -499,11 +499,19 @@ class _MelonAppState extends State<MelonApp>
     unawaited(widget.preferences.remove('recentSearches'));
   }
 
-  /// Searches typed text, where `#百合` searches the tag 百合.
+  /// Searches typed text, where `#百合` searches the tag 百合. On the search
+  /// page the filters stay, so empty text searches by them alone; elsewhere
+  /// it lists every anime.
   Future<void> searchSubjects({String? query}) async {
-    final text = query ?? search.text.trim();
-    if (text.isEmpty) return;
-    await searchCatalogue(SubjectQuery.parse(text));
+    final typed = SubjectQuery.parse(query ?? search.text);
+    await searchCatalogue(
+      route == 'search'
+          ? discovery.search.query.copyWith(
+              keyword: typed.keyword,
+              tag: typed.tag,
+            )
+          : typed,
+    );
   }
 
   /// Opens the search page for [query].

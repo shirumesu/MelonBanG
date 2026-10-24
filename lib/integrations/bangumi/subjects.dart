@@ -210,13 +210,13 @@ class BangumiSubjects {
   }
 
   Json? _season(String? date) {
-    final match = RegExp(r'^(\d{4})-(\d{2})-\d{2}$').firstMatch(date ?? '');
+    final match = RegExp(r'^\d{4}-\d{2}-\d{2}$').firstMatch(date ?? '');
     if (match == null) return null;
-    final quarter = (int.parse(match[2]!) - 1) ~/ 3;
+    final season = SubjectQuery.season(DateTime.parse(match[0]!));
     return {
-      'year': int.parse(match[1]!),
+      'year': season.year,
       'label':
-          '${match[1]} ${const ['WINTER', 'SPRING', 'SUMMER', 'FALL'][quarter]}',
+          '${season.year} ${const ['WINTER', 'SPRING', 'SUMMER', 'FALL'][season.month! ~/ 3]}',
     };
   }
 
