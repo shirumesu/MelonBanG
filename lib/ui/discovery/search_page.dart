@@ -240,7 +240,7 @@ class _Filters extends StatelessWidget {
               : '$year年${query.month == null ? '' : '${query.month}月'}',
           tooltip: '按放送时间筛选',
           sections: [
-            MelonFilterSection(title: '点年份选全年，移到年份上可选季度', [
+            MelonFilterSection([
               for (var y = now + 1; y > now - 10; y--)
                 MelonFilterOption(
                   '$y',
