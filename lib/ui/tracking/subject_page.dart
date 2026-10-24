@@ -668,11 +668,13 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         ? '已看完'
         : '观看${next.label}';
     final date = DateTime.tryParse('${item.airDate}');
+    // The date and kind badges already show time tags (2025, 2025年10月,
+    // 10月) and the platform.
     final tags = item.tags
         .where(
           (tag) =>
               tag.name != (item.platform ?? '动画') &&
-              !RegExp(r'^\d{4}年').hasMatch(tag.name),
+              !RegExp(r'^(\d{4}(年(\d{1,2}月)?)?|\d{1,2}月)$').hasMatch(tag.name),
         )
         .toList();
     final score = item.score ?? 0;
@@ -725,7 +727,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
               MelonBadge(
                 tag.name,
                 color: grape,
-                onTap: () => widget.onSearch(SubjectQuery(tag: tag.name)),
+                onTap: () => widget.onSearch(SubjectQuery.ofTag(tag.name)),
               ),
             if (tags.length > 3)
               MelonBadge(

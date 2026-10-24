@@ -491,7 +491,10 @@ class MelonFilterMenu<T> extends StatelessWidget {
         ),
         elevation: const WidgetStatePropertyAll(3),
         maximumSize: WidgetStatePropertyAll(
-          Size(columns > 1 ? columns * 112.0 + 10 : 360, 440),
+          Size(
+            columns > 1 ? columns * 112.0 + 10 : 360,
+            columns > 1 ? 480 : 440,
+          ),
         ),
       ),
       menuChildren: [

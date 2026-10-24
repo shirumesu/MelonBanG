@@ -547,6 +547,18 @@ class SubjectQuery {
         : SubjectQuery(keyword: value);
   }
 
+  /// A tag clicked on a subject: one of Bangumi's public tags offered below
+  /// becomes that filter, any other searches by tag.
+  factory SubjectQuery.ofTag(String name) => kinds.contains(name)
+      ? SubjectQuery(kind: name)
+      : sources.contains(name)
+      ? SubjectQuery(source: name)
+      : regions.contains(name)
+      ? SubjectQuery(region: name)
+      : genreTags.contains(name)
+      ? SubjectQuery(genres: {name})
+      : SubjectQuery(tag: name);
+
   /// Bangumi's public tags offered as filters, as bgm.tv's browser lists
   /// them, without ones that match almost nothing.
   static const kinds = ['TV', 'WEB', 'OVA', '剧场版', '动态漫画'];
