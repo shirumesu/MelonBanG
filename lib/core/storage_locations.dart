@@ -52,15 +52,16 @@ class StorageLocations {
     _state = value;
   }
 
-  Future<void> schedule({String? dataPath, String? mediaPath}) async {
+  /// The data and media folders after moving to [dataPath] or [mediaPath],
+  /// once each new one is known to be separate, empty and writable. Folders
+  /// created only to check are removed again.
+  Future<(String, String)> check({String? dataPath, String? mediaPath}) async {
     final nextData = p.normalize(
       p.absolute(dataPath ?? pending?['data'] as String? ?? data),
     );
     final nextMedia = p.normalize(
       p.absolute(mediaPath ?? pending?['media'] as String? ?? media),
     );
-    if (nextData == data && nextMedia == media) return;
-    await Directory(media).create(recursive: true);
     for (final target in [
       if (nextData != data) nextData,
       if (nextMedia != media) nextMedia,
@@ -73,11 +74,19 @@ class StorageLocations {
         }
       }
       final folder = Directory(target);
-      await folder.create(recursive: true);
-      if (!await folder.list().isEmpty) throw StateError('目标文件夹必须为空，避免覆盖现有文件');
-      final probe = File(p.join(target, '.melonbang-write-check'));
-      await probe.writeAsString('');
-      await probe.delete();
+      final created = !await folder.exists();
+      try {
+        await folder.create(recursive: true);
+        if (!await folder.list().isEmpty) {
+          throw StateError('目标文件夹必须为空，避免覆盖现有文件');
+        }
+        final probe = File(p.join(target, '.melonbang-write-check'));
+        await probe.writeAsString('');
+        await probe.delete();
+        if (created) await folder.delete();
+      } on FileSystemException {
+        throw StateError('没有权限写入这个文件夹，请选择其他位置');
+      }
     }
     if (p.equals(nextData, nextMedia) ||
         p.isWithin(nextData, nextMedia) ||
@@ -87,6 +96,16 @@ class StorageLocations {
         throw StateError('应用数据与媒体缓存需要使用独立目录');
       }
     }
+    return (nextData, nextMedia);
+  }
+
+  Future<void> schedule({String? dataPath, String? mediaPath}) async {
+    final (nextData, nextMedia) = await check(
+      dataPath: dataPath,
+      mediaPath: mediaPath,
+    );
+    if (nextData == data && nextMedia == media) return;
+    await Directory(media).create(recursive: true);
     await _save({
       ..._state,
       'data': data,
