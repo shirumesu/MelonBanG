@@ -707,12 +707,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                 '${date.year}年${date.month}月',
                 color: coral,
                 tooltip: '同季度番剧',
-                onTap: () => widget.onSearch(
-                  SubjectQuery(
-                    year: date.year,
-                    month: (date.month - 1) ~/ 3 * 3 + 1,
-                  ),
-                ),
+                onTap: () => widget.onSearch(SubjectQuery.season(date)),
               )
             else if (item.airDate case final airDate?)
               MelonBadge(airDate, color: coral),
