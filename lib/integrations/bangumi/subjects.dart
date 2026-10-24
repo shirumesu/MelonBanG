@@ -1,5 +1,6 @@
 import '../../core/json.dart';
 import '../../core/network.dart';
+import '../../domain/catalog.dart';
 
 /// Public Bangumi v0 subject reads, mapped to the stored catalogue shapes
 /// that `Subject.fromJson` and saved detail documents use.
@@ -14,22 +15,47 @@ class BangumiSubjects {
   Future<Json> subject(int id) async =>
       _subject(object(await _get('/v0/subjects/$id')));
 
-  /// One page of anime matching [keyword], as `data/total/offset/hasMore`.
+  /// One page of anime matching [query], as `data/total/offset/hasMore`.
+  /// Kind, source, region and genres are Bangumi's public tags (`meta_tags`);
+  /// [SubjectQuery.tag] is a user tag.
   Future<Json> search(
-    String keyword, {
+    SubjectQuery query, {
     required int limit,
     required int offset,
   }) async {
+    String day(int year, [int month = 1]) =>
+        '$year-${'$month'.padLeft(2, '0')}-01';
+    final year = query.year;
+    final month = query.month;
+    final metaTags = [
+      ?query.kind,
+      ?query.source,
+      ?query.region,
+      ...query.genres,
+    ];
     final response = object(
       await api.json(
         Uri.parse('$_origin/v0/search/subjects?limit=$limit&offset=$offset'),
         method: 'POST',
         body: {
-          'keyword': keyword,
-          'sort': 'match',
+          'keyword': query.keyword,
+          'sort': query.order.name,
           'filter': {
             'type': [2],
             'nsfw': false,
+            if (query.tag case final tag?) 'tag': [tag],
+            if (metaTags.isNotEmpty) 'meta_tags': metaTags,
+            if (year != null)
+              'air_date': query.before
+                  ? ['<${day(year)}']
+                  : month == null
+                  ? ['>=${day(year)}', '<${day(year + 1)}']
+                  : [
+                      '>=${day(year, month)}',
+                      '<${month > 9 ? day(year + 1) : day(year, month + 3)}',
+                    ],
+            // Unranked subjects would otherwise lead the ranking.
+            if (query.order == SubjectSort.rank) 'rank': ['>0'],
           },
         },
       ),

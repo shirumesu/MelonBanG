@@ -7,7 +7,7 @@ import '../../domain/catalog.dart';
 /// next request starts.
 class SearchResults {
   const SearchResults({
-    this.query = '',
+    this.query = const SubjectQuery(),
     this.items = const [],
     this.offset = 0,
     this.total = 0,
@@ -15,7 +15,7 @@ class SearchResults {
     this.error,
     this.requestOffset = 0,
   });
-  final String query;
+  final SubjectQuery query;
   final List<Subject> items;
   final int offset, total;
   final bool hasMore;
@@ -111,7 +111,7 @@ class DiscoveryController extends ChangeNotifier {
   }
 
   /// Starts a new search for [query].
-  Future<void> searchSubjects(String query) {
+  Future<void> searchSubjects(SubjectQuery query) {
     search = SearchResults(query: query);
     return _loadSearchPage(0);
   }

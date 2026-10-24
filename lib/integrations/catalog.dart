@@ -178,11 +178,10 @@ class CatalogRepository implements Catalog {
 
   @override
   Future<SubjectResults> search(
-    String keyword, {
+    SubjectQuery query, {
     int offset = 0,
     void Function(SubjectResults)? onCached,
   }) async {
-    final query = keyword.trim();
     SubjectResults page(dynamic value) {
       final response = object(value);
       final items = objects(response['data']).map(card).toList();
@@ -196,7 +195,7 @@ class CatalogRepository implements Catalog {
 
     final response = object(
       await _cached(
-        'search:${query.toLowerCase()}:10:$offset',
+        'search:${query.key}:10:$offset',
         (_) async => (
           value: await bangumi.search(query, limit: 10, offset: offset),
           etag: null,
