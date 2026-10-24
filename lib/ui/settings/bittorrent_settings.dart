@@ -8,8 +8,10 @@ import 'settings_page.dart';
 
 /// Words the BT settings search matches.
 const bitTorrentKeywords =
-    'bt 下载 做种 上传 限速 速度 同时下载 同时分享 启动时继续 分享率 分享时间 '
-    '连接 端口 监听端口 dht upnp nat 端口映射 ipv6 加密 恢复推荐值';
+    'bt 下载 做种 上传 限速 不限速 限制速度 下载速度 上传速度 同时下载 '
+    '启动时继续任务 做种方案 适量分享 停止分享 持续分享 目标分享率 累计分享时间 '
+    '同时分享 每任务连接上限 监听端口 dht 节点发现 upnp nat 自动端口映射 ipv6 '
+    '仅连接加密用户 恢复推荐值';
 
 /// BT downloading and seeding; its settings show once cache tasks are
 /// restored.

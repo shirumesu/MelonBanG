@@ -114,7 +114,7 @@ class BangumiSubjects {
       'airDate': ?airDate,
       'season': ?_season(airDate),
       'platform': ?_text(subject['platform']),
-      'episodeTotal': ?_positive(subject['total_episodes'] ?? subject['eps']),
+      'episodeTotal': ?_positive(subject['eps'] ?? subject['total_episodes']),
       'score': ?_positive(rating['score']),
       'rank': ?_positive(rating['rank']),
       'ratingCount': ?_positive(rating['total']),

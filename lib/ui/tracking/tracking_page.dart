@@ -97,11 +97,14 @@ class _TrackingPageState extends State<TrackingPage> {
   Widget _page(BuildContext context, Widget? _) {
     final personal = widget.personal;
     final collection = personal.collection;
+    final text = query.toLowerCase();
     final base = collection
         .where(
           (item) =>
               item.status == personal.filter &&
-              item.title.toLowerCase().contains(query.toLowerCase()) &&
+              [item.title, item.name].any(
+                (name) => name?.toLowerCase().contains(text) ?? false,
+              ) &&
               (!airingOnly || widget.airing.contains(item.id)),
         )
         .toList();
