@@ -5,7 +5,7 @@ class PlaybackPreferences extends ChangeNotifier {
   PlaybackPreferences(this.storage);
   final SharedPreferences storage;
   String get subtitleLanguage =>
-      storage.getString('player-subtitle-language') ?? 'auto';
+      storage.getString('player-subtitle-language') ?? 'chs';
   String get audioLanguage =>
       storage.getString('player-audio-language') ?? 'auto';
   bool get autoplay => storage.getBool('player-autoplay') ?? true;

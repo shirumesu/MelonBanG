@@ -9,9 +9,12 @@ import 'store.dart';
 
 /// The small bootstrap file stays in application support, outside movable data.
 class StorageLocations {
-  StorageLocations(this.bootstrap, this.defaultData);
+  StorageLocations(this.bootstrap, this.defaultData, this.firstMedia);
   final File bootstrap;
   final String defaultData;
+
+  /// The media folder first launch suggests, before anything is stored.
+  final String firstMedia;
   Json _state = {};
   void Function(String)? onProgress;
   String get data => _state['data'] as String? ?? defaultData;

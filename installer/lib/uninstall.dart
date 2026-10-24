@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -20,31 +19,14 @@ class Uninstaller {
   String get fonts =>
       p.join(location, 'data', 'flutter_assets', 'assets', 'fonts');
 
-  /// Application support holds settings, the storage.json bootstrap and,
-  /// unless they were moved, the data and media folders.
-  static final _support = p.join(
-    Platform.environment['APPDATA']!,
-    'app.melonbang',
-    'melonbang',
-  );
-
-  late final Future<Map<String, Object?>> _storage = () async {
-    final bootstrap = File(p.join(_support, 'storage.json'));
-    if (!await bootstrap.exists()) return <String, Object?>{};
-    return jsonDecode(await bootstrap.readAsString()) as Map<String, Object?>;
-  }();
-
-  /// Where downloaded media goes.
-  Future<String> get _media async =>
-      (await _storage)['media'] as String? ??
-      p.join(_support, 'native', 'downloads');
+  late final Future<Map<String, Object?>> _storage = storage();
 
   /// Every existing folder of the program's data, none inside another.
   late final Future<List<String>> data = () async {
     final storage = await _storage;
     final kept = <String>[];
     for (final folder in [
-      _support,
+      support,
       storage['data'],
       storage['media'],
     ].whereType<String>()) {
@@ -83,21 +65,28 @@ class Uninstaller {
       if (await link.exists()) await link.delete();
     }
 
-    final roots = [location, if (wipe) ...await data];
-    final media = await _media;
+    final media = mediaIn(await _storage);
+    // Media is kept beside the program by default; keeping data keeps it.
+    final kept = !wipe && p.isWithin(location, media) ? media : null;
+    final roots = [
+      location,
+      if (wipe)
+        ...(await data).where((folder) => !p.isWithin(location, folder)),
+    ];
     final files = [
       for (final root in roots)
         await for (final entry in Directory(root).list(recursive: true))
-          if (entry is File) (root, entry),
+          if (entry is File && (kept == null || !p.isWithin(kept, entry.path)))
+            (root, entry),
     ];
     final left = <String>{};
     for (final (index, (root, file)) in files.indexed) {
       onProgress(
         (index + 1) / (files.length + 1),
-        root == location
-            ? '删除程序文件'
-            : p.isWithin(media, file.path)
+        p.isWithin(media, file.path)
             ? '删除已下载的番剧'
+            : root == location
+            ? '删除程序文件'
             : '删除追番记录和设置',
       );
       try {
@@ -108,10 +97,19 @@ class Uninstaller {
       }
     }
     for (final root in roots) {
-      if (!left.contains(root)) await Directory(root).delete(recursive: true);
+      if (left.contains(root)) continue;
+      if (root == location && kept != null) {
+        await for (final entry in Directory(root).list()) {
+          if (!p.equals(entry.path, kept) && !p.isWithin(entry.path, kept)) {
+            await entry.delete(recursive: true);
+          }
+        }
+      } else {
+        await Directory(root).delete(recursive: true);
+      }
     }
     // Application support sits in a folder named after the company.
-    final company = Directory(p.dirname(_support));
+    final company = Directory(p.dirname(support));
     if (wipe && await company.exists() && await company.list().isEmpty) {
       await company.delete();
     }

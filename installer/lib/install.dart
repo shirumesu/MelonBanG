@@ -22,6 +22,25 @@ Future<Map<String, String>> folders() async =>
 Future<bool> isRunning(String directory) async =>
     (await channel.invokeMethod<bool>('isRunning', {'directory': directory}))!;
 
+/// Application support holds settings, the storage.json bootstrap and,
+/// unless they were moved, the data folder.
+final support = p.join(
+  Platform.environment['APPDATA']!,
+  'app.melonbang',
+  'melonbang',
+);
+
+/// The app's storage.json bootstrap, empty before its first launch.
+Future<Map<String, Object?>> storage() async {
+  final bootstrap = File(p.join(support, 'storage.json'));
+  if (!await bootstrap.exists()) return <String, Object?>{};
+  return jsonDecode(await bootstrap.readAsString()) as Map<String, Object?>;
+}
+
+/// Where downloaded media goes.
+String mediaIn(Map<String, Object?> storage) =>
+    storage['media'] as String? ?? p.join(support, 'native', 'downloads');
+
 /// Registers the program's rounded font from its [directory] of font files.
 Future<void> loadFonts(String directory) async {
   final loader = FontLoader('Resource Han Rounded');
@@ -101,13 +120,15 @@ class Installer {
 
   /// The folder to install into for [chosen], whether picked or typed. One
   /// that already holds other files gets a MelonBanG subfolder, since
-  /// uninstalling removes the install folder as a whole.
+  /// uninstalling removes the install folder as a whole. Media an uninstall
+  /// kept there does not count.
   Future<String> target(String chosen) async {
     final location = p.normalize(chosen);
     final folder = Directory(location);
+    final media = mediaIn(await storage());
     if (!await folder.exists() ||
         await isInstalled(location) ||
-        await folder.list().isEmpty) {
+        await folder.list().every((entry) => p.equals(entry.path, media))) {
       return location;
     }
     return p.join(location, 'MelonBanG');

@@ -70,7 +70,7 @@ class NetworkProxy extends ChangeNotifier {
       ProxyMode.values.asNameMap()[preferences.getString(
         'network-proxy-mode',
       )] ??
-      ProxyMode.off;
+      ProxyMode.system;
 
   /// The custom proxy address as typed.
   String get address => preferences.getString('network-proxy-address') ?? '';
