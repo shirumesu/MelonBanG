@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -369,7 +371,7 @@ class MelonFilterOption<T> {
   final Color? detailColor;
   final bool enabled;
 
-  /// Finer choices shown below this one in a grid, such as a year's
+  /// Finer choices opening below this one in a grid, such as a year's
   /// quarters.
   final List<MelonFilterOption<T>> more;
 }
@@ -458,30 +460,100 @@ class MelonFilterMenu<T> extends StatelessWidget {
                 ? Icon(Icons.check_rounded, size: 16, color: scheme.primary)
                 : null,
           );
-    // Options with finer choices sit in a grid of cells that show those
-    // choices below the option, so moving down to them crosses no other.
+    // Options with finer choices sit in a grid of centred cells; the finer
+    // choices open below the hovered one.
     final cells = sections.any(
       (section) => section.options.any((option) => option.more.isNotEmpty),
     );
-    final width = cells ? 128.0 : 112.0;
+    final width = cells ? 120.0 : 112.0;
     void pick(T value) {
       onToggle(value, !selected.contains(value));
       if (!multiple) menu.close();
     }
 
-    Widget cell(MelonFilterOption<T> option) => _FilterCell(
-      label: option.label,
-      selected: selected.contains(option.value),
-      onTap: () => pick(option.value),
-      finer: [
-        for (final finer in option.more)
-          (
-            finer.label,
-            selected.contains(finer.value),
-            () => pick(finer.value),
+    ButtonStyle pill(bool on, {bool picked = false, double left = 0}) =>
+        ButtonStyle(
+          padding: WidgetStatePropertyAll(EdgeInsets.only(left: left)),
+          minimumSize: const WidgetStatePropertyAll(Size(0, 36)),
+          backgroundColor: on
+              ? WidgetStatePropertyAll(scheme.primaryContainer)
+              : null,
+          foregroundColor: on || picked
+              ? WidgetStatePropertyAll(
+                  on ? scheme.onPrimaryContainer : scheme.primary,
+                )
+              : null,
+          shape: const WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: controlBorderRadius),
           ),
-      ],
+        );
+    Widget centred(String label, double width, bool bold) => SizedBox(
+      width: width,
+      child: Center(
+        child: Text(
+          label,
+          style: TextStyle(fontWeight: bold ? FontWeight.w700 : null),
+        ),
+      ),
     );
+    Widget cell(MelonFilterOption<T> option) {
+      final on = selected.contains(option.value);
+      final picked = option.more.any((finer) => selected.contains(finer.value));
+      if (option.more.isEmpty) {
+        return MenuItemButton(
+          style: pill(on),
+          onPressed: () => pick(option.value),
+          child: centred(option.label, width - 4, on),
+        );
+      }
+      // The submenu keeps a gap for its arrow; the same gap on the left
+      // keeps the label centred.
+      final gap = math.max(
+        4.0,
+        12 + Theme.of(context).visualDensity.horizontal * 2,
+      );
+      return SubmenuButton(
+        style: pill(on, picked: picked, left: gap),
+        submenuIcon: const WidgetStatePropertyAll(SizedBox.shrink()),
+        alignmentOffset: const Offset(0, 3),
+        menuStyle: MenuStyle(
+          alignment: AlignmentDirectional.bottomStart,
+          backgroundColor: WidgetStatePropertyAll(menuSurface(context)),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          padding: const WidgetStatePropertyAll(EdgeInsets.all(3)),
+          shape: const WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: controlBorderRadius),
+          ),
+          elevation: const WidgetStatePropertyAll(3),
+        ),
+        menuChildren: [
+          Row(
+            children: [
+              for (final finer in option.more)
+                MenuItemButton(
+                  style: pill(selected.contains(finer.value)),
+                  onPressed: () => pick(finer.value),
+                  child: centred(
+                    finer.label,
+                    32,
+                    selected.contains(finer.value),
+                  ),
+                ),
+            ],
+          ),
+        ],
+        // Hovering opens the finer choices; a click picks the option itself.
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => pick(option.value),
+          child: SizedBox(
+            height: 36,
+            child: centred(option.label, width - 4 - gap * 2, on || picked),
+          ),
+        ),
+      );
+    }
+
     Widget item(MelonFilterOption<T> option) => MenuItemButton(
       closeOnActivate: !multiple,
       style: ButtonStyle(
@@ -543,7 +615,12 @@ class MelonFilterMenu<T> extends StatelessWidget {
                   for (final option in section.options.skip(i).take(columns))
                     SizedBox(
                       width: width,
-                      child: cells ? cell(option) : item(option),
+                      child: cells
+                          ? Padding(
+                              padding: const EdgeInsets.all(2),
+                              child: cell(option),
+                            )
+                          : item(option),
                     ),
                 ],
               ),
@@ -619,116 +696,6 @@ class MelonFilterMenu<T> extends StatelessWidget {
                 ),
         );
       },
-    );
-  }
-}
-
-/// A grid option with its finer choices below, shown while the pointer or
-/// focus is on it or one of them is picked.
-class _FilterCell extends StatefulWidget {
-  const _FilterCell({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-    required this.finer,
-  });
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  final List<(String, bool, VoidCallback)> finer;
-
-  @override
-  State<_FilterCell> createState() => _FilterCellState();
-}
-
-class _FilterCellState extends State<_FilterCell> {
-  var _hovered = false, _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final picked = widget.finer.any((finer) => finer.$2);
-    final open = widget.finer.isNotEmpty && (_hovered || _focused || picked);
-    Widget choice(
-      String label,
-      bool on,
-      VoidCallback onTap,
-      double height,
-      TextStyle? style,
-    ) => Material(
-      color: on ? scheme.primaryContainer : Colors.transparent,
-      borderRadius: controlBorderRadius,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: controlBorderRadius,
-        child: SizedBox(
-          height: height,
-          child: Center(
-            child: Text(
-              label,
-              style: style?.copyWith(
-                color: on ? scheme.onPrimaryContainer : null,
-                fontWeight: on ? FontWeight.w700 : null,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: Focus(
-        canRequestFocus: false,
-        skipTraversal: true,
-        onFocusChange: (value) => setState(() => _focused = value),
-        child: Padding(
-          padding: const EdgeInsets.all(2),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              choice(
-                widget.label,
-                widget.selected,
-                widget.onTap,
-                34,
-                text.bodyMedium?.copyWith(
-                  color: picked ? scheme.primary : null,
-                ),
-              ),
-              const SizedBox(height: 2),
-              SizedBox(
-                height: 26,
-                child: AnimatedOpacity(
-                  opacity: open ? 1 : 0,
-                  duration: motionDuration(context, 120),
-                  child: IgnorePointer(
-                    ignoring: !open,
-                    child: ExcludeFocus(
-                      excluding: !open,
-                      child: Row(
-                        children: [
-                          for (final (label, on, onTap) in widget.finer)
-                            Expanded(
-                              child: choice(
-                                label,
-                                on,
-                                onTap,
-                                26,
-                                text.bodySmall,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
