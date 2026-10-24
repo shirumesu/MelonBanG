@@ -457,6 +457,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       episodes
           .where((e) => e.main && _episodeStatus(e) != EpisodeStatus.watched)
           .firstOrNull ??
+      episodes.where((e) => e.main).lastOrNull ??
       episodes.firstOrNull;
 
   bool _isResume(Episode episode) =>
@@ -477,7 +478,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     return TextSpan(
       children: [
         TextSpan(
-          text: '第 ${episode.number} 话  ${episode.title}',
+          text: '${episode.label}  ${episode.title}',
           style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
         ),
         for (final detail in [
@@ -621,6 +622,13 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         .length;
     final total = math.max(item.episodeTotal ?? 0, main.length);
     final next = _nextEpisode(episodes);
+    // Like Animeko, a finished subject offers its last episode quietly.
+    final done =
+        next != null &&
+        !_episodesLoading &&
+        !_isResume(next) &&
+        main.isNotEmpty &&
+        watched == main.length;
     final now = DateTime.now();
     _rebuildAt(
       ([
@@ -635,11 +643,11 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         ? '加载剧集…'
         : next == null
         ? '暂无剧集'
-        : '${_isResume(next)
-              ? '继续观看'
-              : main.isNotEmpty && watched == main.length
-              ? '重看'
-              : '观看'}第 ${next.number} 话';
+        : _isResume(next)
+        ? '继续观看${next.label}'
+        : done
+        ? '已看完'
+        : '观看${next.label}';
     final date = DateTime.tryParse('${item.airDate}');
     final score = item.score ?? 0;
     final summary =
@@ -756,6 +764,12 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                 onPressed: null,
                 icon: const Icon(Icons.schedule_rounded, size: 18),
                 label: _ReleaseCountdown(release: upcoming, episode: next!),
+              )
+            else if (done)
+              FilledButton.tonalIcon(
+                onPressed: () => widget.onPlayEpisode(next),
+                icon: const Icon(Icons.play_arrow_rounded, size: 19),
+                label: Text(playLabel),
               )
             else
               FilledButton.icon(

@@ -281,7 +281,7 @@ class PlayerPageState extends State<PlayerPage> {
     return KeyEventResult.handled;
   }
 
-  /// The next main episode by order, passing over interludes.
+  /// The next main episode by order, passing over specials.
   Episode? get nextEpisode {
     final episodes = widget.subject?.episodes ?? const <Episode>[];
     final index = episodes.indexWhere(
@@ -963,7 +963,7 @@ class PlayerPageState extends State<PlayerPage> {
                             Text(switch (playback.autoplayTarget) {
                               null => playback.autoplayMessage!,
                               final target =>
-                                '${playback.autoplaySeconds} 秒后播放第 ${target.episode.number} 话',
+                                '${playback.autoplaySeconds} 秒后播放${target.episode.label}',
                             }),
                             if (playback.autoplayTarget case final target?) ...[
                               const SizedBox(height: 4),

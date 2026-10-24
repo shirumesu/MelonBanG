@@ -102,9 +102,10 @@ class _TrackingPageState extends State<TrackingPage> {
         .where(
           (item) =>
               item.status == personal.filter &&
-              [item.title, item.name].any(
-                (name) => name?.toLowerCase().contains(text) ?? false,
-              ) &&
+              [
+                item.title,
+                item.name,
+              ].any((name) => name?.toLowerCase().contains(text) ?? false) &&
               (!airingOnly || widget.airing.contains(item.id)),
         )
         .toList();

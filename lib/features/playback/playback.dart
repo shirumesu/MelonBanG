@@ -743,7 +743,7 @@ class Playback extends ChangeNotifier {
       }
       if (target.unavailable) {
         autoplayEndEpisode = target.episode;
-        autoplayMessage = '第 ${target.episode.number} 话暂无可直接播放的资源';
+        autoplayMessage = '${target.episode.label}暂无可直接播放的资源';
         notifyListeners();
         return;
       }

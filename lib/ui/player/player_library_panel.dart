@@ -20,7 +20,6 @@ import '../core/motion.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
-import '../tracking/episode_grid.dart';
 import '../tracking/subject_community.dart';
 import 'player_danmaku_panel.dart';
 
@@ -209,8 +208,8 @@ class _PlayerSidePanelState extends State<PlayerSidePanel> {
 
 /// `第 N 话  标题`, without a placeholder title.
 String episodeLabel(Episode episode) => episode.title == '未命名'
-    ? '第 ${episode.number} 话'
-    : '第 ${episode.number} 话  ${episode.title}';
+    ? episode.label
+    : '${episode.label}  ${episode.title}';
 
 /// Leaves the player for the subject's detail page.
 class _DetailButton extends StatelessWidget {
@@ -270,6 +269,7 @@ class _EpisodesPane extends StatefulWidget {
 
 class _EpisodesPaneState extends State<_EpisodesPane> {
   static const columns = 6, cellHeight = 40.0, cellGap = 6.0;
+  static const specialsHeader = 36.0;
   final scroll = ScrollController();
   Episode? hovered;
   bool tasksOpen = false;
@@ -277,6 +277,15 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
   int? _revealed;
 
   List<Episode> get episodes => widget.subject?.episodes ?? const [];
+  List<Episode> get main => [
+    for (final episode in episodes)
+      if (episode.main) episode,
+  ];
+
+  /// The specials by number as Bangumi lists them, under the main episodes.
+  List<Episode> get specials =>
+      episodes.where((e) => !e.main).toList()
+        ..sort((a, b) => a.sort.compareTo(b.sort));
   int? get episodeId => widget.session?.episodeId;
 
   @override
@@ -289,14 +298,22 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
   void reveal(double gridTop) {
     final id = episodeId;
     if (id == null || id == _revealed) return;
-    final index = episodes.indexWhere((episode) => episode.id == id);
+    final main = this.main;
+    var index = main.indexWhere((episode) => episode.id == id);
+    var top = gridTop;
+    if (index < 0) {
+      index = specials.indexWhere((episode) => episode.id == id);
+      top +=
+          (main.length / columns).ceil() * (cellHeight + cellGap) +
+          specialsHeader;
+    }
     if (index < 0) return;
     _revealed = id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !scroll.hasClients) return;
       final position = scroll.position;
       final row = index ~/ columns;
-      final target = gridTop + row * (cellHeight + cellGap);
+      final target = top + row * (cellHeight + cellGap);
       if (target + cellHeight < position.viewportDimension) return;
       scroll.jumpTo(
         (target - position.viewportDimension * .3).clamp(
@@ -352,9 +369,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                 height: 20,
                 child: shown == null
                     ? Text(
-                        episodes.isEmpty
-                            ? '暂无剧集信息'
-                            : '共 ${episodes.where((e) => e.main).length} 话',
+                        episodes.isEmpty ? '暂无剧集信息' : '共 ${main.length} 话',
                         style: small,
                       )
                     : episodeLine(shown, byEpisode[shown.id] ?? const []),
@@ -363,22 +378,28 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
             ],
           ),
         ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: Gap.lg),
-          sliver: SliverGrid.builder(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: columns,
-              mainAxisSpacing: cellGap,
-              crossAxisSpacing: cellGap,
-              mainAxisExtent: cellHeight,
-            ),
-            itemCount: episodes.length,
-            itemBuilder: (_, index) => cell(
-              episodes[index],
-              byEpisode[episodes[index].id] ?? const [],
+        grid(main, byEpisode),
+        if (specials case final specials when specials.isNotEmpty) ...[
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: Gap.lg),
+            sliver: SliverToBoxAdapter(
+              child: SizedBox(
+                height: specialsHeader,
+                child: Align(
+                  alignment: Alignment.bottomLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: Gap.sm),
+                    child: Tooltip(
+                      message: '总集篇、未放送的单集、特番等\n不计入话数，自动连播和缓存下一话会跳过',
+                      child: Text('特别篇', style: small),
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
-        ),
+          grid(specials, byEpisode),
+        ],
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.lg, Gap.xl),
           sliver: SliverList.list(
@@ -568,6 +589,22 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
     );
   }
 
+  Widget grid(List<Episode> episodes, Map<int, List<EpisodeCache>> caches) =>
+      SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: Gap.lg),
+        sliver: SliverGrid.builder(
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: cellGap,
+            crossAxisSpacing: cellGap,
+            mainAxisExtent: cellHeight,
+          ),
+          itemCount: episodes.length,
+          itemBuilder: (_, index) =>
+              cell(episodes[index], caches[episodes[index].id] ?? const []),
+        ),
+      );
+
   Widget cell(Episode episode, List<EpisodeCache> caches) {
     final scheme = Theme.of(context).colorScheme;
     final playing = episode.id == episodeId;
@@ -631,12 +668,6 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                           ),
                         ),
                 ),
-                if (!episode.main && !playing)
-                  Positioned(
-                    left: 4,
-                    top: 4,
-                    child: InterludeMark(size: 10, color: foreground),
-                  ),
                 if (cached && !playing)
                   Positioned(
                     right: 5,
@@ -744,14 +775,6 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                 '下载中',
               ),
               item(box(scheme.surfaceContainerHigh), '未更新'),
-              if (episodes.any((e) => !e.main))
-                Tooltip(
-                  message: '夹在正片之间的总集篇、特番等\n不计入话数，自动连播和缓存下一话会跳过',
-                  child: item(
-                    InterludeMark(size: 12, color: scheme.onSurfaceVariant),
-                    '特别篇',
-                  ),
-                ),
             ],
           ),
         ),
@@ -855,7 +878,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                 ],
                 Expanded(
                   child: Text(
-                    episode == null ? task.title : '第 ${episode.number} 话',
+                    episode == null ? task.title : episode.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 12),

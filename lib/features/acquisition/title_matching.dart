@@ -96,9 +96,9 @@ bool sourceEpisodeMatches(String label, Episode episode) {
   final normalized = ChineseHelper.convertToSimplifiedChinese(label)
       .toUpperCase();
   final special = RegExp(r'SP|OVA|OAD|特别').hasMatch(normalized);
-  final main = episode.main;
-  // An interlude is named by its number (11.5) or as a special.
-  if (special && main) return false;
+  // A special is named as one, though an interlude may be named by its
+  // number (11.5).
+  if (special ? episode.main : episode.numberedApart) return false;
   final match = RegExp(r'(?:第|EP\s*|SP\s*|OVA\s*|OAD\s*)?(\d+(?:\.\d+)?)')
       .firstMatch(normalized);
   return match != null && double.tryParse(match[1]!) == episode.sort;
@@ -112,7 +112,7 @@ bool sourceEpisodeMatches(String label, Episode episode) {
 Episode? releaseEpisode(Subject subject, ResourceTitleInfo info) {
   final number = info.episode;
   if (number == null) return null;
-  final episodes = subject.episodes;
+  final episodes = subject.episodes.where((e) => !e.numberedApart);
   final sequel = episodes.any(
     (e) => e.absolute != null && e.absolute != e.sort,
   );
@@ -145,7 +145,7 @@ Map<int, DownloadFile> episodeFiles(Subject subject, DownloadTask task) {
   if (task.episodeId case final id? when videos.length == 1) {
     return {id: videos.single};
   }
-  final episodes = subject.episodes;
+  final episodes = subject.episodes.where((e) => !e.numberedApart);
   final season = [
     subject.title,
     ?subject.name,

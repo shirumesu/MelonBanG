@@ -55,7 +55,7 @@ class PreparingPlayback {
 
   PreparingPlayback.episode(Subject this.subject, Episode this.episode)
     : title = subject.title,
-      detail = '第 ${episode.number} 话  ${episode.title}',
+      detail = '${episode.label}  ${episode.title}',
       coverUrl = subject.coverUrl,
       status = null,
       downloadId = null,
@@ -454,12 +454,12 @@ class PlaybackCoordinator extends ChangeNotifier {
       // A cache that cannot open is reported rather than replaced by
       // another source; an unfinished one streams from its transfer.
       if (local.isEmpty) {
-        throw StateError('第 ${episode.number} 话的缓存暂时无法播放');
+        throw StateError('${episode.label}的缓存暂时无法播放');
       }
       await playCandidate(local.first, item, episode);
       return;
     }
-    playback.showNotice('正在查找第 ${episode.number} 话资源');
+    playback.showNotice('正在查找${episode.label}资源');
     final choices = await _candidates(
       item,
       episode,
@@ -472,7 +472,7 @@ class PlaybackCoordinator extends ChangeNotifier {
         _failPreparing(_preparingTicket, '没有找到可以直接播放的资源');
         return;
       }
-      playback.showNotice('第 ${episode.number} 话没有能直接播放的资源');
+      playback.showNotice('${episode.label}没有能直接播放的资源');
       await shell.openResources(item, episode);
       return;
     }
@@ -797,15 +797,13 @@ class PlaybackCoordinator extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// The main episode after [currentId] once it has aired, passing over
-  /// interludes; after an interlude it is the main episode that follows.
+  /// The main episode listed after [currentId] once it has aired, passing
+  /// over interludes. Specials outside the run are listed after it, so none
+  /// follows them.
   static Episode? _nextAired(Subject item, int currentId) {
-    final current = item.episodes.where((e) => e.id == currentId).firstOrNull;
-    if (current == null) return null;
-    final next =
-        (item.episodes.where((e) => e.main && e.sort > current.sort).toList()
-              ..sort((a, b) => a.sort.compareTo(b.sort)))
-            .firstOrNull;
+    final index = item.episodes.indexWhere((e) => e.id == currentId);
+    if (index < 0) return null;
+    final next = item.episodes.skip(index + 1).where((e) => e.main).firstOrNull;
     final date = next?.aired;
     if (date != null && date.isAfter(DateTime.now())) return null;
     return next;
@@ -901,7 +899,7 @@ class PlaybackCoordinator extends ChangeNotifier {
               .firstOrNull ??
           choices.firstOrNull;
       if (chosen == null) {
-        playback.showNotice('没有找到第 ${next.number} 话的同类资源，未自动缓存');
+        playback.showNotice('没有找到${next.label}的同类资源，未自动缓存');
         return;
       }
       switch (chosen.target) {
@@ -923,7 +921,7 @@ class PlaybackCoordinator extends ChangeNotifier {
         default:
           return;
       }
-      if (!_closed) playback.showNotice('已开始缓存第 ${next.number} 话');
+      if (!_closed) playback.showNotice('已开始缓存${next.label}');
     } on RequestCancelled {
       return;
     } catch (e) {
