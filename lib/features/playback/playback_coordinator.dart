@@ -798,11 +798,11 @@ class PlaybackCoordinator extends ChangeNotifier {
   }
 
   /// The episode broadcast after [currentId] once it has aired, specials
-  /// included, passing over recaps when the settings say so.
+  /// included, passing over recaps and programmes when the settings say so.
   Episode? _nextAired(Subject item, int currentId) {
     final next = item.after(
       currentId,
-      skipRecaps: playback.settings.skipRecaps,
+      skipExtras: playback.settings.skipExtras,
     );
     final date = next?.aired;
     if (date != null && date.isAfter(DateTime.now())) return null;

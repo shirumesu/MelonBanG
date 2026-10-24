@@ -285,11 +285,11 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
           subtitle: '播完 5 秒后播放下一话，SP、OVA、番外按放送顺序一起连播',
         ),
         toggle(
-          '总集篇 跳过 特别篇 下一集',
-          '跳过总集篇',
-          () => prefs.skipRecaps,
-          prefs.setSkipRecaps,
-          subtitle: '自动连播、下一话和缓存下一话不选总集篇',
+          '总集篇 特番 访谈 跳过 特别篇 下一集',
+          '跳过总集篇和特番',
+          () => prefs.skipExtras,
+          prefs.setSkipExtras,
+          subtitle: '自动连播、下一话和缓存下一话按标题跳过总集篇、放送特番和访谈；正片只在标题写明总集篇时跳过',
         ),
         toggle(
           '看过 进度 标记',

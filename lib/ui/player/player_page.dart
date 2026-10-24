@@ -285,7 +285,7 @@ class PlayerPageState extends State<PlayerPage> {
   Episode? get nextEpisode => switch (playback.session?.episodeId) {
     final id? => widget.subject?.after(
       id,
-      skipRecaps: playback.settings.skipRecaps,
+      skipExtras: playback.settings.skipExtras,
     ),
     null => null,
   };
