@@ -41,6 +41,12 @@ Future<Map<String, Object?>> storage() async {
 String mediaIn(Map<String, Object?> storage) =>
     storage['media'] as String? ?? p.join(support, 'native', 'downloads');
 
+/// The app has stored nothing yet, so its media location can still be chosen,
+/// as its first launch would otherwise ask.
+Future<bool> fresh() async =>
+    !await File(p.join(support, 'storage.json')).exists() &&
+    !await Directory(p.join(support, 'native')).exists();
+
 /// Registers the program's rounded font from its [directory] of font files.
 Future<void> loadFonts(String directory) async {
   final loader = FontLoader('Resource Han Rounded');
@@ -107,15 +113,22 @@ class Installer {
       p.join((await folders())['localAppData']!, 'Programs', 'MelonBanG');
 
   Future<String?> pick(String current) async {
+    final picked = await _pickFolder(current);
+    return picked == null ? null : target(picked);
+  }
+
+  Future<String?> pickMedia(String current, String location) async {
+    final picked = await _pickFolder(current);
+    return picked == null ? null : mediaTarget(picked, location);
+  }
+
+  Future<String?> _pickFolder(String current) async {
     var initial = current;
     while (!await Directory(initial).exists() &&
         p.dirname(initial) != initial) {
       initial = p.dirname(initial);
     }
-    final picked = await channel.invokeMethod<String>('pickFolder', {
-      'initial': initial,
-    });
-    return picked == null ? null : target(picked);
+    return channel.invokeMethod<String>('pickFolder', {'initial': initial});
   }
 
   /// The folder to install into for [chosen], whether picked or typed. One
@@ -137,8 +150,20 @@ class Installer {
   Future<bool> isInstalled(String location) =>
       File(p.join(location, 'melonbang.exe')).exists();
 
+  /// The media folder for [chosen] next to an install at [location]. One that
+  /// already holds other files gets a MelonBanG subfolder, and the install
+  /// folder itself a downloads one, so media never mixes with other files.
+  Future<String> mediaTarget(String chosen, String location) async {
+    final media = p.normalize(chosen);
+    if (p.equals(media, location)) return p.join(media, 'downloads');
+    final folder = Directory(media);
+    if (!await folder.exists() || await folder.list().isEmpty) return media;
+    return p.join(media, 'MelonBanG');
+  }
+
   Future<void> install(
     String location, {
+    String? media,
     required bool desktop,
     required bool startMenu,
     required void Function(double progress, String file) onProgress,
@@ -155,6 +180,7 @@ class Installer {
     } on FileSystemException {
       throw const InstallError('无法写入这个位置，请选择其他文件夹');
     }
+    if (media != null) await _recordMedia(media);
     // An update the previous version had prepared would replace this one.
     final pending = Directory(p.join(location, '.pending'));
     if (await pending.exists()) await pending.delete(recursive: true);
@@ -202,6 +228,31 @@ class Installer {
       'version': appVersion,
       'sizeKb': bytes ~/ 1024,
     });
+  }
+
+  /// Writes the app's storage.json as its first launch would
+  /// (`StorageLocations.choose`), so it starts with this media folder.
+  Future<void> _recordMedia(String media) async {
+    final folder = Directory(media);
+    try {
+      await folder.create(recursive: true);
+      if (!await folder.list().isEmpty) {
+        throw const InstallError('下载位置必须是空文件夹，请重新选择');
+      }
+      final probe = File(p.join(media, '.melonbang-write-check'));
+      await probe.writeAsString('');
+      await probe.delete();
+    } on FileSystemException {
+      throw const InstallError('无法写入下载位置，请选择其他文件夹');
+    }
+    final bootstrap = File(p.join(support, 'storage.json'));
+    await bootstrap.parent.create(recursive: true);
+    final temporary = File('${bootstrap.path}.tmp');
+    await temporary.writeAsString(
+      jsonEncode({'media': p.normalize(p.absolute(media))}),
+      flush: true,
+    );
+    await temporary.rename(bootstrap.path);
   }
 
   Future<void> launch(String location) => Process.start(

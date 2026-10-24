@@ -315,7 +315,7 @@ class StorageSetup extends StatefulWidget {
 }
 
 class _StorageSetupState extends State<StorageSetup> {
-  late String media = widget.storage.firstMedia;
+  late String media = widget.storage.media;
   bool busy = false;
   String? error;
 
