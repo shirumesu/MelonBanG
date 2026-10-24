@@ -281,15 +281,14 @@ class PlayerPageState extends State<PlayerPage> {
     return KeyEventResult.handled;
   }
 
-  /// The next main episode by order, passing over specials.
-  Episode? get nextEpisode {
-    final episodes = widget.subject?.episodes ?? const <Episode>[];
-    final index = episodes.indexWhere(
-      (e) => e.id == playback.session?.episodeId,
-    );
-    if (index < 0) return null;
-    return episodes.skip(index + 1).where((e) => e.main).firstOrNull;
-  }
+  /// The episode broadcast next, as autoplay chooses it.
+  Episode? get nextEpisode => switch (playback.session?.episodeId) {
+    final id? => widget.subject?.after(
+      id,
+      skipRecaps: playback.settings.skipRecaps,
+    ),
+    null => null,
+  };
 
   void toggleMenu() {
     playback.cancelAutoplay();

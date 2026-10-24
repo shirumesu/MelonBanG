@@ -387,15 +387,25 @@ class CatalogRepository implements Catalog {
         }),
         part('episodes', () async {
           await for (final page in bangumi.episodes(id)) {
-            // Specials arrive last. Those in the main run take their place
-            // by Bangumi's number; the rest follow the run.
-            int outside(Object? e) => object(e)['type'] == 'special' ? 1 : 0;
+            // Specials arrive last and take their place in broadcast order;
+            // undated ones follow the run, all by Bangumi's number.
+            double order(Object? value) {
+              final e = object(value);
+              return e['type'] != 'special'
+                  ? number(e['absolute']).toDouble()
+                  : e['order'] == null
+                  ? double.infinity
+                  : number(e['order']).toDouble();
+            }
+
             parts['episodes'] = [...?parts['episodes'] as List?, ...page]
-              ..sort(
-                (a, b) => outside(a) != outside(b)
-                    ? outside(a) - outside(b)
-                    : number(a['absolute']).compareTo(number(b['absolute'])),
-              );
+              ..sort((a, b) {
+                final placed = order(a).compareTo(order(b));
+                return placed != 0
+                    ? placed
+                    : number(object(a)['absolute'])
+                          .compareTo(number(object(b)['absolute']));
+              });
             publish();
           }
         }),
@@ -426,10 +436,7 @@ class CatalogRepository implements Catalog {
   Json _subjectJson(int id, dynamic value) {
     final data = _summary(object(object(value)['data']));
     data['episodes'] = objects(data['episodes'])
-        .where(
-          (e) =>
-              const [null, 'main', 'interlude', 'special'].contains(e['type']),
-        )
+        .where((e) => const [null, 'main', 'special'].contains(e['type']))
         .map(
           (e) => {
             ...e,

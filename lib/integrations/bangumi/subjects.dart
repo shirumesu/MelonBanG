@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import '../../core/json.dart';
 import '../../core/network.dart';
 
@@ -74,42 +72,29 @@ class BangumiSubjects {
     }
   }
 
-  /// Every special, by Bangumi's number. Those inside the main run take the
-  /// main episodes' numbering, since Bangumi numbers specials across
-  /// seasons: a fractional one between or right after main episodes (an
-  /// 11.5 recap) as an interlude, and integral ones continuing the last
-  /// number (an unaired 13th) as main episodes. The rest, such as
-  /// promotional programmes numbered over or before main episodes, keep
-  /// Bangumi's number as specials.
+  /// Every special (SP, OVA, 番外, 总集篇) by Bangumi's number, placed in
+  /// broadcast order by its air date: `order` puts it after the last main
+  /// episode aired before that day, and `follows` names that episode when
+  /// another main episode comes after it (SP1 aired between 17 and 18
+  /// follows 17). Specials without a date come last.
   List<Json> _specials(List<Json> main, List<Json> specials) {
-    final numbers = {for (final e in main) number(e['absolute'])};
-    final first = numbers.isEmpty ? 0 : numbers.reduce(min);
-    var last = numbers.isEmpty ? 0 : numbers.reduce(max);
-    final offset = main.isEmpty
-        ? 0
-        : number(main.first['absolute']) - number(main.first['sort']);
+    final run = [...main]
+      ..sort((a, b) => number(a['absolute']).compareTo(number(b['absolute'])));
     final found = <Json>[];
-    for (final e
-        in specials..sort(
-          (a, b) => number(a['absolute']).compareTo(number(b['absolute'])),
-        )) {
-      final across = number(e['absolute']);
-      final interlude = across != across.roundToDouble();
-      if (main.isEmpty ||
-          across <= first ||
-          numbers.contains(across) ||
-          (interlude ? across > last + 1 : across != last + 1)) {
-        found.add({...e, 'type': 'special', 'ep': e['sort']});
+    for (final e in specials) {
+      final date = _text(e['airdate']);
+      final special = {...e, 'type': 'special', 'ep': e['sort']};
+      found.add(special);
+      if (date == null || run.isEmpty) continue;
+      final before = run.lastIndexWhere(
+        (m) => (_text(m['airdate']) ?? '9999').compareTo(date) < 0,
+      );
+      if (before < 0) {
+        special['order'] = number(run.first['absolute']) - .5;
         continue;
       }
-      if (!interlude) last = across;
-      final sort = across - offset;
-      found.add({
-        ...e,
-        'type': interlude ? 'interlude' : 'main',
-        'sort': sort,
-        'ep': sort,
-      });
+      special['order'] = number(run[before]['absolute']) + .5;
+      if (before < run.length - 1) special['follows'] = run[before]['sort'];
     }
     return found;
   }

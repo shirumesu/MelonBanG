@@ -20,6 +20,7 @@ import '../core/motion.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
+import '../tracking/episode_grid.dart';
 import '../tracking/subject_community.dart';
 import 'player_danmaku_panel.dart';
 
@@ -208,8 +209,8 @@ class _PlayerSidePanelState extends State<PlayerSidePanel> {
 
 /// `第 N 话  标题`, without a placeholder title.
 String episodeLabel(Episode episode) => episode.title == '未命名'
-    ? episode.label
-    : '${episode.label}  ${episode.title}';
+    ? episode.placedLabel
+    : '${episode.placedLabel}  ${episode.title}';
 
 /// Leaves the player for the subject's detail page.
 class _DetailButton extends StatelessWidget {
@@ -390,7 +391,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: Gap.sm),
                     child: Tooltip(
-                      message: '总集篇、未放送的单集、特番等\n不计入话数，自动连播和缓存下一话会跳过',
+                      message: specialsHelp,
                       child: Text('特别篇', style: small),
                     ),
                   ),
@@ -659,13 +660,13 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                           size: 18,
                           color: foreground,
                         )
-                      : Text(
-                          episode.number,
+                      : DefaultTextStyle.merge(
                           style: TextStyle(
                             fontSize: 13,
                             color: foreground,
                             fontFeatures: const [FontFeature.tabularFigures()],
                           ),
+                          child: EpisodeNumber(episode),
                         ),
                 ),
                 if (cached && !playing)

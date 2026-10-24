@@ -130,6 +130,7 @@ class Episode {
     required this.sort,
     this.absolute,
     this.main = true,
+    this.follows,
     this.name,
     this.nameCn,
     this.airDate,
@@ -143,6 +144,7 @@ class Episode {
     sort: _double(value['ep'] ?? value['sort']) ?? 0,
     absolute: _double(value['absolute']),
     main: const [null, 0, 'main'].contains(value['type']),
+    follows: _double(value['follows']),
     name: _text(value['name']),
     nameCn: _text(value['nameCn']) ?? _text(value['displayName']),
     airDate: _text(value['airdate']) ?? _text(value['airDate']),
@@ -159,11 +161,14 @@ class Episode {
   /// often use instead of [sort]: season 2 episode 1 can be episode 29.
   final double? absolute;
 
-  /// False for a special: an interlude between main episodes, such as an
-  /// 11.5 recap, or one outside the run, such as a promotional programme.
-  /// Specials do not count towards the episode total and autoplay passes
-  /// over them.
+  /// False for a special: an SP, OVA, 番外 or 总集篇 that Bangumi lists
+  /// apart from the main episodes. Subjects list episodes in broadcast
+  /// order, so a special sits where it aired.
   final bool main;
+
+  /// For a special aired between main episodes, the number of the one
+  /// before it: 17 for SP1 aired between episodes 17 and 18.
+  final double? follows;
   final String? name, nameCn, airDate;
   final int? durationSeconds;
   final EpisodeStatus status;
@@ -177,8 +182,26 @@ class Episode {
   /// so it is named and matched as a special rather than by its number.
   bool get numberedApart => !main && sort == sort.roundToDouble();
 
-  /// `第 12 话`, `第 11.5 话`, or `SP1`.
-  String get label => numberedApart ? 'SP$number' : '第 $number 话';
+  /// `第 12 话`, or `SP1` for a special.
+  String get label => main ? '第 $number 话' : 'SP$number';
+
+  /// [label] with where a special aired: `SP1（17.5）`.
+  String get placedLabel => between == null ? label : '$label（$between）';
+
+  /// Where a special aired among the main episodes, `17.5` for one
+  /// between 17 and 18; null when that is its own number (SP 11.5).
+  String? get between {
+    final value = follows == null ? null : follows! + .5;
+    if (value == null || value == sort) return null;
+    return value == value.roundToDouble() ? '${value.toInt()}' : '$value';
+  }
+
+  /// A recap by its name (総集編, 振り返り特番), which autoplay can pass
+  /// over.
+  bool get recap => RegExp(
+    r'総集|总集|總集|振り返り|ダイジェスト|recap|digest',
+    caseSensitive: false,
+  ).hasMatch('$name $nameCn');
   bool get watched => status == EpisodeStatus.watched;
   DateTime? get aired => DateTime.tryParse(airDate ?? '');
 
@@ -188,6 +211,7 @@ class Episode {
     sort: sort,
     absolute: absolute,
     main: main,
+    follows: follows,
     name: name,
     nameCn: nameCn,
     airDate: airDate,
@@ -343,7 +367,15 @@ class Subject {
               comment: _text(collection['comment']) ?? '',
             )
           : _collectionRow(value),
-      watchedEpisodes: _int(value['watchedEpisodes']),
+      // Bangumi as its pages show it: progress another client set beyond
+      // the episode count reads as the count.
+      watchedEpisodes: switch ((
+        _int(value['watchedEpisodes']),
+        _int(value['episodeTotal']),
+      )) {
+        (final watched?, final total?) when watched > total => total,
+        (final watched, _) => watched,
+      },
       airingAt: DateTime.tryParse('${value['airingAt'] ?? ''}'),
       relation: _text(value['relation']),
     );
@@ -397,6 +429,17 @@ class Subject {
 
   Episode? episode(int id) =>
       episodes.where((episode) => episode.id == id).firstOrNull;
+
+  /// The episode broadcast after [id], specials included, passing over
+  /// recaps when [skipRecaps].
+  Episode? after(int id, {required bool skipRecaps}) {
+    final index = episodes.indexWhere((episode) => episode.id == id);
+    if (index < 0) return null;
+    return episodes
+        .skip(index + 1)
+        .where((episode) => !skipRecaps || !episode.recap)
+        .firstOrNull;
+  }
 
   Subject copyWith({
     SubjectCollection? collection,
