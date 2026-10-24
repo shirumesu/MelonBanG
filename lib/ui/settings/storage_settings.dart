@@ -123,12 +123,16 @@ class _StorageSettingsState extends State<StorageSettings> {
   String usageLabel(int? bytes) {
     if (measuring) return '正在统计…';
     if (bytes == null) return '暂时无法统计';
-    if (bytes < 1024) return '已用 $bytes B';
+    return '已用 ${size(bytes)}';
+  }
+
+  String size(int bytes) {
+    if (bytes < 1024) return '$bytes B';
     var value = bytes.toDouble();
     for (final unit in ['KiB', 'MiB', 'GiB', 'TiB']) {
       value /= 1024;
       if (value < 1024 || unit == 'TiB') {
-        return '已用 ${value.toStringAsFixed(1)} $unit';
+        return '${value.toStringAsFixed(1)} $unit';
       }
     }
     throw StateError('Unreachable storage size');
@@ -204,9 +208,9 @@ class _StorageSettingsState extends State<StorageSettings> {
                   ),
                 ],
                 const SizedBox(height: 20),
-                const Text('下次启动时会复制并校验现有数据，完成后切换位置。原目录保留，迁移完成前请保持磁盘连接。'),
+                const Text('现有数据会在后台复制并校验，期间可以照常使用。复制完成后重新打开应用即可切换位置，原目录保留。'),
                 const SizedBox(height: 12),
-                const Text('重启会中断当前播放和传输，请在方便时退出并重新打开应用。'),
+                const Text('迁移完成前请保持原位置和新位置的磁盘连接。'),
               ],
             ),
           ),
@@ -234,6 +238,93 @@ class _StorageSettingsState extends State<StorageSettings> {
     }
   }
 
+  /// The pending move: its background copy, then the restart that switches.
+  Widget move(StorageLocations storage, MoveCopy? copy) {
+    final plan = storage.pending;
+    if (plan == null) return const SizedBox.shrink();
+    final small = Theme.of(context).textTheme.bodySmall;
+    final copied = plan['copied'] == true;
+    final total = copy?.total ?? 0;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            copied ? '迁移已准备好' : '正在后台迁移',
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          if (plan['data'] != widget.dataDirectory)
+            SelectableText('应用数据 → ${plan['data']}', style: small),
+          if (plan['media'] != widget.mediaDirectory)
+            SelectableText('媒体缓存 → ${plan['media']}', style: small),
+          const SizedBox(height: 8),
+          if (copy?.error case final message?)
+            Text(
+              '复制已停止：$message',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            )
+          else if (copied)
+            Text(
+              '文件已复制并校验，重新打开应用后切换到新位置'
+              '${(copy?.left ?? 0) > 0 ? '，${copy!.left} 个正在使用的文件届时补上' : ''}。',
+              style: small,
+            )
+          else ...[
+            LinearProgressIndicator(
+              value: total == 0 ? null : copy!.done / total,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              total == 0
+                  ? '正在准备…'
+                  : '${copy!.done * 100 ~/ total}% · 共 ${size(total ~/ 2)}'
+                        '${copy.file.isEmpty ? '' : ' · ${copy.file}'}',
+              style: small,
+            ),
+            const SizedBox(height: 4),
+            Text('期间可以照常使用，复制完成后重新打开应用即可切换。', style: small),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            children: [
+              if (copied && widget.onExit != null)
+                FilledButton(
+                  onPressed: busy ? null : widget.onExit,
+                  child: const Text('退出应用'),
+                ),
+              if (copy?.error != null)
+                OutlinedButton(
+                  onPressed: busy ? null : storage.prepare,
+                  child: const Text('重试'),
+                ),
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () async {
+                        setState(() {
+                          busy = true;
+                          error = null;
+                        });
+                        try {
+                          await storage.cancel();
+                        } catch (e) {
+                          error = errorMessage(e);
+                        } finally {
+                          if (mounted) setState(() => busy = false);
+                        }
+                      },
+                child: const Text('取消迁移'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     const divider = Divider(height: 1, indent: 20, endIndent: 20);
@@ -242,7 +333,9 @@ class _StorageSettingsState extends State<StorageSettings> {
       title: media ? '媒体缓存' : '应用数据',
       subtitle: usageLabel(media ? usage?.mediaBytes : usage?.dataBytes),
       trailing: OutlinedButton.icon(
-        onPressed: busy || widget.storage == null ? null : () => choose(media),
+        onPressed: busy || widget.storage?.pending != null
+            ? null
+            : () => choose(media),
         icon: const Icon(Icons.drive_file_move_outline, size: 18),
         label: const Text('更改位置'),
       ),
@@ -290,55 +383,12 @@ class _StorageSettingsState extends State<StorageSettings> {
             icon: const Icon(Icons.refresh, size: 18),
           ),
         ),
-        if (widget.storage?.pending case final plan?) ...[
+        if (widget.storage case final storage?
+            when storage.pending != null) ...[
           divider,
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '迁移将在重启后进行',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                if (plan['data'] != widget.dataDirectory)
-                  SelectableText('应用数据 → ${plan['data']}', style: small),
-                if (plan['media'] != widget.mediaDirectory)
-                  SelectableText('媒体缓存 → ${plan['media']}', style: small),
-                const SizedBox(height: 8),
-                Text('请退出并重新打开应用，启动时会显示迁移进度。', style: small),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 12,
-                  children: [
-                    if (widget.onExit != null)
-                      FilledButton(
-                        onPressed: busy ? null : widget.onExit,
-                        child: const Text('退出应用'),
-                      ),
-                    TextButton(
-                      onPressed: busy
-                          ? null
-                          : () async {
-                              setState(() {
-                                busy = true;
-                                error = null;
-                              });
-                              try {
-                                await widget.storage!.cancel();
-                              } catch (_) {
-                                error = '暂时无法取消迁移，请重试。';
-                              } finally {
-                                if (mounted) setState(() => busy = false);
-                              }
-                            },
-                      child: const Text('取消迁移'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+          ValueListenableBuilder<MoveCopy?>(
+            valueListenable: storage.copy,
+            builder: (context, copy, _) => move(storage, copy),
           ),
         ],
         if (error != null)
