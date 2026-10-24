@@ -157,7 +157,13 @@ class _Filters extends StatelessWidget {
   Widget build(BuildContext context) {
     final now = DateTime.now().year;
     final year = query.year;
-    final time = year == null ? null : '${query.before ? '<' : ''}$year';
+    final time = year == null
+        ? null
+        : query.before
+        ? '<$year'
+        : query.month == null
+        ? '$year'
+        : '$year-${query.month}';
     Widget single(
       String label,
       List<String> values,
@@ -226,40 +232,33 @@ class _Filters extends StatelessWidget {
         MelonFilterMenu<String>(
           label: '时间',
           multiple: false,
-          columns: 3,
-          summary: query.before ? '更早' : '$year年',
+          columns: 5,
+          summary: query.before
+              ? '更早'
+              : '$year年${query.month == null ? '' : '${query.month}月'}',
+          tooltip: '按放送年份或季度筛选',
           sections: [
             MelonFilterSection([
-              for (var y = now + 1; y > now - 10; y--)
+              for (var y = now + 1; y > now - 10; y--) ...[
                 MelonFilterOption('$y', '$y年'),
+                for (final month in const [1, 4, 7, 10])
+                  MelonFilterOption('$y-$month', '$month月'),
+              ],
               MelonFilterOption('<${now - 9}', '更早'),
             ]),
           ],
           selected: {?time},
-          onToggle: (value, on) => onQuery(
-            query.copyWith(
-              year: on ? int.parse(value.replaceFirst('<', '')) : null,
-              before: on && value.startsWith('<'),
-              month: null,
-            ),
-          ),
+          onToggle: (value, on) {
+            final [y, ...month] = value.replaceFirst('<', '').split('-');
+            onQuery(
+              query.copyWith(
+                year: on ? int.parse(y) : null,
+                month: on && month.isNotEmpty ? int.parse(month.single) : null,
+                before: on && value.startsWith('<'),
+              ),
+            );
+          },
         ),
-        if (year != null && !query.before)
-          MelonFilterMenu<int>(
-            label: '季度',
-            multiple: false,
-            summary: '${query.month}月',
-            tooltip: '按放送季度筛选',
-            sections: [
-              MelonFilterSection([
-                for (final month in const [1, 4, 7, 10])
-                  MelonFilterOption(month, '$month月'),
-              ]),
-            ],
-            selected: {?query.month},
-            onToggle: (month, on) =>
-                onQuery(query.copyWith(month: on ? month : null)),
-          ),
         if (query.filtered)
           TextButton(
             onPressed: () => onQuery(query.unfiltered),
