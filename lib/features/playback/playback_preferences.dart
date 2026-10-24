@@ -38,8 +38,9 @@ class PlaybackPreferences extends ChangeNotifier {
   /// source family.
   bool get cacheNext => storage.getBool('player-cache-next') ?? false;
 
-  /// Autoplay, the next episode and caching it pass over recaps (总集篇).
-  bool get skipRecaps => storage.getBool('player-skip-recaps') ?? true;
+  /// Autoplay, the next episode and caching it pass over recaps and
+  /// programmes about the show (总集篇, 特番).
+  bool get skipExtras => storage.getBool('player-skip-extras') ?? true;
   Future<void> setHardwareDecoding(String value) =>
       _string('player-hwdec', value);
   Future<void> setSuperResolution(String value) async {
@@ -55,7 +56,7 @@ class PlaybackPreferences extends ChangeNotifier {
   Future<void> setRememberSource(bool value) =>
       _bool('player-remember-source', value);
   Future<void> setCacheNext(bool value) => _bool('player-cache-next', value);
-  Future<void> setSkipRecaps(bool value) => _bool('player-skip-recaps', value);
+  Future<void> setSkipExtras(bool value) => _bool('player-skip-extras', value);
   Future<void> _bool(String key, bool value) async {
     await storage.setBool(key, value);
     notifyListeners();

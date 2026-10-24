@@ -467,7 +467,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
 const specialsHelp =
     'SP、OVA、番外、总集篇等，按 Bangumi 的编号列出\n'
     '下方小字是放送位置，17.5 即在第 17、18 话之间播出\n'
-    '自动连播按放送顺序一起播放，总集篇可在设置中跳过';
+    '自动连播按放送顺序一起播放，总集篇和特番可在设置中跳过';
 
 /// An episode's number in a grid cell, with where a special aired beneath
 /// it in smaller type.

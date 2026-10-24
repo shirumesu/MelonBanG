@@ -196,10 +196,14 @@ class Episode {
     return value == value.roundToDouble() ? '${value.toInt()}' : '$value';
   }
 
-  /// A recap by its name (総集編, 振り返り特番), which autoplay can pass
-  /// over.
-  bool get recap => RegExp(
-    r'総集|总集|總集|振り返り|ダイジェスト|recap|digest',
+  /// A recap or a programme about the show rather than part of it, which
+  /// autoplay can pass over. Specials are judged by name (総集編,
+  /// 振り返り特番, 放送直前特番, トーク); a main episode only when it is
+  /// named a recap, since story titles use words such as 配信 and イベント.
+  bool get extra => RegExp(
+    main
+        ? r'総集|总集|總集'
+        : r'総集|总集|總集|振り返り|回顧|回顾|ダイジェスト|特番|特別番組|特别节目|直前|トーク|発表会|recap|digest',
     caseSensitive: false,
   ).hasMatch('$name $nameCn');
   bool get watched => status == EpisodeStatus.watched;
@@ -431,13 +435,13 @@ class Subject {
       episodes.where((episode) => episode.id == id).firstOrNull;
 
   /// The episode broadcast after [id], specials included, passing over
-  /// recaps when [skipRecaps].
-  Episode? after(int id, {required bool skipRecaps}) {
+  /// recaps and programmes ([Episode.extra]) when [skipExtras].
+  Episode? after(int id, {required bool skipExtras}) {
     final index = episodes.indexWhere((episode) => episode.id == id);
     if (index < 0) return null;
     return episodes
         .skip(index + 1)
-        .where((episode) => !skipRecaps || !episode.recap)
+        .where((episode) => !skipExtras || !episode.extra)
         .firstOrNull;
   }
 
