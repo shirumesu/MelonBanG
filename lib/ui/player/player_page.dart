@@ -10,11 +10,13 @@ import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/playback_session.dart';
 import '../../domain/transfer.dart';
+import '../../features/appearance/appearance.dart';
 import '../../features/downloads/downloads_controller.dart';
 import '../../features/playback/playback_coordinator.dart';
 import '../../features/playback/resource_search.dart';
 import '../acquisition/download_labels.dart';
 import '../core/motion.dart';
+import '../core/byte_units.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'danmaku.dart';
@@ -1632,8 +1634,8 @@ class _PanelHandle extends StatelessWidget {
 
 /// What a streamed download is doing while the player waits for its data:
 /// its state, speed and connected peers.
-String? _transferLine(DownloadTask? task) =>
-    task == null || task.complete ? null : transferLine(task);
+String? _transferLine(DownloadTask? task, ByteUnits units) =>
+    task == null || task.complete ? null : transferLine(task, units);
 
 /// Why a BT task waiting for data has no peers yet. Every tracker failing
 /// with an empty DHT table means its traffic does not get out, which a proxy
@@ -1665,7 +1667,7 @@ class _BufferingStatus extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final task = this.task;
-    final line = _transferLine(task);
+    final line = _transferLine(task, ByteUnitsScope.of(context));
     final hint = _swarmHint(task);
     const shadow = [Shadow(blurRadius: 6)];
     return Center(
@@ -1734,7 +1736,7 @@ class _PreparingView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final failed = preparing.failed;
-    final live = _transferLine(task);
+    final live = _transferLine(task, ByteUnitsScope.of(context));
     final hint = _swarmHint(task);
     final canChoose = preparing.subject != null && preparing.episode != null;
     const white = Colors.white;

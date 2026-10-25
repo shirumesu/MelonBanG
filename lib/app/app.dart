@@ -27,6 +27,7 @@ import '../ui/acquisition/downloads_page.dart';
 import '../ui/acquisition/resource_search_view.dart';
 import '../ui/core/action_feedback.dart';
 import '../ui/core/app_chrome.dart';
+import '../ui/core/byte_units.dart';
 import '../ui/core/cached_image.dart';
 import '../ui/core/cover_colors.dart';
 import '../ui/core/motion.dart';
@@ -742,12 +743,18 @@ class _MelonAppState extends State<MelonApp>
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Melonbang',
-      builder: (context, child) => ready
-          ? ContentCacheScope(
-              cache: service.cache,
-              child: SubjectCoverScope(covers: service.catalog, child: child!),
-            )
-          : child!,
+      builder: (context, child) => ByteUnitsScope(
+        units: appearance.byteUnits,
+        child: ready
+            ? ContentCacheScope(
+                cache: service.cache,
+                child: SubjectCoverScope(
+                  covers: service.catalog,
+                  child: child!,
+                ),
+              )
+            : child!,
+      ),
       scaffoldMessengerKey: messages,
       navigatorKey: navigation,
       theme: theme,

@@ -15,6 +15,7 @@ import '../../features/acquisition/title_matching.dart';
 import '../../features/playback/play_selection.dart';
 import '../../features/playback/resource_search.dart';
 import '../core/external_link.dart';
+import '../core/byte_units.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
@@ -1154,7 +1155,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           '标题为${info.episodeLabel}',
       ],
       warnings: [...info.warnings, ...warningsOf(candidate)],
-      size: resourceSizeLabel(release),
+      size: resourceSizeLabel(release, ByteUnitsScope.of(context)),
       date: resourceDateLabel(release),
       error: downloadErrors[candidate.id],
       download: ResourceDownloadButton(
@@ -1222,7 +1223,10 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             coverage: '第 ${episodeSpans(each.keys)} 话',
             size: bytes.isEmpty
                 ? '—'
-                : resourceBytesLabel(bytes.reduce((a, b) => a + b)),
+                : resourceBytesLabel(
+                    bytes.reduce((a, b) => a + b),
+                    ByteUnitsScope.of(context),
+                  ),
             date: dates.lastOrNull ?? '—',
             expanded: expanded,
             onExpand: () => changeForm(() {

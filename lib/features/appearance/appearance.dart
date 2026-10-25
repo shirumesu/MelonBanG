@@ -14,6 +14,33 @@ enum ThemeChoice {
   final String label;
 }
 
+/// How sizes and speeds are counted: KiB and MiB step by 1024, KB and MB
+/// by 1000.
+enum ByteUnits {
+  binary('KiB、MiB', 1024, ['KiB', 'MiB', 'GiB', 'TiB']),
+  decimal('KB、MB', 1000, ['KB', 'MB', 'GB', 'TB']);
+
+  const ByteUnits(this.label, this.base, this.names);
+  final String label;
+  final int base;
+  final List<String> names;
+
+  /// [bytes] in the largest unit that keeps the number at least 1.
+  String format(int bytes) {
+    if (bytes < base) return '$bytes B';
+    var value = bytes / base;
+    var unit = 0;
+    while (value >= base && unit < names.length - 1) {
+      value /= base;
+      unit++;
+    }
+    return '${value.toStringAsFixed(1)} ${names[unit]}';
+  }
+
+  /// A speed of [bytes] per second.
+  String rate(int bytes) => '${format(bytes)}/s';
+}
+
 /// A theme colour offered in settings.
 typedef AccentPreset = ({String id, String name, Color color});
 
@@ -27,27 +54,27 @@ const accentPresets = <AccentPreset>[
   (id: 'ink', name: '墨灰', color: Color(0xff6b7a8f)),
 ];
 
-/// The chosen theme mode, theme colour and whether subject pages take their
-/// cover's colour. The system accent is reread when the window regains
-/// focus, since it can change while the app runs.
+/// The chosen theme mode, theme colour, whether subject pages take their
+/// cover's colour, and the units sizes are shown in. The system accent is
+/// reread when the window regains focus, since it can change while the app
+/// runs.
 class Appearance extends ChangeNotifier {
   Appearance(this.preferences);
   final SharedPreferences preferences;
 
-  /// Before theme modes there was only a light/dark switch.
   ThemeChoice get mode =>
       ThemeChoice.values.asNameMap()[preferences.getString('theme-mode')] ??
-      switch (preferences.getBool('dark')) {
-        true => ThemeChoice.dark,
-        false => ThemeChoice.light,
-        null => ThemeChoice.system,
-      };
+      ThemeChoice.system;
 
   /// A preset id, or `system` for the system accent colour.
   String get accent => preferences.getString('theme-accent') ?? 'mint';
 
   /// Subject details and the player take their cover's colour.
   bool get coverColor => preferences.getBool('theme-cover-color') ?? false;
+
+  ByteUnits get byteUnits =>
+      ByteUnits.values.asNameMap()[preferences.getString('byte-units')] ??
+      ByteUnits.binary;
 
   /// The system accent colour, once read; null where there is none.
   Color? systemAccent;
@@ -89,6 +116,11 @@ class Appearance extends ChangeNotifier {
 
   Future<void> setCoverColor(bool value) async {
     await preferences.setBool('theme-cover-color', value);
+    notifyListeners();
+  }
+
+  Future<void> setByteUnits(ByteUnits value) async {
+    await preferences.setString('byte-units', value.name);
     notifyListeners();
   }
 }

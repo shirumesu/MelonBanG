@@ -410,14 +410,27 @@ class SubjectPoster extends StatefulWidget {
     required this.tracking,
     this.statusBadge = true,
     this.badge,
+    this.note,
+    this.progress,
+    this.meta,
     this.personalScore = false,
   });
   final Subject item;
   final ValueChanged<Subject> onOpen;
   final bool tracking, statusBadge, personalScore;
 
-  /// Replaces the collection status badge with a highlighted label.
-  final String? badge;
+  /// Replaces the collection status badge.
+  final PosterBadge? badge;
+
+  /// A dim label at the top right.
+  final String? note;
+
+  /// Watch progress along the bottom of the cover, from 0 to 1.
+  final double? progress;
+
+  /// The subject whose score and progress are shown under the poster;
+  /// [item] by default.
+  final Subject? meta;
 
   @override
   State<SubjectPoster> createState() => _SubjectPosterState();
@@ -468,7 +481,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
                   Positioned(
                     left: 11,
                     right: 10,
-                    bottom: 12,
+                    bottom: widget.progress == null ? 12 : 14,
                     child: Text(
                       item.title,
                       maxLines: 2,
@@ -482,29 +495,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
                     ),
                   ),
                   if (widget.badge case final badge?)
-                    Positioned(
-                      top: 10,
-                      left: 10,
-                      child: Container(
-                        constraints: const BoxConstraints(minHeight: 24),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: const BoxDecoration(
-                          color: coral,
-                          borderRadius: badgeBorderRadius,
-                        ),
-                        child: Text(
-                          badge,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    )
+                    Positioned(top: 10, left: 10, child: badge)
                   else if (tracking && widget.statusBadge && status != null)
                     Positioned(
                       top: 10,
@@ -515,6 +506,30 @@ class _SubjectPosterState extends State<SubjectPoster> {
                         child: MelonBadge(
                           collectionLabels[status]!,
                           color: collectionColor(status),
+                        ),
+                      ),
+                    ),
+                  if (widget.note case final note?)
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: PosterBadge(note, color: Colors.black38),
+                    ),
+                  if (widget.progress case final progress?)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: MotionValue(
+                        value: progress,
+                        from: 0,
+                        milliseconds: 700,
+                        builder: (context, value) => LinearProgressIndicator(
+                          value: value,
+                          minHeight: 4,
+                          color: accentOf(context).accent,
+                          backgroundColor: Colors.white24,
+                          semanticsLabel: '观看进度',
                         ),
                       ),
                     ),
@@ -544,7 +559,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
           ),
           const SizedBox(height: 10),
           PosterMeta(
-            item: item,
+            item: widget.meta ?? item,
             tracking: tracking,
             personalScore: widget.personalScore,
           ),
@@ -552,6 +567,28 @@ class _SubjectPosterState extends State<SubjectPoster> {
       ),
     );
   }
+}
+
+/// A label over a poster's cover.
+class PosterBadge extends StatelessWidget {
+  const PosterBadge(this.text, {super.key, required this.color});
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    constraints: const BoxConstraints(minHeight: 24),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(color: color, borderRadius: badgeBorderRadius),
+    child: Text(
+      text,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+  );
 }
 
 /// A poster's cover that rises a little toward the pointer, its shadow

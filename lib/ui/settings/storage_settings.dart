@@ -9,6 +9,7 @@ import '../../core/storage_locations.dart';
 import '../../core/storage_usage.dart';
 import '../../features/update/uninstall.dart';
 import '../core/action_feedback.dart';
+import '../core/byte_units.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import 'settings_page.dart';
@@ -91,18 +92,6 @@ bool cloudSynced(String path) {
 
 const _syncedNote = '这个位置在网盘的同步文件夹里，下载时会被不停同步，占满网络，文件也可能因同步冲突损坏，建议换个位置。';
 
-String size(int bytes) {
-  if (bytes < 1024) return '$bytes B';
-  var value = bytes.toDouble();
-  for (final unit in ['KiB', 'MiB', 'GiB', 'TiB']) {
-    value /= 1024;
-    if (value < 1024 || unit == 'TiB') {
-      return '${value.toStringAsFixed(1)} $unit';
-    }
-  }
-  throw StateError('Unreachable storage size');
-}
-
 class StorageSettings extends StatefulWidget {
   const StorageSettings({
     super.key,
@@ -181,7 +170,7 @@ class _StorageSettingsState extends State<StorageSettings> {
   String usageLabel(int? bytes) {
     if (measuring) return '正在统计…';
     if (bytes == null) return '暂时无法统计';
-    return '已用 ${size(bytes)}';
+    return '已用 ${ByteUnitsScope.of(context).format(bytes)}';
   }
 
   Future<void> choose(bool media) async {
@@ -238,8 +227,8 @@ class _StorageSettingsState extends State<StorageSettings> {
                 ],
                 const SizedBox(height: 8),
                 Text(
-                  '所在磁盘可用 ${size(space.free)}'
-                  '${needed == null ? '' : '，迁移约需 ${size(needed)}'}'
+                  '所在磁盘可用 ${ByteUnitsScope.of(context).format(space.free)}'
+                  '${needed == null ? '' : '，迁移约需 ${ByteUnitsScope.of(context).format(needed)}'}'
                   '${short ? '，空间不足' : ''}',
                   style: short
                       ? TextStyle(color: Theme.of(context).colorScheme.error)
@@ -344,7 +333,7 @@ class _StorageSettingsState extends State<StorageSettings> {
             Text(
               total == 0
                   ? '正在准备…'
-                  : '${copy!.done * 100 ~/ total}% · 共 ${size(total)}'
+                  : '${copy!.done * 100 ~/ total}% · 共 ${ByteUnitsScope.of(context).format(total)}'
                         '${copy.file.isEmpty ? '' : ' · ${copy.file}'}',
               style: small,
             ),
@@ -554,7 +543,7 @@ class _StorageSetupState extends State<StorageSetup> {
                     SelectableText(media, style: text.bodySmall),
                     if (space case final space?)
                       Text(
-                        '所在磁盘可用 ${size(space.free)}'
+                        '所在磁盘可用 ${ByteUnitsScope.of(context).format(space.free)}'
                         '${space.system ? '（系统盘）' : ''}',
                         style: text.bodySmall,
                       ),

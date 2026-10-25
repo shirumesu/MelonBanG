@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/transfer.dart';
 import '../core/motion.dart';
+import '../core/byte_units.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
 import 'download_labels.dart';
@@ -33,10 +34,16 @@ class DownloadTaskStatus extends StatelessWidget {
               MelonBadge(origin, color: sky),
             if (measured) ...[
               Text('${(progress * 100).floor()}%', style: small),
-              Text('↓ ${transferRate(task.downloadSpeed)}', style: small),
+              Text(
+                '↓ ${ByteUnitsScope.of(context).rate(task.downloadSpeed)}',
+                style: small,
+              ),
             ],
             if (task.status == DownloadStatus.seeding)
-              Text('↑ ${transferRate(task.uploadSpeed)}', style: small),
+              Text(
+                '↑ ${ByteUnitsScope.of(context).rate(task.uploadSpeed)}',
+                style: small,
+              ),
           ],
         ),
         if (!task.complete)
@@ -156,7 +163,7 @@ Future<void> chooseDownloadVideo(
         separatorBuilder: (_, _) => const Divider(height: 1),
         itemBuilder: (context, index) {
           final file = task.videos[index];
-          final size = '${(file.size / 1048576).toStringAsFixed(1)} MiB';
+          final size = ByteUnitsScope.of(context).format(file.size);
           return ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.video_file_outlined, size: 20),

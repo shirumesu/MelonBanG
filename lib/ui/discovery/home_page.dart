@@ -643,192 +643,36 @@ class _ContinueSection extends StatelessWidget {
             itemCount: posters.length,
             itemBuilder: (i) {
               final (item, resume) = posters[i];
-              return resume != null
-                  ? _ResumePoster(
-                      item: resume,
-                      // The collection row carries the watched count.
-                      meta: watchingById[item.id] ?? item,
-                      onOpen: onOpenSubject,
-                    )
-                  : SubjectPoster(
-                      item: item,
-                      onOpen: onOpenSubject,
-                      tracking: true,
-                      // Every show here is being watched; only news earns
-                      // a badge.
-                      statusBadge: false,
-                      badge: airingToday.contains(item.id) ? '今日更新' : null,
-                    );
+              return SubjectPoster(
+                item: item,
+                // The collection row carries the watched count.
+                meta: watchingById[item.id] ?? item,
+                onOpen: onOpenSubject,
+                tracking: true,
+                // Every show here is being watched; only the episode to
+                // resume and news earn a badge.
+                statusBadge: false,
+                badge: switch (resume) {
+                  PlaybackResume(:final episodeSort?) => PosterBadge(
+                    '第 $episodeSort 话',
+                    color: accentOf(context).accent,
+                  ),
+                  null when airingToday.contains(item.id) => const PosterBadge(
+                    '今日更新',
+                    color: coral,
+                  ),
+                  _ => null,
+                },
+                note: resume == null
+                    ? null
+                    : '剩余 ${((resume.duration - resume.position) / 60).ceil()} 分钟',
+                progress: resume == null || resume.duration <= 0
+                    ? null
+                    : (resume.position / resume.duration).clamp(0, 1),
+              );
             },
           ),
       ],
-    );
-  }
-}
-
-class _ResumePoster extends StatefulWidget {
-  const _ResumePoster({
-    required this.item,
-    required this.meta,
-    required this.onOpen,
-  });
-  final PlaybackResume item;
-
-  /// Score and progress shown under the poster.
-  final Subject meta;
-  final ValueChanged<Subject> onOpen;
-
-  @override
-  State<_ResumePoster> createState() => _ResumePosterState();
-}
-
-class _ResumePosterState extends State<_ResumePoster> {
-  bool hovered = false, focused = false, pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final resume = widget.item;
-    final item = resume.subject;
-    final position = resume.position;
-    final duration = resume.duration;
-    final episodeLabel = resume.episodeSort == null
-        ? null
-        : '第 ${resume.episodeSort} 话';
-    final remaining = ((duration - position) / 60).ceil();
-    final scheme = Theme.of(context).colorScheme;
-    final active = hovered || focused;
-    return Semantics(
-      label: item.title,
-      child: InkWell(
-        onTap: () => widget.onOpen(item),
-        onHover: (value) => setState(() => hovered = value),
-        onFocusChange: (value) => setState(() => focused = value),
-        onHighlightChanged: (value) => setState(() => pressed = value),
-        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-        borderRadius: posterBorderRadius,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: PosterLift(
-                raised: active,
-                pressed: pressed,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    SubjectCover(
-                      url: item.coverUrl,
-                      title: item.title,
-                      id: item.id,
-                    ),
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          stops: [.35, 1],
-                          colors: [Colors.transparent, Color(0xcc000000)],
-                        ),
-                        color: active
-                            ? Colors.black.withValues(alpha: .12)
-                            : null,
-                      ),
-                    ),
-                    if (episodeLabel != null)
-                      Positioned(
-                        top: 10,
-                        left: 10,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: accentOf(context).accent,
-                            borderRadius: badgeBorderRadius,
-                          ),
-                          child: Text(
-                            episodeLabel,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ),
-                    Positioned(
-                      top: 10,
-                      right: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: const BoxDecoration(
-                          color: Colors.black38,
-                          borderRadius: badgeBorderRadius,
-                        ),
-                        child: Text(
-                          '剩余 $remaining 分钟',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      left: 11,
-                      right: 10,
-                      bottom: 14,
-                      child: Text(
-                        item.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          height: 1.3,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    if (duration > 0)
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: MotionValue(
-                          value: (position / duration).clamp(0, 1),
-                          from: 0,
-                          milliseconds: 700,
-                          builder: (context, value) => LinearProgressIndicator(
-                            value: value,
-                            minHeight: 4,
-                            color: accentOf(context).accent,
-                            backgroundColor: Colors.white24,
-                            semanticsLabel: '观看进度',
-                          ),
-                        ),
-                      ),
-                    if (focused)
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: posterBorderRadius,
-                          border: Border.all(color: scheme.primary, width: 2),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            PosterMeta(item: widget.meta, tracking: true),
-          ],
-        ),
-      ),
     );
   }
 }

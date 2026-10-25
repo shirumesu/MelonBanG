@@ -353,50 +353,46 @@ List<DanmakuComment?> _decodeXml((List<int>, bool) payload) {
 /// Decode only the fields needed from DmSegMobileReply / DanmakuElem.
 List<DanmakuComment?> _parseSegment(Uint8List bytes) {
   final rows = <DanmakuComment?>[];
-  try {
-    final outer = CodedBufferReader(bytes);
-    while (!outer.isAtEnd()) {
-      final tag = outer.readTag();
-      if (tag != 10) {
-        if (!outer.skipField(tag)) {
-          throw const FormatException('Invalid protobuf field');
-        }
-        continue;
+  final outer = CodedBufferReader(bytes);
+  while (!outer.isAtEnd()) {
+    final tag = outer.readTag();
+    if (tag != 10) {
+      if (!outer.skipField(tag)) {
+        throw const FormatException('Invalid protobuf field');
       }
-      final entry = CodedBufferReader(outer.readBytes());
-      double time = 0;
-      DanmakuMode? mode;
-      int? color;
-      String? text;
-      while (!entry.isAtEnd()) {
-        final tag = entry.readTag();
-        switch (tag) {
-          case 16:
-            time = entry.readInt32() / 1000;
-          case 24:
-            mode = danmakuMode(entry.readInt32());
-          case 40:
-            color = entry.readUint32() & 0xffffff;
-          case 58:
-            text = entry.readString();
-          default:
-            if (!entry.skipField(tag)) {
-              throw const FormatException('Invalid protobuf field');
-            }
-        }
-      }
-      rows.add(
-        DanmakuComment.parse(
-          source: 'bilibili',
-          time: time,
-          mode: mode,
-          color: color,
-          text: text,
-        ),
-      );
+      continue;
     }
-  } on InvalidProtocolBufferException catch (e) {
-    throw FormatException('Invalid danmaku protobuf: $e');
+    final entry = CodedBufferReader(outer.readBytes());
+    double time = 0;
+    DanmakuMode? mode;
+    int? color;
+    String? text;
+    while (!entry.isAtEnd()) {
+      final tag = entry.readTag();
+      switch (tag) {
+        case 16:
+          time = entry.readInt32() / 1000;
+        case 24:
+          mode = danmakuMode(entry.readInt32());
+        case 40:
+          color = entry.readUint32() & 0xffffff;
+        case 58:
+          text = entry.readString();
+        default:
+          if (!entry.skipField(tag)) {
+            throw const FormatException('Invalid protobuf field');
+          }
+      }
+    }
+    rows.add(
+      DanmakuComment.parse(
+        source: 'bilibili',
+        time: time,
+        mode: mode,
+        color: color,
+        text: text,
+      ),
+    );
   }
   return rows;
 }

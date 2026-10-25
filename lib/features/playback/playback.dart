@@ -417,18 +417,15 @@ class Playback extends ChangeNotifier {
     );
     if (_lastProgress == signature) return _progressWrites;
     _lastProgress = signature;
-    return _progressWrites = _progressWrites.then((_) async {
-      try {
-        await preferences.setDouble(
-          'progress:$savedUri',
-          completed ? 0 : position,
-        );
-        await library.save(savedSession, position, duration, completed);
-      } catch (_) {
-        if (_lastProgress == signature) _lastProgress = null;
-        /* Playback is independent of progress storage availability. */
-      }
+    final write = _progressWrites.then((_) async {
+      await preferences.setDouble('progress:$savedUri', completed ? 0 : position);
+      await library.save(savedSession, position, duration, completed);
     });
+    // A failed write reaches its caller; later writes still run and retry it.
+    _progressWrites = write.catchError((Object _) {
+      if (_lastProgress == signature) _lastProgress = null;
+    });
+    return write;
   }
 
   void _settingsChanged() {

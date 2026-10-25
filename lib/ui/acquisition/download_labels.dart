@@ -1,4 +1,5 @@
 import '../../domain/transfer.dart';
+import '../../features/appearance/appearance.dart';
 
 /// Status text.
 String downloadStatus(DownloadTask task) => switch (task.status) {
@@ -25,10 +26,10 @@ String downloadStatus(DownloadTask task) => switch (task.status) {
 
 /// What a running task is doing: [status], by default its status text, then
 /// its speed and, for BT, its connected peers while it downloads.
-String transferLine(DownloadTask task, {String? status}) => [
+String transferLine(DownloadTask task, ByteUnits units, {String? status}) => [
   status ?? downloadStatus(task),
   if (task.status == DownloadStatus.downloading) ...[
-    transferRate(task.downloadSpeed),
+    units.rate(task.downloadSpeed),
     if (task.method == CacheMethod.bt) '${task.swarm.peers} 个节点',
   ],
 ].join('  ');
@@ -62,10 +63,3 @@ String toggleLabel(TaskToggle toggle) => switch (toggle) {
   TaskToggle.stopSeeding => '停止做种',
   TaskToggle.resumeSeeding => '继续做种',
 };
-
-String transferRate(int bytes) {
-  if (bytes <= 0) return '0 B/s';
-  if (bytes < 1024) return '$bytes B/s';
-  if (bytes < 1048576) return '${(bytes / 1024).toStringAsFixed(1)} KiB/s';
-  return '${(bytes / 1048576).toStringAsFixed(1)} MiB/s';
-}
