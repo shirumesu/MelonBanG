@@ -7,6 +7,7 @@ import '../../core/error_message.dart';
 import '../../domain/danmaku.dart';
 import '../../features/danmaku/danmaku_preferences.dart';
 import '../../features/playback/playback.dart';
+import '../core/motion.dart';
 import '../core/theme.dart';
 import 'player_popovers.dart';
 
@@ -112,87 +113,112 @@ class _DanmakuComposerState extends State<DanmakuComposer> {
         minWidth: DanmakuComposer.minWidth,
         maxWidth: 400,
       ),
-      child: Container(
-        height: 32,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: .1),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withValues(alpha: .12)),
-        ),
-        child: Row(
-          children: [
-            _SendStyleMenu(
-              preferences: danmaku.preferences,
-              onPopupChanged: widget.onPopupChanged,
+      child: ListenableBuilder(
+        listenable: Listenable.merge([widget.focusNode, widget.draft]),
+        builder: (context, _) {
+          final focused = widget.focusNode.hasFocus;
+          final sendable =
+              blocked == null &&
+              !_sending &&
+              wait == 0 &&
+              widget.draft.text.trim().isNotEmpty;
+          return AnimatedContainer(
+            duration: motionDuration(context, 160),
+            height: 34,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: focused ? .14 : .08),
+              borderRadius: BorderRadius.circular(17),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: focused ? .3 : .1),
+              ),
             ),
-            Expanded(
-              child: ListenableBuilder(
-                listenable: widget.draft,
-                builder: (context, _) => TextField(
-                  controller: widget.draft,
-                  focusNode: widget.focusNode,
-                  enabled: blocked == null,
-                  maxLines: 1,
-                  textInputAction: TextInputAction.send,
-                  inputFormatters: [LengthLimitingTextInputFormatter(100)],
-                  onSubmitted: (_) => unawaited(_send()),
-                  cursorColor: Colors.white,
-                  cursorHeight: 15,
-                  style: const TextStyle(fontSize: 13, color: Colors.white),
-                  decoration: InputDecoration(
-                    isCollapsed: true,
-                    filled: false,
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                    hintText: blocked ?? widget.hint,
-                    hintMaxLines: 1,
-                    hintStyle: const TextStyle(
-                      fontSize: 13,
-                      color: Colors.white38,
-                      overflow: TextOverflow.ellipsis,
+            child: Row(
+              children: [
+                _SendStyleMenu(
+                  preferences: danmaku.preferences,
+                  onPopupChanged: widget.onPopupChanged,
+                ),
+                Container(width: 1, height: 16, color: Colors.white12),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: widget.draft,
+                    focusNode: widget.focusNode,
+                    enabled: blocked == null,
+                    maxLines: 1,
+                    textInputAction: TextInputAction.send,
+                    inputFormatters: [LengthLimitingTextInputFormatter(100)],
+                    onSubmitted: (_) => unawaited(_send()),
+                    cursorColor: Colors.white,
+                    cursorHeight: 15,
+                    style: const TextStyle(fontSize: 13, color: Colors.white),
+                    // The theme's outlines would draw a box inside the pill.
+                    decoration: InputDecoration(
+                      isCollapsed: true,
+                      filled: false,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      disabledBorder: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                      hintText: blocked ?? widget.hint,
+                      hintMaxLines: 1,
+                      hintStyle: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.white38,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(3),
-              child: ListenableBuilder(
-                listenable: widget.draft,
-                builder: (context, _) => FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: const Color(0xff15181d),
-                    disabledBackgroundColor: Colors.white.withValues(
-                      alpha: .12,
-                    ),
-                    disabledForegroundColor: Colors.white38,
-                    minimumSize: const Size(52, 26),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    shape: const StadiumBorder(),
-                    textStyle: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  onPressed:
-                      blocked == null &&
-                          !_sending &&
-                          wait == 0 &&
-                          widget.draft.text.trim().isNotEmpty
-                      ? () => unawaited(_send())
-                      : null,
-                  child: Text(
-                    wait > 0 ? '$wait 秒' : '发送',
-                    style: const TextStyle(
-                      fontFeatures: [FontFeature.tabularFigures()],
+                Padding(
+                  padding: const EdgeInsets.all(3),
+                  child: Tooltip(
+                    message: wait > 0 ? '$wait 秒后才能再发送' : '发送 (Enter)',
+                    child: Material(
+                      color: sendable ? Colors.white : Colors.transparent,
+                      shape: const StadiumBorder(),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: sendable ? () => unawaited(_send()) : null,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minWidth: 34,
+                            minHeight: 26,
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Center(
+                              widthFactor: 1,
+                              child: wait > 0
+                                  ? Text(
+                                      '$wait s',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.white54,
+                                        fontFeatures: [
+                                          FontFeature.tabularFigures(),
+                                        ],
+                                      ),
+                                    )
+                                  : Icon(
+                                      Icons.send_rounded,
+                                      size: 16,
+                                      color: sendable
+                                          ? const Color(0xff15181d)
+                                          : Colors.white38,
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -232,18 +258,16 @@ class _SendStyleMenu extends StatelessWidget {
           overlayColor: const WidgetStatePropertyAll(Colors.white12),
           onTap: popover.toggle,
           child: SizedBox(
-            width: 34,
-            height: 30,
+            width: 36,
+            height: 32,
             child: Center(
               child: Text(
                 'A',
                 style: TextStyle(
                   fontSize: 15,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                   color: Color(0xff000000 | style.color),
-                  shadows: const [Shadow(blurRadius: 2)],
-                  decoration: TextDecoration.underline,
-                  decorationColor: Colors.white54,
+                  shadows: const [Shadow(blurRadius: 3)],
                 ),
               ),
             ),

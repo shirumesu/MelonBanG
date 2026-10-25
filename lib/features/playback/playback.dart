@@ -193,6 +193,21 @@ class Playback extends ChangeNotifier {
   bool _skippedOpening = false, _skippedEnding = false;
   double? _lastPosition;
 
+  /// The OP or ED (`片头`, `片尾`) about to be skipped, [skipCountdown]
+  /// seconds from now; null when none is coming.
+  String? upcomingSkip;
+  int skipCountdown = 0;
+  ChapterSpan? _upcoming;
+  double _skipAt = 0;
+
+  /// How the picture fills the view: `auto`, a ratio such as `16:9`, or
+  /// `fill` to stretch over it. Kept while the player is open.
+  String aspect = 'auto';
+  void setAspect(String value) {
+    aspect = value;
+    notifyListeners();
+  }
+
   /// Counts notices, so the same text shown twice appears twice.
   int noticeRevision = 0;
   void showNotice(String value) {
@@ -275,6 +290,7 @@ class Playback extends ChangeNotifier {
     _manualSubtitle = _scoredSubtitle = _scoredAudio = false;
     openingEnding = null;
     _skippedOpening = _skippedEnding = false;
+    _upcoming = upcomingSkip = null;
     _lastPosition = null;
     opening = true;
     error = null;
@@ -569,8 +585,9 @@ class Playback extends ChangeNotifier {
     }
   }
 
-  /// Seeks past the file's OP or ED when playback runs into it, once per
-  /// session; landing inside one by seeking or resuming plays it.
+  /// Counts down five seconds, then seeks past the file's OP or ED when
+  /// playback runs into it, once per session; landing inside one by seeking
+  /// or resuming plays it, and so does [cancelSkip].
   void _skipSongs(Duration value) {
     final position = value.inMilliseconds / 1000;
     final previous = _lastPosition;
@@ -583,22 +600,70 @@ class Playback extends ChangeNotifier {
         frameStepping) {
       return;
     }
-    bool entered(ChapterSpan? span) =>
+    if (_upcoming case final span?) {
+      final enabled = span == marks.opening
+          ? settings.skipOpening
+          : settings.skipEnding;
+      // Seeking out of the song or the lead-in to it drops the countdown.
+      if (!enabled || position < span.start - 5 || position >= span.end - 3) {
+        _upcoming = upcomingSkip = null;
+        notifyListeners();
+      } else if (position >= _skipAt) {
+        final label = upcomingSkip!;
+        _passed(span);
+        _upcoming = upcomingSkip = null;
+        unawaited(_skipTo(span.end, '已自动跳过$label'));
+      } else {
+        _count(position);
+      }
+      return;
+    }
+    bool nearing(ChapterSpan? span) =>
         span != null &&
-        position >= span.start &&
+        position >= span.start - 5 &&
         position < span.end - 3 &&
         // Chapters are read a moment after the file opens.
         previous <= span.start + 5 &&
         previous <= position;
-    if (settings.skipOpening && !_skippedOpening && entered(marks.opening)) {
+    final (span, label) = switch (marks) {
+      OpeningEnding(:final opening)
+          when settings.skipOpening && !_skippedOpening && nearing(opening) =>
+        (opening, '片头'),
+      OpeningEnding(:final ending)
+          when settings.skipEnding && !_skippedEnding && nearing(ending) =>
+        (ending, '片尾'),
+      _ => (null, null),
+    };
+    if (span == null) return;
+    _upcoming = span;
+    upcomingSkip = label;
+    // A song the file starts with still gets its five seconds.
+    _skipAt = math.max(span.start, position + 5);
+    skipCountdown = 0;
+    _count(position);
+  }
+
+  /// Updates [skipCountdown] in real seconds, notifying when it changes.
+  void _count(double position) {
+    final left = ((_skipAt - position) / player.state.rate).ceil();
+    if (left == skipCountdown) return;
+    skipCountdown = left;
+    notifyListeners();
+  }
+
+  void _passed(ChapterSpan span) {
+    if (span == openingEnding?.opening) {
       _skippedOpening = true;
-      unawaited(_skipTo(marks.opening!.end, '已跳过片头'));
-    } else if (settings.skipEnding &&
-        !_skippedEnding &&
-        entered(marks.ending)) {
+    } else {
       _skippedEnding = true;
-      unawaited(_skipTo(marks.ending!.end, '已跳过片尾'));
     }
+  }
+
+  /// Plays the OP or ED counting down instead of skipping it.
+  void cancelSkip() {
+    if (_upcoming case final span?) _passed(span);
+    _upcoming = upcomingSkip = null;
+    notifyListeners();
   }
 
   Future<void> _skipTo(double seconds, String message) async {

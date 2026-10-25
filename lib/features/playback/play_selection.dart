@@ -42,6 +42,10 @@ class PlaySelectionRepository {
   /// Whether played sources are remembered per subject; set by the app from
   /// the playback preference.
   bool Function() remember = () => true;
+
+  /// Release groups to rank first, in order; set by the app from the
+  /// playback preference.
+  List<String> Function() groups = () => const [];
   final _remembered = <int, RememberedSource?>{};
 
   /// The source last played for [subjectId], while remembering is on.
@@ -102,6 +106,7 @@ class PlaySelectionRepository {
       remembered: preferred,
       continuity: useContinuity ? continuity[subjectId] : null,
       singleEpisode: episode != null,
+      groups: groups(),
     );
     void add(Iterable<PlayCandidate> values) {
       if (cancel?.isCancelled == true) return;
@@ -486,7 +491,8 @@ class RememberedSource {
 /// online or torrent by [onlineFirst], PikPak last unless it was [remembered].
 /// Within a tier confident matches precede possible ones, recently failed
 /// sources drop, the subject's remembered source and then this run's choice
-/// continue, and [resourceScores] orders the rest.
+/// continue, releases of the preferred [groups] follow in their order, and
+/// [resourceScores] orders the rest.
 List<PlayCandidate> rankPlayCandidates(
   Iterable<PlayCandidate> candidates, {
   required bool onlineFirst,
@@ -494,6 +500,7 @@ List<PlayCandidate> rankPlayCandidates(
   String? continuity,
   String language = 'auto',
   bool singleEpisode = true,
+  List<String> groups = const [],
 }) {
   final torrents = onlineFirst ? 2.0 : 1.0;
   double tier(PlayCandidate c) => switch (c.kind) {
@@ -503,6 +510,18 @@ List<PlayCandidate> rankPlayCandidates(
     PlayKind.pikpak => remembered?.family == 'pikpak' ? torrents - .5 : 3,
   };
   int affinity(PlayCandidate c) => remembered?.affinity(c) ?? 0;
+  // Typed names match credited ones by part, ignoring case: `喵萌` finds
+  // 喵萌奶茶屋.
+  final wanted = [for (final group in groups) group.toLowerCase()];
+  int preference(PlayCandidate c) {
+    if (c.kind == PlayKind.online) return wanted.length;
+    final credited = c.line.toLowerCase().split(' & ');
+    final index = wanted.indexWhere(
+      (group) => credited.any((name) => name.contains(group)),
+    );
+    return index < 0 ? wanted.length : index;
+  }
+
   final result = candidates.toList();
   final scores = resourceScores(
     result,
@@ -518,6 +537,7 @@ List<PlayCandidate> rankPlayCandidates(
       (b.continuityKey == continuity ? 1 : 0).compareTo(
         a.continuityKey == continuity ? 1 : 0,
       ),
+      preference(a).compareTo(preference(b)),
       scores[b.id]!.compareTo(scores[a.id]!),
       a.order.compareTo(b.order),
       a.provider.compareTo(b.provider),
