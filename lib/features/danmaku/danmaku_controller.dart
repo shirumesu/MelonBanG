@@ -19,6 +19,9 @@ class DanmakuSourceState {
   /// The loaded episode, where sent comments go.
   String? locator;
 
+  /// The episode carried over from one picked for another episode.
+  String? followed;
+
   /// Why an unmatched source loaded nothing.
   String? message;
   String? error;
@@ -72,7 +75,8 @@ class DanmakuController extends ChangeNotifier {
   }
 
   /// Loads every enabled automatic source: the stream's own locator, then a
-  /// saved manual match, then the provider's own matching.
+  /// saved manual match, then the episode following one picked for another
+  /// episode of the subject, then the provider's own matching.
   Future<void> autoMatch(double duration, {DanmakuTarget? target}) async {
     final current = _target;
     if (current == null || (target != null && !identical(target, current))) {
@@ -96,8 +100,8 @@ class DanmakuController extends ChangeNotifier {
         if (source.enabled && source.id != repository.local.id)
           _load(source.id, () async {
             final provider = repository.matcher(source.id);
-            Future<(String, List<DanmakuComment>)> load(String locator) async =>
-                (locator, await provider.load(locator));
+            Future<_Loaded> load(String locator, {String? followed}) async =>
+                (locator, await provider.load(locator), followed);
             if (current.embedded case (final id, final locator)
                 when id == source.id) {
               return load(locator);
@@ -106,17 +110,41 @@ class DanmakuController extends ChangeNotifier {
                 ? null
                 : await repository.savedLocator(current.matchKey!, source.id);
             if (saved != null) return load(saved);
+            String? missed;
+            if ((provider, current.subjectId) case (
+              final DanmakuFollower follower,
+              final subjectId?,
+            )) {
+              if (await repository.followed(subjectId, source.id)
+                  case (final locator, final from)?) {
+                final to = (await query.episode()).number;
+                if (to == from) return load(locator);
+                if (await follower.follow(locator, from, to) case final row?) {
+                  return load(row.locator!, followed: row.title);
+                }
+                missed =
+                    '之前为第 ${from % 1 == 0 ? from.toInt() : from} 集选的视频里'
+                    '没有找到唯一的第 '
+                    '${to % 1 == 0 ? to.toInt() : to} 集，请手动匹配';
+              }
+            }
             final match = await provider.match(query);
             if (match.locator case final locator?) return load(locator);
-            throw _NoMatch(match);
+            throw _NoMatch(
+              missed != null && match.candidates.isEmpty
+                  ? DanmakuMatch.none(missed)
+                  : match,
+            );
           }),
     ]);
   }
 
-  /// Loads a chosen or typed locator and remembers it for this media.
+  /// Loads a chosen locator and remembers it for this media and, by episode
+  /// number, for the subject's other episodes to follow.
   Future<void> load(String provider, String locator) => _load(
     provider,
-    () async => (locator, await repository.provider(provider).load(locator)),
+    () async =>
+        (locator, await repository.provider(provider).load(locator), null),
     save: true,
   );
 
@@ -149,7 +177,7 @@ class DanmakuController extends ChangeNotifier {
 
   Future<void> _load(
     String provider,
-    Future<(String, List<DanmakuComment>)> Function() fetch, {
+    Future<_Loaded> Function() fetch, {
     bool save = false,
   }) async {
     final target = _target;
@@ -162,6 +190,7 @@ class DanmakuController extends ChangeNotifier {
       ..status = DanmakuStatus.loading
       ..count = 0
       ..locator = null
+      ..followed = null
       ..error = null
       ..message = null
       ..candidates = const [];
@@ -169,17 +198,21 @@ class DanmakuController extends ChangeNotifier {
     bool current() =>
         identical(_target, target) && identical(_loads[provider], ticket);
     try {
-      final (locator, comments) = await fetch();
+      final (locator, comments, followed) = await fetch();
       if (!current()) return;
-      if (save && target.matchKey != null) {
-        await repository.saveLocator(target.matchKey!, provider, locator);
+      if (save) {
+        if (target.matchKey != null) {
+          await repository.saveLocator(target.matchKey!, provider, locator);
+        }
+        await _saveFollowed(target, provider, locator);
         if (!current()) return;
       }
       _comments[provider] = comments;
       source
         ..status = DanmakuStatus.ready
         ..count = comments.length
-        ..locator = locator;
+        ..locator = locator
+        ..followed = followed;
       if (repository.provider(provider) case final DanmakuSender sender) {
         unawaited(_refreshQuota(sender));
       }
@@ -201,6 +234,25 @@ class DanmakuController extends ChangeNotifier {
         ..error = errorMessage(e);
     }
     _merge();
+  }
+
+  Future<void> _saveFollowed(
+    DanmakuTarget target,
+    String provider,
+    String locator,
+  ) async {
+    final subjectId = target.subjectId;
+    if (subjectId == null ||
+        repository.provider(provider) is! DanmakuFollower) {
+      return;
+    }
+    final DanmakuEpisode episode;
+    try {
+      episode = await repository.episode(target);
+    } on DanmakuUnmatched {
+      return; // No episode number for others to follow from.
+    }
+    await repository.saveFollowed(subjectId, provider, locator, episode.number);
   }
 
   /// Whether any source takes comments.
@@ -398,6 +450,9 @@ class DanmakuController extends ChangeNotifier {
     super.dispose();
   }
 }
+
+/// A load's locator, comments and, when carried over, the episode's title.
+typedef _Loaded = (String, List<DanmakuComment>, String?);
 
 class _NoMatch implements Exception {
   const _NoMatch(this.match);
