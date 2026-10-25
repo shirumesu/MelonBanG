@@ -22,6 +22,7 @@ import '../../features/playback/play_selection.dart';
 import '../../features/playback/playback.dart';
 import 'player_controls.dart';
 import 'player_library_panel.dart';
+import 'player_progress_bar.dart';
 import 'player_resource_sheet.dart';
 import 'player_settings.dart';
 import 'player_theme.dart';
@@ -742,7 +743,14 @@ class PlayerPageState extends State<PlayerPage> {
                   },
                 ),
               ),
-              DanmakuLayer(playback: playback),
+              DanmakuLayer(
+                playback: playback,
+                onJump: (seconds) {
+                  focus.requestFocus();
+                  showFeedback('跳到 ${formatTime(seconds)}');
+                  unawaited(seekTo(seconds));
+                },
+              ),
               StreamBuilder<bool>(
                 stream: player.stream.buffering,
                 initialData: player.state.buffering,
