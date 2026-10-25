@@ -212,3 +212,11 @@ class DanmakuSendRejected implements Exception {
 abstract interface class DanmakuSearch implements DanmakuMatcher {
   Future<List<DanmakuCandidate>> search(String title);
 }
+
+/// A provider that carries an episode picked by hand over to the subject's
+/// other episodes, within the same multi-part video, collection or season.
+abstract interface class DanmakuFollower implements DanmakuProvider {
+  /// The episode numbered [to] beside [locator], which was picked for
+  /// episode [from]; null unless exactly one plausible episode is found.
+  Future<DanmakuCandidate?> follow(String locator, double from, double to);
+}

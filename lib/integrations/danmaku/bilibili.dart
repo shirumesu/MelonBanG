@@ -14,12 +14,10 @@ import '../../domain/sources.dart';
 import '../sources/bilibili.dart';
 import 'matching.dart';
 
-const _headers = {'Referer': 'https://www.bilibili.com/'};
-
 /// Bilibili: automatic matching takes official `media_bangumi` matches
 /// only; manual search is the resource search's, over official seasons and
 /// uploads. Locators are EP ids or BV ids with their part as `p`.
-class BilibiliDanmaku implements DanmakuSearch {
+class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
   BilibiliDanmaku(this.api)
     : _engine = BilibiliEngine(
         api,
@@ -62,16 +60,14 @@ class BilibiliDanmaku implements DanmakuSearch {
     if (titles.isEmpty) return null;
     final normalizedTitles = titles.map(normalizedTitle).toSet();
     final candidates = <String>{};
+    // Search refuses requests without a browser agent and guest cookie.
+    await _engine.guest(null);
     for (final query
         in titles.map(ChineseHelper.convertToSimplifiedChinese).toSet()) {
-      final result = await api.map(
-        Uri.https('api.bilibili.com', '/x/web-interface/search/type', {
-          'search_type': 'media_bangumi',
-          'keyword': query,
-        }),
-        headers: _headers,
-      );
-      _check(result);
+      final result = await _engine.request('/x/web-interface/search/type', {
+        'search_type': 'media_bangumi',
+        'keyword': query,
+      });
       final data = object(result['data']);
       if (data['result'] is! List && data['numResults'] != 0) {
         throw StateError('Bilibili 番剧搜索暂不可用');
@@ -84,13 +80,9 @@ class BilibiliDanmaku implements DanmakuSearch {
       }
     }
     if (candidates.length != 1) return null;
-    final season = await api.map(
-      Uri.https('api.bilibili.com', '/pgc/view/web/season', {
-        'season_id': candidates.single,
-      }),
-      headers: _headers,
-    );
-    _check(season);
+    final season = await _engine.request('/pgc/view/web/season', {
+      'season_id': candidates.single,
+    });
     if (season['result'] is! Map) throw StateError('Bilibili 番剧详情暂不可用');
     final episodes = objects(object(season['result'])['episodes'])
         .where((item) => episodeNumber('${item['title']}') == episode.number)
@@ -187,16 +179,84 @@ class BilibiliDanmaku implements DanmakuSearch {
   }
 
   @override
+  Future<DanmakuCandidate?> follow(
+    String locator,
+    double from,
+    double to,
+  ) async {
+    await _engine.guest(null);
+    final episode = RegExp(r'ep(\d+)').firstMatch(locator);
+    final List<({String name, String label, String locator, num seconds})> rows;
+    if (episode != null) {
+      final value = await _engine.request('/pgc/view/web/season', {
+        'ep_id': episode[1]!,
+      });
+      rows = [
+        for (final item in objects(object(value['result'])['episodes']))
+          (
+            name: '${item['title']}',
+            label: '第${item['title']}话 ${item['long_title']}'.trim(),
+            locator: 'ep${item['id']}',
+            seconds: number(item['duration']) / 1000,
+          ),
+      ];
+    } else {
+      final bvid = RegExp(r'BV[a-zA-Z0-9]+').firstMatch(locator)![0]!;
+      final value = await _engine.request('/x/web-interface/view', {
+        'bvid': bvid,
+      });
+      final data = object(value['data']);
+      final pages = objects(data['pages']);
+      // A multi-part video's parts, else the single-part videos of the
+      // collection it belongs to.
+      rows = pages.length > 1
+          ? [
+              for (final page in pages)
+                (
+                  name: '${page['part']}',
+                  label: 'P${page['page']} · ${page['part']}',
+                  locator: '$bvid?p=${page['page']}',
+                  seconds: number(page['duration']),
+                ),
+            ]
+          : [
+              for (final section in objects(
+                object(data['ugc_season'])['sections'],
+              ))
+                for (final video in objects(section['episodes']))
+                  if (objects(video['pages']) case [final page])
+                    (
+                      name: '${video['title']}',
+                      label: '${video['title']}',
+                      locator: '${video['bvid']}?p=1',
+                      seconds: number(page['duration']),
+                    ),
+            ];
+    }
+    final anchor = rows.where((row) => row.locator == locator).firstOrNull;
+    if (anchor == null) return null;
+    final row = followRow(
+      // Much shorter than the picked episode: a preview, clip or half.
+      rows.where((row) => row.seconds >= anchor.seconds * .6),
+      (row) => row.name,
+      anchor,
+      from,
+      to,
+    );
+    return row == null
+        ? null
+        : DanmakuCandidate(title: row.label, locator: row.locator);
+  }
+
+  @override
   Future<List<DanmakuComment>> load(String locator) async {
+    await _engine.guest(null);
     final episode = RegExp(r'ep(\d+)').firstMatch(locator);
     late Json video;
     if (episode != null) {
-      final response = await api.map(
-        Uri.https('api.bilibili.com', '/pgc/view/web/season', {
-          'ep_id': episode[1]!,
-        }),
-        headers: _headers,
-      );
+      final response = await _engine.request('/pgc/view/web/season', {
+        'ep_id': episode[1]!,
+      });
       final data = object(response['result']);
       final episodes = [
         ...objects(data['episodes']),
@@ -209,10 +269,9 @@ class BilibiliDanmaku implements DanmakuSearch {
     } else {
       final bv = RegExp(r'BV[a-zA-Z0-9]+').firstMatch(locator)?[0];
       if (bv == null) throw const FormatException('请输入 BV 号、EP 号或播放链接');
-      final response = await api.map(
-        Uri.https('api.bilibili.com', '/x/web-interface/view', {'bvid': bv}),
-        headers: _headers,
-      );
+      final response = await _engine.request('/x/web-interface/view', {
+        'bvid': bv,
+      });
       final pages = objects(object(response['data'])['pages']);
       final page =
           int.tryParse(Uri.tryParse(locator)?.queryParameters['p'] ?? '1') ?? 1;
@@ -228,7 +287,7 @@ class BilibiliDanmaku implements DanmakuSearch {
     try {
       final xml = await api.send(
         Uri.https('comment.bilibili.com', '/$cid.xml'),
-        headers: _headers,
+        headers: _engine.mediaHeaders,
       );
       final bytes = xml.bodyBytes;
       final deflated =
@@ -249,7 +308,7 @@ class BilibiliDanmaku implements DanmakuSearch {
                 'oid': '$cid',
                 'segment_index': '${i + offset}',
               }),
-              headers: _headers,
+              headers: _engine.mediaHeaders,
             );
             final bytes = response.bodyBytes;
             comments.addAll(await compute(_parseSegment, bytes));
@@ -263,12 +322,6 @@ class BilibiliDanmaku implements DanmakuSearch {
       throw StateError('Bilibili 弹幕获取失败：$failure');
     }
     return compute(sortedComments, comments);
-  }
-}
-
-void _check(Json value) {
-  if (value['code'] != 0) {
-    throw StateError('Bilibili 番剧请求失败：${value['message'] ?? value['code']}');
   }
 }
 

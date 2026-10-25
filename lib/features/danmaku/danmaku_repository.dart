@@ -51,6 +51,27 @@ class DanmakuRepository {
   Future<void> saveLocator(String key, String provider, String locator) =>
       store.put('danmaku_matches', '$key:$provider', {'locator': locator});
 
+  /// The episode last picked by hand for the subject, as (locator, episode
+  /// number), which its other episodes follow.
+  Future<(String, double)?> followed(int subjectId, String provider) async =>
+      switch (await store.get('danmaku_follow', '$subjectId:$provider')) {
+        {'locator': final String locator, 'number': final num number} => (
+          locator,
+          number.toDouble(),
+        ),
+        _ => null,
+      };
+
+  Future<void> saveFollowed(
+    int subjectId,
+    String provider,
+    String locator,
+    double number,
+  ) => store.put('danmaku_follow', '$subjectId:$provider', {
+    'locator': locator,
+    'number': number,
+  });
+
   Future<DanmakuEpisode> episode(DanmakuTarget target) async {
     final subjectId = target.subjectId;
     if (subjectId == null) throw const DanmakuUnmatched('缺少番剧信息');

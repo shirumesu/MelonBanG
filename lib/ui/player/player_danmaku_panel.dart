@@ -251,7 +251,10 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
     final status = switch (source.status) {
       DanmakuStatus.idle => '等待匹配',
       DanmakuStatus.loading => '匹配中',
-      DanmakuStatus.ready => '${source.count} 条',
+      DanmakuStatus.ready => switch (source.followed) {
+        final title? => '${source.count} 条 · 沿用之前的选择：$title',
+        null => '${source.count} 条',
+      },
       DanmakuStatus.unmatched =>
         source.candidates.isEmpty
             ? source.message ?? '未匹配'
