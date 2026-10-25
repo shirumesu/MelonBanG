@@ -43,21 +43,6 @@ class BitTorrentSettings {
     forceEncryption: data['forceEncryption'] as bool? ?? false,
   );
 
-  factory BitTorrentSettings.fromStoredJson(Json data) {
-    final values = {...data};
-    for (final (key, maximum, previousMaximum) in [
-      ('activeDownloads', 5, 20),
-      ('activeSeeds', 3, 20),
-      ('seedMinutes', 1440, 525600),
-    ]) {
-      final value = values[key];
-      if (value is num && value > maximum && value <= previousMaximum) {
-        values[key] = maximum;
-      }
-    }
-    return BitTorrentSettings.fromJson(values);
-  }
-
   Json toJson() => {
     'seedMode': seedMode,
     'seedRatio': seedRatio,

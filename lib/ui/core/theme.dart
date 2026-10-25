@@ -158,6 +158,9 @@ ThemeData appTheme(bool dark, {Color accent = mint}) {
     borderRadius: controlBorderRadius,
     borderSide: BorderSide.none,
   );
+  // Menus sit on panels; in dark mode a lighter fill keeps their edge visible.
+  final menuColor = dark ? scheme.surfaceContainerHigh : scheme.surface;
+  final menuShadow = Colors.black.withValues(alpha: dark ? .3 : .16);
   final theme = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
@@ -188,11 +191,30 @@ ThemeData appTheme(bool dark, {Color accent = mint}) {
       shape: const RoundedRectangleBorder(borderRadius: panelBorderRadius),
     ),
     popupMenuTheme: PopupMenuThemeData(
-      color: scheme.surface,
+      color: menuColor,
       surfaceTintColor: Colors.transparent,
       elevation: 3,
-      shadowColor: Colors.black.withValues(alpha: dark ? .3 : .16),
+      shadowColor: menuShadow,
       shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
+    ),
+    menuTheme: MenuThemeData(
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(menuColor),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        elevation: const WidgetStatePropertyAll(3),
+        shadowColor: WidgetStatePropertyAll(menuShadow),
+        padding: const WidgetStatePropertyAll(EdgeInsets.all(5)),
+        shape: const WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: controlBorderRadius),
+        ),
+      ),
+    ),
+    menuButtonTheme: const MenuButtonThemeData(
+      style: ButtonStyle(
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: controlBorderRadius),
+        ),
+      ),
     ),
     listTileTheme: ListTileThemeData(
       shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),

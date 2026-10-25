@@ -7,6 +7,7 @@ import '../../domain/transfer.dart';
 import '../../features/acquisition/title_matching.dart';
 import '../../features/downloads/downloads_controller.dart';
 import '../core/motion.dart';
+import '../core/byte_units.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
@@ -266,7 +267,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
             ),
             if (speed > 0)
               Text(
-                '↓ ${(speed / 1048576).toStringAsFixed(1)} MiB/s',
+                '↓ ${ByteUnitsScope.of(context).rate(speed)}',
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.primary,
                   fontSize: 12,
@@ -439,7 +440,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
                             if (failed > 0)
                               MelonBadge('需要重试 $failed', color: coral),
                             if (speed > 0)
-                              Text('↓ ${transferRate(speed)}', style: small),
+                              Text(
+                                '↓ ${ByteUnitsScope.of(context).rate(speed)}',
+                                style: small,
+                              ),
                           ],
                         ),
                       ],
@@ -689,9 +693,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
         ),
       const SizedBox(height: 8),
       _stats(context, [
-        '↓ ${transferRate(task.downloadSpeed)}',
+        '↓ ${ByteUnitsScope.of(context).rate(task.downloadSpeed)}',
         if (task.seeds) ...[
-          '↑ ${transferRate(task.uploadSpeed)}',
+          '↑ ${ByteUnitsScope.of(context).rate(task.uploadSpeed)}',
           '${swarm.peers} 个连接',
           '分享率 ${task.totalBytes > 0 ? (task.uploadedBytes / task.totalBytes).toStringAsFixed(2) : '0.00'}',
         ],
@@ -725,7 +729,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
       if (task.seeds && task.complete) ...[
         const SizedBox(height: 6),
         _stats(context, [
-          '已上传 ${(task.uploadedBytes / 1048576).toStringAsFixed(1)} MiB',
+          '已上传 ${ByteUnitsScope.of(context).format(task.uploadedBytes)}',
           '做种 ${(task.seedSeconds / 60).floor()} 分钟',
         ]),
       ],
@@ -807,7 +811,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
               const SizedBox(width: 12),
               Text(
                 [
-                  '${(file.size / 1048576).toStringAsFixed(1)} MiB',
+                  ByteUnitsScope.of(context).format(file.size),
                   if (file.progress < 1) '${(file.progress * 100).floor()}%',
                 ].join('  '),
                 style: small,

@@ -157,6 +157,26 @@ SettingsSection appearanceSection(Appearance appearance) => SettingsSection(
           ),
         ),
       ),
+      SettingsItem(
+        '容量单位 大小 速度 字节 KiB MiB KB MB',
+        _watch(
+          appearance,
+          (context) => SettingRow(
+            title: '容量单位',
+            subtitle: '文件大小和下载速度的单位：KiB 按 1024 进位，KB 按 1000 进位',
+            trailing: SizedBox(
+              width: 200,
+              child: MelonSegmentedControl<ByteUnits>(
+                options: {
+                  for (final units in ByteUnits.values) units: units.label,
+                },
+                value: appearance.byteUnits,
+                onChanged: appearance.setByteUnits,
+              ),
+            ),
+          ),
+        ),
+      ),
     ]),
   ],
 );

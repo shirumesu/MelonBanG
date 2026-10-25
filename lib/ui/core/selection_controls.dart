@@ -280,25 +280,9 @@ class MelonChoiceMenu<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MenuAnchor(
     crossAxisUnconstrained: false,
-    style: MenuStyle(
-      backgroundColor: WidgetStatePropertyAll(
-        Theme.of(context).colorScheme.surface,
-      ),
-      surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-      padding: const WidgetStatePropertyAll(EdgeInsets.all(5)),
-      shape: const WidgetStatePropertyAll(
-        RoundedRectangleBorder(borderRadius: controlBorderRadius),
-      ),
-      elevation: const WidgetStatePropertyAll(3),
-    ),
     menuChildren: [
       for (final entry in options.entries)
         MenuItemButton(
-          style: const ButtonStyle(
-            shape: WidgetStatePropertyAll(
-              RoundedRectangleBorder(borderRadius: controlBorderRadius),
-            ),
-          ),
           onPressed: onSelected == null ? null : () => onSelected!(entry.key),
           leadingIcon: SizedBox.square(
             dimension: 18,
@@ -516,15 +500,9 @@ class MelonFilterMenu<T> extends StatelessWidget {
         style: pill(on, picked: picked, left: gap),
         submenuIcon: const WidgetStatePropertyAll(SizedBox.shrink()),
         alignmentOffset: const Offset(0, 3),
-        menuStyle: MenuStyle(
+        menuStyle: const MenuStyle(
           alignment: AlignmentDirectional.bottomStart,
-          backgroundColor: WidgetStatePropertyAll(menuSurface(context)),
-          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-          padding: const WidgetStatePropertyAll(EdgeInsets.all(3)),
-          shape: const WidgetStatePropertyAll(
-            RoundedRectangleBorder(borderRadius: controlBorderRadius),
-          ),
-          elevation: const WidgetStatePropertyAll(3),
+          padding: WidgetStatePropertyAll(EdgeInsets.all(3)),
         ),
         menuChildren: [
           Row(
@@ -561,9 +539,6 @@ class MelonFilterMenu<T> extends StatelessWidget {
       closeOnActivate: !multiple,
       style: ButtonStyle(
         minimumSize: WidgetStatePropertyAll(Size(columns == 1 ? 200 : 0, 38)),
-        shape: const WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: controlBorderRadius),
-        ),
       ),
       onPressed: option.enabled || selected.contains(option.value)
           ? () => onToggle(option.value, !selected.contains(option.value))
@@ -590,13 +565,6 @@ class MelonFilterMenu<T> extends StatelessWidget {
       controller: menu,
       crossAxisUnconstrained: false,
       style: MenuStyle(
-        backgroundColor: WidgetStatePropertyAll(menuSurface(context)),
-        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-        padding: const WidgetStatePropertyAll(EdgeInsets.all(5)),
-        shape: const WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: controlBorderRadius),
-        ),
-        elevation: const WidgetStatePropertyAll(3),
         maximumSize: WidgetStatePropertyAll(
           Size(columns > 1 ? columns * width + 10 : 360, 440),
         ),
@@ -703,10 +671,6 @@ class MelonFilterMenu<T> extends StatelessWidget {
   }
 }
 
-/// Popup menus sit on panels; in dark mode a lighter fill keeps their edge visible.
-Color menuSurface(BuildContext context) {
-  final scheme = Theme.of(context).colorScheme;
-  return scheme.brightness == Brightness.dark
-      ? scheme.surfaceContainerHigh
-      : scheme.surface;
-}
+/// The fill of popup menus.
+Color menuSurface(BuildContext context) =>
+    Theme.of(context).popupMenuTheme.color!;

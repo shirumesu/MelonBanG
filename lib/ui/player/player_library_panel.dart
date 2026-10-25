@@ -15,6 +15,7 @@ import '../acquisition/download_labels.dart';
 import '../acquisition/download_task_widgets.dart';
 import '../core/account_avatar.dart';
 import '../core/bbcode.dart';
+import '../core/byte_units.dart';
 import '../core/external_link.dart';
 import '../core/motion.dart';
 import '../core/selection_controls.dart';
@@ -480,6 +481,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
         ? '已缓存'
         : transferLine(
             task,
+            ByteUnitsScope.of(context),
             status:
                 '${session.streamId != null ? '边下边播' : downloadStatus(task)} '
                 '${(task.progress * 100).floor()}%',

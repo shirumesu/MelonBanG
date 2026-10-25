@@ -1469,13 +1469,8 @@ class _TagAdderState extends State<_TagAdder> {
   Widget build(BuildContext context) {
     final small = Theme.of(context).textTheme.bodySmall;
     return MenuAnchor(
-      style: MenuStyle(
-        backgroundColor: WidgetStatePropertyAll(menuSurface(context)),
-        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-        padding: const WidgetStatePropertyAll(EdgeInsets.all(12)),
-        shape: const WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: controlBorderRadius),
-        ),
+      style: const MenuStyle(
+        padding: WidgetStatePropertyAll(EdgeInsets.all(12)),
       ),
       onClose: () => setState(() => error = null),
       menuChildren: [

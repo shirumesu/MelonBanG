@@ -6,7 +6,9 @@ import '../../domain/play_candidate.dart';
 import '../../domain/transfer.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
+import '../../features/appearance/appearance.dart';
 import '../core/external_link.dart';
+import '../core/byte_units.dart';
 import '../core/motion.dart';
 import '../core/theme.dart';
 import 'download_labels.dart';
@@ -288,20 +290,14 @@ class ResourceSearchStatus extends StatelessWidget {
   );
 }
 
-String resourceSizeLabel(TorrentRelease release) {
+String resourceSizeLabel(TorrentRelease release, ByteUnits units) {
   final provided = (release.sizeLabel ?? '').trim();
   if (provided.isNotEmpty) return provided;
-  return resourceBytesLabel(release.sizeBytes ?? 0);
+  return resourceBytesLabel(release.sizeBytes ?? 0, units);
 }
 
-String resourceBytesLabel(int bytes) {
-  if (bytes <= 1) return '—';
-  if (bytes >= 1073741824) {
-    return '${(bytes / 1073741824).toStringAsFixed(1)} GiB';
-  }
-  if (bytes >= 1048576) return '${(bytes / 1048576).toStringAsFixed(1)} MiB';
-  return '${(bytes / 1024).toStringAsFixed(1)} KiB';
-}
+String resourceBytesLabel(int bytes, ByteUnits units) =>
+    bytes <= 1 ? '—' : units.format(bytes);
 
 String resourceDateLabel(TorrentRelease release) {
   final raw = release.publishedAt ?? '';
@@ -376,12 +372,12 @@ class ResourceResultRow extends StatelessWidget {
       final (group, size, date) = switch (candidate.target) {
         ReleaseTarget(candidate: ReleaseCandidate(:final release)) => (
           groups.isEmpty ? '—' : groups,
-          resourceSizeLabel(release),
+          resourceSizeLabel(release, ByteUnitsScope.of(context)),
           resourceDateLabel(release),
         ),
         DownloadTarget(:final task) => (
           groups.isEmpty ? '—' : groups,
-          resourceBytesLabel(task.totalBytes),
+          resourceBytesLabel(task.totalBytes, ByteUnitsScope.of(context)),
           '—',
         ),
         OnlineTarget() => (

@@ -73,7 +73,7 @@ class LibtorrentTransfer implements TorrentTransfer {
   Future<void> loadPreferences() => _loadingPreferences ??= _loadPreferences();
 
   Future<void> _loadPreferences() async {
-    settings = BitTorrentSettings.fromStoredJson(
+    settings = BitTorrentSettings.fromJson(
       await store.get('settings', 'bittorrent') ?? {},
     );
   }
