@@ -112,6 +112,7 @@ class PlayerPageState extends State<PlayerPage> {
 
   bool controls = true;
   bool controlsHovered = false, controlsFocused = false, controlsPopup = false;
+  bool handleHovered = false;
   bool resourcesOpen = false;
   int? resourceEpisode;
   bool danmakuMenu = false;
@@ -930,19 +931,26 @@ class PlayerPageState extends State<PlayerPage> {
                   right: 0,
                   bottom: 0,
                   child: Center(
+                    // Folded, it stays out of sight until the pointer
+                    // reaches it.
                     child: IgnorePointer(
-                      ignoring: !controls && !danmakuMenu,
+                      ignoring: panel && !controls && !danmakuMenu,
                       child: AnimatedOpacity(
-                        opacity: controls || danmakuMenu ? 1 : 0,
+                        opacity:
+                            (panel ? controls || danmakuMenu : handleHovered)
+                            ? 1
+                            : 0,
                         duration: motionDuration(context),
                         curve: Curves.easeOutCubic,
                         child: MouseRegion(
                           onEnter: (_) {
                             controlsHovered = true;
+                            setState(() => handleHovered = true);
                             reveal();
                           },
                           onExit: (_) {
                             controlsHovered = false;
+                            setState(() => handleHovered = false);
                             reveal();
                           },
                           child: _PanelHandle(
