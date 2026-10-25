@@ -35,7 +35,10 @@ class DanmakuClock {
       }
       if (native != _nativePosition) {
         final error = native - _position;
-        if (error.abs() > .5 ||
+        // mpv dates buffered audio at the current speed, so a rate change
+        // moves its position by up to twice the buffer at once; until the
+        // clock takes the new rate, its old one closes that gap instead.
+        if (error.abs() > (rate == _rate ? .5 : 2) ||
             native < _nativePosition - .1 ||
             (!_running && !running)) {
           // Seeks and paused scrubbing must rebase, not animate through the gap.

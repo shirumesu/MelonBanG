@@ -9,9 +9,13 @@ import 'danmaku_clock.dart';
 import 'danmaku_layout.dart';
 import '../../features/playback/playback.dart';
 
-/// Clock times such as `12:34`, `1:02:03` and `12：34`, or `1分30(秒)`.
+/// Clock times such as `12:34`, `1:02:03` and `02 ： 13`, `2.19`, or
+/// `1分30(秒)`. A dotted time is not followed by a unit, which marks a
+/// number such as a score or a price.
 final _jumpTime = RegExp(
-  r'(?<![\d:：.])(?:(?:(\d{1,2})[:：])?(\d{1,2})[:：](\d{2})(?![\d:：])'
+  r'(?<![\d:：.])(?:'
+  r'(?:(\d{1,2})\s*[:：]\s*)?(\d{1,2})\s*[:：]\s*(\d{2})(?![\d:：])'
+  r'|(\d{1,2})\.(\d{2})(?![\d.%％倍元块万亿分])'
   r'|(\d{1,3})\s*分\s*(\d{1,2})(?!\d))',
 );
 
@@ -20,8 +24,8 @@ final _jumpTime = RegExp(
 double? danmakuJumpTarget(String text, Duration duration) {
   for (final match in _jumpTime.allMatches(text)) {
     final hours = int.parse(match[1] ?? '0');
-    final minutes = int.parse(match[2] ?? match[4]!);
-    final seconds = int.parse(match[3] ?? match[5]!);
+    final minutes = int.parse(match[2] ?? match[4] ?? match[6]!);
+    final seconds = int.parse(match[3] ?? match[5] ?? match[7]!);
     if (seconds >= 60 || (match[1] != null && minutes >= 60)) continue;
     final target = hours * 3600 + minutes * 60 + seconds;
     if (target > 0 && Duration(seconds: target) < duration) {
@@ -256,6 +260,8 @@ class DanmakuPainter extends CustomPainter {
       item.color,
       preferences.size,
       stroke: preferences.stroke,
+      underline:
+          danmakuJumpTarget(item.text, playback.player.state.duration) != null,
       ratio: ratio,
     );
   }
@@ -272,6 +278,7 @@ class DanmakuSprite {
     this.color,
     this.fontSize, {
     required this.stroke,
+    required this.underline,
     required this.ratio,
   }) {
     final fill = _layout(TextStyle(color: Color(0xff000000 | color)));
@@ -282,6 +289,9 @@ class DanmakuSprite {
   final int color;
   final double fontSize;
   final bool stroke;
+
+  /// Marks a comment that jumps to the time it names when clicked.
+  final bool underline;
   final double ratio;
   TextPainter? _fill;
   ui.Image? _image;
@@ -294,7 +304,11 @@ class DanmakuSprite {
   TextPainter _layout(TextStyle style) => TextPainter(
     text: TextSpan(
       text: text,
-      style: style.copyWith(fontSize: fontSize, fontWeight: FontWeight.w600),
+      style: style.copyWith(
+        fontSize: fontSize,
+        fontWeight: FontWeight.w600,
+        decoration: underline ? TextDecoration.underline : null,
+      ),
     ),
     textDirection: TextDirection.ltr,
     maxLines: 1,
@@ -345,8 +359,8 @@ class DanmakuSprite {
 class DanmakuSpriteCache {
   /// Room for the outline, which strokes 1 px outside the glyphs.
   static const padding = 1.0;
-  final _sprites = <(String, int, double, bool, double), DanmakuSprite>{};
-  final _used = <(String, int, double, bool, double)>{};
+  final _sprites = <(String, int, double, bool, bool, double), DanmakuSprite>{};
+  final _used = <(String, int, double, bool, bool, double)>{};
 
   void beginFrame() => _used.clear();
 
@@ -355,13 +369,21 @@ class DanmakuSpriteCache {
     int color,
     double size, {
     required bool stroke,
+    required bool underline,
     required double ratio,
   }) {
-    final key = (text, color, size, stroke, ratio);
+    final key = (text, color, size, stroke, underline, ratio);
     _used.add(key);
     return _sprites.putIfAbsent(
       key,
-      () => DanmakuSprite(text, color, size, stroke: stroke, ratio: ratio),
+      () => DanmakuSprite(
+        text,
+        color,
+        size,
+        stroke: stroke,
+        underline: underline,
+        ratio: ratio,
+      ),
     );
   }
 
