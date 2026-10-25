@@ -609,10 +609,7 @@ class Playback extends ChangeNotifier {
         _upcoming = upcomingSkip = null;
         notifyListeners();
       } else if (position >= _skipAt) {
-        final label = upcomingSkip!;
-        _passed(span);
-        _upcoming = upcomingSkip = null;
-        unawaited(_skipTo(span.end, '已自动跳过$label'));
+        _skipUpcoming('已自动跳过');
       } else {
         _count(position);
       }
@@ -657,6 +654,22 @@ class Playback extends ChangeNotifier {
     } else {
       _skippedEnding = true;
     }
+  }
+
+  /// When the coming skip happens and where it lands, in seconds.
+  double get skipAt => _skipAt;
+  double? get skipTarget => _upcoming?.end;
+
+  /// Skips the OP or ED counting down at once.
+  void skipNow() => _skipUpcoming('已跳过');
+
+  void _skipUpcoming(String verb) {
+    final span = _upcoming!;
+    final label = upcomingSkip!;
+    _passed(span);
+    _upcoming = upcomingSkip = null;
+    notifyListeners();
+    unawaited(_skipTo(span.end, '$verb$label'));
   }
 
   /// Plays the OP or ED counting down instead of skipping it.
