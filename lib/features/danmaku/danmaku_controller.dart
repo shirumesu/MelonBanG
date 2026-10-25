@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:pinyin/pinyin.dart' show ChineseHelper;
 
 import '../../core/error_message.dart';
 import '../../domain/danmaku.dart';
@@ -381,8 +382,9 @@ class DanmakuController extends ChangeNotifier {
   }
 
   /// Linear multiway merge of the enabled sources' sorted lists. A comment
-  /// with the same text as one from another source within [copyWindow]
-  /// seconds is a synced copy and dropped.
+  /// with the same text, simplified/traditional spelling ignored, as one
+  /// from another source within [copyWindow] seconds is a synced copy and
+  /// dropped; the kept comment shows the simplified spelling.
   void _merge({DanmakuComment? sent}) {
     final lists = [
       for (final source in sources)
@@ -390,8 +392,9 @@ class DanmakuController extends ChangeNotifier {
     ];
     final positions = List<int>.filled(lists.length, 0);
     final merged = <DanmakuComment>[];
-    // Text → kept comments with it in the last [copyWindow] seconds.
-    final recent = <String, List<DanmakuComment>>{};
+    // Simplified text → indices in merged of kept comments with it in the
+    // last [copyWindow] seconds.
+    final recent = <String, List<int>>{};
     var dropped = 0;
     while (true) {
       var earliest = -1;
@@ -406,13 +409,27 @@ class DanmakuController extends ChangeNotifier {
       if (earliest == -1) break;
       final item = lists[earliest][positions[earliest]++];
       if (!item.own) {
-        final kept = (recent[item.text] ??= [])
-          ..removeWhere((other) => item.time - other.time > copyWindow);
-        if (kept.any((other) => other.source != item.source)) {
+        final key = ChineseHelper.convertToSimplifiedChinese(item.text);
+        final kept = (recent[key] ??= [])
+          ..removeWhere((index) => item.time - merged[index].time > copyWindow);
+        final copy = kept
+            .where((index) => merged[index].source != item.source)
+            .firstOrNull;
+        if (copy != null) {
           dropped++;
+          final original = merged[copy];
+          if (original.text != key && item.text == key) {
+            merged[copy] = DanmakuComment(
+              original.time,
+              key,
+              source: original.source,
+              mode: original.mode,
+              color: original.color,
+            );
+          }
           continue;
         }
-        kept.add(item);
+        kept.add(merged.length);
       }
       merged.add(item);
     }
