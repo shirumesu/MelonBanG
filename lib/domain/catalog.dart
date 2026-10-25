@@ -445,6 +445,16 @@ class Subject {
         .firstOrNull;
   }
 
+  /// The episode broadcast before [id], chosen the way [after] chooses.
+  Episode? before(int id, {required bool skipExtras}) {
+    final index = episodes.indexWhere((episode) => episode.id == id);
+    if (index < 0) return null;
+    return episodes
+        .take(index)
+        .where((episode) => !skipExtras || !episode.extra)
+        .lastOrNull;
+  }
+
   Subject copyWith({
     SubjectCollection? collection,
     List<Episode>? episodes,

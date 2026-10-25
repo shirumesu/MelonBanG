@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
@@ -11,9 +12,14 @@ import 'player_menus.dart';
 import 'player_popovers.dart';
 import 'player_progress_bar.dart';
 
-/// Horizontal room before the play glyph and after the fullscreen glyph inside
-/// their buttons, so the glyphs line up with the title and the timeline.
-const _leadingInset = 15.0, _trailingInset = 11.0;
+/// Video widths below which the transport shrinks its buttons, then drops
+/// the less used ones, then the frame steps; see [PlayerControls._buttons].
+const _fullWidth = 720.0, _trimmedWidth = 620.0, _bareWidth = 520.0;
+
+/// Room before a glyph that starts [margin] units into Material's 24-unit
+/// grid, drawn at [size] in the middle of a button [side] wide.
+double _inset(double side, double size, double margin) =>
+    (side - size) / 2 + margin * size / 24;
 
 /// Bottom transport bar: progress on top, playback on the left, danmaku in
 /// the middle, viewing options on the right. Everything sits on a gradient
@@ -43,6 +49,7 @@ class PlayerControls extends StatelessWidget {
     required this.onDanmakuInputDone,
     required this.danmakuHint,
     this.danmakuMenuFocus,
+    this.onPrevious,
     this.onNext,
   });
   final Playback playback;
@@ -73,7 +80,9 @@ class PlayerControls extends StatelessWidget {
   final VoidCallback onFullscreen;
   final ValueChanged<String> onFeedback;
   final ValueChanged<bool> onStepFrame;
-  final VoidCallback? onNext;
+
+  /// Shown together, each disabled at its end of the episodes.
+  final VoidCallback? onPrevious, onNext;
   Player get player => playback.player;
 
   @override
@@ -127,95 +136,9 @@ class PlayerControls extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 2),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  pageGutter - _leadingInset,
-                  0,
-                  pageGutter - _trailingInset,
-                  0,
-                ),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final wide = constraints.maxWidth >= 680;
-                    final left = _left(current, duration);
-                    final right = _right(context);
-                    final danmaku = _danmaku();
-                    return IconButtonTheme(
-                      data: IconButtonThemeData(
-                        style: ButtonStyle(
-                          foregroundColor: const WidgetStatePropertyAll(
-                            Colors.white,
-                          ),
-                          backgroundColor: WidgetStateProperty.resolveWith(
-                            (states) => states.contains(WidgetState.selected)
-                                ? Colors.white.withValues(alpha: .14)
-                                : null,
-                          ),
-                          overlayColor: const WidgetStatePropertyAll(
-                            Colors.white12,
-                          ),
-                          minimumSize: const WidgetStatePropertyAll(
-                            Size(36, 36),
-                          ),
-                          padding: const WidgetStatePropertyAll(
-                            EdgeInsets.all(6),
-                          ),
-                          iconSize: const WidgetStatePropertyAll(22),
-                        ),
-                      ),
-                      child: wide
-                          ? Row(
-                              children: [
-                                left,
-                                const SizedBox(width: Gap.lg),
-                                Expanded(
-                                  child: LayoutBuilder(
-                                    builder: (context, constraints) => Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        ...danmaku,
-                                        if (playback.danmaku.sendable &&
-                                            constraints.maxWidth >=
-                                                DanmakuComposer.minWidth + 80)
-                                          Flexible(
-                                            child: DanmakuComposer(
-                                              playback: playback,
-                                              draft: danmakuDraft,
-                                              focusNode: danmakuInput,
-                                              onPopupChanged: onPopupChanged,
-                                              onFeedback: onFeedback,
-                                              onDone: onDanmakuInputDone,
-                                              hint: danmakuHint,
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: Gap.lg),
-                                right,
-                              ],
-                            )
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                left,
-                                SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: Row(
-                                    children: [
-                                      ...danmaku,
-                                      const SizedBox(width: Gap.lg),
-                                      right,
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                    );
-                  },
-                ),
+              LayoutBuilder(
+                builder: (context, constraints) =>
+                    _buttons(constraints.maxWidth, current, duration),
               ),
             ],
           );
@@ -224,15 +147,124 @@ class PlayerControls extends StatelessWidget {
     ),
   );
 
-  Widget _left(double current, double duration) => Row(
+  /// The button row for a video [width] wide. Below [_fullWidth] the buttons
+  /// shrink; below [_trimmedWidth] volume (still on ↑↓), subtitles and window
+  /// fullscreen leave; below [_bareWidth] the frame steps (still on , and .)
+  /// leave too.
+  Widget _buttons(double width, double current, double duration) {
+    final compact = width < _fullWidth;
+    final trimmed = width < _trimmedWidth;
+    final bare = width < _bareWidth;
+    final side = compact ? 32.0 : 36.0;
+    final padding = compact ? 4.0 : 6.0;
+    final icon = compact ? 20.0 : 22.0;
+    final play = compact ? 26.0 : 28.0;
+    final fullscreenIcon = compact ? 22.0 : 24.0;
+    final gap = compact ? Gap.sm : Gap.lg;
+    final episodes = onPrevious != null || onNext != null;
+    // Line the first and last glyphs up with the title and the timeline.
+    final leading = episodes
+        ? _inset(side, icon, 6)
+        : _inset(math.max(side, play + padding * 2), play, 8);
+    final trailing = _inset(
+      math.max(side, fullscreenIcon + padding * 2),
+      fullscreenIcon,
+      5,
+    );
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        pageGutter - leading,
+        0,
+        pageGutter - trailing,
+        0,
+      ),
+      child: IconButtonTheme(
+        data: IconButtonThemeData(
+          style: ButtonStyle(
+            foregroundColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.disabled)
+                  ? Colors.white38
+                  : Colors.white,
+            ),
+            backgroundColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.selected)
+                  ? Colors.white.withValues(alpha: .14)
+                  : null,
+            ),
+            overlayColor: const WidgetStatePropertyAll(Colors.white12),
+            minimumSize: WidgetStatePropertyAll(Size.square(side)),
+            padding: WidgetStatePropertyAll(EdgeInsets.all(padding)),
+            iconSize: WidgetStatePropertyAll(icon),
+          ),
+        ),
+        child: Row(
+          children: [
+            _left(
+              current,
+              duration,
+              episodes: episodes,
+              play: play,
+              volume: !trimmed,
+              frames: !bare,
+            ),
+            SizedBox(width: gap),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) => Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ..._danmaku(),
+                    if (playback.danmaku.sendable &&
+                        constraints.maxWidth >= DanmakuComposer.minWidth + 80)
+                      Flexible(
+                        child: DanmakuComposer(
+                          playback: playback,
+                          draft: danmakuDraft,
+                          focusNode: danmakuInput,
+                          onPopupChanged: onPopupChanged,
+                          onFeedback: onFeedback,
+                          onDone: onDanmakuInputDone,
+                          hint: danmakuHint,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            SizedBox(width: gap),
+            _right(
+              compact: compact,
+              trimmed: trimmed,
+              fullscreenIcon: fullscreenIcon,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _left(
+    double current,
+    double duration, {
+    required bool episodes,
+    required double play,
+    required bool volume,
+    required bool frames,
+  }) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
+      if (episodes)
+        IconButton(
+          tooltip: '上一话',
+          onPressed: onPrevious,
+          icon: const Icon(Icons.skip_previous_rounded),
+        ),
       StreamBuilder<bool>(
         stream: player.stream.playing,
         initialData: player.state.playing,
         builder: (_, playing) => IconButton(
           tooltip: playing.data == true ? '暂停 (Space)' : '播放 (Space)',
-          iconSize: 28,
+          iconSize: play,
           onPressed: () {
             unawaited(playback.playOrPause());
             onReveal();
@@ -248,27 +280,30 @@ class PlayerControls extends StatelessWidget {
           ),
         ),
       ),
-      IconButton(
-        tooltip: '上一帧 (,)',
-        onPressed: () => onStepFrame(false),
-        icon: const PlayerGlyph(PlayerGlyphKind.previousFrame),
-      ),
-      IconButton(
-        tooltip: '下一帧 (.)',
-        onPressed: () => onStepFrame(true),
-        icon: const PlayerGlyph(PlayerGlyphKind.nextFrame),
-      ),
-      if (onNext != null)
+      if (episodes)
         IconButton(
           tooltip: '下一话',
           onPressed: onNext,
           icon: const Icon(Icons.skip_next_rounded),
         ),
-      PlayerVolumeControl(
-        playback: playback,
-        onFeedback: onFeedback,
-        onPopupChanged: onPopupChanged,
-      ),
+      if (frames) ...[
+        IconButton(
+          tooltip: '上一帧 (,)',
+          onPressed: () => onStepFrame(false),
+          icon: const PlayerGlyph(PlayerGlyphKind.previousFrame),
+        ),
+        IconButton(
+          tooltip: '下一帧 (.)',
+          onPressed: () => onStepFrame(true),
+          icon: const PlayerGlyph(PlayerGlyphKind.nextFrame),
+        ),
+      ],
+      if (volume)
+        PlayerVolumeControl(
+          playback: playback,
+          onFeedback: onFeedback,
+          onPopupChanged: onPopupChanged,
+        ),
       const SizedBox(width: Gap.sm),
       Text(
         '${formatTime(dragging ?? current)} / ${formatTime(duration)}',
@@ -312,29 +347,39 @@ class PlayerControls extends StatelessWidget {
     ),
   ];
 
-  Widget _right(BuildContext context) => Row(
+  Widget _right({
+    required bool compact,
+    required bool trimmed,
+    required double fullscreenIcon,
+  }) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      SuperResolutionMenu(playback: playback, onPopupChanged: onPopupChanged),
+      SuperResolutionMenu(
+        playback: playback,
+        onPopupChanged: onPopupChanged,
+        compact: compact,
+      ),
       SpeedMenu(
         player: player,
         onPopupChanged: onPopupChanged,
         onFeedback: onFeedback,
       ),
-      SubtitleMenu(playback: playback, onPopupChanged: onPopupChanged),
-      IconButton(
-        tooltip: windowFullScreen ? '退出窗口全屏' : '窗口全屏',
-        onPressed: onWindowFullScreen,
-        icon: MotionSwap(
-          value: windowFullScreen,
-          child: Icon(
-            windowFullScreen
-                ? Icons.close_fullscreen_rounded
-                : Icons.open_in_full_rounded,
-            size: 18,
+      if (!trimmed) ...[
+        SubtitleMenu(playback: playback, onPopupChanged: onPopupChanged),
+        IconButton(
+          tooltip: windowFullScreen ? '退出窗口全屏' : '窗口全屏',
+          onPressed: onWindowFullScreen,
+          icon: MotionSwap(
+            value: windowFullScreen,
+            child: Icon(
+              windowFullScreen
+                  ? Icons.close_fullscreen_rounded
+                  : Icons.open_in_full_rounded,
+              size: compact ? 16 : 18,
+            ),
           ),
         ),
-      ),
+      ],
       IconButton(
         tooltip: fullScreen ? '退出全屏 (F)' : '全屏 (F)',
         onPressed: onFullscreen,
@@ -344,7 +389,7 @@ class PlayerControls extends StatelessWidget {
             fullScreen
                 ? Icons.fullscreen_exit_rounded
                 : Icons.fullscreen_rounded,
-            size: 24,
+            size: fullscreenIcon,
           ),
         ),
       ),
