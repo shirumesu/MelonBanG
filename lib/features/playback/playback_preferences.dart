@@ -16,6 +16,17 @@ class PlaybackPreferences extends ChangeNotifier {
   String get completedPriority =>
       storage.getString('player-completed-priority') ?? 'online';
 
+  /// Release groups as typed, most preferred first.
+  String get preferredGroupsText =>
+      storage.getString('player-preferred-groups') ?? '';
+
+  /// [preferredGroupsText] split at commas, semicolons and 、, half or full
+  /// width; names themselves may hold spaces (`Nekomoe kissaten`).
+  List<String> get preferredGroups => [
+    for (final name in preferredGroupsText.split(RegExp('[,，;；、]')))
+      if (name.trim().isNotEmpty) name.trim(),
+  ];
+
   /// mpv `hwdec`: `auto`, `auto-copy` (decoded frames copied back to memory,
   /// for drivers whose direct output misbehaves) or `no`.
   String get hardwareDecoding => storage.getString('player-hwdec') ?? 'auto';
@@ -70,6 +81,8 @@ class PlaybackPreferences extends ChangeNotifier {
       _string('player-airing-priority', value);
   Future<void> setCompletedPriority(String value) =>
       _string('player-completed-priority', value);
+  Future<void> setPreferredGroups(String value) =>
+      _string('player-preferred-groups', value);
   Future<void> _string(String key, String value) async {
     await storage.setString(key, value);
     notifyListeners();

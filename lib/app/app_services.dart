@@ -236,6 +236,7 @@ class AppServices {
     );
     playback = Playback(library, downloads, danmaku, preferences, proxy: proxy);
     selection.remember = () => playback.settings.rememberSource;
+    selection.groups = () => playback.settings.preferredGroups;
     coordinator = PlaybackCoordinator(
       playback,
       selection,

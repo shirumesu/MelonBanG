@@ -303,14 +303,14 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
           '自动跳过片头',
           () => prefs.skipOpening,
           prefs.setSkipOpening,
-          subtitle: '视频内嵌章节标出 OP 时，播到片头直接跳到正片',
+          subtitle: '视频内嵌章节标出 OP 时，播到片头直接跳到正片，跳过前 5 秒提示，可取消',
         ),
         toggle(
           'ed 片尾 跳过',
           '自动跳过片尾',
           () => prefs.skipEnding,
           prefs.setSkipEnding,
-          subtitle: '视频内嵌章节标出 ED 时，播到片尾直接跳过',
+          subtitle: '视频内嵌章节标出 ED 时，播到片尾直接跳过，跳过前 5 秒提示，可取消',
         ),
       ], title: '播放'),
       SettingsGroup([
@@ -371,6 +371,7 @@ SettingsSection sourcesSection(
               ),
             ),
           ),
+        SettingsItem('字幕组 偏好 优先 喜欢 bt 发布组', _PreferredGroups(prefs: prefs)),
       ], title: '来源优先级'),
       SettingsGroup([
         SettingsItem(
@@ -406,6 +407,39 @@ SettingsSection sourcesSection(
         ),
       ], title: '记忆与缓存'),
     ],
+  );
+}
+
+class _PreferredGroups extends StatefulWidget {
+  const _PreferredGroups({required this.prefs});
+  final PlaybackPreferences prefs;
+  @override
+  State<_PreferredGroups> createState() => _PreferredGroupsState();
+}
+
+class _PreferredGroupsState extends State<_PreferredGroups> {
+  late final input = TextEditingController(
+    text: widget.prefs.preferredGroupsText,
+  );
+
+  @override
+  void dispose() {
+    input.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SettingRow(
+    title: '字幕组偏好',
+    subtitle: '用逗号或分号隔开，越靠前越优先；BT 和 PikPak 资源中这些字幕组的发布排在前面并优先推荐',
+    trailing: SizedBox(
+      width: 300,
+      child: TextField(
+        controller: input,
+        decoration: const InputDecoration(hintText: '喵萌奶茶屋, LoliHouse, 桜都字幕组'),
+        onChanged: widget.prefs.setPreferredGroups,
+      ),
+    ),
   );
 }
 

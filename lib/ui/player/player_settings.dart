@@ -1,8 +1,80 @@
 import 'package:flutter/material.dart';
 
 import '../../features/danmaku/danmaku_preferences.dart';
+import '../../features/playback/playback.dart';
 import '../core/theme.dart';
+import 'player_popovers.dart';
 import 'player_theme.dart';
+
+/// The playback options worth changing mid-episode, behind the gear left of
+/// super-resolution; the rest stay in settings.
+class PlaybackMenu extends StatelessWidget {
+  const PlaybackMenu({
+    super.key,
+    required this.playback,
+    required this.onPopupChanged,
+  });
+  final Playback playback;
+  final ValueChanged<bool> onPopupChanged;
+
+  static const aspects = {
+    'auto': '默认',
+    '16:9': '16:9',
+    '4:3': '4:3',
+    '21:9': '21:9',
+    'fill': '铺满',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = playback.settings;
+    Widget toggle(String label, bool value, Future<void> Function(bool) set) =>
+        _Row(
+          label: label,
+          labelWidth: 120,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Transform.scale(
+              scale: .75,
+              child: Switch(value: value, onChanged: set),
+            ),
+          ),
+        );
+    return HoverPopover(
+      onPopupChanged: onPopupChanged,
+      anchor: (popover) => IconButton(
+        tooltip: '播放设置',
+        isSelected: popover.open,
+        onPressed: popover.toggle,
+        icon: const Icon(Icons.settings_outlined),
+      ),
+      popover: (popover) => SizedBox(
+        width: 264,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.sm, Gap.md, Gap.md),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              toggle('自动跳过片头', settings.skipOpening, settings.setSkipOpening),
+              toggle('自动跳过片尾', settings.skipEnding, settings.setSkipEnding),
+              toggle('自动连播', settings.autoplay, settings.setAutoplay),
+              _Row(
+                label: '画面比例',
+                child: _Choice(
+                  value: aspects.keys.toList().indexOf(playback.aspect),
+                  options: aspects.values.toList(),
+                  onChanged: (index) =>
+                      playback.setAspect(aspects.keys.elementAt(index)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// The danmaku options changed while watching, over the video. Sources,
 /// matching and blocking live in the side panel's 弹幕 tab.
@@ -197,9 +269,10 @@ class DanmakuQuickSettings extends StatelessWidget {
 }
 
 class _Row extends StatelessWidget {
-  const _Row({required this.label, required this.child});
+  const _Row({required this.label, required this.child, this.labelWidth = 56});
   final String label;
   final Widget child;
+  final double labelWidth;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -207,7 +280,7 @@ class _Row extends StatelessWidget {
     child: Row(
       children: [
         SizedBox(
-          width: 56,
+          width: labelWidth,
           child: Text(
             label,
             style: const TextStyle(fontSize: 12, color: Colors.white70),

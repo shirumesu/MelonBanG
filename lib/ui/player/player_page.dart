@@ -737,6 +737,14 @@ class PlayerPageState extends State<PlayerPage> {
                     return Video(
                       controller: playback.video,
                       controls: NoVideoControls,
+                      fit: playback.aspect == 'fill'
+                          ? BoxFit.fill
+                          : BoxFit.contain,
+                      aspectRatio: switch (playback.aspect.split(':')) {
+                        [final width, final height] =>
+                          double.parse(width) / double.parse(height),
+                        _ => null,
+                      },
                       subtitleViewConfiguration:
                           const SubtitleViewConfiguration(visible: false),
                     );
@@ -988,7 +996,9 @@ class PlayerPageState extends State<PlayerPage> {
                         : inside(marks.ending)
                         ? ('跳过片尾', marks.ending!.end)
                         : (null, 0.0);
-                    if (label == null || failure != null) {
+                    final upcoming = playback.upcomingSkip;
+                    if ((label == null && upcoming == null) ||
+                        failure != null) {
                       return const SizedBox.shrink();
                     }
                     return AnimatedPositioned(
@@ -997,16 +1007,25 @@ class PlayerPageState extends State<PlayerPage> {
                       right: pageGutter,
                       bottom: controls ? _transportInset : pageGutter,
                       child: MotionAppear(
-                        key: ValueKey(label),
+                        key: ValueKey(upcoming ?? label),
                         offset: 8,
                         milliseconds: 260,
-                        child: _SkipButton(
-                          label: label,
-                          onPressed: () {
-                            showFeedback(label);
-                            unawaited(seekTo(target));
-                          },
-                        ),
+                        child: upcoming != null
+                            ? _SkipCountdown(
+                                label:
+                                    '${playback.skipCountdown} 秒后跳过$upcoming',
+                                onCancel: () {
+                                  playback.cancelSkip();
+                                  focus.requestFocus();
+                                },
+                              )
+                            : _SkipButton(
+                                label: label!,
+                                onPressed: () {
+                                  showFeedback(label);
+                                  unawaited(seekTo(target));
+                                },
+                              ),
                       ),
                     );
                   },
@@ -1403,6 +1422,54 @@ class _SkipButton extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    ),
+  );
+}
+
+/// The automatic skip coming up, with a way to play the song this time.
+class _SkipCountdown extends StatelessWidget {
+  const _SkipCountdown({required this.label, required this.onCancel});
+  final String label;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: overlaySurface,
+    borderRadius: controlBorderRadius,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 4, 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(width: 6),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.white,
+              backgroundColor: Colors.white.withValues(alpha: .12),
+              overlayColor: Colors.white,
+              minimumSize: const Size(0, 28),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              shape: const RoundedRectangleBorder(
+                borderRadius: badgeBorderRadius,
+              ),
+              textStyle: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            onPressed: onCancel,
+            child: const Text('取消'),
+          ),
+        ],
       ),
     ),
   );

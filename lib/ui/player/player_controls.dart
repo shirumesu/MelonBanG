@@ -11,6 +11,7 @@ import 'danmaku_composer.dart';
 import 'player_menus.dart';
 import 'player_popovers.dart';
 import 'player_progress_bar.dart';
+import 'player_settings.dart';
 
 /// Video widths below which the transport shrinks its buttons, then drops
 /// the less used ones, then the frame steps; see [PlayerControls._buttons].
@@ -354,6 +355,7 @@ class PlayerControls extends StatelessWidget {
   }) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
+      PlaybackMenu(playback: playback, onPopupChanged: onPopupChanged),
       SuperResolutionMenu(
         playback: playback,
         onPopupChanged: onPopupChanged,
