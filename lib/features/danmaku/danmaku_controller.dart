@@ -37,8 +37,12 @@ class DanmakuController extends ChangeNotifier {
   DanmakuTarget? _target;
   List<DanmakuSourceState> sources = [];
 
-  /// Enabled sources' comments, merged by time.
+  /// Enabled sources' comments, merged by time, without copies one source
+  /// took from another.
   List<DanmakuComment> comments = const [];
+
+  /// How many copies merging dropped from [comments].
+  int duplicates = 0;
 
   /// [comments] after preferences.
   List<DanmakuComment> visible = const [];
@@ -334,7 +338,9 @@ class DanmakuController extends ChangeNotifier {
     preferences.setProvider(provider, enabled);
   }
 
-  /// Linear multiway merge of the enabled sources' sorted lists.
+  /// Linear multiway merge of the enabled sources' sorted lists. A comment
+  /// with the same text as one from another source within [copyWindow]
+  /// seconds is a synced copy and dropped.
   void _merge({DanmakuComment? sent}) {
     final lists = [
       for (final source in sources)
@@ -342,6 +348,9 @@ class DanmakuController extends ChangeNotifier {
     ];
     final positions = List<int>.filled(lists.length, 0);
     final merged = <DanmakuComment>[];
+    // Text → kept comments with it in the last [copyWindow] seconds.
+    final recent = <String, List<DanmakuComment>>{};
+    var dropped = 0;
     while (true) {
       var earliest = -1;
       for (var i = 0; i < lists.length; i++) {
@@ -353,11 +362,26 @@ class DanmakuController extends ChangeNotifier {
         }
       }
       if (earliest == -1) break;
-      merged.add(lists[earliest][positions[earliest]++]);
+      final item = lists[earliest][positions[earliest]++];
+      if (!item.own) {
+        final kept = (recent[item.text] ??= [])
+          ..removeWhere((other) => item.time - other.time > copyWindow);
+        if (kept.any((other) => other.source != item.source)) {
+          dropped++;
+          continue;
+        }
+        kept.add(item);
+      }
+      merged.add(item);
     }
     comments = merged;
+    duplicates = dropped;
     _refresh(sent: sent);
   }
+
+  /// Sources store times at different precision (Bahamut in tenths), so a
+  /// copy lands up to this far from its original.
+  static const copyWindow = .5;
 
   void _refresh({DanmakuComment? sent}) {
     visible = preferences.visible(comments);

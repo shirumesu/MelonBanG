@@ -170,7 +170,12 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
           children: [
             Text('来源', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(width: Gap.sm),
-            Text('共 ${danmaku.comments.length} 条', style: small),
+            Text(
+              danmaku.duplicates == 0
+                  ? '共 ${danmaku.comments.length} 条'
+                  : '共 ${danmaku.comments.length} 条（已去重 ${danmaku.duplicates} 条）',
+              style: small,
+            ),
             const Spacer(),
             TextButton(
               onPressed: busy || sources.isEmpty
