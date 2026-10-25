@@ -69,6 +69,61 @@ DownloadTask downloadTask(Json task, CacheMethod method) {
   );
 }
 
+/// The stored records of one transfer's tasks in [collection], each task
+/// keeping its files in a folder named after it under [directory]. Writes
+/// run one after another, each saving the task as it was when asked.
+class TaskRecords {
+  TaskRecords(this.store, this.collection, this.directory);
+  final AppStore store;
+  final String collection, directory;
+  Future<void> _writes = Future.value();
+
+  /// The stored tasks with their paths placed under [directory] and their
+  /// speed cleared. A task whose files were all deleted outside the app is
+  /// discarded instead.
+  Future<List<Json>> restore() async {
+    final restored = <Json>[];
+    for (final task in await store.list(collection)) {
+      final id = '${task['id']}';
+      final savePath = task['savePath'] = p.join(directory, id);
+      task['downloadSpeedBytesPerSecond'] = 0;
+      task['files'] = [
+        for (final file in objects(task['files']))
+          file..['path'] = p.join(savePath, '${file['relativePath']}'),
+      ];
+      if (await deletedOutside(task, directory)) {
+        await discard(id);
+      } else {
+        restored.add(task);
+      }
+    }
+    return restored;
+  }
+
+  Future<void> put(Json task) {
+    final saved = Map<String, dynamic>.of(task)
+      ..['files'] = [
+        for (final file in objects(task['files'])) {...file},
+      ];
+    final writing = _writes.then(
+      (_) => store.put(collection, '${task['id']}', saved),
+    );
+    _writes = writing.catchError((Object _) {});
+    return writing;
+  }
+
+  /// Deletes the record and folder of task [id] once earlier writes finish.
+  Future<void> discard(String id) async {
+    await _writes;
+    await store.remove(collection, id);
+    final folder = Directory(p.join(directory, id));
+    if (await folder.exists()) await folder.delete(recursive: true);
+  }
+
+  /// Completes once the writes asked for so far finish.
+  Future<void> get settled => _writes;
+}
+
 /// A finished task whose files were all deleted outside the app; its record
 /// goes with them. A missing [directory], such as an unplugged drive, deletes
 /// nothing.

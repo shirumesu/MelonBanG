@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/error_message.dart';
@@ -74,7 +75,7 @@ class PlayerSidePanel extends StatefulWidget {
   /// The source the subject remembers for its next episodes.
   final RememberedSource? remembered;
   final VoidCallback onForgetSource;
-  final TransferSnapshot downloads;
+  final ValueListenable<TransferSnapshot> downloads;
   final PlayerPanelTab tab;
   final ValueChanged<PlayerPanelTab> onTab;
   final ValueChanged<Episode> onEpisode;
@@ -175,20 +176,25 @@ class _PlayerSidePanelState extends State<PlayerSidePanel> {
               alignment: Alignment.topCenter,
               child: SizedBox.expand(
                 child: switch (tab) {
-                  PlayerPanelTab.episodes => _EpisodesPane(
-                    key: ValueKey('episodes:${widget.session?.subjectId}'),
-                    subject: subject,
-                    session: widget.session,
-                    source: widget.source,
-                    remembered: widget.remembered,
-                    onForgetSource: widget.onForgetSource,
-                    downloads: widget.downloads,
-                    onEpisode: widget.onEpisode,
-                    onFindResources: widget.onFindResources,
-                    onPlayFile: widget.onPlayFile,
-                    onToggleTask: widget.onToggleTask,
-                    onMark: mark,
-                  ),
+                  // Only this pane follows download progress.
+                  PlayerPanelTab.episodes =>
+                    ValueListenableBuilder<TransferSnapshot>(
+                      key: ValueKey('episodes:${widget.session?.subjectId}'),
+                      valueListenable: widget.downloads,
+                      builder: (context, downloads, _) => _EpisodesPane(
+                        subject: subject,
+                        session: widget.session,
+                        source: widget.source,
+                        remembered: widget.remembered,
+                        onForgetSource: widget.onForgetSource,
+                        downloads: downloads,
+                        onEpisode: widget.onEpisode,
+                        onFindResources: widget.onFindResources,
+                        onPlayFile: widget.onPlayFile,
+                        onToggleTask: widget.onToggleTask,
+                        onMark: mark,
+                      ),
+                    ),
                   PlayerPanelTab.discussion => _DiscussionPane(
                     key: ValueKey('discussion:${episode?.id}'),
                     community: widget.community,
@@ -241,7 +247,6 @@ class _DetailButton extends StatelessWidget {
 /// The playing source, every episode as a cell, and the subject's cache.
 class _EpisodesPane extends StatefulWidget {
   const _EpisodesPane({
-    super.key,
     required this.subject,
     required this.session,
     required this.source,

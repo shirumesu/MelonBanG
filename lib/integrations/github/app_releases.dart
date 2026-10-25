@@ -70,8 +70,10 @@ class AppReleases {
       for (final asset in objects(newest['assets']))
         '${asset['name']}': Uri.parse('${asset['browser_download_url']}'),
     };
-    final manifestBytes = await _download(assets['manifest.json']);
-    final signature = await _download(assets['manifest.json.sig']);
+    final [manifestBytes, signature] = await Future.wait([
+      _download(assets['manifest.json']),
+      _download(assets['manifest.json.sig']),
+    ]);
     if (!_verify(manifestBytes, signature)) {
       throw StateError('发行版 ${newest['tag_name']} 的更新清单签名无效');
     }

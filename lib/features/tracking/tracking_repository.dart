@@ -87,14 +87,10 @@ class TrackingRepository {
         id,
       );
     }
-    final values = await Future.wait<dynamic>([
-      catalog.subject(id, onAvailable: publish).then((detail) async {
-        await publish(detail);
-        return detail;
-      }),
-      personal,
-    ]);
-    return _withProgress(values[0] as Subject, user, id);
+    final detail = await catalog.subject(id, onAvailable: publish);
+    await publish(detail);
+    await personal;
+    return _withProgress(detail, user, id);
   }
 
   Future<Subject> _withProgress(Subject detail, String user, int id) async {
