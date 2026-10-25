@@ -9,9 +9,34 @@ import 'danmaku_clock.dart';
 import 'danmaku_layout.dart';
 import '../../features/playback/playback.dart';
 
+/// Clock times such as `12:34`, `1:02:03` and `12：34`, or `1分30(秒)`.
+final _jumpTime = RegExp(
+  r'(?<![\d:：.])(?:(?:(\d{1,2})[:：])?(\d{1,2})[:：](\d{2})(?![\d:：])'
+  r'|(\d{1,3})\s*分\s*(\d{1,2})(?!\d))',
+);
+
+/// The first time [text] names inside the episode's [duration], in seconds.
+/// Viewers post these for where an OP or ED ends.
+double? danmakuJumpTarget(String text, Duration duration) {
+  for (final match in _jumpTime.allMatches(text)) {
+    final hours = int.parse(match[1] ?? '0');
+    final minutes = int.parse(match[2] ?? match[4]!);
+    final seconds = int.parse(match[3] ?? match[5]!);
+    if (seconds >= 60 || (match[1] != null && minutes >= 60)) continue;
+    final target = hours * 3600 + minutes * 60 + seconds;
+    if (target > 0 && Duration(seconds: target) < duration) {
+      return target.toDouble();
+    }
+  }
+  return null;
+}
+
 class DanmakuLayer extends StatefulWidget {
-  const DanmakuLayer({super.key, required this.playback});
+  const DanmakuLayer({super.key, required this.playback, required this.onJump});
   final Playback playback;
+
+  /// A comment naming a time was clicked; seek to [seconds].
+  final ValueChanged<double> onJump;
   @override
   State<DanmakuLayer> createState() => _DanmakuLayerState();
 }
@@ -91,20 +116,46 @@ class _DanmakuLayerState extends State<DanmakuLayer>
     super.dispose();
   }
 
+  /// Where the comment pressed jumps to, until the tap completes.
+  double? pressed;
+
+  double? targetAt(Offset position) {
+    final duration = widget.playback.player.state.duration;
+    final item = layout.hit(
+      position,
+      clock.value,
+      (item) => danmakuJumpTarget(item.text, duration) != null,
+    );
+    return item == null ? null : danmakuJumpTarget(item.text, duration);
+  }
+
+  // Only comments naming a time take pointers; elsewhere taps reach the
+  // video beneath.
   @override
-  Widget build(BuildContext context) => IgnorePointer(
-    child: RepaintBoundary(
-      child: ClipRect(
-        child: CustomPaint(
-          painter: DanmakuPainter(
-            widget.playback,
-            clock,
-            sprites,
-            layout,
-            sent,
-            MediaQuery.devicePixelRatioOf(context),
+  Widget build(BuildContext context) => MouseRegion(
+    cursor: SystemMouseCursors.click,
+    hitTestBehavior: HitTestBehavior.deferToChild,
+    child: GestureDetector(
+      onTapDown: (details) => pressed = targetAt(details.localPosition),
+      onTap: () {
+        if (pressed case final seconds?) widget.onJump(seconds);
+        pressed = null;
+      },
+      onTapCancel: () => pressed = null,
+      child: RepaintBoundary(
+        child: ClipRect(
+          child: CustomPaint(
+            painter: DanmakuPainter(
+              widget.playback,
+              clock,
+              sprites,
+              layout,
+              sent,
+              MediaQuery.devicePixelRatioOf(context),
+              targetAt,
+            ),
+            size: Size.infinite,
           ),
-          size: Size.infinite,
         ),
       ),
     ),
@@ -119,6 +170,7 @@ class DanmakuPainter extends CustomPainter {
     this.layout,
     this.sent,
     this.ratio,
+    this.targetAt,
   ) : super(repaint: Listenable.merge([clock, playback.danmaku.preferences]));
   final Playback playback;
   final ValueNotifier<double> clock;
@@ -130,6 +182,13 @@ class DanmakuPainter extends CustomPainter {
 
   /// Physical pixels per logical pixel, the resolution sprites render at.
   final double ratio;
+
+  /// The time a comment at a position jumps to.
+  final double? Function(Offset) targetAt;
+
+  @override
+  bool hitTest(Offset position) => targetAt(position) != null;
+
   @override
   void paint(Canvas canvas, Size size) {
     final preferences = playback.danmaku.preferences;

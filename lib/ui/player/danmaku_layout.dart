@@ -60,8 +60,10 @@ class DanmakuLayout {
   static const verticalGap = 10.0;
   final _active = <PlacedDanmaku>[];
   Object? _configuration;
+  int? _revision;
   List<DanmakuComment>? _comments;
   double? _time;
+  double _width = 0;
   int _next = 0;
 
   /// Sent comments placed when they were sent, which the list holds too.
@@ -71,6 +73,7 @@ class DanmakuLayout {
     _active.clear();
     _injected.clear();
     _configuration = null;
+    _revision = null;
     _comments = null;
     _time = null;
     _next = 0;
@@ -78,7 +81,9 @@ class DanmakuLayout {
 
   /// Lays out [comments] at [time]. A new list under the same [revision]
   /// only gained [sent] comments: those enter now from the edge, and the
-  /// comments already shown keep their places.
+  /// comments already shown keep their places. A new [revision] keeps the
+  /// places of comments it still shows too, so hiding top comments leaves
+  /// the scrolling ones where they are.
   List<PlacedDanmaku> update({
     required List<DanmakuComment> comments,
     required int revision,
@@ -94,7 +99,6 @@ class DanmakuLayout {
     required Size Function(DanmakuComment) measure,
   }) {
     final configuration = (
-      revision,
       viewport,
       fontSize,
       area,
@@ -105,6 +109,8 @@ class DanmakuLayout {
     );
     final scrollLifetime = viewport.width / (scrollSpeed * speed);
     final lifetime = math.max(fixedLifetime, scrollLifetime);
+    // Comments of the new list that keep their earlier places.
+    final staying = Set<DanmakuComment>.identity();
     if (_configuration != configuration ||
         _time == null ||
         time < _time! ||
@@ -113,11 +119,27 @@ class DanmakuLayout {
       _injected.clear();
       _next = firstVisibleComment(comments, time - lifetime);
       _configuration = configuration;
+    } else if (_revision != revision) {
+      // Matched by content: merging rebuilds the `×N` comments each time.
+      final kept = {for (final entry in _active) _key(entry.item): entry};
+      _active.clear();
+      _next = firstVisibleComment(comments, time - lifetime);
+      // A sent comment can be stamped a little past the clock.
+      for (var i = _next; i < comments.length && kept.isNotEmpty; i++) {
+        final item = comments[i];
+        if (item.time > time + lifetime) break;
+        final entry = kept.remove(_key(item));
+        if (entry == null) continue;
+        _active.add(entry);
+        staying.add(item);
+      }
     } else if (!identical(comments, _comments)) {
       _next = firstVisibleComment(comments, _time!, inclusive: false);
     }
+    _revision = revision;
     _comments = comments;
     _time = time;
+    _width = viewport.width;
     const top = 16.0;
     // Shielding keeps the bottom 15% (subtitles) clear, as Bilibili's 防挡 does.
     final bottom = math.max(
@@ -193,11 +215,32 @@ class DanmakuLayout {
       final item = comments[_next];
       if (item.time > time) break;
       _next++;
-      if (!_injected.contains(item)) place(item, item.time);
+      if (!_injected.contains(item) && !staying.contains(item)) {
+        place(item, item.time);
+      }
     }
     _active.removeWhere((entry) => entry.end <= time);
     return _active;
   }
+
+  /// The topmost comment shown at [position] at [time] that [test] accepts.
+  DanmakuComment? hit(
+    Offset position,
+    double time,
+    bool Function(DanmakuComment) test,
+  ) {
+    for (final entry in _active.reversed) {
+      if (entry.boundsAt(time, _width).inflate(4).contains(position) &&
+          test(entry.item)) {
+        return entry.item;
+      }
+    }
+    return null;
+  }
+
+  static (double, String, String, DanmakuMode, int, bool) _key(
+    DanmakuComment item,
+  ) => (item.time, item.text, item.source, item.mode, item.color, item.own);
 
   bool _collides(PlacedDanmaku a, PlacedDanmaku b, double width) {
     if (a.y + a.extent.height + verticalGap <= b.y ||

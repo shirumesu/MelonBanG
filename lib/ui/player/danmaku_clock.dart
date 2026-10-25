@@ -20,6 +20,7 @@ class DanmakuClock {
     if (previous == null || reset) {
       _position = native;
       _correction = 0;
+      _rate = rate;
     } else {
       final delta = _frames.smooth(
         (elapsed - previous).inMicroseconds / Duration.microsecondsPerSecond,
@@ -40,16 +41,23 @@ class DanmakuClock {
           // Seeks and paused scrubbing must rebase, not animate through the gap.
           _position = native;
           _correction = 0;
+          _rate = rate;
         } else {
           _correction = error;
+          // A new rate is reported at once, but mpv keeps playing audio it
+          // buffered at the old one for a moment; switching only once the
+          // positions move toward the new rate keeps the gap from growing
+          // past the rebase threshold and jumping.
+          if (rate != _rate && (rate > _rate ? error : -error) > .1) {
+            _rate = rate;
+          }
         }
       }
-      if (_running != running || _rate != rate) _correction = 0;
+      if (_running != running) _correction = 0;
     }
     _elapsed = elapsed;
     _nativePosition = native;
     _running = running;
-    _rate = rate;
     return _position;
   }
 }
