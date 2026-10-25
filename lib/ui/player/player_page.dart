@@ -1012,8 +1012,18 @@ class PlayerPageState extends State<PlayerPage> {
                         milliseconds: 260,
                         child: upcoming != null
                             ? _SkipCountdown(
-                                label:
-                                    '${playback.skipCountdown} 秒后跳过$upcoming',
+                                song: upcoming,
+                                seconds: playback.skipCountdown,
+                                // Five seconds of the media count down.
+                                remaining: ((playback.skipAt - now) / 5).clamp(
+                                  0,
+                                  1,
+                                ),
+                                target: playback.skipTarget!,
+                                onSkip: () {
+                                  playback.skipNow();
+                                  focus.requestFocus();
+                                },
                                 onCancel: () {
                                   playback.cancelSkip();
                                   focus.requestFocus();
@@ -1427,52 +1437,144 @@ class _SkipButton extends StatelessWidget {
   );
 }
 
-/// The automatic skip coming up, with a way to play the song this time.
+/// The automatic skip coming up: a ring running down its seconds, where it
+/// lands, and buttons to skip at once or play the song this time.
 class _SkipCountdown extends StatelessWidget {
-  const _SkipCountdown({required this.label, required this.onCancel});
-  final String label;
-  final VoidCallback onCancel;
+  const _SkipCountdown({
+    required this.song,
+    required this.seconds,
+    required this.remaining,
+    required this.target,
+    required this.onSkip,
+    required this.onCancel,
+  });
+
+  /// `片头` or `片尾`.
+  final String song;
+  final int seconds;
+
+  /// The part of the countdown left, from 1 to 0.
+  final double remaining;
+  final double target;
+  final VoidCallback onSkip, onCancel;
+
+  static const _ink = Color(0xff15181d);
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: overlaySurface,
-    borderRadius: controlBorderRadius,
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(14, 4, 4, 4),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
-          ),
-          const SizedBox(width: 6),
-          TextButton(
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-              backgroundColor: Colors.white.withValues(alpha: .12),
-              overlayColor: Colors.white,
-              minimumSize: const Size(0, 28),
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              shape: const RoundedRectangleBorder(
-                borderRadius: badgeBorderRadius,
+  Widget build(BuildContext context) {
+    const tabular = [FontFeature.tabularFigures()];
+    final button = TextButton.styleFrom(
+      minimumSize: const Size(0, 30),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
+      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+    );
+    return OverlayGlass(
+      borderRadius: panelBorderRadius,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox.square(
+              dimension: 34,
+              child: TweenAnimationBuilder<double>(
+                // Positions arrive a few times a second; the ring eases
+                // between them.
+                tween: Tween(end: remaining),
+                duration: motionDuration(context, 300),
+                builder: (context, value, child) =>
+                    CustomPaint(painter: _CountdownRing(value), child: child),
+                child: Center(
+                  child: Text(
+                    '$seconds',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: tabular,
+                    ),
+                  ),
+                ),
               ),
-              textStyle: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
             ),
-            onPressed: onCancel,
-            child: const Text('取消'),
-          ),
-        ],
+            const SizedBox(width: 12),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '即将跳过$song',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '跳到 ${formatTime(target)}',
+                  style: const TextStyle(
+                    color: Colors.white60,
+                    fontSize: 12,
+                    fontFeatures: tabular,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 20),
+            TextButton(
+              style: button.copyWith(
+                foregroundColor: const WidgetStatePropertyAll(Colors.white70),
+                overlayColor: const WidgetStatePropertyAll(Colors.white12),
+              ),
+              onPressed: onCancel,
+              child: const Text('取消'),
+            ),
+            const SizedBox(width: 4),
+            TextButton(
+              style: button.copyWith(
+                foregroundColor: const WidgetStatePropertyAll(_ink),
+                backgroundColor: const WidgetStatePropertyAll(Colors.white),
+                overlayColor: WidgetStatePropertyAll(
+                  _ink.withValues(alpha: .08),
+                ),
+              ),
+              onPressed: onSkip,
+              child: const Text('立即跳过'),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
+}
+
+/// A faint track with the part of the countdown left drawn over it from the
+/// top, clockwise.
+class _CountdownRing extends CustomPainter {
+  _CountdownRing(this.remaining);
+  final double remaining;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = (Offset.zero & size).deflate(1.5);
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round;
+    canvas.drawOval(rect, stroke..color = Colors.white12);
+    canvas.drawArc(
+      rect,
+      -math.pi / 2,
+      2 * math.pi * remaining,
+      false,
+      stroke..color = Colors.white,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_CountdownRing old) => old.remaining != remaining;
 }
 
 /// Sits on the video's edge beside the side panel, so folding or unfolding
