@@ -10,15 +10,31 @@ import 'package:xml/xml.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../domain/danmaku.dart';
+import '../../domain/sources.dart';
+import '../sources/bilibili.dart';
 import 'matching.dart';
 
 const _headers = {'Referer': 'https://www.bilibili.com/'};
 
-/// Bilibili: official `media_bangumi` matches only; locators are EP/BV ids or
-/// playback URLs (BV parts through `p`).
-class BilibiliDanmaku implements DanmakuMatcher {
-  BilibiliDanmaku(this.api);
+/// Bilibili: automatic matching takes official `media_bangumi` matches
+/// only; manual search is the resource search's, over official seasons and
+/// uploads. Locators are EP ids or BV ids with their part as `p`.
+class BilibiliDanmaku implements DanmakuSearch {
+  BilibiliDanmaku(this.api)
+    : _engine = BilibiliEngine(
+        api,
+        SourceInstance(
+          id: 'bilibili-danmaku',
+          name: 'Bilibili',
+          engine: 'bilibili-web',
+          kind: SourceKind.online,
+          baseUrls: ['https://api.bilibili.com'],
+          website: 'https://www.bilibili.com',
+          config: {},
+        ),
+      );
   final ApiClient api;
+  final BilibiliEngine _engine;
 
   @override
   String get id => 'bilibili';
@@ -26,11 +42,11 @@ class BilibiliDanmaku implements DanmakuMatcher {
   String get label => 'Bilibili';
 
   @override
-  String get description => '自动匹配番剧区的官方条目；也可以在播放器的弹幕页输入 EP、BV 号或播放链接。';
+  String get description =>
+      '自动匹配番剧区的官方条目；也可以在播放器的弹幕页搜索番剧、投稿视频和合集，'
+      '或粘贴 EP、BV 号和播放链接。';
   @override
   String? get unconfigured => null;
-  @override
-  bool get manual => true;
 
   @override
   Future<DanmakuMatch> match(DanmakuQuery query) async {
@@ -82,6 +98,92 @@ class BilibiliDanmaku implements DanmakuMatcher {
         .whereType<String>()
         .toSet();
     return episodes.length == 1 ? 'ep${episodes.single}' : null;
+  }
+
+  @override
+  Future<List<DanmakuCandidate>> search(String title) async => [
+    for (final subject in await _engine.searchSubjects(
+      ChineseHelper.convertToSimplifiedChinese(title),
+    ))
+      DanmakuCandidate(
+        title: subject.title,
+        subtitle: [
+          subject.line,
+          ?subject.year?.toString(),
+          if (subject.episodeTotal case final total?) '$total 话',
+          ?subject.description,
+        ].join(' · '),
+        open: subject.choosePart
+            ? () => _video(subject.id)
+            : () async => [
+                for (final episode in await _engine.episodes(subject))
+                  DanmakuCandidate(
+                    title: episode.label,
+                    locator: 'ep${episode.ref.data['epId']}',
+                  ),
+              ],
+      ),
+  ];
+
+  /// An upload's parts, then the collection it belongs to.
+  Future<List<DanmakuCandidate>> _video(String bvid) async {
+    await _engine.guest(null);
+    final value = await _engine.request('/x/web-interface/view', {
+      'bvid': bvid,
+    });
+    final data = object(value['data']);
+    final collection = object(data['ugc_season']);
+    return [
+      ..._parts(data),
+      if (collection.isNotEmpty)
+        DanmakuCandidate(
+          title: '所属合集 · ${collection['title']}',
+          subtitle: '${collection['ep_count']} 个视频',
+          open: () async => _collection(collection),
+        ),
+    ];
+  }
+
+  /// A collection's videos, under its sections when it has several; a
+  /// multi-part video opens to its parts.
+  List<DanmakuCandidate> _collection(Json collection) {
+    List<DanmakuCandidate> videos(Json section) => [
+      for (final video in objects(section['episodes']))
+        if (objects(video['pages']).length > 1)
+          DanmakuCandidate(
+            title: '${video['title']}',
+            subtitle: '${objects(video['pages']).length} P',
+            open: () async => _parts(video),
+          )
+        else
+          ..._parts(video),
+    ];
+    final sections = objects(collection['sections']);
+    return sections.length == 1
+        ? videos(sections.single)
+        : [
+            for (final section in sections)
+              DanmakuCandidate(
+                title: '${section['title']}',
+                subtitle: '${objects(section['episodes']).length} 个视频',
+                open: () async => videos(section),
+              ),
+          ];
+  }
+
+  /// A video's parts; a single part takes the video's title.
+  List<DanmakuCandidate> _parts(Json video) {
+    final pages = objects(video['pages']);
+    return [
+      for (final page in pages)
+        DanmakuCandidate(
+          title: pages.length == 1
+              ? '${video['title']}'
+              : 'P${page['page']} · ${page['part']}',
+          subtitle: '${(number(page['duration']) / 60).round()} 分钟',
+          locator: '${video['bvid']}?p=${page['page']}',
+        ),
+    ];
   }
 
   @override

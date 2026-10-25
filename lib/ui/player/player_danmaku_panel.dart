@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
@@ -16,9 +18,13 @@ class PlayerDanmakuPane extends StatefulWidget {
     super.key,
     required this.playback,
     required this.onError,
+    this.title,
   });
   final Playback playback;
   final ValueChanged<Object> onError;
+
+  /// The subject's title, searched when a source's matching opens.
+  final String? title;
 
   @override
   State<PlayerDanmakuPane> createState() => _PlayerDanmakuPaneState();
@@ -29,9 +35,11 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
 
   /// The source whose match is being changed.
   String? editing;
-  bool loading = false, searching = false, searched = false;
+  bool loading = false, searching = false;
   String? loadError, searchError;
-  List<DanmakuCandidate> results = [];
+
+  /// Search results, then each opened group, as (group title, rows).
+  List<(String, List<DanmakuCandidate>)> levels = [];
   String? _sessionId;
   int _searchRequest = 0, _loadRequest = 0, _importRequest = 0;
   Playback get playback => widget.playback;
@@ -54,8 +62,8 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
       _loadRequest++;
       _importRequest++;
       editing = null;
-      results = [];
-      loading = searching = searched = false;
+      levels = [];
+      loading = searching = false;
       loadError = searchError = null;
     }
     if (mounted) setState(() {});
@@ -69,14 +77,19 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
     super.dispose();
   }
 
-  void edit(String? source) => setState(() {
-    editing = editing == source ? null : source;
-    _searchRequest++;
-    query.clear();
-    results = [];
-    searching = searched = false;
-    searchError = null;
-  });
+  void edit(String source) {
+    setState(() {
+      editing = editing == source ? null : source;
+      _searchRequest++;
+      query.text = editing == null ? '' : widget.title ?? '';
+      levels = [];
+      searching = false;
+      searchError = null;
+    });
+    if (editing != null && danmaku.searchable(source)) {
+      unawaited(search(source));
+    }
+  }
 
   Future<void> load(Future<void> Function() action) async {
     if (busy) return;
@@ -98,39 +111,54 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
   }
 
   Future<void> search(String provider) async {
-    if (busy) return;
     final keyword = query.text.trim();
     if (keyword.isEmpty) return;
-    if (!danmaku.searchable(provider)) {
-      await load(() => danmaku.load(provider, keyword));
-      return;
-    }
+    await reveal(provider, null, () => danmaku.search(provider, keyword));
+  }
+
+  /// Shows [fetch]'s rows as search results ([group] null) or as the opened
+  /// [group]. A lone group opens at once, and an opened group holding a
+  /// single episode loads it.
+  Future<void> reveal(
+    String provider,
+    String? group,
+    Future<List<DanmakuCandidate>> Function() fetch,
+  ) async {
+    if (busy) return;
     final ticket = ++_searchRequest;
     final sessionId = playback.session?.id;
+    bool current() =>
+        mounted &&
+        ticket == _searchRequest &&
+        sessionId == playback.session?.id;
     setState(() {
       searching = true;
-      searched = false;
       searchError = null;
-      results = [];
+      if (group == null) levels = [];
     });
+    List<DanmakuCandidate> rows;
     try {
-      final found = await danmaku.search(provider, keyword);
-      if (mounted &&
-          ticket == _searchRequest &&
-          sessionId == playback.session?.id) {
-        setState(() {
-          results = found;
-          searched = true;
-        });
+      rows = await fetch();
+      while (current() && rows.length == 1 && rows.single.open != null) {
+        group = rows.single.title;
+        rows = await rows.single.open!();
       }
     } catch (error) {
-      if (mounted && ticket == _searchRequest) {
-        setState(() => searchError = '搜索失败：${errorMessage(error)}');
+      if (current()) {
+        setState(() {
+          searching = false;
+          searchError = '搜索失败：${errorMessage(error)}';
+        });
       }
-    } finally {
-      if (mounted && ticket == _searchRequest) {
-        setState(() => searching = false);
-      }
+      return;
+    }
+    if (!current()) return;
+    setState(() {
+      searching = false;
+      levels = [...levels, (group ?? '', rows)];
+    });
+    if (group != null && rows.length == 1) {
+      await load(() => danmaku.load(provider, rows.single.locator!));
     }
   }
 
@@ -269,7 +297,7 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
                     child: Text(
                       open
                           ? '收起'
-                          : !danmaku.manual(source.id)
+                          : !danmaku.searchable(source.id)
                           ? '详情'
                           : source.status == DanmakuStatus.ready
                           ? '更换'
@@ -296,7 +324,7 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
   Widget matching(DanmakuSourceState source) {
     final small = Theme.of(context).textTheme.bodySmall;
     final scheme = Theme.of(context).colorScheme;
-    if (!danmaku.manual(source.id)) {
+    if (!danmaku.searchable(source.id)) {
       return Padding(
         padding: const EdgeInsets.fromLTRB(Gap.sm, 0, Gap.sm, Gap.sm),
         child: Text(
@@ -305,16 +333,23 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
         ),
       );
     }
-    final searchable = danmaku.searchable(source.id);
     Widget choice(DanmakuCandidate match) => ListTile(
       dense: true,
       shape: const RoundedRectangleBorder(borderRadius: badgeBorderRadius),
       title: Text(match.title, maxLines: 2, overflow: TextOverflow.ellipsis),
-      subtitle: Text(match.episode),
+      subtitle: match.subtitle == null || match.subtitle!.isEmpty
+          ? null
+          : Text(match.subtitle!),
+      trailing: match.open == null
+          ? null
+          : const Icon(Icons.chevron_right, size: 18),
       onTap: busy
           ? null
-          : () => load(() => danmaku.load(source.id, match.locator)),
+          : match.open == null
+          ? () => load(() => danmaku.load(source.id, match.locator!))
+          : () => reveal(source.id, match.title, match.open!),
     );
+    final level = levels.lastOrNull;
     return Padding(
       padding: const EdgeInsets.fromLTRB(Gap.sm, 0, Gap.sm, Gap.sm),
       child: Column(
@@ -330,9 +365,9 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
                   child: TextField(
                     controller: query,
                     style: const TextStyle(fontSize: 13),
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       isDense: true,
-                      hintText: searchable ? '搜索番剧名称' : '剧集网址或编号',
+                      hintText: '搜索番剧名称或粘贴链接',
                     ),
                     onSubmitted: (_) => search(source.id),
                   ),
@@ -341,7 +376,7 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
               const SizedBox(width: Gap.sm),
               FilledButton.tonal(
                 onPressed: busy ? null : () => search(source.id),
-                child: Text(searchable ? '搜索' : '加载'),
+                child: const Text('搜索'),
               ),
             ],
           ),
@@ -358,12 +393,43 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
                 style: small?.copyWith(color: scheme.error),
               ),
             ),
-          if (searched && results.isEmpty)
+          if (level != null && (levels.length > 1 || level.$1.isNotEmpty))
             Padding(
               padding: const EdgeInsets.only(top: Gap.sm),
-              child: Text('没有找到，试试原名或其他关键词', style: small),
+              child: Row(
+                children: [
+                  if (levels.length > 1)
+                    IconButton(
+                      tooltip: '返回',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.arrow_back, size: 18),
+                      onPressed: busy
+                          ? null
+                          : () => setState(() => levels.removeLast()),
+                    ),
+                  Expanded(
+                    child: Text(
+                      level.$1,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: small,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          for (final match in results) choice(match),
+          if (level != null && level.$2.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: Gap.sm),
+              child: Text(
+                levels.length == 1 && level.$1.isEmpty
+                    ? '没有找到，试试原名或其他关键词'
+                    : '这里没有可加载的弹幕',
+                style: small,
+              ),
+            ),
+          for (final match in level?.$2 ?? const <DanmakuCandidate>[])
+            choice(match),
         ],
       ),
     );

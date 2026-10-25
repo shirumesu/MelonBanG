@@ -64,14 +64,24 @@ List<DanmakuComment> sortedComments(Iterable<DanmakuComment?> input) {
   return unique.values.toList()..sort((a, b) => a.time.compareTo(b.time));
 }
 
-/// An episode offered for confirmation when matching is ambiguous.
+/// An episode offered for confirmation when matching is ambiguous, or a row
+/// of a manual search: an episode to load, or a group (series, version
+/// list, collection, multi-part video) to open.
 class DanmakuCandidate {
   const DanmakuCandidate({
-    required this.locator,
     required this.title,
-    required this.episode,
+    this.subtitle,
+    this.locator,
+    this.open,
   });
-  final String locator, title, episode;
+  final String title;
+  final String? subtitle;
+
+  /// The episode to load; null for a group.
+  final String? locator;
+
+  /// A group's rows.
+  final Future<List<DanmakuCandidate>> Function()? open;
 }
 
 class DanmakuMatch {
@@ -160,10 +170,6 @@ abstract interface class DanmakuMatcher implements DanmakuProvider {
 
   /// Why this build cannot use the source at all; null when it can.
   String? get unconfigured;
-
-  /// Whether the viewer can pick its episode by hand; false when the
-  /// playing episode alone decides it.
-  bool get manual;
 }
 
 /// A provider that takes comments for an episode it has loaded.
@@ -201,7 +207,8 @@ class DanmakuSendRejected implements Exception {
   String toString() => message;
 }
 
-/// A matcher whose episodes can also be searched by title.
+/// A matcher whose episode the viewer can also pick by hand, searching by
+/// title or pasted link; the playing episode alone decides other matchers.
 abstract interface class DanmakuSearch implements DanmakuMatcher {
   Future<List<DanmakuCandidate>> search(String title);
 }

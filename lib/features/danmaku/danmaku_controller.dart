@@ -120,8 +120,6 @@ class DanmakuController extends ChangeNotifier {
     save: true,
   );
 
-  bool manual(String provider) =>
-      (repository.provider(provider) as DanmakuMatcher).manual;
   bool searchable(String provider) =>
       repository.provider(provider) is DanmakuSearch;
   Future<List<DanmakuCandidate>> search(String provider, String title) =>
