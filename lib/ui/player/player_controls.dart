@@ -405,10 +405,12 @@ enum PlayerGlyphKind {
   danmakuSettings,
   previousFrame,
   nextFrame,
+  settings,
 }
 
 /// Player icons Material lacks: the danmaku box (struck through when off,
-/// with a cog for its settings) and the frame steps, a chevron with a dot.
+/// with a cog for its settings), the frame steps, a chevron with a dot, and
+/// a solid six-tooth cog, plainer and smaller than Material's settings.
 class PlayerGlyph extends StatelessWidget {
   const PlayerGlyph(this.kind, {super.key});
   final PlayerGlyphKind kind;
@@ -499,6 +501,29 @@ class _GlyphPainter extends CustomPainter {
           stroke,
         );
         canvas.drawCircle(const Offset(7, 12), 1.7, fill);
+      case PlayerGlyphKind.settings:
+        canvas.translate(12, 12);
+        var cog = Path()
+          ..addOval(Rect.fromCircle(center: Offset.zero, radius: 6.4));
+        for (var i = 0; i < 6; i++) {
+          final tooth = Path()
+            ..addRRect(
+              RRect.fromLTRBR(-1.9, -8.6, 1.9, -4, const Radius.circular(1)),
+            );
+          cog = Path.combine(
+            PathOperation.union,
+            cog,
+            tooth.transform(Matrix4.rotationZ(i * math.pi / 3).storage),
+          );
+        }
+        canvas.drawPath(
+          Path.combine(
+            PathOperation.difference,
+            cog,
+            Path()..addOval(Rect.fromCircle(center: Offset.zero, radius: 2.6)),
+          ),
+          fill,
+        );
     }
   }
 

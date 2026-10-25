@@ -982,144 +982,6 @@ class PlayerPageState extends State<PlayerPage> {
                     ),
                   ),
                 ),
-              if (playback.openingEnding case final marks?)
-                StreamBuilder<Duration>(
-                  stream: player.stream.position,
-                  initialData: player.state.position,
-                  builder: (_, position) {
-                    final now = position.data!.inMilliseconds / 1000;
-                    // Offered until a few seconds before the song ends.
-                    bool inside(ChapterSpan? span) =>
-                        span != null && now >= span.start && now < span.end - 3;
-                    final (label, target) = inside(marks.opening)
-                        ? ('跳过片头', marks.opening!.end)
-                        : inside(marks.ending)
-                        ? ('跳过片尾', marks.ending!.end)
-                        : (null, 0.0);
-                    final upcoming = playback.upcomingSkip;
-                    if ((label == null && upcoming == null) ||
-                        failure != null) {
-                      return const SizedBox.shrink();
-                    }
-                    return AnimatedPositioned(
-                      duration: motionDuration(context),
-                      curve: Curves.easeOutCubic,
-                      right: pageGutter,
-                      bottom: controls ? _transportInset : pageGutter,
-                      child: MotionAppear(
-                        key: ValueKey(upcoming ?? label),
-                        offset: 8,
-                        milliseconds: 260,
-                        child: upcoming != null
-                            ? _SkipCountdown(
-                                song: upcoming,
-                                seconds: playback.skipCountdown,
-                                // Five seconds of the media count down.
-                                remaining: ((playback.skipAt - now) / 5).clamp(
-                                  0,
-                                  1,
-                                ),
-                                target: playback.skipTarget!,
-                                onSkip: () {
-                                  playback.skipNow();
-                                  focus.requestFocus();
-                                },
-                                onCancel: () {
-                                  playback.cancelSkip();
-                                  focus.requestFocus();
-                                },
-                              )
-                            : _SkipButton(
-                                label: label!,
-                                onPressed: () {
-                                  showFeedback(label);
-                                  unawaited(seekTo(target));
-                                },
-                              ),
-                      ),
-                    );
-                  },
-                ),
-              if (playback.overloaded case final mode? when failure == null)
-                AnimatedPositioned(
-                  duration: motionDuration(context),
-                  curve: Curves.easeOutCubic,
-                  left: pageGutter,
-                  right: pageGutter,
-                  bottom: controls ? _transportInset : pageGutter,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: MotionAppear(
-                      offset: 8,
-                      milliseconds: 260,
-                      // Stays while the pointer is on it.
-                      child: MouseRegion(
-                        onEnter: (_) => overloadTimer?.cancel(),
-                        onExit: (_) => dismissOverloadLater(),
-                        child: _OverloadCard(
-                          quality: mode == 'quality',
-                          onChoose: (mode) =>
-                              unawaited(playback.setSuperResolution(mode)),
-                          onClose: playback.dismissOverload,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              if (playback.autoplayTarget != null ||
-                  playback.autoplayMessage != null)
-                Positioned(
-                  right: 20,
-                  bottom: _transportInset + 4,
-                  child: MotionAppear(
-                    offset: 12,
-                    milliseconds: 300,
-                    child: Material(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(12),
-                      elevation: 8,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(switch (playback.autoplayTarget) {
-                              null => playback.autoplayMessage!,
-                              final target =>
-                                '${playback.autoplaySeconds} 秒后播放${target.episode.label}',
-                            }),
-                            if (playback.autoplayTarget case final target?) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                target.sourceLabel,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  TextButton(
-                                    onPressed: playback.playAutoplay,
-                                    child: const Text('立即观看'),
-                                  ),
-                                  TextButton(
-                                    onPressed: playback.cancelAutoplay,
-                                    child: const Text('取消'),
-                                  ),
-                                ],
-                              ),
-                            ] else if (playback.autoplayEndEpisode != null)
-                              TextButton(
-                                onPressed: () =>
-                                    findResources(playback.autoplayEndEpisode),
-                                child: const Text('查找资源'),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
               Positioned(
                 key: const ValueKey('player-controls'),
                 left: 0,
@@ -1217,6 +1079,135 @@ class PlayerPageState extends State<PlayerPage> {
                   ),
                 ),
               ),
+              // Above the controls, whose gradient reaches over them.
+              if (playback.openingEnding case final marks?)
+                StreamBuilder<Duration>(
+                  stream: player.stream.position,
+                  initialData: player.state.position,
+                  builder: (_, position) {
+                    final now = position.data!.inMilliseconds / 1000;
+                    // Offered until a few seconds before the song ends.
+                    bool inside(ChapterSpan? span) =>
+                        span != null && now >= span.start && now < span.end - 3;
+                    final (label, target) = inside(marks.opening)
+                        ? ('跳过片头', marks.opening!.end)
+                        : inside(marks.ending)
+                        ? ('跳过片尾', marks.ending!.end)
+                        : (null, 0.0);
+                    final upcoming = playback.upcomingSkip;
+                    if ((label == null && upcoming == null) ||
+                        failure != null) {
+                      return const SizedBox.shrink();
+                    }
+                    return AnimatedPositioned(
+                      duration: motionDuration(context),
+                      curve: Curves.easeOutCubic,
+                      right: pageGutter,
+                      bottom: controls ? _transportInset : pageGutter,
+                      // Keeps the controls, and so its place, while the
+                      // pointer is on it.
+                      child: MouseRegion(
+                        onEnter: (_) {
+                          controlsHovered = true;
+                          reveal();
+                        },
+                        onExit: (_) {
+                          controlsHovered = false;
+                          reveal();
+                        },
+                        child: MotionAppear(
+                          key: ValueKey(upcoming ?? label),
+                          offset: 8,
+                          milliseconds: 260,
+                          child: upcoming != null
+                              ? _Countdown(
+                                  title: '即将跳过$upcoming',
+                                  detail:
+                                      '跳到 ${formatTime(playback.skipTarget!)}',
+                                  seconds: playback.skipCountdown,
+                                  // Five seconds of the media count down.
+                                  remaining: ((playback.skipAt - now) / 5)
+                                      .clamp(0, 1),
+                                  confirm: '立即跳过',
+                                  onConfirm: () {
+                                    playback.skipNow();
+                                    focus.requestFocus();
+                                  },
+                                  onCancel: () {
+                                    playback.cancelSkip();
+                                    focus.requestFocus();
+                                  },
+                                )
+                              : _SkipButton(
+                                  label: label!,
+                                  onPressed: () {
+                                    showFeedback(label);
+                                    unawaited(seekTo(target));
+                                  },
+                                ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              if (playback.overloaded case final mode? when failure == null)
+                AnimatedPositioned(
+                  duration: motionDuration(context),
+                  curve: Curves.easeOutCubic,
+                  left: pageGutter,
+                  right: pageGutter,
+                  bottom: controls ? _transportInset : pageGutter,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: MotionAppear(
+                      offset: 8,
+                      milliseconds: 260,
+                      // Stays while the pointer is on it.
+                      child: MouseRegion(
+                        onEnter: (_) => overloadTimer?.cancel(),
+                        onExit: (_) => dismissOverloadLater(),
+                        child: _OverloadCard(
+                          quality: mode == 'quality',
+                          onChoose: (mode) =>
+                              unawaited(playback.setSuperResolution(mode)),
+                          onClose: playback.dismissOverload,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (playback.autoplayTarget != null ||
+                  playback.autoplayMessage != null)
+                Positioned(
+                  right: pageGutter,
+                  bottom: _transportInset,
+                  child: MotionAppear(
+                    offset: 8,
+                    milliseconds: 260,
+                    child: switch (playback.autoplayTarget) {
+                      final target? => _Countdown(
+                        title: '即将播放${target.episode.label}',
+                        detail: target.sourceLabel,
+                        seconds: playback.autoplaySeconds,
+                        // Five seconds tick one at a time; the ring runs
+                        // through each toward the next.
+                        remaining: (playback.autoplaySeconds - 1) / 5,
+                        ease: 1000,
+                        confirm: '立即播放',
+                        onConfirm: playback.playAutoplay,
+                        onCancel: playback.cancelAutoplay,
+                      ),
+                      null => _Notice(
+                        message: playback.autoplayMessage!,
+                        action: playback.autoplayEndEpisode == null
+                            ? null
+                            : '查找资源',
+                        onAction: () =>
+                            findResources(playback.autoplayEndEpisode),
+                      ),
+                    },
+                  ),
+                ),
             ],
           ),
         ),
@@ -1409,20 +1400,22 @@ class _SkipButton extends StatelessWidget {
   final VoidCallback onPressed;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: overlaySurface,
-    borderRadius: controlBorderRadius,
+  Widget build(BuildContext context) => OverlayGlass(
+    borderRadius: panelBorderRadius,
     child: InkWell(
-      borderRadius: controlBorderRadius,
       onTap: onPressed,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
+        padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               label,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(width: 4),
             const Icon(
@@ -1437,117 +1430,150 @@ class _SkipButton extends StatelessWidget {
   );
 }
 
-/// The automatic skip coming up: a ring running down its seconds, where it
-/// lands, and buttons to skip at once or play the song this time.
-class _SkipCountdown extends StatelessWidget {
-  const _SkipCountdown({
-    required this.song,
+/// Something about to happen on its own: a ring running down its seconds,
+/// what it is and a detail under it, and buttons to call it off or do it at
+/// once.
+class _Countdown extends StatelessWidget {
+  const _Countdown({
+    required this.title,
+    required this.detail,
     required this.seconds,
     required this.remaining,
-    required this.target,
-    required this.onSkip,
+    required this.confirm,
+    required this.onConfirm,
     required this.onCancel,
+    this.ease = 300,
   });
 
-  /// `片头` or `片尾`.
-  final String song;
+  final String title, detail, confirm;
   final int seconds;
 
   /// The part of the countdown left, from 1 to 0.
   final double remaining;
-  final double target;
-  final VoidCallback onSkip, onCancel;
 
-  static const _ink = Color(0xff15181d);
+  /// Milliseconds the ring takes to reach a new [remaining].
+  final int ease;
+  final VoidCallback onConfirm, onCancel;
 
   @override
   Widget build(BuildContext context) {
     const tabular = [FontFeature.tabularFigures()];
-    final button = TextButton.styleFrom(
+    return _GlassCard(
+      children: [
+        SizedBox.square(
+          dimension: 34,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 1, end: remaining),
+            duration: motionDuration(context, ease),
+            builder: (context, value, child) =>
+                CustomPaint(painter: _CountdownRing(value), child: child),
+            child: Center(
+              child: Text(
+                '$seconds',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: tabular,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              detail,
+              style: const TextStyle(
+                color: Colors.white60,
+                fontSize: 12,
+                fontFeatures: tabular,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(width: 20),
+        _GlassCard.button('取消', onCancel),
+        const SizedBox(width: 4),
+        _GlassCard.button(confirm, onConfirm, primary: true),
+      ],
+    );
+  }
+}
+
+/// A message in the same card, with an optional [action].
+class _Notice extends StatelessWidget {
+  const _Notice({required this.message, this.action, required this.onAction});
+  final String message;
+  final String? action;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) => _GlassCard(
+    children: [
+      const SizedBox(width: 4),
+      Text(
+        message,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      if (action case final action?) ...[
+        const SizedBox(width: 20),
+        _GlassCard.button(action, onAction, primary: true),
+      ],
+    ],
+  );
+}
+
+/// The frosted card the prompts at the video's corner share.
+class _GlassCard extends StatelessWidget {
+  const _GlassCard({required this.children});
+  final List<Widget> children;
+
+  static const _ink = Color(0xff15181d);
+
+  /// White and filled when [primary], quiet otherwise.
+  static Widget button(
+    String label,
+    VoidCallback onPressed, {
+    bool primary = false,
+  }) => TextButton(
+    style: TextButton.styleFrom(
       minimumSize: const Size(0, 30),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
       textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-    );
-    return OverlayGlass(
-      borderRadius: panelBorderRadius,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox.square(
-              dimension: 34,
-              child: TweenAnimationBuilder<double>(
-                // Positions arrive a few times a second; the ring eases
-                // between them.
-                tween: Tween(end: remaining),
-                duration: motionDuration(context, 300),
-                builder: (context, value, child) =>
-                    CustomPaint(painter: _CountdownRing(value), child: child),
-                child: Center(
-                  child: Text(
-                    '$seconds',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      fontFeatures: tabular,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '即将跳过$song',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '跳到 ${formatTime(target)}',
-                  style: const TextStyle(
-                    color: Colors.white60,
-                    fontSize: 12,
-                    fontFeatures: tabular,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(width: 20),
-            TextButton(
-              style: button.copyWith(
-                foregroundColor: const WidgetStatePropertyAll(Colors.white70),
-                overlayColor: const WidgetStatePropertyAll(Colors.white12),
-              ),
-              onPressed: onCancel,
-              child: const Text('取消'),
-            ),
-            const SizedBox(width: 4),
-            TextButton(
-              style: button.copyWith(
-                foregroundColor: const WidgetStatePropertyAll(_ink),
-                backgroundColor: const WidgetStatePropertyAll(Colors.white),
-                overlayColor: WidgetStatePropertyAll(
-                  _ink.withValues(alpha: .08),
-                ),
-              ),
-              onPressed: onSkip,
-              child: const Text('立即跳过'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+      foregroundColor: primary ? _ink : Colors.white70,
+      backgroundColor: primary ? Colors.white : null,
+      overlayColor: primary ? _ink : Colors.white,
+    ),
+    onPressed: onPressed,
+    child: Text(label),
+  );
+
+  @override
+  Widget build(BuildContext context) => OverlayGlass(
+    borderRadius: panelBorderRadius,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      child: Row(mainAxisSize: MainAxisSize.min, children: children),
+    ),
+  );
 }
 
 /// A faint track with the part of the countdown left drawn over it from the
