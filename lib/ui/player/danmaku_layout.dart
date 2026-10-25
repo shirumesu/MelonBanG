@@ -79,6 +79,15 @@ class DanmakuLayout {
     _next = 0;
   }
 
+  /// While no comment is shown, the time the next one after [time] enters
+  /// (infinity when none is left); null while one is shown, before the first
+  /// layout, or when [time] went back past it and needs laying out anew.
+  double? quietAfter(double time) {
+    final comments = _comments;
+    if (comments == null || _active.isNotEmpty || time < _time!) return null;
+    return _next < comments.length ? comments[_next].time : double.infinity;
+  }
+
   /// Lays out [comments] at [time]. A new list under the same [revision]
   /// only gained [sent] comments: those enter now from the edge, and the
   /// comments already shown keep their places. A new [revision] keeps the

@@ -55,13 +55,33 @@ class _DanmakuLayerState extends State<DanmakuLayer>
   Object? identity;
   bool frozen = false;
 
+  /// While the ticker rests, a position outside this range wakes it: a seek,
+  /// or playback nearing the next comment.
+  ({double from, double until}) quiet = _anyMove;
+  static const _anyMove = (
+    from: double.infinity,
+    until: double.negativeInfinity,
+  );
+
   /// Comments sent since the last frame.
   final sent = <DanmakuComment>[];
   late final StreamSubscription<DanmakuComment> sending;
+  late final List<StreamSubscription<Object>> playerEvents;
   @override
   void initState() {
     super.initState();
-    sending = widget.playback.danmaku.sent.listen(sent.add);
+    sending = widget.playback.danmaku.sent.listen((item) {
+      sent.add(item);
+      _wake();
+    });
+    final stream = widget.playback.player.stream;
+    playerEvents = [
+      stream.playing.listen((_) => _wake()),
+      stream.buffering.listen((_) => _wake()),
+      stream.completed.listen((_) => _wake()),
+      stream.position.listen(_moved),
+    ];
+    widget.playback.addListener(_wake);
     clock.value =
         widget.playback.player.state.position.inMicroseconds /
         Duration.microsecondsPerSecond;
@@ -77,34 +97,60 @@ class _DanmakuLayerState extends State<DanmakuLayer>
       );
       if (playback.frameStepping) {
         frozen = true;
+        _rest(_anyMove);
         return;
       }
       if (identity != nextIdentity) layout.clear();
+      final running =
+          state.playing &&
+          !state.buffering &&
+          !state.completed &&
+          !playback.opening;
       clock.value = motion.sample(
         elapsed: elapsed,
         position: state.position,
-        running:
-            state.playing &&
-            !state.buffering &&
-            !state.completed &&
-            !playback.opening,
+        running: running,
         rate: state.rate,
         reset: identity != nextIdentity || frozen,
       );
       identity = nextIdentity;
       frozen = false;
+      // Each frame recomposites the whole window over the video, so frames
+      // are requested only while comments move or are about to enter.
+      final next = layout.quietAfter(clock.value);
+      if (!running) {
+        _rest(_anyMove);
+      } else if (next != null && sent.isEmpty && clock.value < next - .25) {
+        _rest((from: clock.value - .5, until: next - .25));
+      }
     });
     widget.playback.danmaku.preferences.addListener(_toggle);
     _toggle();
   }
 
-  /// Hidden comments request no frames; shown again, the clock rebases.
+  void _rest(({double from, double until}) range) {
+    quiet = range;
+    ticker.stop();
+  }
+
+  /// Resumes frames; the clock rebases, having stood still while resting.
+  void _wake() {
+    if (ticker.isActive || !widget.playback.danmaku.preferences.enabled) {
+      return;
+    }
+    frozen = true;
+    ticker.start();
+  }
+
+  void _moved(Duration position) {
+    final seconds = position.inMicroseconds / Duration.microsecondsPerSecond;
+    if (seconds < quiet.from || seconds >= quiet.until) _wake();
+  }
+
+  /// Hidden comments request no frames.
   void _toggle() {
-    final enabled = widget.playback.danmaku.preferences.enabled;
-    if (enabled == ticker.isActive) return;
-    if (enabled) {
-      frozen = true;
-      ticker.start();
+    if (widget.playback.danmaku.preferences.enabled) {
+      _wake();
     } else {
       ticker.stop();
     }
@@ -113,7 +159,11 @@ class _DanmakuLayerState extends State<DanmakuLayer>
   @override
   void dispose() {
     widget.playback.danmaku.preferences.removeListener(_toggle);
+    widget.playback.removeListener(_wake);
     unawaited(sending.cancel());
+    for (final subscription in playerEvents) {
+      unawaited(subscription.cancel());
+    }
     ticker.dispose();
     sprites.clear();
     clock.dispose();
@@ -170,6 +220,7 @@ class _DanmakuLayerState extends State<DanmakuLayer>
               MediaQuery.devicePixelRatioOf(context),
               targetAt,
               jumpTarget,
+              _wake,
             ),
             size: Size.infinite,
           ),
@@ -189,6 +240,7 @@ class DanmakuPainter extends CustomPainter {
     this.ratio,
     this.targetAt,
     this.jumpTarget,
+    this.onShown,
   ) : super(repaint: Listenable.merge([clock, playback.danmaku.preferences]));
   final Playback playback;
   final ValueNotifier<double> clock;
@@ -206,6 +258,10 @@ class DanmakuPainter extends CustomPainter {
 
   /// The time a comment's text jumps to.
   final double? Function(String) jumpTarget;
+
+  /// Comments were drawn. A paint while frames rest, such as on a resize,
+  /// laid them out at a clock that stood still.
+  final VoidCallback onShown;
 
   @override
   bool hitTest(Offset position) => targetAt(position) != null;
@@ -268,6 +324,7 @@ class DanmakuPainter extends CustomPainter {
       );
     }
     sprites.endFrame();
+    if (visible.isNotEmpty) onShown();
   }
 
   DanmakuSprite _sprite(DanmakuComment item) {
