@@ -196,6 +196,7 @@ class _PlayerSidePanelState extends State<PlayerSidePanel> {
                   PlayerPanelTab.danmaku => PlayerDanmakuPane(
                     playback: widget.playback,
                     onError: widget.onError,
+                    title: subject?.title ?? widget.session?.title,
                   ),
                 },
               ),

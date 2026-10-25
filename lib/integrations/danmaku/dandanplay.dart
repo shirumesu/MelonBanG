@@ -29,8 +29,6 @@ class DandanplayDanmaku implements DanmakuSearch {
   @override
   String? get unconfigured =>
       configuration.hasDandanplay ? null : '此版本没有弹弹play 应用凭证';
-  @override
-  bool get manual => true;
 
   Future<Json> _request(String path, {Json? body}) async {
     if (!configuration.hasDandanplay) {
@@ -207,7 +205,7 @@ class DandanplayDanmaku implements DanmakuSearch {
   DanmakuCandidate _candidate(Json item) => DanmakuCandidate(
     locator: positiveId(item['episodeId']) ?? '${item['episodeId']}',
     title: '${item['animeTitle'] ?? '候选番剧'}',
-    episode: '${item['episodeTitle'] ?? item['episodeNumber'] ?? ''}',
+    subtitle: '${item['episodeTitle'] ?? item['episodeNumber'] ?? ''}',
   );
 
   @override
