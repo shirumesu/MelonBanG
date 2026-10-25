@@ -3,7 +3,6 @@ import 'dart:async';
 import '../../core/error_message.dart';
 import '../../domain/catalog.dart';
 import '../../core/network.dart';
-import 'resource_metadata.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/sources.dart';
@@ -25,7 +24,7 @@ Future<List<PlayCandidate>> onlineCandidates(
   SourceRegistry registry,
   Subject subject,
   Episode? episode, {
-  List<String>? names,
+  required List<String> names,
   void Function(SourceProgress)? onProgress,
   void Function(List<PlayCandidate>)? onUpdate,
   RequestCancellation? cancel,
@@ -33,7 +32,6 @@ Future<List<PlayCandidate>> onlineCandidates(
   String? preferProvider,
   bool includeManual = true,
 }) async {
-  final searchNames = names ?? resourceNames(subject);
   final result = <PlayCandidate>[];
   final operation = RequestCancellation();
   final stop = cancel?.listen(operation.cancel);
@@ -56,8 +54,8 @@ Future<List<PlayCandidate>> onlineCandidates(
   bool accepted(SourceSubject site) =>
       site.direct ||
       (site.choosePart
-          ? uploadMatches(subject, episode, site, searchNames)
-          : sourceMatchScore(subject, site, searchNames) >= .55);
+          ? uploadMatches(subject, episode, site, names)
+          : sourceMatchScore(subject, site, names) >= .55);
   final all = Future.wait(
     usable.map((rule) async {
       final id = rule.id;
@@ -72,13 +70,13 @@ Future<List<PlayCandidate>> onlineCandidates(
       try {
         final matches = await registry.searchSubjects(
           id,
-          searchNames,
+          names,
           cancel: operation,
           enough: manual
               ? (rows) => rows.any(accepted)
               : firstReady
               ? (rows) => rows.any(
-                  (site) => sourceMatchScore(subject, site, searchNames) >= .84,
+                  (site) => sourceMatchScore(subject, site, names) >= .84,
                 )
               : null,
         );
@@ -92,7 +90,7 @@ Future<List<PlayCandidate>> onlineCandidates(
         await Future.wait(
           matches.map((site) async {
             if (!accepted(site)) return;
-            final score = sourceMatchScore(subject, site, searchNames);
+            final score = sourceMatchScore(subject, site, names);
             if (episode == null || site.choosePart) {
               final label = site.choosePart ? '选择分 P' : '选择集数';
               publish([

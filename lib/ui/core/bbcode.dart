@@ -306,11 +306,6 @@ class _Renderer {
         decoration: TextDecoration.combine([?style.decoration, decoration]),
       );
 
-  static String? _stringChild(_Tag node) => switch (node.children) {
-    [_Text(:final text)] => text,
-    _ => null,
-  };
-
   /// A spoiler is a dark bar in the text colour until the pointer rests on
   /// it or it is tapped, as Bangumi's `text_mask`.
   List<InlineSpan> _spoiler(List<_Node> children, TextStyle style) {
@@ -672,8 +667,7 @@ class _Parser {
   _Node _sticker() {
     final rest = input.substring(pos);
     final match =
-        RegExp(r'^\(bgm(\d+)\)').firstMatch(rest) ??
-        RegExp(r'^\((musume|blake)_(\d{2,3})\)').firstMatch(rest);
+        _numberedSticker.firstMatch(rest) ?? _characterSticker.firstMatch(rest);
     final sticker = match == null
         ? _kaomoji(rest)
         : match.groupCount == 1
@@ -687,6 +681,9 @@ class _Parser {
     return sticker;
   }
 
+  static final _numberedSticker = RegExp(r'^\(bgm(\d+)\)');
+  static final _characterSticker = RegExp(r'^\((musume|blake)_(\d{2,3})\)');
+  static final _letter = RegExp(r'[a-zA-Z]');
   static const _stickerHost = 'https://lain.bgm.tv';
 
   /// `(bgm01)`–`(bgm125)`, `(bgm200)`–`(bgm238)` and `(bgm500)`–`(bgm529)`.
@@ -763,7 +760,7 @@ class _Parser {
 
   String _tagName() {
     final start = pos;
-    while (!_eof && RegExp(r'[a-zA-Z]').hasMatch(input[pos])) {
+    while (!_eof && _letter.hasMatch(input[pos])) {
       pos++;
     }
     if (pos == start) throw const _Invalid();
@@ -823,10 +820,7 @@ class _Parser {
   }
 
   static bool _valid(_Tag node) {
-    final child = switch (node.children) {
-      [_Text(:final text)] => text,
-      _ => null,
-    };
+    final child = _stringChild(node);
     return switch (node.name) {
       'color' => node.value.isNotEmpty,
       'size' => RegExp(r'\d').hasMatch(node.value),
@@ -839,3 +833,8 @@ class _Parser {
     };
   }
 }
+
+String? _stringChild(_Tag node) => switch (node.children) {
+  [_Text(:final text)] => text,
+  _ => null,
+};

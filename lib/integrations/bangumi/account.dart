@@ -16,21 +16,20 @@ class AccountRepository implements Account {
   AccountRepository(
     this.api,
     this.credentials, {
-    this.store,
-    this.configuration = const ServiceConfiguration(),
-    Future<void> Function(Uri)? launch,
-  }) : launch =
-           launch ??
-           ((uri) async {
-             if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-               throw StateError('无法打开登录网页');
-             }
-           });
+    required this.store,
+    required this.configuration,
+  });
   final ApiClient api;
   final Credentials credentials;
-  final AppStore? store;
+  final AppStore store;
   final ServiceConfiguration configuration;
-  final Future<void> Function(Uri) launch;
+
+  static Future<void> _launch(Uri uri) async {
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      throw StateError('无法打开登录网页');
+    }
+  }
+
   Json? _bundle;
   Json? _profile;
   Json? get session => _bundle == null ? _profile : object(_bundle!['user']);
@@ -49,7 +48,7 @@ class AccountRepository implements Account {
   bool _closed = false;
   bool _restoreNeedsAuthorization = false;
   Future<void> initialize() async {
-    _profile = await store?.get('account', 'profile');
+    _profile = await store.get('account', 'profile');
     try {
       final saved = await credentials.read('account', allowInteraction: false);
       if (saved != null) {
@@ -57,7 +56,7 @@ class AccountRepository implements Account {
         await _rememberProfile();
       } else {
         _profile = null;
-        await store?.remove('account', 'profile');
+        await store.remove('account', 'profile');
       }
     } on CredentialInteractionRequired {
       _restoreNeedsAuthorization = true;
@@ -71,7 +70,7 @@ class AccountRepository implements Account {
       for (final key in ['userId', 'username', 'nickname', 'avatarUrl'])
         if (user.containsKey(key)) key: user[key],
     };
-    await store?.put('account', 'profile', _profile!);
+    await store.put('account', 'profile', _profile!);
   }
 
   Json _oauthConfiguration() {
@@ -95,28 +94,31 @@ class AccountRepository implements Account {
   @override
   Future<Json> signIn() async {
     final generation = ++_signInGeneration;
+    void checkCurrent() {
+      if (_closed || generation != _signInGeneration) {
+        throw StateError('登录已取消');
+      }
+    }
+
     await _cancelPendingSignIn();
     if (_restoreNeedsAuthorization) {
       final saved = _bundle == null ? await credentials.read('account') : null;
-      if (_closed || generation != _signInGeneration) throw StateError('登录已取消');
+      checkCurrent();
       if (saved != null) {
         _bundle = object(jsonDecode(saved));
         await _rememberProfile();
       } else if (_bundle == null) {
         _profile = null;
-        await store?.remove('account', 'profile');
+        await store.remove('account', 'profile');
       }
     }
-    if (_closed || generation != _signInGeneration) throw StateError('登录已取消');
+    checkCurrent();
     if (_bundle != null) {
       _restoreNeedsAuthorization = false;
       return session!;
     }
     _restoreNeedsAuthorization = false;
     final config = _oauthConfiguration();
-    if (_closed || generation != _signInGeneration) {
-      throw StateError('登录已取消');
-    }
     final redirect = Uri.parse('${config['redirectUri']}');
     final state = newId();
     final server = await HttpServer.bind(
@@ -151,7 +153,7 @@ class AccountRepository implements Account {
         const Duration(minutes: 5),
       );
       unawaited(
-        launch(
+        _launch(
           Uri.https('bgm.tv', '/oauth/authorize', {
             'client_id': '${config['clientId']}',
             'response_type': 'code',
@@ -322,7 +324,7 @@ class AccountRepository implements Account {
     _restoreNeedsAuthorization = false;
     final deleting = _credentialWrites.then((_) async {
       await credentials.write('account', null);
-      await store?.remove('account', 'profile');
+      await store.remove('account', 'profile');
     });
     _credentialWrites = deleting.catchError((Object _) {});
     await deleting;

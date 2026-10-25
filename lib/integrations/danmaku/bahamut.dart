@@ -41,28 +41,23 @@ class BahamutDanmaku implements DanmakuSearch {
     final normalizedTitles = titles.map(normalizedTitle).toSet();
     // animeSn -> one of its videoSn, which addresses the anime's episode list.
     final candidates = <String, String>{};
-    for (final query
-        in titles.map(ChineseHelper.convertToTraditionalChinese).toSet()) {
-      final value = await api.map(
-        Uri.https('api.gamer.com.tw', '/anime/v1/search.php', {'kw': query}),
-      );
-      for (final anime in objects(object(value['data'])['animeList'])) {
-        final animeSn = positiveId(anime['animeSn']);
-        final videoSn = positiveId(anime['videoSn']);
-        if (animeSn != null &&
-            videoSn != null &&
-            normalizedTitles.contains(normalizedTitle('${anime['title']}'))) {
-          candidates[animeSn] = videoSn;
-        }
+    final results = await Future.wait(
+      titles
+          .map(ChineseHelper.convertToTraditionalChinese)
+          .toSet()
+          .map(_search),
+    );
+    for (final anime in results.expand((animes) => animes)) {
+      final animeSn = positiveId(anime['animeSn']);
+      final videoSn = positiveId(anime['videoSn']);
+      if (animeSn != null &&
+          videoSn != null &&
+          normalizedTitles.contains(normalizedTitle('${anime['title']}'))) {
+        candidates[animeSn] = videoSn;
       }
     }
     if (candidates.length != 1) return null;
-    final value = await api.map(
-      Uri.https('api.gamer.com.tw', '/anime/v1/video.php', {
-        'videoSn': candidates.values.single,
-      }),
-    );
-    final lists = object(object(object(value['data'])['anime'])['episodes']);
+    final lists = await _episodeLists(candidates.values.single);
     // List "0" is the main series; dubbed versions and specials reuse numbers.
     final episodes = {
       for (final item in objects(lists['0']))
@@ -77,13 +72,10 @@ class BahamutDanmaku implements DanmakuSearch {
     if (RegExp(r'sn=(\d+)').firstMatch(title)?[1] case final sn?) {
       return _anime(sn);
     }
-    final value = await api.map(
-      Uri.https('api.gamer.com.tw', '/anime/v1/search.php', {
-        'kw': ChineseHelper.convertToTraditionalChinese(title),
-      }),
-    );
     return [
-      for (final anime in objects(object(value['data'])['animeList']))
+      for (final anime in await _search(
+        ChineseHelper.convertToTraditionalChinese(title),
+      ))
         DanmakuCandidate(
           title: '${anime['title']}',
           subtitle:
@@ -94,15 +86,28 @@ class BahamutDanmaku implements DanmakuSearch {
     ];
   }
 
-  /// The episode lists of the anime holding [videoSn], or its episodes when
-  /// it has one list.
-  Future<List<DanmakuCandidate>> _anime(String videoSn) async {
+  /// The anime a search for [query] finds.
+  Future<List<Json>> _search(String query) async {
+    final value = await api.map(
+      Uri.https('api.gamer.com.tw', '/anime/v1/search.php', {'kw': query}),
+    );
+    return objects(object(value['data'])['animeList']);
+  }
+
+  /// The episode lists, by list number, of the anime holding [videoSn].
+  Future<Json> _episodeLists(String videoSn) async {
     final value = await api.map(
       Uri.https('api.gamer.com.tw', '/anime/v1/video.php', {
         'videoSn': videoSn,
       }),
     );
-    final lists = object(object(object(value['data'])['anime'])['episodes']);
+    return object(object(object(value['data'])['anime'])['episodes']);
+  }
+
+  /// The episode lists of the anime holding [videoSn], or its episodes when
+  /// it has one list.
+  Future<List<DanmakuCandidate>> _anime(String videoSn) async {
+    final lists = await _episodeLists(videoSn);
     List<DanmakuCandidate> episodes(Object? list) => [
       for (final item in objects(list))
         DanmakuCandidate(

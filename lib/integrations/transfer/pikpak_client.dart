@@ -56,11 +56,10 @@ class PikPakDriveFile {
 
 /// Native PikPak protocol; account credentials and tokens stay in secure storage.
 class PikPakClient {
-  PikPakClient(this.credentials, {http.Client? httpClient})
-    : _http = httpClient ?? http.Client();
+  PikPakClient(this.credentials);
 
   final Credentials credentials;
-  final http.Client _http;
+  final _http = http.Client();
   static const _auth = 'user.mypikpak.com';
   static const _drive = 'api-drive.mypikpak.com';
   // Public web-client protocol identifiers, also used by rclone's PikPak backend:
@@ -104,12 +103,7 @@ class PikPakClient {
   bool get needsAuthorization => _needsAuthorization;
   Uri? get verificationUrl => _challenge;
   String? get account => _tokens?['account'] as String?;
-  String? get username => account;
-  String? get displayName => account;
   String? get userId => _tokens?['sub'] as String?;
-  Json? get session => isSignedIn
-      ? {'userId': userId, 'username': account, 'displayName': account}
-      : null;
 
   static String _newDeviceId() {
     final random = Random.secure();
@@ -159,34 +153,27 @@ class PikPakClient {
       _captchaAccount = username;
     }
     const action = 'POST:/v1/auth/signin';
-    var captcha = await _captcha(action, username: username);
-    _checkGeneration(generation);
+    Future<Json> signIn({bool force = false}) async {
+      final captcha = await _captcha(action, username: username, force: force);
+      _checkGeneration(generation);
+      return _send(
+        'POST',
+        Uri.https(_auth, '/v1/auth/signin'),
+        body: {
+          'username': username,
+          'password': password,
+          'client_id': _clientId,
+        },
+        captcha: captcha,
+      );
+    }
+
     Json response;
     try {
-      response = await _send(
-        'POST',
-        Uri.https(_auth, '/v1/auth/signin'),
-        body: {
-          'username': username,
-          'password': password,
-          'client_id': _clientId,
-        },
-        captcha: captcha,
-      );
+      response = await signIn();
     } on PikPakException catch (error) {
       if (!_isCaptchaError(error)) rethrow;
-      captcha = await _captcha(action, username: username, force: true);
-      _checkGeneration(generation);
-      response = await _send(
-        'POST',
-        Uri.https(_auth, '/v1/auth/signin'),
-        body: {
-          'username': username,
-          'password': password,
-          'client_id': _clientId,
-        },
-        captcha: captcha,
-      );
+      response = await signIn(force: true);
     }
     await _saveTokens(response, username, generation);
     _scratch = null;

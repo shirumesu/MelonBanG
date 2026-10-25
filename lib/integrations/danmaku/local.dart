@@ -21,22 +21,20 @@ class LocalDanmaku implements DanmakuProvider {
       throw const FormatException('弹幕文件应为数组，包含 timeSeconds、text 和 mode。');
     }
     return sortedComments(
-      objects(decoded)
-          .where((item) => item['text'] is String)
-          .map(
-            (item) => DanmakuComment.parse(
-              source: id,
-              time: item['timeSeconds'],
-              text: item['text'],
-              mode: switch (item['mode'] ?? 'scroll') {
-                'scroll' => DanmakuMode.scroll,
-                'top' => DanmakuMode.top,
-                'bottom' => DanmakuMode.bottom,
-                _ => null,
-              },
-              color: hexColor(item['color']),
-            ),
-          ),
+      objects(decoded).map(
+        (item) => DanmakuComment.parse(
+          source: id,
+          time: item['timeSeconds'],
+          text: item['text'],
+          mode: switch (item['mode'] ?? 'scroll') {
+            'scroll' => DanmakuMode.scroll,
+            'top' => DanmakuMode.top,
+            'bottom' => DanmakuMode.bottom,
+            _ => null,
+          },
+          color: hexColor(item['color']),
+        ),
+      ),
     );
   }
 }

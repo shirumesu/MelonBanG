@@ -242,14 +242,11 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
     );
   }
 
-  Widget toggle(String key, String title, {String? help}) => SettingRow(
+  Widget toggle(String key, String title, {String? help}) => SettingSwitch(
     title: title,
     help: help,
-    onTap: () => change(() => draft[key] = !(draft[key] as bool)),
-    trailing: Switch(
-      value: draft[key] as bool,
-      onChanged: (value) => change(() => draft[key] = value),
-    ),
+    value: draft[key] as bool,
+    onChanged: (value) => change(() => draft[key] = value),
   );
 
   Widget speed(String key, String title) => SettingRow(

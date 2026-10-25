@@ -448,7 +448,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
     slivers: [
       DecoratedSliver(
         decoration: BoxDecoration(
-          color: CardTheme.of(context).color ?? Theme.of(context).cardColor,
+          color: CardTheme.of(context).color,
           borderRadius: panelBorderRadius,
         ),
         sliver: SliverPadding(
@@ -720,8 +720,9 @@ const _postText = TextStyle(fontSize: 13, height: 1.6);
 /// A post's date as YYYY-MM-DD, or empty without one.
 String communityDate(int? seconds) {
   if (seconds == null || seconds <= 0) return '';
-  final time = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
-  return '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
+  return DateTime.fromMillisecondsSinceEpoch(seconds * 1000)
+      .toIso8601String()
+      .substring(0, 10);
 }
 
 final _compactButton = TextButton.styleFrom(

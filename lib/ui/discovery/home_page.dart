@@ -497,7 +497,7 @@ class _RankList extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return MelonPanel(
-      padding: const EdgeInsets.fromLTRB(Gap.sm, Gap.sm, Gap.sm, Gap.sm),
+      padding: const EdgeInsets.all(Gap.sm),
       child: MotionSelection<int>(
         selected: selected,
         highlight: DecoratedBox(
@@ -640,7 +640,6 @@ class _ContinueSection extends StatelessWidget {
         else
           HorizontalPosters(
             storageId: const ValueKey('continue-posters'),
-            ranked: false,
             itemCount: posters.length,
             itemBuilder: (i) {
               final (item, resume) = posters[i];

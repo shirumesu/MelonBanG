@@ -4,6 +4,15 @@ import 'catalog.dart';
 const collectionTagLimit = 10;
 const collectionCommentLimit = 380;
 
+final _tagSeparator = RegExp('[,，]');
+
+/// Tags typed into one field, separated by half- or full-width commas.
+List<String> splitCollectionTags(String text) => text.split(_tagSeparator);
+
+/// Typing a comma adds the tags typed so far.
+bool endsWithTagSeparator(String text) =>
+    text.endsWith(',') || text.endsWith('，');
+
 List<String> normalizeCollectionTags(Iterable<String> values) {
   final tags = values
       .map((value) => value.trim())

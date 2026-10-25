@@ -23,14 +23,8 @@ import 'records.dart';
 /// it. Links are read from the source again when they expire. Until a task
 /// completes, playing it plays the entry from its source.
 class OnlineDownloads implements OnlineTransfer {
-  OnlineDownloads(
-    this.store,
-    String directory,
-    this.api,
-    this.resolve, {
-    http.Client? transferClient,
-  }) : directory = p.normalize(p.absolute(directory)),
-       _http = transferClient ?? http.Client();
+  OnlineDownloads(this.store, String directory, this.api, this.resolve)
+    : directory = p.normalize(p.absolute(directory));
 
   final AppStore store;
   @override
@@ -39,7 +33,7 @@ class OnlineDownloads implements OnlineTransfer {
 
   /// Reads an entry's stream from its source, advertisements filtered.
   final Future<ResolvedStream> Function(StreamRef ref) resolve;
-  final http.Client _http;
+  final _http = http.Client();
   static const _connections = 6;
   static const _idle = Duration(seconds: 30);
 

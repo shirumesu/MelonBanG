@@ -32,6 +32,11 @@ abstract class HttpRuleEngine implements SourceEngine {
   /// the next base URL is tried.
   void validate(String body) {}
 
+  static final _challenge = RegExp(
+    r'cf-chl-|captcha|人机验证|安全验证|Just a moment',
+    caseSensitive: false,
+  );
+
   Future<(String, Uri)> request(
     Json step,
     Json values, {
@@ -40,7 +45,6 @@ abstract class HttpRuleEngine implements SourceEngine {
     final bases = <String>{?_base, ...instance.baseUrls};
     Object? issue;
     for (final base in bases) {
-      cancel?.throwIfCancelled();
       final uri = Uri.parse(base).resolve(template('${step['url']}', values));
       try {
         final response = await api.send(
@@ -52,11 +56,7 @@ abstract class HttpRuleEngine implements SourceEngine {
           },
         );
         final body = utf8.decode(response.bodyBytes);
-        if (RegExp(
-              r'cf-chl-|captcha|人机验证|安全验证|Just a moment',
-              caseSensitive: false,
-            ).hasMatch(body) &&
-            !body.trimLeft().startsWith('{')) {
+        if (_challenge.hasMatch(body) && !body.trimLeft().startsWith('{')) {
           throw SourceVerificationRequired(uri.toString());
         }
         validate(body);

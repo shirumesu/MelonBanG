@@ -531,14 +531,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   MelonBadge(origin, color: sky),
                   const SizedBox(width: 6),
                 ],
-                MelonBadge(
-                  downloadStatus(task),
-                  color: task.status == DownloadStatus.failed
-                      ? coral
-                      : task.complete
-                      ? sky
-                      : mint,
-                ),
+                DownloadStatusBadge(task),
                 if (!task.complete && task.cloudProgress == null)
                   SizedBox(
                     width: 44,
@@ -875,7 +868,7 @@ class _SubjectCoverLinkState extends State<_SubjectCoverLink> {
       width: 58,
       height: 78,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: badgeBorderRadius,
         child: Stack(
           fit: StackFit.expand,
           children: [

@@ -9,9 +9,17 @@ import '../core/page_widgets.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 
+const weekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
 String shanghaiClock(DateTime instant) {
   final time = instant.toUtc().add(const Duration(hours: 8));
   return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+}
+
+/// The calendar day of [instant] in UTC+8, the schedule's time zone.
+DateTime shanghaiDay(DateTime instant) {
+  final time = instant.toUtc().add(const Duration(hours: 8));
+  return DateTime.utc(time.year, time.month, time.day);
 }
 
 class TodayTimeline extends StatefulWidget {
@@ -46,9 +54,7 @@ class _TodayTimelineState extends State<TodayTimeline> {
   void initState() {
     super.initState();
     // Air status is derived from the schedule time only.
-    clock = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
-    });
+    clock = Timer.periodic(const Duration(seconds: 30), (_) => setState(() {}));
   }
 
   @override

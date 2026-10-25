@@ -26,16 +26,12 @@ class CalendarPage extends StatefulWidget {
 
 class _CalendarPageState extends State<CalendarPage> {
   String? selected;
-  bool restored = false;
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!restored) {
-      final saved = PageStorage.maybeOf(context)
-          ?.readState(context, identifier: 'calendar-day');
-      if (saved is String) selected = saved;
-      restored = true;
-    }
+  void initState() {
+    super.initState();
+    selected = PageStorage.maybeOf(
+      context,
+    )?.readState(context, identifier: 'calendar-day') as String?;
   }
 
   void selectDay(String day) {
@@ -46,12 +42,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
   @override
   Widget build(BuildContext context) {
-    final shanghaiNow = DateTime.now().toUtc().add(const Duration(hours: 8));
-    final today = DateTime.utc(
-      shanghaiNow.year,
-      shanghaiNow.month,
-      shanghaiNow.day,
-    );
+    final today = shanghaiDay(DateTime.now());
     final dates = [
       for (var i = 0; i < 7; i++)
         today.add(Duration(days: i)).toIso8601String().substring(0, 10),
@@ -59,15 +50,8 @@ class _CalendarPageState extends State<CalendarPage> {
     final days = {for (final day in widget.calendar) day.date: day};
     final selectedDate = dates.contains(selected) ? selected! : dates.first;
     final items = days[selectedDate]?.items ?? const <Subject>[];
-    String weekday(String date) => [
-      '周一',
-      '周二',
-      '周三',
-      '周四',
-      '周五',
-      '周六',
-      '周日',
-    ][DateTime.parse('${date}T00:00:00Z').weekday - 1];
+    String weekday(String date) =>
+        weekdayLabels[DateTime.parse('${date}T00:00:00Z').weekday - 1];
     return Column(
       children: [
         Container(

@@ -178,6 +178,12 @@ class PlaybackCoordinator extends ChangeNotifier {
   Episode? _candidateEpisode;
   bool _recovering = false, _onlineRefreshed = false;
   Timer? _firstFrameDeadline, _bufferDeadline;
+
+  void _cancelDeadlines() {
+    _firstFrameDeadline?.cancel();
+    _bufferDeadline?.cancel();
+  }
+
   int _longBufferCount = 0;
   DateTime? _lastLongBuffer;
 
@@ -282,8 +288,7 @@ class PlaybackCoordinator extends ChangeNotifier {
   void cancel() {
     playback.cancelAutoplay();
     _nextSelection();
-    _firstFrameDeadline?.cancel();
-    _bufferDeadline?.cancel();
+    _cancelDeadlines();
     _playbackRequest++;
   }
 
@@ -318,8 +323,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     _activeCandidate = null;
     // A chosen file has no source choice to show beside it.
     remembered = null;
-    _firstFrameDeadline?.cancel();
-    _bufferDeadline?.cancel();
+    _cancelDeadlines();
     shell.enterPlayer();
     final ticket = ++_preparingTicket;
     _retryPreparing = () =>
@@ -332,61 +336,41 @@ class PlaybackCoordinator extends ChangeNotifier {
       downloadId: downloadId,
     );
     notifyListeners();
-    Object? failure;
-    await _queue(
-      () async {
-        try {
-          await playback.saveProgress();
-          final session = await load();
-          if (_closed || request != _selectionRequest) {
-            downloads.releaseStreamsExcept(playback.session?.streamId);
-            return;
-          }
-          await playback.open(session);
-          if (playback.error != null) throw StateError(playback.error!);
-        } catch (e) {
-          failure = e;
-          rethrow;
+    try {
+      await _queue(() async {
+        await playback.saveProgress();
+        final session = await load();
+        if (_closed || request != _selectionRequest) {
+          downloads.releaseStreamsExcept(playback.session?.streamId);
+          return;
         }
-      },
-      reportFailure: false,
-      isCurrent: () => request == _selectionRequest,
-    );
-    if (failure case final error?) {
+        await playback.open(session);
+        if (playback.error != null) throw StateError(playback.error!);
+      }, isCurrent: () => request == _selectionRequest);
+    } catch (error) {
       _failPreparing(ticket, errorMessage(error));
     }
   }
 
+  /// Runs [open] after the playback operations before it, unless a newer
+  /// one replaced it while waiting; its failure reaches the caller.
   Future<void> _queue(
     Future<void> Function() open, {
-    bool reportFailure = true,
-    bool Function()? isCurrent,
+    required bool Function() isCurrent,
   }) {
     final ticket = ++_playbackRequest;
     final operation = _operations.then((_) async {
       if (_closed || ticket != _playbackRequest) return;
-      Future<void> action() async {
-        final previousSessionId = playback.session?.id;
-        await open();
-        if (_closed ||
-            ticket != _playbackRequest ||
-            !(isCurrent?.call() ?? true)) {
-          if (playback.session?.id != previousSessionId) {
-            await playback.player.pause();
-            await playback.saveProgress();
-          }
-          return;
+      final previousSessionId = playback.session?.id;
+      await open();
+      if (_closed || ticket != _playbackRequest || !isCurrent()) {
+        if (playback.session?.id != previousSessionId) {
+          await playback.player.pause();
+          await playback.saveProgress();
         }
-        _show(ticket);
+        return;
       }
-
-      if (reportFailure) {
-        await _perform(action);
-      } else {
-        try {
-          await action();
-        } catch (_) {}
-      }
+      _show(ticket);
     });
     _operations = operation.catchError((Object _) {});
     return operation;
@@ -436,8 +420,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     playback.cancelAutoplay();
     final request = _nextSelection();
     _activeCandidate = null;
-    _firstFrameDeadline?.cancel();
-    _bufferDeadline?.cancel();
+    _cancelDeadlines();
     final available = await library.playableEpisodes(item.id);
     if (_closed || request != _selectionRequest) return;
     if (available.contains(episode.id)) {
@@ -632,11 +615,9 @@ class PlaybackCoordinator extends ChangeNotifier {
       _lastLongBuffer = null;
       _activeCandidate = null;
     }
-    _firstFrameDeadline?.cancel();
-    _bufferDeadline?.cancel();
-    Object? failure;
-    await _queue(
-      () async {
+    _cancelDeadlines();
+    try {
+      await _queue(() async {
         try {
           _preparingStep(
             status: switch (candidate.target) {
@@ -687,16 +668,13 @@ class PlaybackCoordinator extends ChangeNotifier {
           }
         } catch (e) {
           if (request == _selectionRequest) _activeCandidate = candidate;
-          failure = e;
           rethrow;
         }
-      },
-      reportFailure: false,
-      isCurrent: () => request == _selectionRequest,
-    );
-    if (failure != null && !_closed && request == _selectionRequest) {
-      if (recovery) throw failure!;
-      await _recover(errorMessage(failure!));
+      }, isCurrent: () => request == _selectionRequest);
+    } catch (error) {
+      if (_closed || request != _selectionRequest) return;
+      if (recovery) rethrow;
+      await _recover(errorMessage(error));
     }
   }
 
@@ -737,8 +715,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     }
     _recovering = true;
     final request = _selectionRequest;
-    _firstFrameDeadline?.cancel();
-    _bufferDeadline?.cancel();
+    _cancelDeadlines();
     try {
       selection.failed(failed);
       if (failed.kind == PlayKind.online && !_onlineRefreshed) {
@@ -848,8 +825,6 @@ class PlaybackCoordinator extends ChangeNotifier {
   ) async {
     _cacheNextCancel?.cancel();
     final cancel = _cacheNextCancel = RequestCancellation();
-    String family(PlayCandidate c) =>
-        c.continuityKey.substring(0, c.continuityKey.indexOf(':'));
     try {
       final detail = item.episodes.isNotEmpty
           ? item
@@ -867,7 +842,7 @@ class PlaybackCoordinator extends ChangeNotifier {
           )) {
         return;
       }
-      final wanted = family(playing);
+      final wanted = playing.family;
       final choices =
           (await selection.candidates(
             detail,
@@ -881,8 +856,8 @@ class PlaybackCoordinator extends ChangeNotifier {
             (c) =>
                 !c.possibleMatch &&
                 c.kind != PlayKind.local &&
-                family(c) == wanted &&
-                !(describeCandidate(c).episodeLabel?.contains('–') ?? false) &&
+                c.family == wanted &&
+                !describeCandidate(c).batch &&
                 switch (c.target) {
                   ReleaseTarget() => true,
                   OnlineTarget(:final ref) => ref != null,
@@ -1009,8 +984,7 @@ class PlaybackCoordinator extends ChangeNotifier {
   Future<void> _close() async {
     _closed = true;
     playback.removeListener(_markWatched);
-    _firstFrameDeadline?.cancel();
-    _bufferDeadline?.cancel();
+    _cancelDeadlines();
     _selectionCancel.cancel();
     _cacheNextCancel?.cancel();
     for (final subscription in _subscriptions) {

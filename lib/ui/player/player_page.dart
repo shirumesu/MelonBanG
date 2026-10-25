@@ -39,21 +39,21 @@ class PlayerPage extends StatefulWidget {
     required this.onEpisode,
     this.subject,
     this.preparing,
-    this.onRetryPreparing,
-    this.onChoosePreparing,
+    required this.onRetryPreparing,
+    required this.onChoosePreparing,
     required this.downloads,
-    this.windowFullScreen = false,
-    this.onWindowFullScreenChanged,
-    this.onPlayFile,
-    this.onPlayCandidate,
-    this.onOpenResources,
+    required this.windowFullScreen,
+    required this.onWindowFullScreenChanged,
+    required this.onPlayFile,
+    required this.onPlayCandidate,
+    required this.onOpenResources,
     required this.panelOpen,
     required this.community,
     this.source,
     this.remembered,
-    this.onForgetSource,
+    required this.onForgetSource,
     this.failure,
-    this.onRetryFailure,
+    required this.onRetryFailure,
     required this.onMarkEpisode,
     required this.onOpenSubject,
   });
@@ -63,22 +63,22 @@ class PlayerPage extends StatefulWidget {
   final ValueChanged<Object> onError;
   final bool fullScreen, windowFullScreen;
   final Future<void> Function(bool) onFullScreenChanged;
-  final Future<void> Function(bool)? onWindowFullScreenChanged;
+  final Future<void> Function(bool) onWindowFullScreenChanged;
   final Subject? subject;
 
   /// Set while the player was opened before a source started.
   final PreparingPlayback? preparing;
-  final VoidCallback? onRetryPreparing, onChoosePreparing;
+  final VoidCallback onRetryPreparing, onChoosePreparing;
   final DownloadsController downloads;
   final ValueChanged<Episode> onEpisode;
-  final void Function(String id, String? fileId)? onPlayFile;
+  final void Function(String id, String? fileId) onPlayFile;
 
   /// Plays a chosen resource as the episode.
-  final Future<void> Function(PlayCandidate candidate, Episode episode)?
+  final Future<void> Function(PlayCandidate candidate, Episode episode)
   onPlayCandidate;
 
   /// Continues a resource-sheet search on the resources page.
-  final void Function(ResourceSearchController search)? onOpenResources;
+  final void Function(ResourceSearchController search) onOpenResources;
 
   /// Whether the side panel shows; null until the first layout picks a
   /// default from the width. The title bar toggles it too.
@@ -90,11 +90,11 @@ class PlayerPage extends StatefulWidget {
 
   /// The source the subject remembers, and forgetting it.
   final RememberedSource? remembered;
-  final VoidCallback? onForgetSource;
+  final VoidCallback onForgetSource;
 
   /// Why the chosen source stopped; the video stays paused under it.
   final PlaybackFailure? failure;
-  final VoidCallback? onRetryFailure;
+  final VoidCallback onRetryFailure;
   final Future<void> Function(Episode episode, bool watched) onMarkEpisode;
   final ValueChanged<Subject> onOpenSubject;
   @override
@@ -136,7 +136,7 @@ class PlayerPageState extends State<PlayerPage> {
 
   /// The super-resolution overload suggestion on screen.
   String? overload;
-  StreamSubscription<bool>? playingSubscription;
+  late final StreamSubscription<bool> playingSubscription;
   String? sessionId;
   int lastNotice = 0;
   Playback get playback => widget.playback;
@@ -174,7 +174,6 @@ class PlayerPageState extends State<PlayerPage> {
   }
 
   void refresh() {
-    if (!mounted) return;
     if (playback.notice != null && playback.noticeRevision != lastNotice) {
       lastNotice = playback.noticeRevision;
       showFeedback(playback.notice!);
@@ -196,7 +195,7 @@ class PlayerPageState extends State<PlayerPage> {
     playback.removeListener(refresh);
     widget.panelOpen.removeListener(refresh);
     playback.cancelAutoplay(notify: false);
-    unawaited(playingSubscription?.cancel());
+    unawaited(playingSubscription.cancel());
     boostTimer?.cancel();
     if (boosting) unawaited(playback.boost(false));
     focus.dispose();
@@ -215,8 +214,7 @@ class PlayerPageState extends State<PlayerPage> {
     if (!controls) setState(() => controls = true);
     hideTimer?.cancel();
     hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted &&
-          player.state.playing &&
+      if (player.state.playing &&
           dragging == null &&
           !danmakuMenu &&
           !controlsHovered &&
@@ -234,7 +232,7 @@ class PlayerPageState extends State<PlayerPage> {
     setState(() => feedback = text);
     // Long enough to read: a word flashes by, a sentence stays a little.
     feedbackTimer = Timer(Duration(milliseconds: 400 + 40 * text.length), () {
-      if (mounted) setState(() => feedback = null);
+      setState(() => feedback = null);
     });
   }
 
@@ -242,8 +240,11 @@ class PlayerPageState extends State<PlayerPage> {
   void syncOverload() {
     if (playback.overloaded == overload) return;
     overload = playback.overloaded;
-    overloadTimer?.cancel();
-    if (overload != null) dismissOverloadLater();
+    if (overload != null) {
+      dismissOverloadLater();
+    } else {
+      overloadTimer?.cancel();
+    }
   }
 
   void dismissOverloadLater() {
@@ -402,7 +403,7 @@ class PlayerPageState extends State<PlayerPage> {
 
   Future<void> windowFullscreen() async {
     playback.cancelAutoplay();
-    await widget.onWindowFullScreenChanged?.call(!widget.windowFullScreen);
+    await widget.onWindowFullScreenChanged(!widget.windowFullScreen);
     if (mounted) {
       focus.requestFocus();
       reveal();
@@ -473,7 +474,7 @@ class PlayerPageState extends State<PlayerPage> {
       if (widget.fullScreen) {
         unawaited(widget.onFullScreenChanged(false));
       } else if (widget.windowFullScreen) {
-        unawaited(widget.onWindowFullScreenChanged?.call(false));
+        unawaited(widget.onWindowFullScreenChanged(false));
       }
     } else if (event.logicalKey == LogicalKeyboardKey.keyM) {
       final muting = player.state.volume > 0;
@@ -608,7 +609,7 @@ class PlayerPageState extends State<PlayerPage> {
                             onTab: (tab) => setState(() => panelTab = tab),
                             onEpisode: widget.onEpisode,
                             onFindResources: findResources,
-                            onPlayFile: widget.onPlayFile ?? (_, _) {},
+                            onPlayFile: widget.onPlayFile,
                             onToggleTask: widget.downloads.toggle,
                             onMarkEpisode: widget.onMarkEpisode,
                             onOpenSubject: widget.onOpenSubject,
@@ -662,9 +663,7 @@ class PlayerPageState extends State<PlayerPage> {
                             ),
                             newSearch: widget.newResourceSearch,
                             playback: playback,
-                            onPlay: (candidate, episode) async => widget
-                                .onPlayCandidate
-                                ?.call(candidate, episode),
+                            onPlay: widget.onPlayCandidate,
                             onOpenPage: widget.onOpenResources,
                             subject: widget.subject!,
                             episodeId: resourceEpisode,
@@ -1305,7 +1304,7 @@ class _FailureCard extends StatelessWidget {
                   FilledButton(
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.white,
-                      foregroundColor: const Color(0xff15181d),
+                      foregroundColor: overlayInk,
                     ),
                     onPressed: onRetry,
                     child: const Text('重试'),
@@ -1325,7 +1324,6 @@ class _FailureCard extends StatelessWidget {
   }
 }
 
-/// Jumps past the OP or ED the file's chapters mark.
 /// Says the GPU cannot keep up with super-resolution and offers the
 /// efficient chain or turning it off.
 class _OverloadCard extends StatelessWidget {
@@ -1394,6 +1392,7 @@ class _OverloadCard extends StatelessWidget {
   }
 }
 
+/// Jumps past the OP or ED the file's chapters mark.
 class _SkipButton extends StatelessWidget {
   const _SkipButton({required this.label, required this.onPressed});
   final String label;
@@ -1545,8 +1544,6 @@ class _GlassCard extends StatelessWidget {
   const _GlassCard({required this.children});
   final List<Widget> children;
 
-  static const _ink = Color(0xff15181d);
-
   /// White and filled when [primary], quiet otherwise.
   static Widget button(
     String label,
@@ -1558,9 +1555,9 @@ class _GlassCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12),
       shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
       textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-      foregroundColor: primary ? _ink : Colors.white70,
+      foregroundColor: primary ? overlayInk : Colors.white70,
       backgroundColor: primary ? Colors.white : null,
-      overlayColor: primary ? _ink : Colors.white,
+      overlayColor: primary ? overlayInk : Colors.white,
     ),
     onPressed: onPressed,
     child: Text(label),
@@ -1635,16 +1632,8 @@ class _PanelHandle extends StatelessWidget {
 
 /// What a streamed download is doing while the player waits for its data:
 /// its state, speed and connected peers.
-String? _transferLine(DownloadTask? task) {
-  if (task == null || task.complete) return null;
-  return [
-    downloadStatus(task),
-    if (task.status == DownloadStatus.downloading) ...[
-      transferRate(task.downloadSpeed),
-      if (task.method == CacheMethod.bt) '${task.swarm.peers} 个节点',
-    ],
-  ].join('  ');
-}
+String? _transferLine(DownloadTask? task) =>
+    task == null || task.complete ? null : transferLine(task);
 
 /// Why a BT task waiting for data has no peers yet. Every tracker failing
 /// with an empty DHT table means its traffic does not get out, which a proxy

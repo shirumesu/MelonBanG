@@ -18,9 +18,6 @@ Widget _watch(Listenable listenable, WidgetBuilder builder) =>
       builder: (context, _) => builder(context),
     );
 
-Widget _switch(bool value, ValueChanged<bool> onChanged) =>
-    Switch(value: value, onChanged: onChanged);
-
 Widget _menu<T>(Map<T, String> options, T value, ValueChanged<T> onSelected) =>
     MelonChoiceMenu<T>(options: options, value: value, onSelected: onSelected);
 
@@ -152,11 +149,11 @@ SettingsSection appearanceSection(Appearance appearance) => SettingsSection(
         '封面取色 动态 动态配色 番剧封面',
         _watch(
           appearance,
-          (context) => SettingRow(
+          (context) => SettingSwitch(
             title: '封面取色',
             subtitle: '番剧详情和播放器使用这部番封面的颜色',
-            onTap: () => appearance.setCoverColor(!appearance.coverColor),
-            trailing: _switch(appearance.coverColor, appearance.setCoverColor),
+            value: appearance.coverColor,
+            onChanged: appearance.setCoverColor,
           ),
         ),
       ),
@@ -243,11 +240,11 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
     '$title $keywords ${subtitle ?? ''}',
     _watch(
       prefs,
-      (context) => SettingRow(
+      (context) => SettingSwitch(
         title: title,
         subtitle: subtitle,
-        onTap: () => change(!value()),
-        trailing: _switch(value(), change),
+        value: value(),
+        onChanged: change,
       ),
     ),
   );
@@ -378,11 +375,11 @@ SettingsSection sourcesSection(
           '记住 记忆 上次 来源 线路 字幕组 偏好',
           _watch(
             prefs,
-            (context) => SettingRow(
+            (context) => SettingSwitch(
               title: '记住每部番的来源',
               subtitle: '再看这部番时优先用上次的站点线路或字幕组，优先于上面的全局顺序',
-              onTap: () => prefs.setRememberSource(!prefs.rememberSource),
-              trailing: _switch(prefs.rememberSource, prefs.setRememberSource),
+              value: prefs.rememberSource,
+              onChanged: prefs.setRememberSource,
             ),
           ),
         ),
@@ -397,11 +394,11 @@ SettingsSection sourcesSection(
           '自动 缓存 下一集 下一话 预下载',
           _watch(
             prefs,
-            (context) => SettingRow(
+            (context) => SettingSwitch(
               title: '播放时缓存下一话',
               subtitle: '一话看了两分钟后，用同一字幕组或线路缓存已播出的下一话',
-              onTap: () => prefs.setCacheNext(!prefs.cacheNext),
-              trailing: _switch(prefs.cacheNext, prefs.setCacheNext),
+              value: prefs.cacheNext,
+              onChanged: prefs.setCacheNext,
             ),
           ),
         ),
@@ -511,13 +508,10 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
           '显示弹幕 开关',
           _watch(
             prefs,
-            (context) => SettingRow(
+            (context) => SettingSwitch(
               title: '显示弹幕',
-              onTap: () => prefs.update(() => prefs.enabled = !prefs.enabled),
-              trailing: _switch(
-                prefs.enabled,
-                (value) => prefs.update(() => prefs.enabled = value),
-              ),
+              value: prefs.enabled,
+              onChanged: (value) => prefs.update(() => prefs.enabled = value),
             ),
           ),
         ),
@@ -584,14 +578,11 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
           '弹幕 去重 合并 重复',
           _watch(
             prefs,
-            (context) => SettingRow(
+            (context) => SettingSwitch(
               title: '合并重复弹幕',
               subtitle: '10 秒内内容相同的弹幕只显示一条，并标出次数',
-              onTap: () => prefs.update(() => prefs.merge = !prefs.merge),
-              trailing: _switch(
-                prefs.merge,
-                (value) => prefs.update(() => prefs.merge = value),
-              ),
+              value: prefs.merge,
+              onChanged: (value) => prefs.update(() => prefs.merge = value),
             ),
           ),
         ),

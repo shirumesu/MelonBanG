@@ -9,18 +9,11 @@ import 'download_repository.dart';
 
 /// The download list and its task operations.
 class DownloadsController {
-  DownloadsController(
-    this.downloads, {
-    required this.ready,
-    required this.stopSeeding,
-  }) {
+  DownloadsController(this.downloads, {required this.stopSeeding}) {
     _accept(downloads.snapshot());
     _subscription = downloads.changes.stream.listen(_accept);
   }
   final DownloadRepository downloads;
-
-  /// Completes once restored tasks are loaded.
-  final Future<void> Function() ready;
 
   /// Stops seeding a finished BT task.
   final Future<void> Function(String id) stopSeeding;

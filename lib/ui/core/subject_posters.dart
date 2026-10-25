@@ -70,43 +70,6 @@ class CoverPlaceholder extends StatelessWidget {
   }
 }
 
-class SubjectPosters extends StatelessWidget {
-  const SubjectPosters({
-    super.key,
-    required this.items,
-    required this.onOpen,
-    this.horizontal = false,
-    this.ranked = false,
-    this.tracking = false,
-  });
-  final List<Subject> items;
-  final ValueChanged<Subject> onOpen;
-  final bool horizontal, ranked, tracking;
-  @override
-  Widget build(BuildContext context) {
-    if (items.isEmpty) return const EmptyState(text: '这里还没有番剧');
-    Widget poster(int i) => SubjectPoster(
-      onOpen: onOpen,
-      item: items[i],
-      rank: ranked ? i + 1 : null,
-      tracking: tracking,
-    );
-    if (horizontal) {
-      return HorizontalPosters(
-        storageId: key,
-        ranked: ranked,
-        itemCount: items.length,
-        itemBuilder: poster,
-      );
-    }
-    return CustomScrollView(
-      slivers: [
-        SubjectPosterGrid(items: items, onOpen: onOpen, tracking: tracking),
-      ],
-    );
-  }
-}
-
 /// Posters in a grid. When the order or set of items changes, posters that
 /// stay glide to their new cells and new ones fade in.
 class SubjectPosterGrid extends StatefulWidget {
@@ -286,15 +249,13 @@ class _PosterMotionState extends State<_PosterMotion>
 class HorizontalPosters extends StatefulWidget {
   const HorizontalPosters({
     super.key,
-    required this.ranked,
     required this.itemCount,
     required this.itemBuilder,
-    this.storageId,
+    required this.storageId,
   });
-  final bool ranked;
   final int itemCount;
   final Widget Function(int) itemBuilder;
-  final Object? storageId;
+  final Object storageId;
 
   @override
   State<HorizontalPosters> createState() => _HorizontalPostersState();
@@ -316,11 +277,7 @@ class _HorizontalPostersState extends State<HorizontalPosters> {
   }
 
   void _updateButtons() {
-    if (!mounted ||
-        !_scroll.hasClients ||
-        !_scroll.position.hasContentDimensions) {
-      return;
-    }
+    if (!_scroll.position.hasContentDimensions) return;
     final back = _scroll.position.extentBefore > .5;
     final forward = _scroll.position.extentAfter > .5;
     if (back != _back || forward != _forward) {
@@ -333,7 +290,7 @@ class _HorizontalPostersState extends State<HorizontalPosters> {
 
   void _page(int direction) {
     final position = _scroll.position;
-    final stride = (widget.ranked ? 180.0 : 188.0) + 16;
+    const stride = 188.0 + 16;
     final count = (position.viewportDimension / stride).floor().clamp(
       1,
       widget.itemCount,
@@ -358,7 +315,7 @@ class _HorizontalPostersState extends State<HorizontalPosters> {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: widget.ranked ? 330 : 292,
+    height: 292,
     child: NotificationListener<ScrollMetricsNotification>(
       onNotification: (_) {
         _updateButtons();
@@ -369,8 +326,7 @@ class _HorizontalPostersState extends State<HorizontalPosters> {
           onExit: (_) => _hover(0),
           onHover: (event) {
             final point = event.localPosition;
-            final nearButton =
-                (point.dy - (widget.ranked ? 122 : 134)).abs() <= 56;
+            final nearButton = (point.dy - 134).abs() <= 56;
             _hover(
               !nearButton
                   ? 0
@@ -384,26 +340,21 @@ class _HorizontalPostersState extends State<HorizontalPosters> {
           child: Stack(
             children: [
               ListView.separated(
-                key: PageStorageKey(
-                  widget.storageId ??
-                      (widget.ranked ? 'ranked-posters' : 'subject-posters'),
-                ),
+                key: PageStorageKey(widget.storageId),
                 controller: _scroll,
                 padding: const EdgeInsets.fromLTRB(2, 3, 2, 10),
                 scrollDirection: Axis.horizontal,
                 itemCount: widget.itemCount,
                 separatorBuilder: (_, _) => const SizedBox(width: 16),
-                itemBuilder: (_, i) => SizedBox(
-                  width: widget.ranked ? 180 : 188,
-                  child: widget.itemBuilder(i),
-                ),
+                itemBuilder: (_, i) =>
+                    SizedBox(width: 188, child: widget.itemBuilder(i)),
               ),
               for (final direction in [-1, 1])
                 if (direction < 0 ? _back : _forward)
                   Positioned(
                     left: direction < 0 ? 6 : null,
                     right: direction > 0 ? 6 : null,
-                    top: widget.ranked ? 102 : 114,
+                    top: 114,
                     child: Focus(
                       canRequestFocus: false,
                       onFocusChange: (focused) => setState(() {
@@ -456,7 +407,6 @@ class SubjectPoster extends StatefulWidget {
     super.key,
     required this.item,
     required this.onOpen,
-    this.rank,
     required this.tracking,
     this.statusBadge = true,
     this.badge,
@@ -464,7 +414,6 @@ class SubjectPoster extends StatefulWidget {
   });
   final Subject item;
   final ValueChanged<Subject> onOpen;
-  final int? rank;
   final bool tracking, statusBadge, personalScore;
 
   /// Replaces the collection status badge with a highlighted label.
@@ -482,7 +431,6 @@ class _SubjectPosterState extends State<SubjectPoster> {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
-    final rank = widget.rank;
     final tracking = widget.tracking;
     final status = item.status;
     return InkWell(
@@ -533,35 +481,6 @@ class _SubjectPosterState extends State<SubjectPoster> {
                       ),
                     ),
                   ),
-                  if (rank != null)
-                    Positioned(
-                      top: 9,
-                      left: 9,
-                      child: Container(
-                        constraints: const BoxConstraints(minHeight: 24),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: badgeBorderRadius,
-                          gradient: rank <= 3
-                              ? const LinearGradient(
-                                  colors: [Color(0xffffcf6b), coral],
-                                )
-                              : null,
-                          color: rank > 3 ? Colors.black38 : null,
-                        ),
-                        child: Text(
-                          '#$rank',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ),
                   if (widget.badge case final badge?)
                     Positioned(
                       top: 10,
@@ -624,27 +543,9 @@ class _SubjectPosterState extends State<SubjectPoster> {
             ),
           ),
           const SizedBox(height: 10),
-          if (rank != null) ...[
-            SizedBox(
-              height: 54,
-              child: Wrap(
-                spacing: 5,
-                runSpacing: 4,
-                children: [
-                  if (item.season?.label case final label?)
-                    MelonBadge(label, color: coral),
-                  MelonBadge(item.platform ?? 'TV', color: sky),
-                  if (item.episodeTotal != null)
-                    MelonBadge('全${item.episodeTotal}话', color: sky),
-                ],
-              ),
-            ),
-            const SizedBox(height: 6),
-          ],
           PosterMeta(
             item: item,
             tracking: tracking,
-            ranked: rank != null,
             personalScore: widget.personalScore,
           ),
         ],
@@ -693,11 +594,10 @@ class PosterMeta extends StatelessWidget {
     super.key,
     required this.item,
     this.tracking = false,
-    this.ranked = false,
     this.personalScore = false,
   });
   final Subject item;
-  final bool tracking, ranked;
+  final bool tracking;
 
   /// Shows the user's own score, marked apart so it is not taken for the
   /// public one.
@@ -747,7 +647,7 @@ class PosterMeta extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: ranked ? scheme.tertiary : scheme.onSurfaceVariant,
+                    color: scheme.onSurfaceVariant,
                   ),
                 ),
         ),
@@ -766,7 +666,7 @@ class PosterMeta extends StatelessWidget {
               color: scheme.onSurfaceVariant,
             ),
           )
-        else if (!ranked)
+        else
           Text(
             [
               if (item.season?.year case final year?) '$year',

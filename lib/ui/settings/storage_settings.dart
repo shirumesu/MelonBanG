@@ -111,15 +111,13 @@ class StorageSettings extends StatefulWidget {
     required this.mediaDirectory,
     required this.onClearCache,
     required this.readCacheSize,
-    this.onExit,
-    this.readUsage = StorageUsage.measure,
+    required this.onExit,
   });
   final StorageLocations? storage;
-  final VoidCallback? onExit;
+  final VoidCallback onExit;
   final String dataDirectory, mediaDirectory;
   final Future<void> Function() onClearCache;
   final Future<int> Function() readCacheSize;
-  final Future<StorageUsage> Function(String, String) readUsage;
   @override
   State<StorageSettings> createState() => _StorageSettingsState();
 }
@@ -166,7 +164,7 @@ class _StorageSettingsState extends State<StorageSettings> {
     (StorageUsage, int?) result;
     try {
       result = await (
-        widget.readUsage(widget.dataDirectory, widget.mediaDirectory),
+        StorageUsage.measure(widget.dataDirectory, widget.mediaDirectory),
         widget.readCacheSize(),
       ).wait;
     } catch (_) {
@@ -357,7 +355,7 @@ class _StorageSettingsState extends State<StorageSettings> {
           Wrap(
             spacing: 12,
             children: [
-              if (copied && widget.onExit != null)
+              if (copied)
                 FilledButton(
                   onPressed: busy ? null : widget.onExit,
                   child: const Text('退出应用'),

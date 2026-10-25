@@ -59,7 +59,6 @@ class SetupShell extends StatelessWidget {
     this.tone = BotTone.mint,
     this.progress = 0,
     this.closable = true,
-    this.onClose = closeWindow,
   });
 
   /// Identifies the current step; changing it animates the content in.
@@ -69,7 +68,6 @@ class SetupShell extends StatelessWidget {
   final BotTone tone;
   final double progress;
   final bool closable;
-  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -84,7 +82,7 @@ class SetupShell extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _TitleBar(onClose: closable ? onClose : null),
+              _TitleBar(onClose: closable ? closeWindow : null),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(44, 12, 44, 36),

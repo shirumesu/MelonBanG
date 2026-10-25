@@ -60,7 +60,7 @@ class PlayerSidePanel extends StatefulWidget {
     required this.onOpenSubject,
     required this.onError,
     this.remembered,
-    this.onForgetSource,
+    required this.onForgetSource,
   });
   final Playback playback;
   final SubjectCommunitySource community;
@@ -72,7 +72,7 @@ class PlayerSidePanel extends StatefulWidget {
 
   /// The source the subject remembers for its next episodes.
   final RememberedSource? remembered;
-  final VoidCallback? onForgetSource;
+  final VoidCallback onForgetSource;
   final TransferSnapshot downloads;
   final PlayerPanelTab tab;
   final ValueChanged<PlayerPanelTab> onTab;
@@ -251,13 +251,13 @@ class _EpisodesPane extends StatefulWidget {
     required this.onToggleTask,
     required this.onMark,
     this.remembered,
-    this.onForgetSource,
+    required this.onForgetSource,
   });
   final Subject? subject;
   final PlaybackSession? session;
   final PlayCandidate? source;
   final RememberedSource? remembered;
-  final VoidCallback? onForgetSource;
+  final VoidCallback onForgetSource;
   final TransferSnapshot downloads;
   final ValueChanged<Episode> onEpisode;
   final ValueChanged<Episode?> onFindResources;
@@ -478,14 +478,12 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
         ? null
         : task.complete
         ? '已缓存'
-        : [
-            '${session.streamId != null ? '边下边播' : downloadStatus(task)} '
+        : transferLine(
+            task,
+            status:
+                '${session.streamId != null ? '边下边播' : downloadStatus(task)} '
                 '${(task.progress * 100).floor()}%',
-            if (task.status == DownloadStatus.downloading) ...[
-              transferRate(task.downloadSpeed),
-              if (task.method == CacheMethod.bt) '${task.swarm.peers} 个节点',
-            ],
-          ].join('  ');
+          );
     final episode = widget.subject?.episode(session.episodeId ?? -1);
     return Container(
       padding: const EdgeInsets.fromLTRB(Gap.md, Gap.sm, Gap.xs, Gap.md),
@@ -502,7 +500,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                 decoration: BoxDecoration(
                   color: scheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: badgeBorderRadius,
                 ),
                 child: Text(
                   kind,
@@ -578,11 +576,10 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                     ),
                   ),
                 ),
-                if (widget.onForgetSource != null)
-                  TextButton(
-                    onPressed: widget.onForgetSource,
-                    child: const Text('忘记'),
-                  ),
+                TextButton(
+                  onPressed: widget.onForgetSource,
+                  child: const Text('忘记'),
+                ),
               ],
             ),
           ],

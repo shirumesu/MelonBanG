@@ -117,14 +117,15 @@ class _BatchDialogState extends State<_BatchDialog> {
     range.text = spans.join(', ');
   }
 
+  static final _dash = RegExp(r'\s*[-–~～]\s*');
+  static final _separators = RegExp(r'[,，、;；\s]+');
+  static final _range = RegExp(r'^(\d+(?:\.\d+)?)(?:-(\d+(?:\.\d+)?))?$');
+
   void readRange(String text) {
     final ids = <int>{};
-    final parts = text
-        .replaceAll(RegExp(r'\s*[-–~～]\s*'), '-')
-        .split(RegExp(r'[,，、;；\s]+'));
+    final parts = text.replaceAll(_dash, '-').split(_separators);
     for (final part in parts) {
-      final match = RegExp(r'^(\d+(?:\.\d+)?)(?:-(\d+(?:\.\d+)?))?$')
-          .firstMatch(part);
+      final match = _range.firstMatch(part);
       if (match == null) continue;
       final a = double.parse(match[1]!),
           b = double.parse(match[2] ?? match[1]!);

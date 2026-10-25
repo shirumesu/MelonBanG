@@ -29,7 +29,6 @@ class ReleaseSearch {
     String episodeKeyword = '',
     String? coverUrl,
     void Function(ReleaseSearchResult)? onUpdate,
-    bool Function()? isCurrent,
     RequestCancellation? cancel,
     bool includeMetadata = true,
   }) async {
@@ -54,8 +53,7 @@ class ReleaseSearch {
     final candidates = <String, ReleaseCandidate>{};
     final metadata = <String, TorrentRelease>{};
     final pages = <Uri, Future<String>>{};
-    bool current() =>
-        cancel?.isCancelled != true && (isCurrent?.call() ?? true);
+    bool current() => cancel?.isCancelled != true;
     ReleaseSearchResult snapshot() => ReleaseSearchResult(
       candidates: candidates.values.toList(),
       sources: progress.values.toList(),

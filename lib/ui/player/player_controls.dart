@@ -111,48 +111,52 @@ class PlayerControls extends StatelessWidget {
     ),
     child: DefaultTextStyle.merge(
       style: const TextStyle(color: Colors.white),
-      child: StreamBuilder<Duration>(
-        stream: player.stream.position,
-        initialData: player.state.position,
-        builder: (context, position) {
-          final duration = player.state.duration.inMilliseconds / 1000;
-          final current = position.data!.inMilliseconds / 1000;
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: pageGutter),
-                child: StreamBuilder<Duration>(
-                  stream: player.stream.buffer,
-                  initialData: player.state.buffer,
-                  builder: (_, buffer) => PlayerProgressBar(
-                    position: dragging ?? current,
-                    duration: duration,
-                    buffered: buffer.data!.inMilliseconds / 1000,
-                    marks: _marks,
-                    onDragStart: onDragStart,
-                    onDragChanged: onDragChanged,
-                    onDragEnd: onDragEnd,
-                  ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: pageGutter),
+            child: StreamBuilder<Duration>(
+              stream: player.stream.buffer,
+              initialData: player.state.buffer,
+              builder: (_, buffer) => _position(
+                (current, duration) => PlayerProgressBar(
+                  position: dragging ?? current,
+                  duration: duration,
+                  buffered: buffer.data!.inMilliseconds / 1000,
+                  marks: _marks,
+                  onDragStart: onDragStart,
+                  onDragChanged: onDragChanged,
+                  onDragEnd: onDragEnd,
                 ),
               ),
-              const SizedBox(height: 2),
-              LayoutBuilder(
-                builder: (context, constraints) =>
-                    _buttons(constraints.maxWidth, current, duration),
-              ),
-            ],
-          );
-        },
+            ),
+          ),
+          const SizedBox(height: 2),
+          LayoutBuilder(
+            builder: (context, constraints) => _buttons(constraints.maxWidth),
+          ),
+        ],
       ),
     ),
   );
+
+  /// Rebuilds [builder] as the playhead moves, in seconds.
+  Widget _position(Widget Function(double current, double duration) builder) =>
+      StreamBuilder<Duration>(
+        stream: player.stream.position,
+        initialData: player.state.position,
+        builder: (_, position) => builder(
+          position.data!.inMilliseconds / 1000,
+          player.state.duration.inMilliseconds / 1000,
+        ),
+      );
 
   /// The button row for a video [width] wide. Below [_fullWidth] the buttons
   /// shrink; below [_trimmedWidth] volume (still on ↑↓), subtitles and window
   /// fullscreen leave; below [_bareWidth] the frame steps (still on , and .)
   /// leave too.
-  Widget _buttons(double width, double current, double duration) {
+  Widget _buttons(double width) {
     final compact = width < _fullWidth;
     final trimmed = width < _trimmedWidth;
     final bare = width < _bareWidth;
@@ -201,8 +205,6 @@ class PlayerControls extends StatelessWidget {
         child: Row(
           children: [
             _left(
-              current,
-              duration,
               episodes: episodes,
               play: play,
               volume: !trimmed,
@@ -244,9 +246,7 @@ class PlayerControls extends StatelessWidget {
     );
   }
 
-  Widget _left(
-    double current,
-    double duration, {
+  Widget _left({
     required bool episodes,
     required double play,
     required bool volume,
@@ -306,12 +306,14 @@ class PlayerControls extends StatelessWidget {
           onPopupChanged: onPopupChanged,
         ),
       const SizedBox(width: Gap.sm),
-      Text(
-        '${formatTime(dragging ?? current)} / ${formatTime(duration)}',
-        style: const TextStyle(
-          fontSize: 12,
-          color: Colors.white70,
-          fontFeatures: [FontFeature.tabularFigures()],
+      _position(
+        (current, duration) => Text(
+          '${formatTime(dragging ?? current)} / ${formatTime(duration)}',
+          style: const TextStyle(
+            fontSize: 12,
+            color: Colors.white70,
+            fontFeatures: [FontFeature.tabularFigures()],
+          ),
         ),
       ),
     ],
@@ -418,12 +420,9 @@ class PlayerGlyph extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = IconTheme.of(context);
-    final size = theme.size ?? 22;
     return SizedBox.square(
-      dimension: size,
-      child: CustomPaint(
-        painter: _GlyphPainter(kind, theme.color ?? Colors.white),
-      ),
+      dimension: theme.size,
+      child: CustomPaint(painter: _GlyphPainter(kind, theme.color!)),
     );
   }
 }
@@ -503,29 +502,31 @@ class _GlyphPainter extends CustomPainter {
         canvas.drawCircle(const Offset(7, 12), 1.7, fill);
       case PlayerGlyphKind.settings:
         canvas.translate(12, 12);
-        var cog = Path()
-          ..addOval(Rect.fromCircle(center: Offset.zero, radius: 6.4));
-        for (var i = 0; i < 6; i++) {
-          final tooth = Path()
-            ..addRRect(
-              RRect.fromLTRBR(-1.9, -8.6, 1.9, -4, const Radius.circular(1)),
-            );
-          cog = Path.combine(
-            PathOperation.union,
-            cog,
-            tooth.transform(Matrix4.rotationZ(i * math.pi / 3).storage),
-          );
-        }
-        canvas.drawPath(
-          Path.combine(
-            PathOperation.difference,
-            cog,
-            Path()..addOval(Rect.fromCircle(center: Offset.zero, radius: 2.6)),
-          ),
-          fill,
-        );
+        canvas.drawPath(_cog, fill);
     }
   }
+
+  /// Six teeth around a ring, centred on the origin.
+  static final _cog = () {
+    var cog = Path()
+      ..addOval(Rect.fromCircle(center: Offset.zero, radius: 6.4));
+    for (var i = 0; i < 6; i++) {
+      final tooth = Path()
+        ..addRRect(
+          RRect.fromLTRBR(-1.9, -8.6, 1.9, -4, const Radius.circular(1)),
+        );
+      cog = Path.combine(
+        PathOperation.union,
+        cog,
+        tooth.transform(Matrix4.rotationZ(i * math.pi / 3).storage),
+      );
+    }
+    return Path.combine(
+      PathOperation.difference,
+      cog,
+      Path()..addOval(Rect.fromCircle(center: Offset.zero, radius: 2.6)),
+    );
+  }();
 
   @override
   bool shouldRepaint(_GlyphPainter old) =>

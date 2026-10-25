@@ -22,7 +22,7 @@ class ServiceConfiguration {
   final String dandanplayAppId;
   final String dandanplayAppSecret;
 
-  static Future<ServiceConfiguration> load({File? localFile}) async {
+  static Future<ServiceConfiguration> load() async {
     const compiled = ServiceConfiguration();
     if (!kDebugMode) return compiled;
 
@@ -34,7 +34,7 @@ class ServiceConfiguration {
         bool.hasEnvironment('DANDANPLAY_APP_SECRET');
     if (compiledBangumi && compiledDandanplay) return compiled;
 
-    final file = localFile ?? _developmentFile();
+    final file = _developmentFile();
     if (file == null || !await file.exists()) return compiled;
     final Map<String, dynamic> values;
     try {

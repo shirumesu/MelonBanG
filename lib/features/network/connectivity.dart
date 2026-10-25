@@ -32,7 +32,7 @@ class ProbeResult {
 class ConnectivityCheck extends ChangeNotifier {
   ConnectivityCheck(this.sources, this.proxy);
   final SourceRegistry sources;
-  final NetworkProxy? proxy;
+  final NetworkProxy proxy;
   final results = <String, ProbeResult>{};
   bool running = false;
   int _run = 0;

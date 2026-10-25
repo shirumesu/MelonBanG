@@ -22,35 +22,29 @@ typedef _Load = Future<({dynamic value, String? etag})> Function(Json? cached);
 /// covers come directly from Bangumi; Melon API supplies only the shared
 /// season index, broadcast schedule and regional aliases.
 class CatalogRepository implements Catalog {
-  CatalogRepository(
-    this.api,
-    this.store,
-    this.cache, {
-    this.origin = melonApiOrigin,
-  }) : bangumi = BangumiSubjects(api);
+  CatalogRepository(this.api, this.store, this.cache)
+    : bangumi = BangumiSubjects(api);
   final ApiClient api;
   final AppStore store;
   final ContentCache cache;
   final BangumiSubjects bangumi;
 
-  /// The Melon API origin.
-  final String origin;
   final _requests = <String, Future<dynamic>>{};
   bool _closed = false;
-  final coverChanges = StreamController<int>.broadcast();
+  final _coverChanges = StreamController<int>.broadcast();
   final _covers = <int, String>{};
   final _coverRequests = <int, Future<void>>{};
   @override
   String? coverFor(int id) => _covers[id];
   @override
-  Stream<int> get coverUpdates => coverChanges.stream;
+  Stream<int> get coverUpdates => _coverChanges.stream;
 
   void _rememberCover(Json value) {
     final id = number(value['subjectId'] ?? value['id']).toInt();
     final cover = coverAddress(value['coverUrl']);
     if (_closed || id <= 0 || cover == null || _covers[id] == cover) return;
     _covers[id] = cover;
-    coverChanges.add(id);
+    _coverChanges.add(id);
   }
 
   // Reuse local detail artwork, then request only basic metadata for missing
@@ -124,7 +118,7 @@ class CatalogRepository implements Catalog {
   /// A conditional Melon API read.
   _Load _melon(String path) => (cached) async {
     final response = await api.send(
-      Uri.parse('$origin$path'),
+      Uri.parse('$melonApiOrigin$path'),
       headers: {'If-None-Match': ?cached?['etag'] as String?},
       acceptedStatuses: const {304},
     );
@@ -156,19 +150,11 @@ class CatalogRepository implements Catalog {
     return expiresAt == null || expiresAt.millisecondsSinceEpoch > now;
   }
 
-  Json _summary(Json value) {
-    final result = <String, dynamic>{
-      ...value,
-      'subjectId': value['subjectId'] ?? value['id'],
-      'nameCn': value['nameCn'] ?? value['displayName'],
-      'score': value['score'] ?? object(value['rating'])['score'],
-    };
-    _rememberCover(result);
-    return result;
-  }
-
   @override
-  Subject card(Json value) => Subject.fromJson(_summary(value));
+  Subject card(Json value) {
+    _rememberCover(value);
+    return Subject.fromJson(value);
+  }
 
   @override
   Future<Subject?> cached(int id) async {
@@ -208,39 +194,23 @@ class CatalogRepository implements Catalog {
 
   @override
   Future<List<Subject>> trending({
+    required int limit,
     bool refresh = false,
-    int? limit,
     void Function(List<Subject>)? onCached,
   }) async {
-    if (limit != null && limit <= 0) return [];
-    final pageSize = limit == null ? 50 : limit.clamp(1, 50);
-    List<Subject> valuesFrom(dynamic value) {
-      final values = objects(object(value)['data']).map(card);
-      return (limit == null ? values : values.take(limit)).toList();
-    }
-
-    final items = <Subject>[];
-    for (var offset = 0; ;) {
-      final page = object(
-        await _cached(
-          'trending:$pageSize:$offset',
-          _melon('/v1/trending/current?limit=$pageSize&offset=$offset'),
-          refresh: refresh,
-          ttl: const Duration(hours: 1),
-          onCached: offset == 0 && onCached != null
-              ? (value) => onCached(valuesFrom(value))
-              : null,
-        ),
-      );
-      final values = objects(page['data']);
-      items.addAll(values.map(card));
-      if (limit != null && items.length >= limit) {
-        return items.take(limit).toList();
-      }
-      if (page['hasMore'] != true || values.isEmpty) break;
-      offset += values.length;
-    }
-    return items;
+    List<Subject> valuesFrom(dynamic value) =>
+        objects(object(value)['data']).map(card).take(limit).toList();
+    return valuesFrom(
+      await _cached(
+        'trending:$limit:0',
+        _melon('/v1/trending/current?limit=$limit&offset=0'),
+        refresh: refresh,
+        ttl: const Duration(hours: 1),
+        onCached: onCached == null
+            ? null
+            : (value) => onCached(valuesFrom(value)),
+      ),
+    );
   }
 
   // The schedule API defines its day in Asia/Shanghai, independent of the host.
@@ -409,7 +379,7 @@ class CatalogRepository implements Catalog {
         }),
         part('aliases', () async {
           final response = await api.json(
-            Uri.parse('$origin/v1/subjects/$id/aliases'),
+            Uri.parse('$melonApiOrigin/v1/subjects/$id/aliases'),
           );
           parts['aliases'] = object(response)['data'];
         }),
@@ -432,18 +402,11 @@ class CatalogRepository implements Catalog {
       Subject.fromJson(_subjectJson(id, value));
 
   Json _subjectJson(int id, dynamic value) {
-    final data = _summary(object(object(value)['data']));
+    final data = object(object(value)['data']);
+    _rememberCover(data);
     data['episodes'] = objects(data['episodes'])
         .where((e) => const [null, 'main', 'special'].contains(e['type']))
-        .map(
-          (e) => {
-            ...e,
-            'subjectId': id,
-            'nameCn': e['nameCn'] ?? e['displayName'],
-            'sort': e['ep'] ?? e['sort'],
-            'status': 'unwatched',
-          },
-        )
+        .map((e) => {...e, 'subjectId': id, 'status': 'unwatched'})
         .toList();
     return data;
   }
@@ -459,6 +422,6 @@ class CatalogRepository implements Catalog {
         }
       }),
     );
-    await coverChanges.close();
+    await _coverChanges.close();
   }
 }

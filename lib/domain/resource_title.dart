@@ -27,6 +27,9 @@ class ResourceTitleInfo {
   final String? quality, episodeLabel;
   final List<String> labels, sourceGroups, titleCredits;
 
+  /// Whether the release covers a range of episodes.
+  bool get batch => episodeLabel?.contains('–') ?? false;
+
   /// Doubts about the title's annotations, such as several qualities.
   final List<String> warnings;
   final bool episodeConflict;

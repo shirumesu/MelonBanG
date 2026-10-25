@@ -142,7 +142,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
     try {
       final updated = normalizeCollectionTags([
         ...tags,
-        ...text.split(RegExp('[,，]')),
+        ...splitCollectionTags(text),
       ]);
       setState(() => tagError = null);
       tagInput.clear();
@@ -377,8 +377,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                                   ),
                                   onSubmitted: _addTags,
                                   onChanged: (value) {
-                                    if (value.endsWith(',') ||
-                                        value.endsWith('，')) {
+                                    if (endsWithTagSeparator(value)) {
                                       _addTags(value);
                                     }
                                   },

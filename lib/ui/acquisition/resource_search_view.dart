@@ -31,16 +31,16 @@ typedef _Part = (
   Episode? episode,
 );
 
+final _episodeSuffix = RegExp(
+  r'\s-\s?\d{1,3}(?:\.5)?(?:\(\d{1,4}\))?(?:\s*(?:v\d|END|完))?(?=\s|$)|(?<![a-z])EP\s?\d{1,3}(?:\s*END)?|\bS\d{1,2}E\d{1,3}\b|(?<=^|\s)\d{1,3}\(\d{1,4}\)(?=\s|$)',
+  caseSensitive: false,
+);
+final _spaces = RegExp(r'\s+');
+
 /// The display title of a series, without the episode of its release.
 String _seriesTitle(ResourceTitleInfo info) => info.displayTitle
-    .replaceFirst(
-      RegExp(
-        r'\s-\s?\d{1,3}(?:\.5)?(?:\(\d{1,4}\))?(?:\s*(?:v\d|END|完))?(?=\s|$)|(?<![a-z])EP\s?\d{1,3}(?:\s*END)?|\bS\d{1,2}E\d{1,3}\b|(?<=^|\s)\d{1,3}\(\d{1,4}\)(?=\s|$)',
-        caseSensitive: false,
-      ),
-      ' ',
-    )
-    .replaceAll(RegExp(r'\s+'), ' ')
+    .replaceFirst(_episodeSuffix, ' ')
+    .replaceAll(_spaces, ' ')
     .trim();
 
 /// The resource search shared by the resources page, the player's resource
@@ -89,7 +89,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   final adding = <String>{};
   final downloadErrors = <String, String>{};
   final downloadTasks = <String, String>{};
-  StreamSubscription<TransferSnapshot>? downloadChanges;
+  late final StreamSubscription<TransferSnapshot> downloadChanges;
   final annotations = <String, ResourceTitleInfo>{};
   // Entries of online subjects, by candidate id.
   final parts = <String, Future<List<SourceEpisode>>>{};
@@ -114,7 +114,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     keyword.addListener(saveForm);
     episodeQuery.addListener(saveForm);
     downloadChanges = controller.downloads.changes.stream.listen((_) {
-      if (downloadTasks.isNotEmpty && mounted) setState(() {});
+      if (downloadTasks.isNotEmpty) setState(() {});
     });
   }
 
@@ -168,7 +168,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   }
 
   void saveForm() {
-    if (restoringForm || !mounted) return;
+    if (restoringForm) return;
     storage?.writeState(context, {
       'keyword': keyword.text,
       'episode': episodeQuery.text,
@@ -190,7 +190,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
 
   @override
   void dispose() {
-    downloadChanges?.cancel();
+    downloadChanges.cancel();
     keyword.dispose();
     episodeQuery.dispose();
     queryFocus.dispose();
@@ -1087,7 +1087,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     final (candidate, info, target) = member;
     final expanded = expandedTitles.contains(candidate.id);
     final chapter = target ?? searched;
-    return ResourceArrival(
+    return MotionAppear(
+      milliseconds: 240,
       child: ResourceResultRow(
         candidate: candidate,
         info: info,
@@ -1211,7 +1212,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ResourceArrival(
+        MotionAppear(
+          milliseconds: 240,
           child: ResourceSeriesRow(
             candidate: best,
             info: info,
@@ -1370,7 +1372,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ResourceArrival(
+            MotionAppear(
+              milliseconds: 240,
               child: ResourceSeriesRow(
                 candidate: candidate,
                 info: info,

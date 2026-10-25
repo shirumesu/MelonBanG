@@ -26,7 +26,6 @@ class Bot extends StatefulWidget {
     required this.pointer,
     this.tone = BotTone.mint,
     this.progress = 0,
-    this.size = 200,
   });
 
   final BotMode mode;
@@ -34,7 +33,6 @@ class Bot extends StatefulWidget {
 
   /// 0 to 1; shrinking follows it.
   final double progress;
-  final double size;
 
   /// The pointer in global coordinates, null when it is outside the window.
   final ValueListenable<Offset?> pointer;
@@ -298,7 +296,7 @@ class _BotState extends State<Bot> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) => SizedBox.square(
-    dimension: widget.size,
+    dimension: 200,
     child: Transform(
       alignment: Alignment.center,
       transform: Matrix4.identity()

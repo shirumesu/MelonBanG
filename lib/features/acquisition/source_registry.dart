@@ -32,7 +32,6 @@ class SourceRegistry extends ChangeNotifier {
   late SourceSnapshot snapshot = rules.bundled;
   String ruleOrigin = '安装包内置';
   String? updateIssue;
-  DateTime? checkedAt;
   bool _closed = false;
   Future<void>? _refreshing;
 
@@ -110,7 +109,6 @@ class SourceRegistry extends ChangeNotifier {
             : preferences.getString('online-source-etag'),
       );
       if (_closed) return;
-      checkedAt = DateTime.now();
       updateIssue = null;
       if (result != null) {
         await preferences.setString(

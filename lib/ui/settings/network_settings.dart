@@ -3,51 +3,51 @@ import 'package:flutter/material.dart';
 import '../../core/proxy.dart';
 import '../../features/network/connectivity.dart';
 import '../core/motion.dart';
+import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
 import 'settings_page.dart';
 
 SettingsSection networkSection({
-  required NetworkProxy? proxy,
+  required NetworkProxy proxy,
   required ConnectivityCheck connectivity,
 }) => SettingsSection(
   id: 'network',
   title: '网络',
   icon: Icons.lan_outlined,
   groups: [
-    if (proxy != null)
-      SettingsGroup([
-        SettingsItem(
-          '代理 proxy 系统代理 http vpn 翻墙 梯子 代理地址 端口 自定义',
-          ListenableBuilder(
-            listenable: proxy,
-            builder: (context, _) => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SettingRow(
-                  title: '网络代理',
-                  subtitle: proxy.describe(),
-                  help:
-                      '作用于 Bangumi、资源站、弹幕、PikPak、更新和在线播放\n'
-                      'BT 下载与做种不走代理\n'
-                      '系统代理只读手动设置的地址，不支持 PAC',
-                  trailing: MelonChoiceMenu<ProxyMode>(
-                    options: {
-                      for (final mode in ProxyMode.values) mode: mode.label,
-                    },
-                    value: proxy.mode,
-                    onSelected: proxy.setMode,
-                  ),
+    SettingsGroup([
+      SettingsItem(
+        '代理 proxy 系统代理 http vpn 翻墙 梯子 代理地址 端口 自定义',
+        ListenableBuilder(
+          listenable: proxy,
+          builder: (context, _) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SettingRow(
+                title: '网络代理',
+                subtitle: proxy.describe(),
+                help:
+                    '作用于 Bangumi、资源站、弹幕、PikPak、更新和在线播放\n'
+                    'BT 下载与做种不走代理\n'
+                    '系统代理只读手动设置的地址，不支持 PAC',
+                trailing: MelonChoiceMenu<ProxyMode>(
+                  options: {
+                    for (final mode in ProxyMode.values) mode: mode.label,
+                  },
+                  value: proxy.mode,
+                  onSelected: proxy.setMode,
                 ),
-                if (proxy.mode == ProxyMode.custom) ...[
-                  const Divider(height: 1, indent: 20, endIndent: 20),
-                  _ProxyAddress(proxy: proxy),
-                ],
+              ),
+              if (proxy.mode == ProxyMode.custom) ...[
+                const Divider(height: 1, indent: 20, endIndent: 20),
+                _ProxyAddress(proxy: proxy),
               ],
-            ),
+            ],
           ),
         ),
-      ], title: '代理'),
+      ),
+    ], title: '代理'),
     SettingsGroup([
       SettingsItem(
         '连通性 测试 网络 诊断 延迟 bangumi 资源 弹幕',
@@ -198,9 +198,7 @@ class _ConnectivityState extends State<_Connectivity> {
         children: [
           SettingRow(
             title: '检查各项服务能否连接',
-            subtitle: check.proxy == null
-                ? null
-                : '当前${check.proxy!.describe()}',
+            subtitle: '当前${check.proxy.describe()}',
             trailing: FilledButton.icon(
               onPressed: check.running ? null : check.runAll,
               icon: check.running
@@ -317,38 +315,25 @@ class _ConnectivityState extends State<_Connectivity> {
         .where((t) => results[t.id]?.state == ProbeState.reachable)
         .length;
     return [
-      InkWell(
+      FoldHeader(
+        title: name,
+        count: members.length,
+        open: open,
         onTap: () => setState(() => _toggled[name] = !open),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(Gap.md, 8, Gap.md, 8),
-          child: Row(
-            children: [
-              AnimatedRotation(
-                turns: open ? .25 : 0,
-                duration: motionDuration(context, 200),
-                curve: Curves.easeOutCubic,
-                child: const Icon(Icons.chevron_right, size: 18),
-              ),
-              const SizedBox(width: Gap.xs),
-              Text(name, style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(width: Gap.sm),
-              Text('${members.length}', style: small),
-              const Spacer(),
-              if (busy)
-                const SizedBox.square(
-                  dimension: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              else if (problems > 0)
-                Text('$problems 项有问题', style: small?.copyWith(color: coral))
-              else if (ok == members.length)
-                Text(
-                  '全部正常',
-                  style: small?.copyWith(color: accentOf(context).accent),
-                ),
-            ],
-          ),
-        ),
+        padding: const EdgeInsets.fromLTRB(Gap.md, 8, Gap.md, 8),
+        trailing: busy
+            ? const SizedBox.square(
+                dimension: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : problems > 0
+            ? Text('$problems 项有问题', style: small?.copyWith(color: coral))
+            : ok == members.length
+            ? Text(
+                '全部正常',
+                style: small?.copyWith(color: accentOf(context).accent),
+              )
+            : null,
       ),
       MotionReveal(
         visible: open,

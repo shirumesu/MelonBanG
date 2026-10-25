@@ -6,11 +6,9 @@ import '../core/theme.dart';
 
 /// Player tweaks on top of the shell theme; the side panel follows the app's
 /// light or dark theme.
-ThemeData playerTheme([ThemeData? theme]) {
-  final base = theme ?? appTheme(true);
+ThemeData playerTheme(ThemeData base) {
   final scheme = base.colorScheme;
   return base.copyWith(
-    colorScheme: scheme,
     inputDecorationTheme: base.inputDecorationTheme.copyWith(
       fillColor: scheme.surfaceContainerLow,
     ),
@@ -38,6 +36,9 @@ ThemeData playerTheme([ThemeData? theme]) {
 /// theme, with white for the selection instead of the mint accent. Pure black
 /// like the control bar's gradient; a blue-grey reads as a foreign card.
 const overlaySurface = Color(0xe6121315);
+
+/// Text and icons on the white of a selected overlay control.
+const overlayInk = Color(0xff15181d);
 
 /// The tint of [OverlayGlass], lighter because the blur already mutes the
 /// picture behind it.
@@ -81,11 +82,14 @@ class OverlayGlass extends StatelessWidget {
   );
 }
 
-ThemeData overlayTheme() {
+/// The theme of menus and panels over the video.
+final overlayTheme = _overlayTheme();
+
+ThemeData _overlayTheme() {
   final base = appTheme(true);
   final scheme = base.colorScheme.copyWith(
     primary: Colors.white,
-    onPrimary: const Color(0xff15181d),
+    onPrimary: overlayInk,
     surface: overlaySurface,
     onSurface: Colors.white,
     onSurfaceVariant: Colors.white70,
@@ -107,9 +111,8 @@ ThemeData overlayTheme() {
     ),
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
-        (states) => states.contains(WidgetState.selected)
-            ? const Color(0xff15181d)
-            : Colors.white70,
+        (states) =>
+            states.contains(WidgetState.selected) ? overlayInk : Colors.white70,
       ),
       trackColor: WidgetStateProperty.resolveWith(
         (states) => states.contains(WidgetState.selected)

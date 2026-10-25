@@ -83,10 +83,10 @@ class HoverPopoverState extends State<HoverPopover>
     _timer?.cancel();
     final wanted = _overAnchor || _overPopover || _held;
     if (wanted == open) return;
-    _timer = Timer(Duration(milliseconds: wanted ? 90 : 180), () {
-      if (!mounted) return;
-      wanted ? _show() : close();
-    });
+    _timer = Timer(
+      Duration(milliseconds: wanted ? 90 : 180),
+      () => wanted ? _show() : close(),
+    );
   }
 
   @override
@@ -150,7 +150,7 @@ class HoverPopoverState extends State<HoverPopover>
                   child: OverlayGlass(visibility: value, child: child!),
                 );
               },
-              child: Theme(data: overlayTheme(), child: widget.popover(this)),
+              child: Theme(data: overlayTheme, child: widget.popover(this)),
             ),
           ),
         ),
@@ -290,8 +290,6 @@ class ChoiceList extends StatelessWidget {
   final List<PopoverChoice> items;
   final HoverPopoverState popover;
 
-  static const _ink = Color(0xff15181d);
-
   @override
   Widget build(BuildContext context) => ConstrainedBox(
     constraints: const BoxConstraints(minWidth: 76, maxWidth: 220),
@@ -305,11 +303,13 @@ class ChoiceList extends StatelessWidget {
             for (final item in items)
               Material(
                 color: item.selected ? Colors.white : Colors.transparent,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: badgeBorderRadius,
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: badgeBorderRadius,
                   overlayColor: WidgetStatePropertyAll(
-                    (item.selected ? _ink : Colors.white).withValues(alpha: .1),
+                    (item.selected ? overlayInk : Colors.white).withValues(
+                      alpha: .1,
+                    ),
                   ),
                   onTap: () {
                     item.onPressed();
@@ -328,7 +328,7 @@ class ChoiceList extends StatelessWidget {
                         fontWeight: item.selected
                             ? FontWeight.w700
                             : FontWeight.w500,
-                        color: item.selected ? _ink : Colors.white,
+                        color: item.selected ? overlayInk : Colors.white,
                         fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
@@ -338,6 +338,53 @@ class ChoiceList extends StatelessWidget {
           ],
         ),
       ),
+    ),
+  );
+}
+
+/// A compact segmented choice for the dark popover.
+class OverlayChoice extends StatelessWidget {
+  const OverlayChoice({
+    super.key,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+  final int value;
+  final List<String> options;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 28,
+    padding: const EdgeInsets.all(2),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .08),
+      borderRadius: badgeBorderRadius,
+    ),
+    child: Row(
+      children: [
+        for (final (index, option) in options.indexed)
+          Expanded(
+            child: Material(
+              color: index == value ? Colors.white : Colors.transparent,
+              borderRadius: badgeBorderRadius,
+              child: InkWell(
+                borderRadius: badgeBorderRadius,
+                onTap: () => onChanged(index),
+                child: Center(
+                  child: Text(
+                    option,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: index == value ? overlayInk : Colors.white70,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     ),
   );
 }

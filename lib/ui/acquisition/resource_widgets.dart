@@ -288,25 +288,6 @@ class ResourceSearchStatus extends StatelessWidget {
   );
 }
 
-class ResourceArrival extends StatelessWidget {
-  const ResourceArrival({super.key, required this.child});
-  final Widget child;
-  @override
-  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
-    tween: Tween(begin: 0, end: 1),
-    duration: motionDuration(context, 240),
-    curve: Curves.easeOutCubic,
-    child: child,
-    builder: (_, value, child) => Opacity(
-      opacity: value,
-      child: Transform.translate(
-        offset: Offset(0, 6 * (1 - value)),
-        child: child,
-      ),
-    ),
-  );
-}
-
 String resourceSizeLabel(TorrentRelease release) {
   final provided = (release.sizeLabel ?? '').trim();
   if (provided.isNotEmpty) return provided;
@@ -333,7 +314,7 @@ String resourceDateLabel(TorrentRelease release) {
     }
   }
   if (date == null) return '—';
-  return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  return date.toIso8601String().substring(0, 10);
 }
 
 /// Site release groups, else the group the title credits.
@@ -422,22 +403,6 @@ class ResourceResultRow extends StatelessWidget {
         if (info.titleCredits.length > 1) info.titleCredits.join(' & '),
         ...this.notes,
       ];
-      Widget tag(String text, {Color? background, Color? foreground}) =>
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: background ?? scheme.surfaceContainerLow,
-              borderRadius: const BorderRadius.all(Radius.circular(5)),
-            ),
-            child: Text(
-              text,
-              style: small?.copyWith(
-                fontSize: 11,
-                color: foreground,
-                fontWeight: foreground == null ? null : FontWeight.w700,
-              ),
-            ),
-          );
       return InkWell(
         key: ValueKey('resource-original:${candidate.id}'),
         onTap: onExpand,
@@ -454,17 +419,9 @@ class ResourceResultRow extends StatelessWidget {
                       children: [
                         Padding(
                           padding: const EdgeInsets.only(top: 1, right: 2),
-                          child: Tooltip(
-                            message: expanded ? '收起' : '显示原标题',
-                            child: AnimatedRotation(
-                              turns: expanded ? .25 : 0,
-                              duration: motionDuration(context, 150),
-                              child: Icon(
-                                Icons.chevron_right,
-                                size: 16,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
+                          child: _RowChevron(
+                            expanded: expanded,
+                            tooltip: '显示原标题',
                           ),
                         ),
                         Expanded(
@@ -491,13 +448,14 @@ class ResourceResultRow extends StatelessWidget {
                           if (recommended)
                             Tooltip(
                               message: '综合画质、字幕和大小推荐',
-                              child: tag(
+                              child: _tag(
+                                context,
                                 '推荐',
                                 background: scheme.primary,
                                 foreground: scheme.onPrimary,
                               ),
                             ),
-                          tag(switch (candidate.target) {
+                          _tag(context, switch (candidate.target) {
                             DownloadTarget() =>
                               candidate.kind == PlayKind.local
                                   ? '本地'
@@ -506,10 +464,9 @@ class ResourceResultRow extends StatelessWidget {
                             ReleaseTarget() => candidate.kind.label,
                           }, background: scheme.secondaryContainer),
                           if (episodeLabel != null)
-                            tag(
-                              episodeLabel.contains('–')
-                                  ? '合集 $episodeLabel'
-                                  : episodeLabel,
+                            _tag(
+                              context,
+                              info.batch ? '合集 $episodeLabel' : episodeLabel,
                               background: info.episodeConflict
                                   ? scheme.errorContainer
                                   : scheme.primaryContainer,
@@ -517,11 +474,12 @@ class ResourceResultRow extends StatelessWidget {
                                   ? scheme.onErrorContainer
                                   : scheme.onPrimaryContainer,
                             ),
-                          for (final label in info.labels) tag(label),
+                          for (final label in info.labels) _tag(context, label),
                           for (final note in notes)
-                            tag(note, background: Colors.transparent),
+                            _tag(context, note, background: Colors.transparent),
                           for (final warning in warnings)
-                            tag(
+                            _tag(
+                              context,
                               warning,
                               background: scheme.tertiaryContainer,
                               foreground: scheme.onTertiaryContainer,
@@ -649,6 +607,28 @@ class ResourceResultRow extends StatelessWidget {
   );
 }
 
+/// Turns down while its row is [expanded]; [tooltip] says what expanding
+/// shows.
+class _RowChevron extends StatelessWidget {
+  const _RowChevron({required this.expanded, required this.tooltip});
+  final bool expanded;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: expanded ? '收起' : tooltip,
+    child: AnimatedRotation(
+      turns: expanded ? .25 : 0,
+      duration: motionDuration(context, 150),
+      child: Icon(
+        Icons.chevron_right,
+        size: 16,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+    ),
+  );
+}
+
 Widget _tag(
   BuildContext context,
   String text, {
@@ -729,17 +709,9 @@ class ResourceSeriesRow extends StatelessWidget {
                       children: [
                         Padding(
                           padding: const EdgeInsets.only(top: 1, right: 2),
-                          child: Tooltip(
-                            message: expanded ? '收起' : '展开各集',
-                            child: AnimatedRotation(
-                              turns: expanded ? .25 : 0,
-                              duration: motionDuration(context, 150),
-                              child: Icon(
-                                Icons.chevron_right,
-                                size: 16,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
+                          child: _RowChevron(
+                            expanded: expanded,
+                            tooltip: '展开各集',
                           ),
                         ),
                         Expanded(
@@ -963,17 +935,9 @@ class ResourceEpisodeRow extends StatelessWidget {
                           width: 18,
                           child: onExpand == null || title == null
                               ? null
-                              : Tooltip(
-                                  message: expanded ? '收起' : '显示原标题',
-                                  child: AnimatedRotation(
-                                    turns: expanded ? .25 : 0,
-                                    duration: motionDuration(context, 150),
-                                    child: Icon(
-                                      Icons.chevron_right,
-                                      size: 16,
-                                      color: scheme.onSurfaceVariant,
-                                    ),
-                                  ),
+                              : _RowChevron(
+                                  expanded: expanded,
+                                  tooltip: '显示原标题',
                                 ),
                         ),
                         Text(

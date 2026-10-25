@@ -144,8 +144,10 @@ class SubjectPeoplePanel extends StatelessWidget {
     // One row per person, listing every position they hold.
     final positions = <String, List<String>>{};
     final people = <String, Credit>{};
+    String keyOf(Credit person) =>
+        person.id > 0 ? '${person.id}' : person.title;
     for (final person in item.staff) {
-      final key = person.id > 0 ? '${person.id}' : person.title;
+      final key = keyOf(person);
       final role = person.role ?? '';
       final held = positions.putIfAbsent(key, () => []);
       if (role.isNotEmpty && !held.contains(role)) held.add(role);
@@ -161,25 +163,15 @@ class SubjectPeoplePanel extends StatelessWidget {
               .join('、'),
         ),
     ];
-    result.sort(
-      (a, b) =>
-          priority(positions[a.id > 0 ? '${a.id}' : a.title]!.firstOrNull ?? '')
-              .compareTo(
-                priority(
-                  positions[b.id > 0 ? '${b.id}' : b.title]!.firstOrNull ?? '',
-                ),
-              ),
-    );
+    int rank(Credit person) =>
+        priority(positions[keyOf(person)]!.firstOrNull ?? '');
+    result.sort((a, b) => rank(a).compareTo(rank(b)));
     return result;
   }
 
-  Uri _personLink(Credit person, {required bool character}) => person.id > 0
-      ? Uri.parse(
-          'https://bgm.tv/${character ? 'character' : 'person'}/${person.id}',
-        )
-      : Uri.parse(
-          'https://bgm.tv/subject/${subject.id}/${character ? 'characters' : 'persons'}',
-        );
+  String _personLink(Credit person, {required bool character}) => person.id > 0
+      ? 'https://bgm.tv/${character ? 'character' : 'person'}/${person.id}'
+      : 'https://bgm.tv/subject/${subject.id}/${character ? 'characters' : 'persons'}';
 
   Widget _avatar(
     BuildContext context,
@@ -299,10 +291,8 @@ class SubjectPeoplePanel extends StatelessWidget {
       borderRadius: controlBorderRadius,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => openExternal(
-          context,
-          '${_personLink(person, character: character)}',
-        ),
+        onTap: () =>
+            openExternal(context, _personLink(person, character: character)),
         child: Padding(
           padding: const EdgeInsets.all(10),
           child: Row(
@@ -357,8 +347,7 @@ class SubjectPeoplePanel extends StatelessWidget {
     final role = person.role ?? '';
     return InkWell(
       borderRadius: badgeBorderRadius,
-      onTap: () =>
-          openExternal(context, '${_personLink(person, character: false)}'),
+      onTap: () => openExternal(context, _personLink(person, character: false)),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
         decoration: BoxDecoration(

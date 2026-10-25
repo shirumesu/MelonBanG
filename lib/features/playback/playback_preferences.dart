@@ -102,14 +102,17 @@ String languageCodes(String preference) => switch (preference) {
   _ => '',
 };
 
+final _simplified = RegExp(r'简|簡|simplified|chs|\bsc\b|\bgb\b|\.sc\b|\.chs\b');
+final _traditional = RegExp(r'繁|traditional|cht|\btc\b|big5|\.tc\b|\.cht\b');
+final _japanese = RegExp(r'日|japanese|jpn|\bja\b');
+final _chinese = RegExp(r'中|国|國|chinese|chi|zho');
+
 int languageScore(String preference, String? language, String? title) {
   if (preference == 'auto') return 0;
   final code = (language ?? '').toLowerCase();
   final text = (title ?? '').toLowerCase();
-  final simplified = RegExp(r'简|簡|simplified|chs|\bsc\b|\bgb\b|\.sc\b|\.chs\b')
-      .hasMatch(text);
-  final traditional = RegExp(r'繁|traditional|cht|\btc\b|big5|\.tc\b|\.cht\b')
-      .hasMatch(text);
+  final simplified = _simplified.hasMatch(text);
+  final traditional = _traditional.hasMatch(text);
   final exact = languageCodes(preference).split(',');
   var score = code.isNotEmpty && exact.contains(code) ? 20 : 0;
   if (preference == 'chs' || preference == 'cht') {
@@ -123,11 +126,9 @@ int languageScore(String preference, String? language, String? title) {
             ['cht', 'tc', 'zh-hant', 'zh-tw', 'zh-hk'].contains(code))) {
       score += 40;
     }
-  } else if (preference == 'ja' &&
-      RegExp(r'日|japanese|jpn|\bja\b').hasMatch(text)) {
+  } else if (preference == 'ja' && _japanese.hasMatch(text)) {
     score += 50;
-  } else if (preference == 'zh' &&
-      RegExp(r'中|国|國|chinese|chi|zho').hasMatch(text)) {
+  } else if (preference == 'zh' && _chinese.hasMatch(text)) {
     score += 50;
   }
   return score;

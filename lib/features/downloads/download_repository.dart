@@ -15,7 +15,7 @@ class DownloadRepository {
   final _subscriptions = <StreamSubscription<void>>[];
   Future<void>? _restoring, _closing;
   bool _closed = false;
-  Future<void> get ready => _restoring ?? initialize();
+  Future<void> get ready => initialize();
 
   Future<void> initialize() => _restoring ??= _restore();
 

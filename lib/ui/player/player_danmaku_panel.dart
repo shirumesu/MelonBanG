@@ -8,7 +8,7 @@ import '../../domain/danmaku.dart';
 import '../../features/danmaku/danmaku_controller.dart';
 import '../../features/playback/playback.dart';
 import '../core/theme.dart';
-import 'danmaku_preferences_editor.dart';
+import 'danmaku_filter_editor.dart';
 
 /// The side panel's 弹幕 tab: each source with its match, a place to change
 /// that match, local import, and blocking rules. Display options are in the
@@ -50,7 +50,7 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
   void initState() {
     super.initState();
     _sessionId = playback.session?.id;
-    danmaku.addListener(refresh);
+    // Playback passes on the danmaku controller's changes.
     playback.addListener(refresh);
   }
 
@@ -66,12 +66,11 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
       loading = searching = false;
       loadError = searchError = null;
     }
-    if (mounted) setState(() {});
+    setState(() {});
   }
 
   @override
   void dispose() {
-    danmaku.removeListener(refresh);
     playback.removeListener(refresh);
     query.dispose();
     super.dispose();
@@ -235,10 +234,7 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
           ),
         ),
         const SizedBox(height: Gap.md),
-        DanmakuPreferencesEditor(
-          preferences: danmaku.preferences,
-          display: false,
-        ),
+        DanmakuFilterEditor(preferences: danmaku.preferences),
       ],
     );
   }
@@ -311,8 +307,9 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
                   value: source.enabled,
                   onChanged: busy
                       ? null
-                      : (value) =>
-                            load(() async => danmaku.enable(source.id, value)),
+                      : (value) => load(
+                          () async => danmaku.setDefault(source.id, value),
+                        ),
                 ),
               ],
             ),

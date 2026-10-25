@@ -51,14 +51,13 @@ class ApiException implements Exception {
 }
 
 class ApiClient {
-  ApiClient({http.Client? client, this.timeout = const Duration(seconds: 20)})
-    : client = client ?? http.Client();
+  ApiClient({this.timeout = const Duration(seconds: 20)});
   static const maxRequestsPerHost = 4;
   final Duration timeout;
   final _active = <Completer<void>>{};
   final _hosts = <String, _HostRequests>{};
   bool _closed = false;
-  final http.Client client;
+  final client = http.Client();
   http.AbortableRequest _request(
     Uri uri, {
     required Completer<void> abort,
