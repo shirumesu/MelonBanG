@@ -23,19 +23,14 @@ import 'records.dart';
 /// Resources PikPak refuses to download fail with the reason; switching to BT
 /// is the user's choice.
 class PikPakTransfer implements TorrentTransfer, CloudIndex {
-  PikPakTransfer(
-    this.store,
-    String directory,
-    this.client, {
-    http.Client? transferClient,
-  }) : directory = p.normalize(p.absolute(directory)),
-       _http = transferClient ?? http.Client();
+  PikPakTransfer(this.store, String directory, this.client)
+    : directory = p.normalize(p.absolute(directory));
 
   final AppStore store;
   @override
   final String directory;
   final PikPakClient client;
-  final http.Client _http;
+  final _http = http.Client();
   @override
   CacheMethod get method => CacheMethod.pikpak;
   final _changes = StreamController<void>.broadcast();
@@ -218,7 +213,6 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
           (path: file.path, size: file.size, gcid: file.gcid, cloudId: null),
       ]),
     };
-    _updateProgress(task);
     _tasks[id] = task;
     await _persist(task);
     _schedule();
@@ -585,7 +579,6 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     await _stopWorker(id);
     if (task['complete'] != true) task['status'] = 'paused';
     task['downloadSpeedBytesPerSecond'] = 0;
-    _updateProgress(task);
     await _persist(task);
     _schedule();
     _emit();
@@ -630,7 +623,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
 
   /// The signed-in account's name; null when signed out.
   String? get accountName =>
-      client.isSignedIn ? client.displayName ?? 'PikPak' : null;
+      client.isSignedIn ? client.account ?? 'PikPak' : null;
   bool get needsAuthorization => client.needsAuthorization;
   Uri? get verificationUrl => client.verificationUrl;
 

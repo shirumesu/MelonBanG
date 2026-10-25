@@ -383,8 +383,11 @@ class TrackingRepository {
     final user = account.userId;
     await Future.wait([
       for (final id in subjectIds)
-        if (await store.get(_collection(user), '$id') != null)
-          refreshEpisodes(id, useCache: true),
+        () async {
+          if (await store.get(_collection(user), '$id') != null) {
+            await refreshEpisodes(id, useCache: true);
+          }
+        }(),
     ]);
   }
 

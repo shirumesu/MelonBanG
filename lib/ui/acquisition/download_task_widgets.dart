@@ -28,14 +28,7 @@ class DownloadTaskStatus extends StatelessWidget {
           runSpacing: 5,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            MelonBadge(
-              downloadStatus(task),
-              color: task.status == DownloadStatus.failed
-                  ? coral
-                  : task.complete
-                  ? sky
-                  : mint,
-            ),
+            DownloadStatusBadge(task),
             if (downloadOrigin(task) case final origin?)
               MelonBadge(origin, color: sky),
             if (measured) ...[
@@ -190,3 +183,19 @@ Future<void> chooseDownloadVideo(
     ],
   ),
 );
+
+/// A task's status, red when it failed and blue once complete.
+class DownloadStatusBadge extends StatelessWidget {
+  const DownloadStatusBadge(this.task, {super.key});
+  final DownloadTask task;
+
+  @override
+  Widget build(BuildContext context) => MelonBadge(
+    downloadStatus(task),
+    color: task.status == DownloadStatus.failed
+        ? coral
+        : task.complete
+        ? sky
+        : mint,
+  );
+}

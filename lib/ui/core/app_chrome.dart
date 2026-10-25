@@ -221,6 +221,7 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
   void didUpdateWidget(_CatalogueSearch oldWidget) {
     super.didUpdateWidget(oldWidget);
     // Recent searches change during a build; the overlay updates afterwards.
+    if (identical(oldWidget.recent, widget.recent)) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) sync();
     });
@@ -405,7 +406,6 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
 class AppSidebar extends StatelessWidget {
   const AppSidebar({
     super.key,
-    required this.dark,
     required this.route,
     required this.nickname,
     required this.onNavigate,
@@ -416,7 +416,6 @@ class AppSidebar extends StatelessWidget {
     this.selectedRoute,
     this.sourcesWarning = false,
   });
-  final bool dark;
   final String route, nickname;
   final String? username, avatarUrl;
   final String? selectedRoute;

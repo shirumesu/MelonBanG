@@ -6,12 +6,8 @@ library;
 
 import 'dart:async';
 
-typedef _Json = Map<String, dynamic>;
+import '../core/json.dart';
 
-_Json _object(Object? value) =>
-    value is Map ? Map<String, dynamic>.from(value) : {};
-List<_Json> _objects(Object? value) =>
-    value is List ? value.map(_object).toList() : [];
 int? _int(Object? value) => value is num ? value.toInt() : null;
 double? _double(Object? value) => value is num ? value.toDouble() : null;
 String? _text(Object? value) => value is String ? value : null;
@@ -88,7 +84,7 @@ class Credit {
   });
 
   factory Credit.fromJson(Map<String, dynamic> value) {
-    final images = _object(value['images']);
+    final images = object(value['images']);
     return Credit(
       id: _int(value['characterId'] ?? value['personId'] ?? value['id']) ?? 0,
       name: _text(value['name']) ?? '',
@@ -103,7 +99,7 @@ class Credit {
         images['small'],
         images['grid'],
       ].whereType<String>().where((url) => url.isNotEmpty).firstOrNull,
-      actors: _objects(value['actors']).map(Credit.fromJson).toList(),
+      actors: objects(value['actors']).map(Credit.fromJson).toList(),
     );
   }
 
@@ -200,12 +196,13 @@ class Episode {
   /// autoplay can pass over. Specials are judged by name (総集編,
   /// 振り返り特番, 放送直前特番, トーク); a main episode only when it is
   /// named a recap, since story titles use words such as 配信 and イベント.
-  bool get extra => RegExp(
-    main
-        ? r'総集|总集|總集'
-        : r'総集|总集|總集|振り返り|回顧|回顾|ダイジェスト|特番|特別番組|特别节目|直前|トーク|発表会|recap|digest',
+  bool get extra =>
+      (main ? _mainExtra : _specialExtra).hasMatch('$name $nameCn');
+  static final _mainExtra = RegExp(r'総集|总集|總集');
+  static final _specialExtra = RegExp(
+    r'総集|总集|總集|振り返り|回顧|回顾|ダイジェスト|特番|特別番組|特别节目|直前|トーク|発表会|recap|digest',
     caseSensitive: false,
-  ).hasMatch('$name $nameCn');
+  );
   bool get watched => status == EpisodeStatus.watched;
   DateTime? get aired => DateTime.tryParse(airDate ?? '');
 
@@ -312,9 +309,9 @@ class Subject {
   });
 
   factory Subject.fromJson(Map<String, dynamic> value) {
-    final rating = _object(value['rating']);
-    final season = _object(value['season']);
-    final stats = _object(value['collectionStats']);
+    final rating = object(value['rating']);
+    final season = object(value['season']);
+    final stats = object(value['collectionStats']);
     final collection = value['collection'];
     return Subject(
       id: _int(value['subjectId'] ?? value['id']) ?? 0,
@@ -337,7 +334,7 @@ class Subject {
       ratingCount: _int(value['ratingCount']),
       collectionTotal: _int(value['collectionTotal']),
       tags: [
-        for (final tag in _objects(value['tags']))
+        for (final tag in objects(value['tags']))
           SubjectTag('${tag['name']}', _int(tag['count'])),
       ],
       metaTags: _strings(value['metaTags']),
@@ -349,16 +346,16 @@ class Subject {
             alias['name'] as String,
       ],
       infoBox: [
-        for (final row in _objects(value['infoBox']))
+        for (final row in objects(value['infoBox']))
           InfoField('${row['key']}', '${row['value']}'),
       ],
       collectionStats: {
         for (final status in CollectionStatus.values)
           status: ?_int(stats[status.key]),
       },
-      characters: _objects(value['characters']).map(Credit.fromJson).toList(),
-      staff: _objects(value['staff']).map(Credit.fromJson).toList(),
-      episodes: _objects(value['episodes']).map(Episode.fromJson).toList(),
+      characters: objects(value['characters']).map(Credit.fromJson).toList(),
+      staff: objects(value['staff']).map(Credit.fromJson).toList(),
+      episodes: objects(value['episodes']).map(Episode.fromJson).toList(),
       detailed: value.containsKey('episodes'),
       pending: value['_pending'] is List
           ? _strings(value['_pending']).toSet()
@@ -821,9 +818,11 @@ abstract interface class Catalog implements SubjectCovers {
     int offset = 0,
     void Function(SubjectResults)? onCached,
   });
+
+  /// The first [limit] trending subjects, at most 50.
   Future<List<Subject>> trending({
+    required int limit,
     bool refresh = false,
-    int? limit,
     void Function(List<Subject>)? onCached,
   });
 

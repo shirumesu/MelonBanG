@@ -467,6 +467,31 @@ class SettingRow extends StatelessWidget {
   }
 }
 
+/// A [SettingRow] that toggles [value]; tapping the row flips it too.
+class SettingSwitch extends StatelessWidget {
+  const SettingSwitch({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    this.subtitle,
+    this.help,
+  });
+  final String title;
+  final String? subtitle, help;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => SettingRow(
+    title: title,
+    subtitle: subtitle,
+    help: help,
+    onTap: () => onChanged(!value),
+    trailing: Switch(value: value, onChanged: onChanged),
+  );
+}
+
 /// A row whose control is a slider with its value beside it.
 class SettingSlider extends StatelessWidget {
   const SettingSlider({

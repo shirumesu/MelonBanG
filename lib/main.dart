@@ -55,7 +55,11 @@ Future<void> main() async {
   );
   runApp(
     MelonApp(
-      service: AppServices(configuration: configuration, proxy: proxy),
+      service: AppServices(
+        configuration: configuration,
+        proxy: proxy,
+        preferences: preferences,
+      ),
       preferences: preferences,
     ),
   );

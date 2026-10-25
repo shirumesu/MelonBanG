@@ -25,9 +25,9 @@ class Playback extends ChangeNotifier {
     this.library,
     this.downloads,
     this.danmaku,
-    this.preferences, {
+    this.preferences,
     this.proxy,
-  }) {
+  ) {
     settings = PlaybackPreferences(preferences);
     danmaku.addListener(_danmakuChanged);
     settings.addListener(_settingsChanged);
@@ -127,7 +127,7 @@ class Playback extends ChangeNotifier {
   final SharedPreferences preferences;
 
   /// Online media goes through the app's proxy; local streams never do.
-  final NetworkProxy? proxy;
+  final NetworkProxy proxy;
   final player = Player(
     configuration: const PlayerConfiguration(title: 'Melonbang', libass: true),
   );
@@ -325,7 +325,7 @@ class Playback extends ChangeNotifier {
             next.streamId == null &&
                 address != null &&
                 address.isScheme('http') | address.isScheme('https')
-            ? proxy?.serverFor(address)?.url
+            ? proxy.serverFor(address)?.url
             : null;
         // A separate audio track opens as an external file so its requests
         // carry the stream headers; a local manifest's segments would not.
@@ -697,69 +697,54 @@ class Playback extends ChangeNotifier {
   Future<void> _preferTracks(Tracks tracks) async {
     final id = session?.id;
     if (id == null) return;
+    bool real(String trackId) => trackId != 'auto' && trackId != 'no';
     if (!_manualSubtitle && !_scoredSubtitle) {
-      final candidates = tracks.subtitle
-          .where((track) => track.id != 'auto' && track.id != 'no')
-          .toList();
+      final candidates = tracks.subtitle.where((track) => real(track.id));
       if (candidates.isNotEmpty) {
         _scoredSubtitle = true;
-        candidates.sort(
-          (a, b) =>
-              languageScore(
-                settings.subtitleLanguage,
-                b.language,
-                b.title ?? b.id,
-              ).compareTo(
-                languageScore(
-                  settings.subtitleLanguage,
-                  a.language,
-                  a.title ?? a.id,
-                ),
-              ),
+        final best = _preferred(
+          candidates,
+          player.state.track.subtitle,
+          (track) => languageScore(
+            settings.subtitleLanguage,
+            track.language,
+            track.title ?? track.id,
+          ),
         );
-        final best = candidates.first;
-        final selected = player.state.track.subtitle;
-        if (languageScore(
-                  settings.subtitleLanguage,
-                  best.language,
-                  best.title ?? best.id,
-                ) >
-                languageScore(
-                  settings.subtitleLanguage,
-                  selected.language,
-                  selected.title ?? selected.id,
-                ) &&
-            session?.id == id &&
-            !_manualSubtitle) {
+        if (best != null && session?.id == id && !_manualSubtitle) {
           await player.setSubtitleTrack(best);
         }
       }
     }
     if (!_scoredAudio) {
-      final candidates = tracks.audio
-          .where((track) => track.id != 'auto' && track.id != 'no')
-          .toList();
+      final candidates = tracks.audio.where((track) => real(track.id));
       if (candidates.isNotEmpty) {
         _scoredAudio = true;
-        candidates.sort(
-          (a, b) => languageScore(settings.audioLanguage, b.language, b.title)
-              .compareTo(
-                languageScore(settings.audioLanguage, a.language, a.title),
-              ),
+        final best = _preferred(
+          candidates,
+          player.state.track.audio,
+          (track) => languageScore(
+            settings.audioLanguage,
+            track.language,
+            track.title,
+          ),
         );
-        final best = candidates.first;
-        final selected = player.state.track.audio;
-        if (languageScore(settings.audioLanguage, best.language, best.title) >
-                languageScore(
-                  settings.audioLanguage,
-                  selected.language,
-                  selected.title,
-                ) &&
-            session?.id == id) {
+        if (best != null && session?.id == id) {
           await player.setAudioTrack(best);
         }
       }
     }
+  }
+
+  /// The best scoring of [tracks], when it scores above [selected].
+  static T? _preferred<T extends Object>(
+    Iterable<T> tracks,
+    T selected,
+    int Function(T) score,
+  ) {
+    final scores = {for (final track in tracks) track: score(track)};
+    final best = scores.entries.reduce((a, b) => b.value > a.value ? b : a);
+    return best.value > score(selected) ? best.key : null;
   }
 
   /// Reads the file's chapters once its duration is known; most BD and

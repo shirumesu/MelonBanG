@@ -112,6 +112,58 @@ class SectionTitle extends StatelessWidget {
   );
 }
 
+/// The heading of a folding group: a turning chevron, [title], the member
+/// [count], then [trailing] at the end.
+class FoldHeader extends StatelessWidget {
+  const FoldHeader({
+    super.key,
+    required this.title,
+    required this.count,
+    required this.open,
+    required this.onTap,
+    required this.padding,
+    this.trailing,
+    this.borderRadius,
+    this.chevronColor,
+  });
+  final String title;
+  final int count;
+  final bool open;
+  final VoidCallback? onTap;
+  final EdgeInsetsGeometry padding;
+  final Widget? trailing;
+  final BorderRadius? borderRadius;
+  final Color? chevronColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return InkWell(
+      borderRadius: borderRadius,
+      onTap: onTap,
+      child: Padding(
+        padding: padding,
+        child: Row(
+          children: [
+            AnimatedRotation(
+              turns: open ? .25 : 0,
+              duration: motionDuration(context, 200),
+              curve: Curves.easeOutCubic,
+              child: Icon(Icons.chevron_right, size: 18, color: chevronColor),
+            ),
+            const SizedBox(width: Gap.xs),
+            Text(title, style: text.titleSmall),
+            const SizedBox(width: Gap.sm),
+            Text('$count', style: text.bodySmall),
+            const Spacer(),
+            ?trailing,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class MelonBadge extends StatelessWidget {
   const MelonBadge(
     this.text, {

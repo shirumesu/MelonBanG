@@ -17,6 +17,7 @@ import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
+import '../discovery/schedule_timelines.dart';
 import 'collection_editor.dart';
 import 'collection_labels.dart';
 import 'episode_grid.dart';
@@ -106,13 +107,13 @@ class _SubjectDetail extends StatefulWidget {
     required this.onOpenSubject,
     required this.onSearch,
     required this.onRetry,
-    this.resume,
-    this.airings = const [],
-    this.cachedEpisodeIds,
-    this.loading = false,
-    this.signedIn = false,
-    this.collectionSyncError,
-    this.onRetryCollectionSync,
+    required this.resume,
+    required this.airings,
+    required this.cachedEpisodeIds,
+    required this.loading,
+    required this.signedIn,
+    required this.collectionSyncError,
+    required this.onRetryCollectionSync,
   });
   final Subject? subject;
   final List<DateTime> airings;
@@ -120,7 +121,7 @@ class _SubjectDetail extends StatefulWidget {
   final bool signedIn;
   final SubjectCommunitySource community;
   final String? collectionSyncError;
-  final Future<void> Function()? onRetryCollectionSync;
+  final Future<void> Function() onRetryCollectionSync;
   final PlaybackResume? resume;
   final Set<int>? cachedEpisodeIds;
   final Future<void> Function(CollectionChange) onSaveCollection;
@@ -244,7 +245,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     DateTime? timed;
     var nearest = 2;
     for (final at in widget.airings) {
-      final gap = _shanghaiDay(at).difference(day).inDays.abs();
+      final gap = shanghaiDay(at).difference(day).inDays.abs();
       if (gap < nearest) {
         nearest = gap;
         timed = at;
@@ -452,7 +453,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   }
 
   Future<void> _retryCollection() => _collectionIssue.run(() async {
-    await widget.onRetryCollectionSync?.call();
+    await widget.onRetryCollectionSync();
     return widget.collectionSyncError;
   });
 
@@ -674,7 +675,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         .where(
           (tag) =>
               tag.name != (item.platform ?? '动画') &&
-              !RegExp(r'^(\d{4}(年(\d{1,2}月)?)?|\d{1,2}月)$').hasMatch(tag.name),
+              !_timeTag.hasMatch(tag.name),
         )
         .toList();
     final score = item.score ?? 0;
@@ -1492,12 +1493,12 @@ class _TagAdderState extends State<_TagAdder> {
                   errorText: error,
                 ),
                 onSubmitted: (value) => unawaited(
-                  _save([...widget.tags, ...value.split(RegExp('[,，]'))]),
+                  _save([...widget.tags, ...splitCollectionTags(value)]),
                 ),
                 onChanged: (value) {
-                  if (value.endsWith(',') || value.endsWith('，')) {
+                  if (endsWithTagSeparator(value)) {
                     unawaited(
-                      _save([...widget.tags, ...value.split(RegExp('[,，]'))]),
+                      _save([...widget.tags, ...splitCollectionTags(value)]),
                     );
                   }
                 },
@@ -1547,11 +1548,7 @@ class _TagAdderState extends State<_TagAdder> {
 /// [at] is the start of its air date.
 typedef _Release = ({DateTime at, bool timed});
 
-/// The calendar day of [instant] in UTC+8, the schedule's time zone.
-DateTime _shanghaiDay(DateTime instant) {
-  final time = instant.toUtc().add(const Duration(hours: 8));
-  return DateTime.utc(time.year, time.month, time.day);
-}
+final _timeTag = RegExp(r'^(\d{4}(年(\d{1,2}月)?)?|\d{1,2}月)$');
 
 /// The play button's label while the next episode has not aired: minutes
 /// within the last hour, then 今天 / 明天 / 周X with the hour within a week,
@@ -1566,7 +1563,6 @@ class _ReleaseCountdown extends StatefulWidget {
 }
 
 class _ReleaseCountdownState extends State<_ReleaseCountdown> {
-  static const _weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
   late final Timer _tick;
 
   @override
@@ -1587,13 +1583,10 @@ class _ReleaseCountdownState extends State<_ReleaseCountdown> {
     final now = DateTime.now();
     final left = at.difference(now);
     final day = timed
-        ? _shanghaiDay(at)
+        ? shanghaiDay(at)
         : DateTime.utc(at.year, at.month, at.day);
-    final today = _shanghaiDay(now);
-    final shanghai = at.toUtc().add(const Duration(hours: 8));
-    final clock = timed
-        ? ' ${shanghai.hour.toString().padLeft(2, '0')}:${shanghai.minute.toString().padLeft(2, '0')} '
-        : '';
+    final today = shanghaiDay(now);
+    final clock = timed ? ' ${shanghaiClock(at)} ' : '';
     final when = timed && left < const Duration(hours: 1)
         ? left.inMinutes < 1
               ? '即将'
@@ -1601,7 +1594,7 @@ class _ReleaseCountdownState extends State<_ReleaseCountdown> {
         : switch (day.difference(today).inDays) {
             <= 0 => '今天$clock',
             1 => '明天$clock',
-            < 7 => '${_weekdays[day.weekday - 1]}$clock',
+            < 7 => '${weekdayLabels[day.weekday - 1]}$clock',
             _ when day.year == today.year => '${day.month}月${day.day}日',
             _ => '${day.year}年${day.month}月${day.day}日',
           };

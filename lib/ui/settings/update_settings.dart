@@ -30,14 +30,11 @@ SettingsSection aboutSection({
           '自动检查更新 启动',
           ListenableBuilder(
             listenable: update,
-            builder: (context, _) => SettingRow(
+            builder: (context, _) => SettingSwitch(
               title: '自动检查更新',
               subtitle: '每次启动时检查 GitHub 上的新版本',
-              onTap: () => update.setAutoCheck(!update.autoCheck),
-              trailing: Switch(
-                value: update.autoCheck,
-                onChanged: update.setAutoCheck,
-              ),
+              value: update.autoCheck,
+              onChanged: update.setAutoCheck,
             ),
           ),
         ),
@@ -45,14 +42,11 @@ SettingsSection aboutSection({
           '自动下载更新 后台',
           ListenableBuilder(
             listenable: update,
-            builder: (context, _) => SettingRow(
+            builder: (context, _) => SettingSwitch(
               title: '自动下载更新',
               subtitle: '在后台下载，下次重启或退出时安装',
-              onTap: () => update.setAutoDownload(!update.autoDownload),
-              trailing: Switch(
-                value: update.autoDownload,
-                onChanged: update.setAutoDownload,
-              ),
+              value: update.autoDownload,
+              onChanged: update.setAutoDownload,
             ),
           ),
         ),

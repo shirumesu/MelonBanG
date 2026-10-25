@@ -37,9 +37,11 @@ class TrackingPage extends StatefulWidget {
 
 enum _Order { collected, score, personal, played, popularity }
 
+final _yearMonth = RegExp(r'^(\d{4})-(\d{2})');
+
 /// The airing quarter of [item], `2024-10`, or empty when unknown.
 String _season(Subject item) {
-  final match = RegExp(r'^(\d{4})-(\d{2})').firstMatch(item.airDate ?? '');
+  final match = _yearMonth.firstMatch(item.airDate ?? '');
   if (match == null) return '';
   final month = (int.parse(match[2]!) - 1) ~/ 3 * 3 + 1;
   return '${match[1]}-${'$month'.padLeft(2, '0')}';
@@ -50,25 +52,20 @@ String _seasonLabel(String season) => season.isEmpty
     : '${season.substring(0, 4)}年${int.parse(season.substring(5))}月';
 
 class _TrackingPageState extends State<TrackingPage> {
-  String query = '';
   bool airingOnly = false;
   Set<String> seasons = {};
   _Order order = _Order.collected;
   final search = TextEditingController();
-  bool restored = false;
   late final listenable = Listenable.merge([widget.personal, widget.resume]);
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (restored) return;
-    restored = true;
+  void initState() {
+    super.initState();
     final saved = PageStorage.maybeOf(
       context,
     )?.readState(context, identifier: 'tracking-filters') as Map?;
     if (saved == null) return;
-    query = saved['query'] as String;
-    search.text = query;
+    search.text = saved['query'] as String;
     airingOnly = saved['airing'] as bool;
     seasons = {...saved['seasons'] as List<String>};
     order = _Order.values.byName(saved['order'] as String);
@@ -77,7 +74,7 @@ class _TrackingPageState extends State<TrackingPage> {
   void updateFilters(VoidCallback update) {
     setState(update);
     PageStorage.maybeOf(context)?.writeState(context, {
-      'query': query,
+      'query': search.text,
       'airing': airingOnly,
       'seasons': seasons.toList(),
       'order': order.name,
@@ -97,7 +94,7 @@ class _TrackingPageState extends State<TrackingPage> {
   Widget _page(BuildContext context, Widget? _) {
     final personal = widget.personal;
     final collection = personal.collection;
-    final text = query.toLowerCase();
+    final text = search.text.toLowerCase();
     final base = collection
         .where(
           (item) =>
@@ -143,7 +140,7 @@ class _TrackingPageState extends State<TrackingPage> {
       }
       return position[a.id]!.compareTo(position[b.id]!);
     });
-    final filtered = query.isNotEmpty || airingOnly || seasons.isNotEmpty;
+    final filtered = search.text.isNotEmpty || airingOnly || seasons.isNotEmpty;
     return PageScroll(
       children: [
         const SizedBox(height: 8),
@@ -172,7 +169,7 @@ class _TrackingPageState extends State<TrackingPage> {
                   hintText: '搜索收藏',
                   prefixIcon: Icon(Icons.search, size: 18),
                 ),
-                onChanged: (value) => updateFilters(() => query = value),
+                onChanged: (_) => updateFilters(() {}),
               ),
             ),
             Tooltip(
@@ -265,7 +262,6 @@ class _TrackingPageState extends State<TrackingPage> {
             actionLabel: filtered ? '清除筛选' : '搜索番剧',
             action: filtered
                 ? () => updateFilters(() {
-                    query = '';
                     search.clear();
                     airingOnly = false;
                     seasons.clear();

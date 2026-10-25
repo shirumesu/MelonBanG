@@ -47,12 +47,9 @@ class ResourceSearchState {
 /// a subject or one of its chapters. Starting a new search or [cancel]
 /// cancels the running one.
 class ResourceSearchController extends ChangeNotifier {
-  ResourceSearchController(this.selection, this.playback, this.downloadsReady);
+  ResourceSearchController(this.selection, this.playback);
   final PlaySelectionRepository selection;
   final Playback playback;
-
-  /// Completes once restored downloads can accept new tasks.
-  final Future<void> Function() downloadsReady;
 
   DownloadRepository get downloads => selection.downloads;
 
@@ -165,8 +162,7 @@ class ResourceSearchController extends ChangeNotifier {
     ReleaseCandidate candidate, {
     required CacheMethod method,
     Episode? episode,
-  }) async {
-    await downloadsReady();
+  }) {
     return selection.releases.enqueue(
       candidate,
       method: method,
@@ -175,11 +171,7 @@ class ResourceSearchController extends ChangeNotifier {
   }
 
   /// Saves an online entry as [episode], by default the searched one.
-  Future<DownloadTask> saveOnline(
-    PlayCandidate candidate, {
-    Episode? episode,
-  }) async {
-    await downloadsReady();
+  Future<DownloadTask> saveOnline(PlayCandidate candidate, {Episode? episode}) {
     final subject = state.subject;
     return downloads.addOnline(
       (candidate.target as OnlineTarget).ref!,

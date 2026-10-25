@@ -57,7 +57,7 @@ class _DanmakuLayerState extends State<DanmakuLayer>
 
   /// Comments sent since the last frame.
   final sent = <DanmakuComment>[];
-  StreamSubscription<DanmakuComment>? sending;
+  late final StreamSubscription<DanmakuComment> sending;
   @override
   void initState() {
     super.initState();
@@ -113,7 +113,7 @@ class _DanmakuLayerState extends State<DanmakuLayer>
   @override
   void dispose() {
     widget.playback.danmaku.preferences.removeListener(_toggle);
-    unawaited(sending?.cancel());
+    unawaited(sending.cancel());
     ticker.dispose();
     sprites.clear();
     clock.dispose();
@@ -123,14 +123,26 @@ class _DanmakuLayerState extends State<DanmakuLayer>
   /// Where the comment pressed jumps to, until the tap completes.
   double? pressed;
 
-  double? targetAt(Offset position) {
+  /// Where each comment text jumps to, for the episode's current length.
+  final targets = <String, double?>{};
+  Duration targetsDuration = Duration.zero;
+
+  double? jumpTarget(String text) {
     final duration = widget.playback.player.state.duration;
+    if (duration != targetsDuration) {
+      targets.clear();
+      targetsDuration = duration;
+    }
+    return targets.putIfAbsent(text, () => danmakuJumpTarget(text, duration));
+  }
+
+  double? targetAt(Offset position) {
     final item = layout.hit(
       position,
       clock.value,
-      (item) => danmakuJumpTarget(item.text, duration) != null,
+      (item) => jumpTarget(item.text) != null,
     );
-    return item == null ? null : danmakuJumpTarget(item.text, duration);
+    return item == null ? null : jumpTarget(item.text);
   }
 
   // Only comments naming a time take pointers; elsewhere taps reach the
@@ -157,6 +169,7 @@ class _DanmakuLayerState extends State<DanmakuLayer>
               sent,
               MediaQuery.devicePixelRatioOf(context),
               targetAt,
+              jumpTarget,
             ),
             size: Size.infinite,
           ),
@@ -175,6 +188,7 @@ class DanmakuPainter extends CustomPainter {
     this.sent,
     this.ratio,
     this.targetAt,
+    this.jumpTarget,
   ) : super(repaint: Listenable.merge([clock, playback.danmaku.preferences]));
   final Playback playback;
   final ValueNotifier<double> clock;
@@ -189,6 +203,9 @@ class DanmakuPainter extends CustomPainter {
 
   /// The time a comment at a position jumps to.
   final double? Function(Offset) targetAt;
+
+  /// The time a comment's text jumps to.
+  final double? Function(String) jumpTarget;
 
   @override
   bool hitTest(Offset position) => targetAt(position) != null;
@@ -206,7 +223,7 @@ class DanmakuPainter extends CustomPainter {
     final visible = layout.update(
       comments: playback.danmaku.visible,
       revision: playback.danmaku.revision,
-      sent: [...sent],
+      sent: sent,
       time: clock.value,
       viewport: size,
       fontSize: preferences.size,
@@ -260,8 +277,7 @@ class DanmakuPainter extends CustomPainter {
       item.color,
       preferences.size,
       stroke: preferences.stroke,
-      underline:
-          danmakuJumpTarget(item.text, playback.player.state.duration) != null,
+      underline: jumpTarget(item.text) != null,
       ratio: ratio,
     );
   }

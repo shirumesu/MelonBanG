@@ -89,7 +89,6 @@ class MaccmsApiEngine extends HttpRuleEngine implements OnlineSourceEngine {
     StreamRef ref, {
     RequestCancellation? cancel,
   }) async {
-    cancel?.throwIfCancelled();
     // Read the current catalogue entry so expiring links are refreshed.
     final rows = await episodes(
       SourceSubject(id: '${ref.data['subjectId']}', title: ''),

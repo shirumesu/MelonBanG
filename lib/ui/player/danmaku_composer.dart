@@ -10,6 +10,7 @@ import '../../features/playback/playback.dart';
 import '../core/motion.dart';
 import '../core/theme.dart';
 import 'player_popovers.dart';
+import 'player_theme.dart';
 
 /// The comment field: its look on the left, sending on the right. Enter
 /// sends, an empty Enter or Escape gives the keys back to the video.
@@ -65,7 +66,6 @@ class _DanmakuComposerState extends State<DanmakuComposer> {
     _tick?.cancel();
     if (_wait == 0) return;
     _tick = Timer.periodic(const Duration(milliseconds: 250), (timer) {
-      if (!mounted) return timer.cancel();
       setState(() {});
       if (_wait == 0) timer.cancel();
     });
@@ -205,7 +205,7 @@ class _DanmakuComposerState extends State<DanmakuComposer> {
                                       Icons.send_rounded,
                                       size: 16,
                                       color: sendable
-                                          ? const Color(0xff15181d)
+                                          ? overlayInk
                                           : Colors.white38,
                                     ),
                             ),
@@ -244,7 +244,6 @@ class _SendStyleMenu extends StatelessWidget {
     DanmakuMode.top: '顶部',
     DanmakuMode.bottom: '底部',
   };
-  static const _ink = Color(0xff15181d);
 
   @override
   Widget build(BuildContext context) => ValueListenableBuilder(
@@ -282,44 +281,12 @@ class _SendStyleMenu extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                height: 28,
-                padding: const EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: .08),
-                  borderRadius: badgeBorderRadius,
-                ),
-                child: Row(
-                  children: [
-                    for (final MapEntry(key: mode, value: label)
-                        in modes.entries)
-                      Expanded(
-                        child: Material(
-                          color: mode == style.mode
-                              ? Colors.white
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(6),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(6),
-                            onTap: () => preferences.sendStyle.value = (
-                              mode: mode,
-                              color: style.color,
-                            ),
-                            child: Center(
-                              child: Text(
-                                label,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: mode == style.mode
-                                      ? _ink
-                                      : Colors.white70,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
+              OverlayChoice(
+                value: modes.keys.toList().indexOf(style.mode),
+                options: modes.values.toList(),
+                onChanged: (index) => preferences.sendStyle.value = (
+                  mode: modes.keys.elementAt(index),
+                  color: style.color,
                 ),
               ),
               const SizedBox(height: Gap.md),
@@ -332,7 +299,7 @@ class _SendStyleMenu extends StatelessWidget {
                       selected: color == style.color,
                       label: '#${color.toRadixString(16).padLeft(6, '0')}',
                       child: InkWell(
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: badgeBorderRadius,
                         onTap: () => preferences.sendStyle.value = (
                           mode: style.mode,
                           color: color,
@@ -342,7 +309,7 @@ class _SendStyleMenu extends StatelessWidget {
                           height: 26,
                           decoration: BoxDecoration(
                             color: Color(0xff000000 | color),
-                            borderRadius: BorderRadius.circular(6),
+                            borderRadius: badgeBorderRadius,
                             border: Border.all(
                               color: color == style.color
                                   ? Colors.white

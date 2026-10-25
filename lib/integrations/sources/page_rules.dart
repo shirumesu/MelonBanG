@@ -35,7 +35,6 @@ class SelectorEngine extends HttpRuleEngine implements OnlineSourceEngine {
     SourceSubject subject, {
     RequestCancellation? cancel,
   }) async {
-    cancel?.throwIfCancelled();
     final step = object(config['detail']);
     final (body, uri) = await request(step, {
       ...subject.data,
@@ -61,7 +60,6 @@ class SelectorEngine extends HttpRuleEngine implements OnlineSourceEngine {
     StreamRef ref, {
     RequestCancellation? cancel,
   }) async {
-    cancel?.throwIfCancelled();
     final address = '${ref.data['url'] ?? ''}';
     final configured = object(config['play']);
     final step = configured.isEmpty ? {'url': address} : configured;

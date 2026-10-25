@@ -556,8 +556,7 @@ class LibtorrentTransfer implements TorrentTransfer {
   Future<void> stopSeeding(String id) async {
     await ready;
     _requireOpen();
-    final task = _tasks[id];
-    if (task == null) throw StateError('下载任务不存在');
+    final task = _task(id);
     if (task['complete'] != true) throw StateError('文件尚未下载完成');
     task['seedingStopped'] = true;
     task['manualPaused'] = false;
@@ -573,17 +572,12 @@ class LibtorrentTransfer implements TorrentTransfer {
   Future<void> removeFiles(String id, Set<String> fileIds) async {
     await ready;
     _requireOpen();
-    final task = _tasks[id];
-    if (task == null) throw StateError('下载任务不存在');
+    final task = _task(id);
     if (task['complete'] != true) throw StateError('文件尚未下载完成');
     if (_handles.remove(id) case final handle?) {
       lt.LibtorrentFlutter.instance.removeTorrent(handle);
     }
-    _running.remove(id);
-    _verifying.remove(id);
-    _checkingFiles.remove(id);
-    _uploaded.remove(id);
-    _fileReadAt.remove(id);
+    _forget(id);
     final files = _files[id]!;
     _files[id] = task['files'] = [
       for (final file in files)
@@ -630,8 +624,7 @@ class LibtorrentTransfer implements TorrentTransfer {
   Future<void> pause(String id) async {
     await ready;
     _requireOpen();
-    final task = _tasks[id];
-    if (task == null) throw StateError('下载任务不存在');
+    final task = _task(id);
     task['manualPaused'] = true;
     _schedule();
     await _persist(id, task);
@@ -642,8 +635,7 @@ class LibtorrentTransfer implements TorrentTransfer {
   Future<void> resume(String id) async {
     await ready;
     _requireOpen();
-    final task = _tasks[id];
-    if (task == null) throw StateError('下载任务不存在');
+    final task = _task(id);
     await _engine();
     if (!_handles.containsKey(id)) _attach(task, restoring: true);
     task['manualPaused'] = false;
@@ -682,11 +674,7 @@ class LibtorrentTransfer implements TorrentTransfer {
       lt.LibtorrentFlutter.instance.removeTorrent(handle, deleteFiles: true);
     }
     _files.remove(id);
-    _running.remove(id);
-    _verifying.remove(id);
-    _checkingFiles.remove(id);
-    _uploaded.remove(id);
-    _fileReadAt.remove(id);
+    _forget(id);
     _schedule();
     await _discard(task);
     _emit();
@@ -713,10 +701,20 @@ class LibtorrentTransfer implements TorrentTransfer {
   @override
   bool contains(String id) => _tasks.containsKey(id);
 
+  Json _task(String id) => _tasks[id] ?? (throw StateError('下载任务不存在'));
+
+  /// Drops the running state kept for task [id].
+  void _forget(String id) {
+    _running.remove(id);
+    _verifying.remove(id);
+    _checkingFiles.remove(id);
+    _uploaded.remove(id);
+    _fileReadAt.remove(id);
+  }
+
   @override
   TransferMedia media(String id, {String? fileId}) {
-    final task = _tasks[id];
-    if (task == null) throw StateError('下载任务不存在');
+    final task = _task(id);
     final videos = (_files[id] ?? [])
         .where((f) => f['mediaKind'] == 'video')
         .toList();

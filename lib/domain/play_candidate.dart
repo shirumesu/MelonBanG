@@ -81,15 +81,18 @@ class PlayCandidate {
       '${kind.name}:$provider:${torrentIdentity(candidate.release.locator)}',
   };
 
-  String get continuityKey {
-    final family = switch (target) {
-      DownloadTarget(:final task) => task.method.name,
-      _ => kind.name,
-    };
-    return kind == PlayKind.online
-        ? 'online:$provider:$line'
-        : '$family:$line:${quality ?? ''}';
-  }
+  /// Where the source comes from (online, BT or PikPak), which
+  /// [continuityKey] starts with.
+  String get family => kind == PlayKind.online
+      ? 'online'
+      : switch (target) {
+          DownloadTarget(:final task) => task.method.name,
+          _ => kind.name,
+        };
+
+  String get continuityKey => kind == PlayKind.online
+      ? 'online:$provider:$line'
+      : '$family:$line:${quality ?? ''}';
 
   String get sourceLabel {
     final label = providerLabel ?? provider;

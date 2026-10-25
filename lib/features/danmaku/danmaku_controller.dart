@@ -325,12 +325,10 @@ class DanmakuController extends ChangeNotifier {
   /// Sends [text] at [time] in the saved look and shows it at once, framed
   /// as the viewer's own.
   Future<void> send(double time, String text) async {
-    final target = _target;
-    final source = sendSource;
-    final blocked = sendBlocked;
-    if (target == null || source == null || blocked != null) {
-      throw StateError(blocked ?? '暂不能发送弹幕');
-    }
+    // Not blocked means there is a target and a source to send to.
+    if (sendBlocked case final blocked?) throw StateError(blocked);
+    final target = _target!;
+    final source = sendSource!;
     final comment = DanmakuComment(
       time,
       text.trim(),
@@ -380,12 +378,6 @@ class DanmakuController extends ChangeNotifier {
         await _refreshQuota(sender);
       }
     }
-  }
-
-  void enable(String provider, bool enabled) {
-    sources.firstWhere((source) => source.id == provider).enabled = enabled;
-    _merge();
-    preferences.setProvider(provider, enabled);
   }
 
   /// Linear multiway merge of the enabled sources' sorted lists. A comment

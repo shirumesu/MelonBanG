@@ -65,7 +65,7 @@ class PlaySelectionRepository {
 
   Future<void> forgetAll() async {
     _remembered.clear();
-    await store.replace(_rememberedScope, const {});
+    await store.clear(_rememberedScope);
   }
 
   static const _rememberedScope = 'source_preferences';
@@ -177,8 +177,9 @@ class PlaySelectionRepository {
         // A task awaiting metadata cannot supply a playable file yet.
       }
     }
-    if (forPlayback && ranked().firstOrNull?.kind == PlayKind.local) {
-      return ranked();
+    if (forPlayback) {
+      final local = ranked();
+      if (local.firstOrNull?.kind == PlayKind.local) return local;
     }
     final Future<void> onlineRequest = includeOnline
         ? onlineCandidates(
@@ -301,7 +302,6 @@ class PlaySelectionRepository {
                 coverUrl: subject.coverUrl,
                 cancel: cancel,
                 includeMetadata: !forPlayback,
-                isCurrent: () => cancel?.isCancelled != true,
                 onUpdate: addReleases,
               )
               .then(addReleases);
@@ -444,12 +444,11 @@ class RememberedSource {
   });
 
   factory RememberedSource.of(PlayCandidate candidate) {
-    final key = candidate.continuityKey;
     return RememberedSource(
-      family: key.substring(0, key.indexOf(':')),
+      family: candidate.family,
       provider: candidate.provider,
       line: candidate.line,
-      key: key,
+      key: candidate.continuityKey,
       label: candidate.sourceLabel,
     );
   }
@@ -528,23 +527,28 @@ List<PlayCandidate> rankPlayCandidates(
     language: language,
     singleEpisode: singleEpisode,
   );
+  // Keys that build strings are worked out once per candidate.
+  final continuing = {
+    for (final c in result) c.id: c.continuityKey == continuity ? 1 : 0,
+  };
+  final preferences = {for (final c in result) c.id: preference(c)};
   result.sort((a, b) {
-    for (final comparison in [
-      tier(a).compareTo(tier(b)),
-      (a.possibleMatch ? 1 : 0).compareTo(b.possibleMatch ? 1 : 0),
-      b.health.compareTo(a.health),
-      affinity(b).compareTo(affinity(a)),
-      (b.continuityKey == continuity ? 1 : 0).compareTo(
-        a.continuityKey == continuity ? 1 : 0,
-      ),
-      preference(a).compareTo(preference(b)),
-      scores[b.id]!.compareTo(scores[a.id]!),
-      a.order.compareTo(b.order),
-      a.provider.compareTo(b.provider),
-      a.title.compareTo(b.title),
-      a.id.compareTo(b.id),
+    // Later keys only break ties, so they are compared only when needed.
+    for (final comparison in <int Function()>[
+      () => tier(a).compareTo(tier(b)),
+      () => (a.possibleMatch ? 1 : 0).compareTo(b.possibleMatch ? 1 : 0),
+      () => b.health.compareTo(a.health),
+      () => affinity(b).compareTo(affinity(a)),
+      () => continuing[b.id]!.compareTo(continuing[a.id]!),
+      () => preferences[a.id]!.compareTo(preferences[b.id]!),
+      () => scores[b.id]!.compareTo(scores[a.id]!),
+      () => a.order.compareTo(b.order),
+      () => a.provider.compareTo(b.provider),
+      () => a.title.compareTo(b.title),
+      () => a.id.compareTo(b.id),
     ]) {
-      if (comparison != 0) return comparison;
+      final value = comparison();
+      if (value != 0) return value;
     }
     return 0;
   });
@@ -590,11 +594,9 @@ Map<String, double> resourceScores(
         },
       ),
   };
-  bool batch(ResourceTitleInfo info) =>
-      info.episodeLabel?.contains('–') ?? false;
   final sizes = <String?, List<int>>{};
   for (final (info, size) in details.values) {
-    if (size != null && !batch(info)) (sizes[info.quality] ??= []).add(size);
+    if (size != null && !info.batch) (sizes[info.quality] ??= []).add(size);
   }
   final medians = {
     for (final MapEntry(key: quality, value: values) in sizes.entries)
@@ -635,13 +637,13 @@ Map<String, double> resourceScores(
         ? 4
         : 3;
     if (labels.contains('10bit')) value += 2;
-    if (median != null && !batch(info)) {
+    if (median != null && !info.batch) {
       value += size == null
           ? -4
           : (6 - 12 * (log(size / median) / ln2).abs()).clamp(-20, 6);
     }
     if (info.episodeConflict) value -= 400;
-    if (singleEpisode && batch(info)) value -= 40;
+    if (singleEpisode && info.batch) value -= 40;
     return value;
   }
 
@@ -651,13 +653,15 @@ Map<String, double> resourceScores(
   };
 }
 
+final _sizeLabel = RegExp(
+  r'(\d+(?:\.\d+)?)\s*([KMGT])i?B',
+  caseSensitive: false,
+);
+
 /// Release size in bytes from the site's byte count or its size label.
 int? releaseBytes(TorrentRelease release) {
   if ((release.sizeBytes ?? 0) > 1) return release.sizeBytes;
-  final match = RegExp(
-    r'(\d+(?:\.\d+)?)\s*([KMGT])i?B',
-    caseSensitive: false,
-  ).firstMatch(release.sizeLabel ?? '');
+  final match = _sizeLabel.firstMatch(release.sizeLabel ?? '');
   if (match == null) return null;
   final unit = 'KMGT'.indexOf(match[2]!.toUpperCase()) + 1;
   return (double.parse(match[1]!) * pow(1024, unit)).round();

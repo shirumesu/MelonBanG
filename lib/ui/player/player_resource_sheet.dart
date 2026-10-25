@@ -18,7 +18,7 @@ class PlayerResourceSheet extends StatefulWidget {
     required this.visible,
     required this.onClose,
     required this.onPlay,
-    this.onOpenPage,
+    required this.onOpenPage,
   });
   final ResourceSearchController Function() newSearch;
   final Playback playback;
@@ -29,7 +29,7 @@ class PlayerResourceSheet extends StatefulWidget {
   final Future<void> Function(PlayCandidate candidate, Episode episode) onPlay;
 
   /// Continues this search on the resources page.
-  final void Function(ResourceSearchController search)? onOpenPage;
+  final void Function(ResourceSearchController search) onOpenPage;
   @override
   State<PlayerResourceSheet> createState() => _PlayerResourceSheetState();
 }
@@ -38,11 +38,11 @@ class _PlayerResourceSheetState extends State<PlayerResourceSheet> {
   final focus = FocusScopeNode();
   bool initialized = false;
   ResourceSearchController? search;
-  Episode? get episode => widget.subject.episodes
-      .where(
-        (e) => e.id == (widget.episodeId ?? widget.playback.session?.episodeId),
-      )
-      .firstOrNull;
+  Episode? get episode =>
+      switch (widget.episodeId ?? widget.playback.session?.episodeId) {
+        final id? => widget.subject.episode(id),
+        null => null,
+      };
 
   /// The search for the shown chapter; a new chapter starts a new one so the
   /// previous view never observes the change.
@@ -116,11 +116,10 @@ class _PlayerResourceSheetState extends State<PlayerResourceSheet> {
           if (mounted) widget.onClose();
         },
         actions: [
-          if (widget.onOpenPage != null)
-            TextButton(
-              onPressed: () => widget.onOpenPage!(search),
-              child: const Text('在页面中打开'),
-            ),
+          TextButton(
+            onPressed: () => widget.onOpenPage(search),
+            child: const Text('在页面中打开'),
+          ),
           IconButton(
             tooltip: '关闭资源窗口',
             onPressed: widget.onClose,

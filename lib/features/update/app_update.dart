@@ -12,6 +12,7 @@ import '../../core/error_message.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../integrations/github/app_releases.dart';
+import 'uninstall.dart';
 
 enum UpdatePhase { idle, checking, available, downloading, ready, failed }
 
@@ -51,20 +52,15 @@ class AppUpdate extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// The install directory on Windows, the app bundle on macOS.
-  String get _installation => Platform.isMacOS
-      ? p.dirname(p.dirname(p.dirname(Platform.resolvedExecutable)))
-      : File(Platform.resolvedExecutable).parent.path;
-
   /// On the program's volume, so the swap is a rename. A bundle cannot hold
   /// it without breaking its signature, so macOS keeps it beside the bundle.
   Directory get _pending => Directory(
     Platform.isMacOS
         ? p.join(
-            p.dirname(_installation),
-            '.${p.basenameWithoutExtension(_installation)}-update',
+            p.dirname(AppUninstall.installation),
+            '.${p.basenameWithoutExtension(AppUninstall.installation)}-update',
           )
-        : p.join(_installation, '.pending'),
+        : p.join(AppUninstall.installation, '.pending'),
   );
   File get _readyMarker => File(p.join(_pending.path, 'ready.json'));
 
@@ -74,12 +70,14 @@ class AppUpdate extends ChangeNotifier {
       return;
     }
     if (Platform.isWindows &&
-        !await File(p.join(_installation, 'updater.exe')).exists()) {
+        !await File(p.join(AppUninstall.installation, 'updater.exe'))
+            .exists()) {
       unavailable = '当前安装缺少更新程序，请到 GitHub 下载新版本';
       return;
     }
     // Gatekeeper runs a quarantined app from a read-only random location.
-    if (Platform.isMacOS && _installation.contains('/AppTranslocation/')) {
+    if (Platform.isMacOS &&
+        AppUninstall.installation.contains('/AppTranslocation/')) {
       unavailable = '请先把 MelonBanG 拖到“应用程序”文件夹再打开，才能自动更新';
       return;
     }
@@ -239,7 +237,7 @@ class AppUpdate extends ChangeNotifier {
         _macOSSwap,
         'melonbang-update',
         '$pid',
-        _installation,
+        AppUninstall.installation,
         p.join(staging, _bundleName),
         _pending.path,
         if (restart) 'restart',
@@ -259,7 +257,7 @@ class AppUpdate extends ChangeNotifier {
         '--pid',
         '$pid',
         '--app-dir',
-        _installation,
+        AppUninstall.installation,
         '--staging',
         staging,
         '--version',
@@ -282,7 +280,7 @@ Future<void> relaunchAfterExit() async {
       r'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; open "$2"',
       'melonbang-relaunch',
       '$pid',
-      p.dirname(p.dirname(p.dirname(executable))),
+      AppUninstall.installation,
     ], mode: ProcessStartMode.detached);
     return;
   }

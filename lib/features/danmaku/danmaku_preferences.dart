@@ -8,7 +8,8 @@ import '../../core/json.dart';
 import '../../domain/danmaku.dart';
 
 class DanmakuFilter {
-  DanmakuFilter(this.pattern, {this.isRegex = false, this.enabled = true}) {
+  DanmakuFilter(this.pattern, {this.isRegex = false, this.enabled = true})
+    : _lowered = pattern.toLowerCase() {
     if (isRegex) {
       try {
         expression = RegExp(pattern, caseSensitive: false);
@@ -19,6 +20,7 @@ class DanmakuFilter {
   }
   final String pattern;
   final bool isRegex, enabled;
+  final String _lowered;
   RegExp? expression;
   bool invalid = false;
   bool matches(String text) =>
@@ -26,7 +28,7 @@ class DanmakuFilter {
       !invalid &&
       (isRegex
           ? expression!.hasMatch(text)
-          : text.toLowerCase().contains(pattern.toLowerCase()));
+          : text.toLowerCase().contains(_lowered));
   Json toJson() => {'pattern': pattern, 'isRegex': isRegex, 'enabled': enabled};
 }
 
@@ -35,20 +37,7 @@ class DanmakuPreferences extends ChangeNotifier {
     final saved = object(
       jsonDecode(storage.getString('danmaku-preferences') ?? '{}'),
     );
-    enabled = saved['enabled'] as bool? ?? true;
-    size = number(saved['size'] ?? 25).clamp(14, 36).toDouble();
-    opacity = number(saved['opacity'] ?? .9).clamp(.1, 1).toDouble();
-    area = number(saved['area'] ?? .6).clamp(.2, 1).toDouble();
-    density = number(saved['density'] ?? 1).toInt().clamp(0, 3);
-    speed = number(saved['speed'] ?? 2).toInt().clamp(0, 4);
-    overlap = saved['overlap'] as bool? ?? false;
-    shield = saved['shield'] as bool? ?? false;
-    scroll = saved['scroll'] as bool? ?? true;
-    top = saved['top'] as bool? ?? true;
-    bottom = saved['bottom'] as bool? ?? true;
-    colorful = saved['colorful'] as bool? ?? true;
-    stroke = saved['stroke'] as bool? ?? true;
-    merge = saved['merge'] as bool? ?? true;
+    _readDisplay(saved);
     sendStyle.value = (
       mode:
           DanmakuMode.values.asNameMap()[saved['sendMode']] ??
@@ -70,17 +59,28 @@ class DanmakuPreferences extends ChangeNotifier {
     sendStyle.addListener(_save);
   }
   final SharedPreferences storage;
-  bool enabled = true,
-      scroll = true,
-      top = true,
-      bottom = true,
-      colorful = true,
-      stroke = true,
-      merge = true,
-      overlap = false,
-      shield = false;
-  double size = 25, opacity = .9, area = .6;
-  int density = 1, speed = 2;
+  late bool enabled, scroll, top, bottom, colorful, stroke, merge;
+  late bool overlap, shield;
+  late double size, opacity, area;
+  late int density, speed;
+
+  /// Reads the display preferences from [saved], the defaults where missing.
+  void _readDisplay(Json saved) {
+    enabled = saved['enabled'] as bool? ?? true;
+    size = number(saved['size'] ?? 25).clamp(14, 36).toDouble();
+    opacity = number(saved['opacity'] ?? .9).clamp(.1, 1).toDouble();
+    area = number(saved['area'] ?? .6).clamp(.2, 1).toDouble();
+    density = number(saved['density'] ?? 1).toInt().clamp(0, 3);
+    speed = number(saved['speed'] ?? 2).toInt().clamp(0, 4);
+    overlap = saved['overlap'] as bool? ?? false;
+    shield = saved['shield'] as bool? ?? false;
+    scroll = saved['scroll'] as bool? ?? true;
+    top = saved['top'] as bool? ?? true;
+    bottom = saved['bottom'] as bool? ?? true;
+    colorful = saved['colorful'] as bool? ?? true;
+    stroke = saved['stroke'] as bool? ?? true;
+    merge = saved['merge'] as bool? ?? true;
+  }
 
   /// The look of comments sent from the player. It notifies on its own:
   /// the display preferences lay out the shown comments again on change.
@@ -130,15 +130,7 @@ class DanmakuPreferences extends ChangeNotifier {
     );
   }
 
-  void resetDisplay() => update(() {
-    enabled = scroll = top = bottom = colorful = stroke = merge = true;
-    overlap = shield = false;
-    size = 25;
-    opacity = .9;
-    area = .6;
-    density = 1;
-    speed = 2;
-  });
+  void resetDisplay() => update(() => _readDisplay(const {}));
   void setProvider(String provider, bool value) =>
       update(() => providers[provider] = value);
   void addFilter(String value) {
@@ -207,6 +199,7 @@ class DanmakuPreferences extends ChangeNotifier {
   }
 
   static const mergeWindow = 10.0;
+  static final _trailingPunctuation = RegExp(r'[!?.,~。！？，、…～]+$');
 
   /// Text compared for merging: case, width, spacing, trailing punctuation
   /// and simplified/traditional spelling ignored.
@@ -227,7 +220,7 @@ class DanmakuPreferences extends ChangeNotifier {
       );
     }
     final key = buffer.toString().toLowerCase();
-    final trimmed = key.replaceFirst(RegExp(r'[!?.,~。！？，、…～]+$'), '');
+    final trimmed = key.replaceFirst(_trailingPunctuation, '');
     return trimmed.isEmpty ? key : trimmed;
   }
 

@@ -51,9 +51,6 @@ class BangumiPrivateClient implements SubjectCommunitySource {
     int offset = 0,
     bool refresh = false,
   }) async {
-    if (!const {'comments', 'reviews', 'topics'}.contains(segment)) {
-      throw const FormatException('未知社区分段');
-    }
     final page = await _page(
       subjectId,
       segment,
@@ -66,6 +63,11 @@ class BangumiPrivateClient implements SubjectCommunitySource {
     );
   }
 
+  static String _name(Json user) =>
+      '${user['nickname'] ?? user['username'] ?? '未知用户'}';
+  static String? _avatar(Json user) =>
+      coverAddress(object(user['avatar'])['medium']);
+
   CommunityEntry _entry(Json row, String segment) {
     final entry = segment == 'reviews' ? object(row['entry']) : row;
     final user = object(row[segment == 'topics' ? 'creator' : 'user']);
@@ -73,8 +75,8 @@ class BangumiPrivateClient implements SubjectCommunitySource {
     return CommunityEntry(
       id: number(entry['id']).toInt(),
       userId: '${user['id']}',
-      author: '${user['nickname'] ?? user['username'] ?? '未知用户'}',
-      avatarUrl: coverAddress(object(user['avatar'])['medium']),
+      author: _name(user),
+      avatarUrl: _avatar(user),
       score: comments ? number(row['rate']).toInt() : 0,
       status: comments
           ? CollectionStatus.values
@@ -163,8 +165,8 @@ class BangumiPrivateClient implements SubjectCommunitySource {
     final user = object(row['user']);
     return TopicPost(
       id: number(row['id']).toInt(),
-      author: '${user['nickname'] ?? user['username'] ?? '未知用户'}',
-      avatarUrl: coverAddress(object(user['avatar'])['medium']),
+      author: _name(user),
+      avatarUrl: _avatar(user),
       time: number(row['createdAt']).toInt(),
       content: '${row['content'] ?? ''}',
       replies: [
@@ -178,8 +180,8 @@ class BangumiPrivateClient implements SubjectCommunitySource {
     final user = object(row['creator']);
     return TopicPost(
       id: number(row['id']).toInt(),
-      author: '${user['nickname'] ?? user['username'] ?? '未知用户'}',
-      avatarUrl: coverAddress(object(user['avatar'])['medium']),
+      author: _name(user),
+      avatarUrl: _avatar(user),
       time: number(row['createdAt']).toInt(),
       content: '${row['content'] ?? ''}',
       replies: objects(row['replies']).map(_post).toList(),

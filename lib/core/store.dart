@@ -183,18 +183,8 @@ class AppStore {
     );
   }
 
-  Future<void> replace(String scope, Map<String, Json> values) async {
-    await database.transaction((tx) async {
-      await tx.delete('documents', where: 'scope=?', whereArgs: [scope]);
-      for (final entry in values.entries) {
-        await tx.insert('documents', {
-          'scope': scope,
-          'id': entry.key,
-          'body': jsonEncode(entry.value),
-          'updated': DateTime.now().millisecondsSinceEpoch,
-        });
-      }
-    });
+  Future<void> clear(String scope) async {
+    await database.delete('documents', where: 'scope=?', whereArgs: [scope]);
   }
 
   Future<void> enqueue(String account, String entity, Json body) async {
@@ -225,6 +215,13 @@ class AppStore {
         whereArgs: [account],
       ));
       final pending = pendingRows.map((row) => row['entity']).toSet();
+      final pendingBodies = [
+        for (final row in pendingRows)
+          (
+            entity: row['entity'],
+            body: object(jsonDecode(row['body'] as String)),
+          ),
+      ];
       final local = await tx.query(
         'documents',
         where: episodeSubjectId == null
@@ -241,13 +238,9 @@ class AppStore {
         final body = object(jsonDecode(row['body'] as String));
         if (entityKind == 'subject') {
           final fields = {...?preserveFields[id]};
-          for (final mutation in pendingRows) {
-            if (mutation['entity'] == 'subject:$id') {
-              fields.addAll(
-                collectionMutationFields(
-                  object(jsonDecode(mutation['body'] as String)),
-                ).keys,
-              );
+          for (final mutation in pendingBodies) {
+            if (mutation.entity == 'subject:$id') {
+              fields.addAll(collectionMutationFields(mutation.body).keys);
             }
           }
           final fieldTimes = object(body['_collectionFieldUpdated']);
@@ -267,11 +260,11 @@ class AppStore {
           }
           if (merged[id] != null) {
             merged[id]!['_collectionFieldUpdated'] = fieldTimes;
-            final pendingEpisodes = pendingRows.any((mutation) {
-              final input = object(jsonDecode(mutation['body'] as String));
-              return input['kind'] != 'subject' &&
-                  '${input['subjectId']}' == id;
-            });
+            final pendingEpisodes = pendingBodies.any(
+              (mutation) =>
+                  mutation.body['kind'] != 'subject' &&
+                  '${mutation.body['subjectId']}' == id,
+            );
             if (preserveEpisodeCounts.contains(id) ||
                 pendingEpisodes ||
                 number(body['_episodeCountUpdated']) >= requestedAt) {
@@ -308,34 +301,63 @@ class AppStore {
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       if (episodeCollectionScope != null && episodeSubjectId != null) {
-        final collection = await tx.query(
-          'documents',
-          where: 'scope=? AND id=?',
-          whereArgs: [episodeCollectionScope, '$episodeSubjectId'],
-        );
-        if (collection.isNotEmpty) {
-          final body = object(jsonDecode(collection.single['body'] as String));
-          body['watchedEpisodes'] = merged.values
+        await _updateWatchedCount(
+          tx,
+          episodeCollectionScope,
+          episodeSubjectId,
+          (_) async => merged.values
               .where(
                 (episode) =>
                     episode['subjectId'] == episodeSubjectId &&
                     episode['status'] == 'watched',
               )
-              .length;
-          body['_episodeCountUpdated'] = DateTime.now().millisecondsSinceEpoch;
-          await tx.update(
-            'documents',
-            {
-              'body': jsonEncode(body),
-              'updated': DateTime.now().millisecondsSinceEpoch,
-            },
-            where: 'scope=? AND id=?',
-            whereArgs: [episodeCollectionScope, '$episodeSubjectId'],
-          );
-        }
+              .length,
+        );
       }
     });
   }
+
+  /// Sets the collection row of [subjectId] to [count] watched episodes,
+  /// given its current body, when the subject is collected.
+  static Future<void> _updateWatchedCount(
+    Transaction tx,
+    String collectionScope,
+    Object? subjectId,
+    Future<int> Function(Json body) count,
+  ) async {
+    const where = 'scope=? AND id=?';
+    final args = [collectionScope, '$subjectId'];
+    final collection = await tx.query(
+      'documents',
+      where: where,
+      whereArgs: args,
+    );
+    if (collection.isEmpty) return;
+    final body = object(jsonDecode(collection.single['body'] as String));
+    body['watchedEpisodes'] = await count(body);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    body['_episodeCountUpdated'] = now;
+    await tx.update(
+      'documents',
+      {'body': jsonEncode(body), 'updated': now},
+      where: where,
+      whereArgs: args,
+    );
+  }
+
+  /// The episodes of [subjectId] in [scope] marked watched.
+  static Future<int> _watchedCount(
+    Transaction tx,
+    String scope,
+    Object? subjectId,
+  ) async =>
+      (await tx.rawQuery(
+            'SELECT COUNT(*) AS count FROM documents '
+            "WHERE scope=? AND json_extract(body, '\$.subjectId')=? "
+            "AND json_extract(body, '\$.status')='watched'",
+            [scope, subjectId],
+          )).single['count']
+          as int;
 
   Future<void> mutate(
     String scope,
@@ -388,45 +410,26 @@ class AppStore {
         'updated': DateTime.now().millisecondsSinceEpoch,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
       if (episodeCollectionScope != null) {
-        final collection = await tx.query(
-          'documents',
-          where: 'scope=? AND id=?',
-          whereArgs: [episodeCollectionScope, '${value['subjectId']}'],
+        final previous = rows.isEmpty
+            ? null
+            : object(jsonDecode(rows.single['body'] as String));
+        await _updateWatchedCount(
+          tx,
+          episodeCollectionScope,
+          value['subjectId'],
+          (body) async {
+            // Retain the remote total when only some episode records are
+            // cached.
+            if (body['watchedEpisodes'] == null) {
+              return _watchedCount(tx, scope, value['subjectId']);
+            }
+            final watched =
+                number(body['watchedEpisodes']).toInt() +
+                (value['status'] == 'watched' ? 1 : 0) -
+                (previous?['status'] == 'watched' ? 1 : 0);
+            return watched < 0 ? 0 : watched;
+          },
         );
-        if (collection.isNotEmpty) {
-          final body = object(jsonDecode(collection.single['body'] as String));
-          final previous = rows.isEmpty
-              ? null
-              : object(jsonDecode(rows.single['body'] as String));
-          // Retain the remote total when only some episode records are cached.
-          final watched = body['watchedEpisodes'] == null
-              ? (await tx.query(
-                      'documents',
-                      where: "scope=? AND json_extract(body, '\$.subjectId')=?",
-                      whereArgs: [scope, value['subjectId']],
-                    ))
-                    .map((row) => object(jsonDecode(row['body'] as String)))
-                    .where(
-                      (episode) =>
-                          episode['subjectId'] == value['subjectId'] &&
-                          episode['status'] == 'watched',
-                    )
-                    .length
-              : number(body['watchedEpisodes']).toInt() +
-                    (value['status'] == 'watched' ? 1 : 0) -
-                    (previous?['status'] == 'watched' ? 1 : 0);
-          body['watchedEpisodes'] = watched < 0 ? 0 : watched;
-          body['_episodeCountUpdated'] = DateTime.now().millisecondsSinceEpoch;
-          await tx.update(
-            'documents',
-            {
-              'body': jsonEncode(body),
-              'updated': DateTime.now().millisecondsSinceEpoch,
-            },
-            where: 'scope=? AND id=?',
-            whereArgs: [episodeCollectionScope, '${value['subjectId']}'],
-          );
-        }
       }
       if (account != 'local') {
         if (mutation['kind'] == 'subject') {
@@ -489,34 +492,12 @@ class AppStore {
           'updated': now,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
-      final collection = await tx.query(
-        'documents',
-        where: 'scope=? AND id=?',
-        whereArgs: [collectionScope, '$subjectId'],
+      await _updateWatchedCount(
+        tx,
+        collectionScope,
+        subjectId,
+        (_) => _watchedCount(tx, scope, subjectId),
       );
-      if (collection.isNotEmpty) {
-        final body = object(jsonDecode(collection.single['body'] as String));
-        body['watchedEpisodes'] =
-            (await tx.query(
-                  'documents',
-                  where: "scope=? AND json_extract(body, '\$.subjectId')=?",
-                  whereArgs: [scope, subjectId],
-                ))
-                .map((row) => object(jsonDecode(row['body'] as String)))
-                .where(
-                  (episode) =>
-                      episode['subjectId'] == subjectId &&
-                      episode['status'] == 'watched',
-                )
-                .length;
-        body['_episodeCountUpdated'] = now;
-        await tx.update(
-          'documents',
-          {'body': jsonEncode(body), 'updated': now},
-          where: 'scope=? AND id=?',
-          whereArgs: [collectionScope, '$subjectId'],
-        );
-      }
       if (account != 'local') {
         await tx.insert('mutations', {
           'account': account,

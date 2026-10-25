@@ -104,6 +104,13 @@ bool sourceEpisodeMatches(String label, Episode episode) {
   return match != null && double.tryParse(match[1]!) == episode.sort;
 }
 
+/// The season the subject's titles state, if any.
+int? _subjectSeason(Subject subject) => [
+  subject.title,
+  ?subject.name,
+  ?subject.nameCn,
+].map(resourceSeason).nonNulls.firstOrNull;
+
 /// The episode of [subject] a single-episode release holds. Releases of a
 /// sequel number it within the season (`第三季 - 03`) or across seasons
 /// (`[51]`, `03(51)`); a release without a season counts across seasons
@@ -116,13 +123,7 @@ Episode? releaseEpisode(Subject subject, ResourceTitleInfo info) {
   final sequel = episodes.any(
     (e) => e.absolute != null && e.absolute != e.sort,
   );
-  final season =
-      [
-        subject.title,
-        ?subject.name,
-        ?subject.nameCn,
-      ].map(resourceSeason).nonNulls.firstOrNull ??
-      (sequel ? null : 1);
+  final season = _subjectSeason(subject) ?? (sequel ? null : 1);
   if (info.season != null && season != null && info.season != season) {
     return null;
   }
@@ -146,11 +147,7 @@ Map<int, DownloadFile> episodeFiles(Subject subject, DownloadTask task) {
     return {id: videos.single};
   }
   final episodes = subject.episodes.where((e) => !e.numberedApart);
-  final season = [
-    subject.title,
-    ?subject.name,
-    ?subject.nameCn,
-  ].map(resourceSeason).nonNulls.firstOrNull;
+  final season = _subjectSeason(subject);
   final found = <int, DownloadFile>{}, claimed = <int>{};
   for (final file in videos) {
     final info = describeResource(file.name);

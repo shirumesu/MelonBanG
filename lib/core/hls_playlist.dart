@@ -28,14 +28,14 @@ Future<(String, Uri)> fetchPlaylist(
       continue;
     }
     final rendered = filter
-        ? filterPlaylist(text, uri)
-        : absolutePlaylist(text, uri);
+        ? _filterPlaylist(text, uri)
+        : _absolutePlaylist(text, uri);
     return (rendered, uri);
   }
   throw StateError('m3u8 清单嵌套层数过多');
 }
 
-String absolutePlaylist(String text, Uri base) => text
+String _absolutePlaylist(String text, Uri base) => text
     .split(RegExp(r'\r?\n'))
     .map((line) {
       if (line.isNotEmpty && !line.startsWith('#')) {
@@ -48,7 +48,7 @@ String absolutePlaylist(String text, Uri base) => text
     })
     .join('\n');
 
-String filterPlaylist(String text, Uri base) {
+String _filterPlaylist(String text, Uri base) {
   final blocks = text.split('#EXT-X-DISCONTINUITY');
   final directory = base.resolve('.').path;
   final kept = <String>[];
@@ -66,7 +66,7 @@ String filterPlaylist(String text, Uri base) {
   }
   final result = kept.join('\n#EXT-X-DISCONTINUITY\n');
   if (!result.contains('#EXTM3U')) throw StateError('过滤后没有正片清单');
-  return absolutePlaylist(
+  return _absolutePlaylist(
     '$result\n${text.contains('#EXT-X-ENDLIST') ? '#EXT-X-ENDLIST\n' : ''}',
     base,
   );

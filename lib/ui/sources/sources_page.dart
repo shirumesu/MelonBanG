@@ -246,7 +246,6 @@ class _SourcesPageState extends State<SourcesPage> {
       widget.connectivity,
       _search,
       _resolve,
-      _filter,
     ]),
     builder: (context, _) {
       final all = entries;
@@ -353,7 +352,12 @@ class _SourcesPageState extends State<SourcesPage> {
   );
 
   /// Search, kind and problem filters over the folding groups.
-  Widget _list(List<_Entry> all, _Entry? selected) {
+  Widget _list(List<_Entry> all, _Entry? selected) => ListenableBuilder(
+    listenable: _filter,
+    builder: (context, _) => _filteredList(all, selected),
+  );
+
+  Widget _filteredList(List<_Entry> all, _Entry? selected) {
     final theme = Theme.of(context);
     final query = _filter.text.trim().toLowerCase();
     final problems = all.where((entry) => entry.problem).length;
@@ -376,40 +380,24 @@ class _SourcesPageState extends State<SourcesPage> {
       final folded = !filtering && _folded.contains(kind);
       final issues = members.where((entry) => entry.problem).length;
       rows.add(
-        InkWell(
+        FoldHeader(
+          title: kind.label,
+          count: members.length,
+          open: !folded,
           borderRadius: controlBorderRadius,
+          chevronColor: theme.colorScheme.onSurfaceVariant,
           onTap: filtering
               ? null
               : () => setState(
                   () => folded ? _folded.remove(kind) : _folded.add(kind),
                 ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(Gap.xs, Gap.md, Gap.sm, 6),
-            child: Row(
-              children: [
-                AnimatedRotation(
-                  turns: folded ? 0 : .25,
-                  duration: motionDuration(context, 200),
-                  curve: Curves.easeOutCubic,
-                  child: Icon(
-                    Icons.chevron_right,
-                    size: 18,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(width: Gap.xs),
-                Text(kind.label, style: theme.textTheme.titleSmall),
-                const SizedBox(width: Gap.sm),
-                Text('${members.length}', style: theme.textTheme.bodySmall),
-                const Spacer(),
-                if (issues > 0)
-                  Text(
-                    '$issues 个异常',
-                    style: theme.textTheme.bodySmall?.copyWith(color: coral),
-                  ),
-              ],
-            ),
-          ),
+          padding: const EdgeInsets.fromLTRB(Gap.xs, Gap.md, Gap.sm, 6),
+          trailing: issues > 0
+              ? Text(
+                  '$issues 个异常',
+                  style: theme.textTheme.bodySmall?.copyWith(color: coral),
+                )
+              : null,
         ),
       );
       rows.add(
@@ -962,7 +950,10 @@ class _SourceRow extends StatelessWidget {
 }
 
 String snapshotDate(DateTime? value) {
-  final parsed = value?.toLocal();
-  if (parsed == null) return '未知时间';
-  return '${parsed.year}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')} ${parsed.hour.toString().padLeft(2, '0')}:${parsed.minute.toString().padLeft(2, '0')}';
+  if (value == null) return '未知时间';
+  return value
+      .toLocal()
+      .toIso8601String()
+      .substring(0, 16)
+      .replaceFirst('T', ' ');
 }

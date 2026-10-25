@@ -563,8 +563,6 @@ class _MelonAppState extends State<MelonApp>
         unawaited(perform(discovery.loadCalendar));
       case 'calendar':
         unawaited(perform(discovery.loadCalendar));
-      case 'sources':
-        unawaited(service.sources.refreshRules().catchError((Object _) {}));
     }
   }
 
@@ -613,7 +611,7 @@ class _MelonAppState extends State<MelonApp>
   @override
   void onWindowFocus() {
     unawaited(appearance.refreshSystemAccent());
-    unawaited(service.proxy?.refreshSystem());
+    unawaited(service.proxy.refreshSystem());
   }
 
   /// The cover the current page takes its colour from, while that is on.
@@ -857,7 +855,6 @@ class _MelonAppState extends State<MelonApp>
     Widget build(int count) {
       final account = ready ? personal.profile : null;
       return AppSidebar(
-        dark: dark,
         route: route,
         selectedRoute: selectedSection,
         sourcesWarning: ready && service.sources.warning,

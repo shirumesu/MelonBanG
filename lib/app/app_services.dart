@@ -53,29 +53,26 @@ export '../core/json.dart';
 /// Application-owned Dart services. No subprocess, IPC, or legacy runtime.
 class AppServices {
   AppServices({
-    this.directory,
-    this.credentials,
-    this.configuration = const ServiceConfiguration(),
-    this.proxy,
-    ApiClient? api,
-  }) : api = api ?? ApiClient();
-  final String? directory;
+    required this.configuration,
+    required this.proxy,
+    required this.preferences,
+  });
 
   /// Routes HTTP and online playback; installed before any client exists.
-  final NetworkProxy? proxy;
-  Credentials? credentials;
+  final NetworkProxy proxy;
   final ServiceConfiguration configuration;
-  final ApiClient api;
+  final SharedPreferences preferences;
+  final api = ApiClient();
+  late final Credentials credentials;
+
+  /// A data directory set for the process, which skips storage locations.
+  final String? _dataOverride = Platform.environment['MELONBANG_DATA_DIR'];
   String? dataDirectory;
   StorageLocations? storage;
   final startupStatus = ValueNotifier<String>('正在启动…');
   final downloadsAvailable = ValueNotifier<bool>(false);
   final downloadIssue = ValueNotifier<String?>(null);
   Future<void>? _restoringDownloads;
-  Future<void> get downloadsReady async {
-    await start();
-    await _restoringDownloads;
-  }
 
   late final AppStore store;
   late final AccountRepository account;
@@ -116,9 +113,7 @@ class AppServices {
   Future<StorageLocations?> locate() => _locating ??= _locate();
   Future<StorageLocations?>? _locating;
   Future<StorageLocations?> _locate() async {
-    if ((directory ?? Platform.environment['MELONBANG_DATA_DIR']) != null) {
-      return null;
-    }
+    if (_dataOverride != null) return null;
     final support = (await getApplicationSupportDirectory()).path;
     final locations = StorageLocations(
       File(p.join(support, 'storage.json')),
@@ -130,8 +125,7 @@ class AppServices {
   }
 
   Future<void> _start() async {
-    final override = directory ?? Platform.environment['MELONBANG_DATA_DIR'];
-    if (override != null) {
+    if (_dataOverride case final override?) {
       dataDirectory = override;
     } else {
       await locate();
@@ -145,14 +139,15 @@ class AppServices {
     cache = ContentCache(api, store);
     _dispose.add(cache.close);
     await cache.initialize();
-    credentials ??= platformCredentials(
-      Platform.isMacOS
-          ? storage?.credentialIdentity ?? p.join(dataDirectory!, 'credentials')
-          : p.join(dataDirectory!, 'credentials'),
+    final credentialFolder = p.join(dataDirectory!, 'credentials');
+    // On macOS the keychain entry outlives a moved data folder.
+    final credentialIdentity = storage?.credentialIdentity ?? credentialFolder;
+    credentials = platformCredentials(
+      Platform.isMacOS ? credentialIdentity : credentialFolder,
     );
     account = AccountRepository(
       api,
-      credentials!,
+      credentials,
       store: store,
       configuration: configuration,
     );
@@ -162,7 +157,7 @@ class AppServices {
     tracking = TrackingRepository(store, account, catalog);
     community = BangumiPrivateClient(account);
     _dispose.add(tracking.close);
-    final pikpak = PikPakClient(credentials!);
+    final pikpak = PikPakClient(credentials);
     _dispose.add(() async => pikpak.close());
     await pikpak.initialize();
     final mediaDirectory =
@@ -180,7 +175,6 @@ class AppServices {
     _dispose.add(downloads.close);
     await bt.loadPreferences();
     library = PlaybackLibrary(store, downloads, catalog);
-    final preferences = await SharedPreferences.getInstance();
     update = AppUpdate(api, preferences);
     await update.initialize();
     danmaku = DanmakuController(
@@ -219,10 +213,7 @@ class AppServices {
     uninstall = AppUninstall(
       dataFolders: folders,
       keychainService: Platform.isMacOS
-          ? MacOSCredentials.serviceFor(
-              storage?.credentialIdentity ??
-                  p.join(dataDirectory!, 'credentials'),
-            )
+          ? MacOSCredentials.serviceFor(credentialIdentity)
           : null,
     );
     releases = ReleaseSearch(api, sources, downloads);
@@ -234,7 +225,7 @@ class AppServices {
       sources,
       pikpakTransfer,
     );
-    playback = Playback(library, downloads, danmaku, preferences, proxy: proxy);
+    playback = Playback(library, downloads, danmaku, preferences, proxy);
     selection.remember = () => playback.settings.rememberSource;
     selection.groups = () => playback.settings.preferredGroups;
     coordinator = PlaybackCoordinator(
@@ -249,11 +240,7 @@ class AppServices {
     personal = TrackingController(account, tracking);
     subjects = SubjectController(tracking);
     resources = newResourceSearch();
-    downloadList = DownloadsController(
-      downloads,
-      ready: () => downloadsReady,
-      stopSeeding: bt.stopSeeding,
-    );
+    downloadList = DownloadsController(downloads, stopSeeding: bt.stopSeeding);
     _dispose.add(downloadList.close);
     resume = ResumeController(library, tracking);
     await account.initialize();
@@ -273,7 +260,7 @@ class AppServices {
 
   /// A separate search, e.g. for the player's resource sheet.
   ResourceSearchController newResourceSearch() =>
-      ResourceSearchController(selection, playback, () => downloadsReady);
+      ResourceSearchController(selection, playback);
 
   Future<void> close() => _closing ??= _close();
   Future<void> _close() async {

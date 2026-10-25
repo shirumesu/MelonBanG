@@ -132,14 +132,14 @@ class PlaybackLibrary {
 
   Future<EpisodeProgress?> progress(int subjectId, int episodeId) async {
     final saved = await store.get('playback_progress', '$subjectId:$episodeId');
-    return saved == null
-        ? null
-        : (
-            position: number(saved['positionSeconds']),
-            duration: number(saved['durationSeconds']),
-            completed: saved['completed'] == true,
-          );
+    return saved == null ? null : _progress(saved);
   }
+
+  static EpisodeProgress _progress(Json row) => (
+    position: number(row['positionSeconds']),
+    duration: number(row['durationSeconds']),
+    completed: row['completed'] == true,
+  );
 
   Future<bool> _available(
     Subject? subject,
@@ -192,11 +192,7 @@ class PlaybackLibrary {
       idPrefix: '$subjectId:',
     );
     for (final key in bindings.keys) {
-      final parts = key.split(':');
-      if (parts.length == 2 && int.tryParse(parts.first) == subjectId) {
-        final id = int.tryParse(parts.last);
-        if (id != null) ids.add(id);
-      }
+      ids.add(int.parse(key.split(':').last));
     }
     for (final task in downloads.snapshot().forSubject(subjectId)) {
       if (task.episodeId case final int episodeId) ids.add(episodeId);
@@ -226,19 +222,13 @@ class PlaybackLibrary {
       idPrefix: '$subjectId:',
       limit: 1,
     );
-    for (final MapEntry(:key, :value) in page.entries) {
-      final episodeId = int.tryParse(key.split(':').last);
-      if (episodeId == null) continue;
-      return (
-        episodeId: episodeId,
-        progress: (
-          position: number(value['positionSeconds']),
-          duration: number(value['durationSeconds']),
-          completed: value['completed'] == true,
-        ),
-      );
-    }
-    return null;
+    return switch (page.entries.firstOrNull) {
+      MapEntry(:final key, :final value) => (
+        episodeId: int.parse(key.split(':').last),
+        progress: _progress(value),
+      ),
+      null => null,
+    };
   }
 
   /// Subjects by when an episode of theirs last played, most recent first.
@@ -267,19 +257,11 @@ class PlaybackLibrary {
       );
       for (final entry in page.entries) {
         final parts = entry.key.split(':');
-        if (parts.length != 2) continue;
-        final subjectId = int.tryParse(parts.first);
-        final episodeId = int.tryParse(parts.last);
-        if (forSubject != null && subjectId != forSubject) continue;
-        final value = entry.value;
-        final position = number(value['positionSeconds']);
-        final duration = number(value['durationSeconds']);
-        if (subjectId == null ||
-            episodeId == null ||
-            subjects.contains(subjectId) ||
-            value['completed'] == true ||
-            !position.isFinite ||
-            !duration.isFinite ||
+        final subjectId = int.parse(parts.first);
+        final episodeId = int.parse(parts.last);
+        final (:position, :duration, :completed) = _progress(entry.value);
+        if (subjects.contains(subjectId) ||
+            completed ||
             position <= 0 ||
             duration <= position) {
           continue;

@@ -23,6 +23,18 @@ class SearchResults {
 
   /// Offset of the latest request, retried on failure.
   final int requestOffset;
+
+  /// These results while the page at [offset] loads, or after it failed
+  /// with [error].
+  SearchResults requesting(int offset, {String? error}) => SearchResults(
+    query: query,
+    items: items,
+    offset: this.offset,
+    total: total,
+    hasMore: hasMore,
+    error: error,
+    requestOffset: offset,
+  );
 }
 
 /// Home feeds, the weekly calendar and catalogue search.
@@ -142,14 +154,7 @@ class DiscoveryController extends ChangeNotifier {
     final previous = search.items.take(offset).toList();
     final query = search.query;
     searching = true;
-    search = SearchResults(
-      query: query,
-      items: search.items,
-      offset: search.offset,
-      total: search.total,
-      hasMore: search.hasMore,
-      requestOffset: offset,
-    );
+    search = search.requesting(offset);
     notifyListeners();
     void showPage(SubjectResults page) {
       if (ticket != _searchTicket) return;
@@ -168,15 +173,7 @@ class DiscoveryController extends ChangeNotifier {
       showPage(await catalog.search(query, offset: offset, onCached: showPage));
     } catch (e) {
       if (ticket == _searchTicket) {
-        search = SearchResults(
-          query: query,
-          items: search.items,
-          offset: search.offset,
-          total: search.total,
-          hasMore: search.hasMore,
-          error: errorMessage(e),
-          requestOffset: offset,
-        );
+        search = search.requesting(offset, error: errorMessage(e));
       }
     }
     if (ticket == _searchTicket) {

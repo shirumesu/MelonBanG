@@ -11,11 +11,9 @@ class PikPakAccount extends StatefulWidget {
     super.key,
     required this.onLogin,
     required this.onLogout,
+    required this.onUnlock,
     this.account,
-    this.busy = false,
-    this.error,
     this.needsAuthorization = false,
-    this.onUnlock,
     this.verificationUrl,
   });
 
@@ -24,10 +22,8 @@ class PikPakAccount extends StatefulWidget {
 
   /// Signed-in PikPak account name.
   final String? account;
-  final bool busy;
-  final String? error;
   final bool needsAuthorization;
-  final Future<void> Function()? onUnlock;
+  final Future<void> Function() onUnlock;
   final Uri? verificationUrl;
 
   @override
@@ -37,11 +33,9 @@ class PikPakAccount extends StatefulWidget {
 class _PikPakAccountState extends State<PikPakAccount> {
   final username = TextEditingController();
   final password = TextEditingController();
-  bool pending = false;
+  bool busy = false;
   String? error;
   Uri? captcha;
-
-  bool get busy => pending || widget.busy;
 
   @override
   void dispose() {
@@ -53,7 +47,7 @@ class _PikPakAccountState extends State<PikPakAccount> {
   Future<void> run(Future<void> Function() action) async {
     if (busy) return;
     setState(() {
-      pending = true;
+      busy = true;
       error = null;
       captcha = null;
     });
@@ -71,7 +65,7 @@ class _PikPakAccountState extends State<PikPakAccount> {
         });
       }
     } finally {
-      if (mounted) setState(() => pending = false);
+      if (mounted) setState(() => busy = false);
     }
   }
 
@@ -91,7 +85,6 @@ class _PikPakAccountState extends State<PikPakAccount> {
   @override
   Widget build(BuildContext context) {
     final account = widget.account;
-    final message = error ?? widget.error;
     final verificationUrl = captcha ?? widget.verificationUrl;
     return MelonPanel(
       child: Column(
@@ -101,9 +94,7 @@ class _PikPakAccountState extends State<PikPakAccount> {
             const Text('PikPak 登录凭据待解锁'),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: busy || widget.onUnlock == null
-                  ? null
-                  : () => run(widget.onUnlock!),
+              onPressed: busy ? null : () => run(widget.onUnlock),
               icon: const Icon(Icons.lock_open_outlined, size: 18),
               label: const Text('解锁 PikPak'),
             ),
@@ -155,7 +146,7 @@ class _PikPakAccountState extends State<PikPakAccount> {
               label: Text(busy ? '连接中…' : '登录 PikPak'),
             ),
           ],
-          if (message != null)
+          if (error case final message?)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Text(

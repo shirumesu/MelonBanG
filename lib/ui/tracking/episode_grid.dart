@@ -58,22 +58,28 @@ class _EpisodeGridState extends State<EpisodeGrid> {
 
   /// Main episodes in order, then the specials by number as Bangumi lists
   /// them.
-  List<Episode> get ordered => [
+  late List<Episode> ordered = _order();
+
+  List<Episode> _order() => [
     for (final episode in widget.episodes)
       if (episode.main) episode,
     ...widget.episodes.where((e) => !e.main).toList()
       ..sort((a, b) => a.sort.compareTo(b.sort)),
   ];
 
+  @override
+  void didUpdateWidget(covariant EpisodeGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.episodes, widget.episodes)) ordered = _order();
+  }
+
   Set<int> get dragIds {
     if (dragStatus == null) return const {};
-    final ids = [for (final episode in ordered) _id(episode)];
+    final ids = [for (final episode in ordered) episode.id];
     final a = ids.indexOf(anchorId!), b = ids.indexOf(currentId!);
     if (a < 0 || b < 0) return const {};
     return ids.sublist(math.min(a, b), math.max(a, b) + 1).toSet();
   }
-
-  static int _id(Episode episode) => episode.id;
 
   @override
   void dispose() {
@@ -97,7 +103,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
           ? EpisodeStatus.unwatched
           : EpisodeStatus.watched;
       outside = false;
-      anchorId = currentId = _id(episode);
+      anchorId = currentId = episode.id;
     });
   }
 
@@ -115,8 +121,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
     final dragIds = this.dragIds;
     final episodes = [
       for (final episode in ordered)
-        if (dragIds.contains(_id(episode)) &&
-            widget.statusOf(episode) != status)
+        if (dragIds.contains(episode.id) && widget.statusOf(episode) != status)
           episode,
     ];
     _cancel();
@@ -213,7 +218,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
               position.dx > constraints.maxWidth + _cancelMargin ||
               position.dy > gridHeight + _cancelMargin;
           final index = indexAt(position);
-          final id = index == null || away ? currentId : _id(visible[index]!);
+          final id = index == null || away ? currentId : visible[index]!.id;
           if (away == outside && id == currentId) return;
           setState(() {
             outside = away;
@@ -244,7 +249,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                     ),
             );
           }
-          final status = selected.contains(_id(episode))
+          final status = selected.contains(episode.id)
               ? dragStatus!
               : widget.statusOf(episode);
           final watched = status == EpisodeStatus.watched;

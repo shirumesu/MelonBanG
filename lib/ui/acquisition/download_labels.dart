@@ -23,6 +23,16 @@ String downloadStatus(DownloadTask task) => switch (task.status) {
   DownloadStatus.failed => '需要重试',
 };
 
+/// What a running task is doing: [status], by default its status text, then
+/// its speed and, for BT, its connected peers while it downloads.
+String transferLine(DownloadTask task, {String? status}) => [
+  status ?? downloadStatus(task),
+  if (task.status == DownloadStatus.downloading) ...[
+    transferRate(task.downloadSpeed),
+    if (task.method == CacheMethod.bt) '${task.swarm.peers} 个节点',
+  ],
+].join('  ');
+
 /// Where a task comes from beside its status: PikPak, or the online source;
 /// null for BT.
 String? downloadOrigin(DownloadTask task) => switch (task.method) {

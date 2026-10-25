@@ -62,7 +62,7 @@ class PlaybackMenu extends StatelessWidget {
               toggle('自动连播', settings.autoplay, settings.setAutoplay),
               _Row(
                 label: '画面比例',
-                child: _Choice(
+                child: OverlayChoice(
                   value: aspects.keys.toList().indexOf(playback.aspect),
                   options: aspects.values.toList(),
                   onChanged: (index) =>
@@ -100,7 +100,7 @@ class DanmakuQuickSettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Theme(
-    data: overlayTheme(),
+    data: overlayTheme,
     child: OverlayGlass(
       borderRadius: panelBorderRadius,
       visibility: visibility,
@@ -206,7 +206,7 @@ class DanmakuQuickSettings extends StatelessWidget {
                 ),
                 _Row(
                   label: '速度',
-                  child: _Choice(
+                  child: OverlayChoice(
                     value: prefs.speed,
                     options: const ['极慢', '较慢', '适中', '较快', '极快'],
                     onChanged: (value) =>
@@ -215,7 +215,7 @@ class DanmakuQuickSettings extends StatelessWidget {
                 ),
                 _Row(
                   label: '密度',
-                  child: _Choice(
+                  child: OverlayChoice(
                     value: prefs.density,
                     options: const ['稀疏', '正常', '密集', '全部'],
                     onChanged: (value) =>
@@ -288,54 +288,6 @@ class _Row extends StatelessWidget {
           ),
         ),
         Expanded(child: child),
-      ],
-    ),
-  );
-}
-
-/// A compact segmented choice for the dark popover.
-class _Choice extends StatelessWidget {
-  const _Choice({
-    required this.value,
-    required this.options,
-    required this.onChanged,
-  });
-  final int value;
-  final List<String> options;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    height: 28,
-    padding: const EdgeInsets.all(2),
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: .08),
-      borderRadius: badgeBorderRadius,
-    ),
-    child: Row(
-      children: [
-        for (final (index, option) in options.indexed)
-          Expanded(
-            child: Material(
-              color: index == value ? Colors.white : Colors.transparent,
-              borderRadius: BorderRadius.circular(6),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(6),
-                onTap: () => onChanged(index),
-                child: Center(
-                  child: Text(
-                    option,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: index == value
-                          ? const Color(0xff15181d)
-                          : Colors.white70,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
       ],
     ),
   );
