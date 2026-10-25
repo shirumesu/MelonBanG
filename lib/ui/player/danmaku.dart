@@ -304,11 +304,7 @@ class DanmakuSprite {
   TextPainter _layout(TextStyle style) => TextPainter(
     text: TextSpan(
       text: text,
-      style: style.copyWith(
-        fontSize: fontSize,
-        fontWeight: FontWeight.w600,
-        decoration: underline ? TextDecoration.underline : null,
-      ),
+      style: style.copyWith(fontSize: fontSize, fontWeight: FontWeight.w600),
     ),
     textDirection: TextDirection.ltr,
     maxLines: 1,
@@ -334,6 +330,22 @@ class DanmakuSprite {
     );
     outline?.paint(canvas, origin);
     fill.paint(canvas, origin);
+    if (underline) {
+      // Drawn as one line: Latin and CJK text come from different fallback
+      // fonts, whose own underlines sit at different heights.
+      final thickness = fontSize / 16;
+      final line = Rect.fromLTWH(
+        0,
+        fill.computeDistanceToActualBaseline(TextBaseline.alphabetic) +
+            fontSize * .12,
+        size.width,
+        thickness,
+      ).shift(origin);
+      if (stroke) {
+        canvas.drawRect(line.inflate(1), Paint()..color = Colors.black);
+      }
+      canvas.drawRect(line, Paint()..color = Color(0xff000000 | color));
+    }
     final picture = recorder.endRecording();
     final image = picture.toImageSync(
       ((size.width + DanmakuSpriteCache.padding * 2) * ratio).ceil(),
