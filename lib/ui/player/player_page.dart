@@ -311,6 +311,15 @@ class PlayerPageState extends State<PlayerPage> {
     null => null,
   };
 
+  /// The episode broadcast before, chosen as [nextEpisode] is.
+  Episode? get previousEpisode => switch (playback.session?.episodeId) {
+    final id? => widget.subject?.before(
+      id,
+      skipExtras: playback.settings.skipExtras,
+    ),
+    null => null,
+  };
+
   void toggleMenu() {
     playback.cancelAutoplay();
     resourcesOpen = false;
@@ -558,9 +567,6 @@ class PlayerPageState extends State<PlayerPage> {
         }
         final showPanel = !immersive && (widget.panelOpen.value ?? wide);
         final libraryWidth = sidePanelWidth(constraints.maxWidth);
-        final videoWidth =
-            constraints.maxWidth - (showPanel ? libraryWidth : 0);
-        final transportInset = videoWidth < 680 ? 136.0 : 108.0;
         return Stack(
           children: [
             Row(
@@ -619,7 +625,7 @@ class PlayerPageState extends State<PlayerPage> {
                 key: const ValueKey('player-resource-overlay'),
                 left: 16,
                 right: 16,
-                bottom: transportInset,
+                bottom: _transportInset,
                 child: Align(
                   alignment: Alignment.bottomCenter,
                   child: ExcludeFocus(
@@ -646,7 +652,7 @@ class PlayerPageState extends State<PlayerPage> {
                             0,
                             math.min(
                               560,
-                              constraints.maxHeight - transportInset - 24,
+                              constraints.maxHeight - _transportInset - 24,
                             ),
                           ),
                           child: PlayerResourceSheet(
@@ -678,8 +684,6 @@ class PlayerPageState extends State<PlayerPage> {
 
   Widget video(BuildContext context, {required bool panel}) => LayoutBuilder(
     builder: (context, constraints) {
-      final narrow = constraints.maxWidth < 680;
-      final transportInset = narrow ? 136.0 : 108.0;
       final failure = widget.failure?.reason ?? playback.error;
       final toast = feedback != null || boosting;
       if (toast) {
@@ -983,7 +987,7 @@ class PlayerPageState extends State<PlayerPage> {
                       duration: motionDuration(context),
                       curve: Curves.easeOutCubic,
                       right: pageGutter,
-                      bottom: controls ? transportInset : pageGutter,
+                      bottom: controls ? _transportInset : pageGutter,
                       child: MotionAppear(
                         key: ValueKey(label),
                         offset: 8,
@@ -1005,7 +1009,7 @@ class PlayerPageState extends State<PlayerPage> {
                   curve: Curves.easeOutCubic,
                   left: pageGutter,
                   right: pageGutter,
-                  bottom: controls ? transportInset : pageGutter,
+                  bottom: controls ? _transportInset : pageGutter,
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: MotionAppear(
@@ -1029,7 +1033,7 @@ class PlayerPageState extends State<PlayerPage> {
                   playback.autoplayMessage != null)
                 Positioned(
                   right: 20,
-                  bottom: transportInset + 4,
+                  bottom: _transportInset + 4,
                   child: MotionAppear(
                     offset: 12,
                     milliseconds: 300,
@@ -1152,6 +1156,12 @@ class PlayerPageState extends State<PlayerPage> {
                                     : () => showPanel(PlayerPanelTab.danmaku),
                               ),
                             ),
+                            onPrevious: switch (previousEpisode) {
+                              null => null,
+                              final previous => () => widget.onEpisode(
+                                previous,
+                              ),
+                            },
                             onNext: switch (nextEpisode) {
                               null => null,
                               final next => () => widget.onEpisode(next),
@@ -1177,6 +1187,9 @@ class PlayerPageState extends State<PlayerPage> {
     },
   );
 }
+
+/// Room the transport bar takes at the bottom of the video.
+const _transportInset = 108.0;
 
 const _danmakuHints = ['发个友善的弹幕见证当下', '请输入文本', '前方高能？', '我掌握了弹幕的核心！'];
 

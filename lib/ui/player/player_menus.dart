@@ -166,16 +166,18 @@ class SpeedMenu extends StatelessWidget {
 }
 
 /// Anime4K super-resolution: clicking turns it on or off, and the label
-/// names the resolution it renders. Hovering shows the exact sizes and the
-/// chain.
+/// names the resolution it renders unless [compact]. Hovering shows the
+/// exact sizes and the chain.
 class SuperResolutionMenu extends StatelessWidget {
   const SuperResolutionMenu({
     super.key,
     required this.playback,
     required this.onPopupChanged,
+    required this.compact,
   });
   final Playback playback;
   final ValueChanged<bool> onPopupChanged;
+  final bool compact;
 
   static const _chains = {'fast': '效率', 'quality': '质量'};
 
@@ -202,7 +204,9 @@ class SuperResolutionMenu extends StatelessWidget {
         ),
         onPressed: () => unawaited(playback.toggleSuperResolution()),
         icon: on ? const Icon(Icons.auto_awesome_rounded, size: 15) : null,
-        label: Text(output == null ? '超分' : '${resolutionLabel(output)} 超分'),
+        label: Text(
+          output == null || compact ? '超分' : '${resolutionLabel(output)} 超分',
+        ),
       ),
       popover: (popover) => Column(
         mainAxisSize: MainAxisSize.min,
