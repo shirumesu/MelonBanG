@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import '../../core/error_message.dart';
 import '../../core/json.dart';
+import '../../core/network.dart';
 import '../../core/store.dart';
 import '../../domain/torrent_identity.dart';
 import '../../domain/sources.dart';
@@ -37,6 +38,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
   @override
   Stream<void> get changes => _changes.stream;
   final _tasks = <String, Json>{};
+  late final _saved = TaskRecords(store, 'pikpak_downloads', directory);
   final _adding = <String, Future<Json>>{};
   final _removing = <String, Future<void>>{};
   final _fetches = <String, _Fetch>{};
@@ -44,7 +46,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
   final _links = <String, Future<String>>{};
   final _held = <String, Future<bool>>{};
   final _received = <String, int>{};
-  Future<void>? _worker, _writes, _closing;
+  Future<void>? _worker, _closing;
   Future<HttpServer>? _server;
   String? _runningId;
   Completer<void>? _halt;
@@ -58,26 +60,15 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
   @override
   Future<void> initialize() async {
     _requireOpen();
-    for (final task in await store.list('pikpak_downloads')) {
-      final id = '${task['id']}';
-      task['savePath'] = p.join(directory, id);
-      task['downloadSpeedBytesPerSecond'] = 0;
-      task['files'] = objects(task['files']).map((file) {
-        file['path'] = p.join('${task['savePath']}', '${file['relativePath']}');
+    for (final task in await _saved.restore()) {
+      for (final file in objects(task['files'])) {
         file['mediaKind'] =
             mayBeVideo('${file['name']}', _integer(file['size']))
             ? 'video'
             : 'other';
-        return file;
-      }).toList();
-      if (await deletedOutside(task, directory)) {
-        await store.remove('pikpak_downloads', id);
-        final folder = Directory('${task['savePath']}');
-        if (await folder.exists()) await folder.delete(recursive: true);
-        continue;
       }
       await _reconcile(task);
-      _tasks[id] = task;
+      _tasks['${task['id']}'] = task;
     }
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     _schedule();
@@ -708,10 +699,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
       _fetches.remove('$id/${fetch.file['id']}');
       await fetch.close();
     }
-    await _writes;
-    await store.remove('pikpak_downloads', id);
-    final local = Directory(p.join(directory, id));
-    if (await local.exists()) await local.delete(recursive: true);
+    await _saved.discard(id);
     _emit();
   }
 
@@ -848,15 +836,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
 
   Future<void> _persist(Json task) {
     _updateProgress(task);
-    final saved = Map<String, dynamic>.of(task)
-      ..['files'] = [
-        for (final file in objects(task['files'])) {...file},
-      ];
-    final writing = (_writes ?? Future<void>.value()).then(
-      (_) => store.put('pikpak_downloads', '${task['id']}', saved),
-    );
-    _writes = writing.catchError((Object _) {});
-    return writing;
+    return _saved.put(task);
   }
 
   Json _task(String id) => _tasks[id] ?? (throw StateError('下载任务不存在'));
@@ -888,7 +868,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
       task['downloadSpeedBytesPerSecond'] = 0;
       await _persist(task);
     }
-    await _writes;
+    await _saved.settled;
     await (await _server)?.close(force: true);
     _http.close();
     await _changes.close();
@@ -1062,23 +1042,17 @@ class _Fetch {
     final link = transfer._link(this);
     final url = await link;
     if (!_wanted || claim.cursor >= claim.end) return;
-    final request =
-        http.AbortableRequest(
-            'GET',
-            Uri.parse(url),
-            abortTrigger: claim.aborted.future,
-          )
-          ..headers['Range'] = 'bytes=${claim.cursor}-${claim.end - 1}'
-          ..headers['Accept-Encoding'] = 'identity';
-    final response = await transfer._http
-        .send(request)
-        .timeout(
-          idle,
-          onTimeout: () {
-            claim.abort();
-            throw TimeoutException('PikPak 文件连接超时');
-          },
-        );
+    final response = await transfer._http.sendAbortable(
+      'GET',
+      Uri.parse(url),
+      abort: claim.aborted,
+      timeout: idle,
+      message: 'PikPak 文件连接超时',
+      headers: {
+        'Range': 'bytes=${claim.cursor}-${claim.end - 1}',
+        'Accept-Encoding': 'identity',
+      },
+    );
     if (const {401, 403, 410}.contains(response.statusCode)) {
       await response.stream.listen(null).cancel();
       transfer._expire(this, link);

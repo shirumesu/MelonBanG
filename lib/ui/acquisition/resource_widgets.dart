@@ -364,43 +364,146 @@ class ResourceResultRow extends StatelessWidget {
   final String? error;
 
   @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final small = Theme.of(context).textTheme.bodySmall;
+    final units = ByteUnitsScope.of(context);
+    final groups = resourceGroupLabel(info);
+    final (group, size, date) = switch (candidate.target) {
+      ReleaseTarget(candidate: ReleaseCandidate(:final release)) => (
+        groups,
+        resourceSizeLabel(release, units),
+        resourceDateLabel(release),
+      ),
+      DownloadTarget(:final task) => (
+        groups,
+        resourceBytesLabel(task.totalBytes, units),
+        '—',
+      ),
+      OnlineTarget() => (candidate.line, '—', '—'),
+    };
+    final detailUrl = switch (candidate.target) {
+      ReleaseTarget(candidate: ReleaseCandidate(:final release)) =>
+        release.detailUrl,
+      _ => null,
+    };
+    final episodeLabel = info.episodeLabel;
+    return _ResourceRowFrame(
+      title: info.displayTitle,
+      wrapTitle: expanded,
+      expanded: expanded,
+      expandTooltip: '显示原标题',
+      onExpand: onExpand,
+      recommended: recommended,
+      kind: switch (candidate.target) {
+        DownloadTarget() =>
+          candidate.kind == PlayKind.local
+              ? '本地'
+              : '${candidate.providerLabel} 缓存中',
+        OnlineTarget() => '在线',
+        ReleaseTarget() => candidate.kind.label,
+      },
+      span: episodeLabel == null
+          ? null
+          : info.batch
+          ? '合集 $episodeLabel'
+          : episodeLabel,
+      spanConflict: info.episodeConflict,
+      labels: info.labels,
+      notes: [
+        if (info.titleCredits.length > 1) info.titleCredits.join(' & '),
+        ...notes,
+      ],
+      warnings: [...info.warnings, ...warnings],
+      group: group,
+      size: size,
+      date: date,
+      source: candidate.providerLabel ?? candidate.provider,
+      details: [
+        _OriginalTitle(
+          title: expanded ? info.title : null,
+          detailUrl: detailUrl,
+          padding: const EdgeInsets.only(left: 18, top: 8),
+        ),
+        if (error != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 18, top: 4),
+            child: Text(error!, style: small?.copyWith(color: scheme.error)),
+          ),
+      ],
+      actions: (wide) => Row(
+        children: [
+          SizedBox(
+            width: resourceDownloadWidth(labelled: wide),
+            child: download?.call(wide),
+          ),
+          const SizedBox(width: _actionGap),
+          SizedBox(
+            width: resourcePlayWidth(labelled: wide),
+            child: playing || onPlay != null
+                ? ResourcePlayButton(
+                    onPressed: onPlay,
+                    instant: candidate.instant,
+                    playing: playing,
+                    showLabel: wide,
+                  )
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The layout the resource rows share: a chevron and [title] over the tags,
+/// the group, size and date in columns on a wide row or in a line under the
+/// tags otherwise, then the [actions].
+class _ResourceRowFrame extends StatelessWidget {
+  const _ResourceRowFrame({
+    required this.title,
+    required this.wrapTitle,
+    required this.expanded,
+    required this.expandTooltip,
+    required this.onExpand,
+    required this.recommended,
+    required this.kind,
+    required this.span,
+    this.spanConflict = false,
+    required this.labels,
+    required this.notes,
+    required this.warnings,
+    required this.group,
+    required this.size,
+    required this.date,
+    required this.source,
+    this.details = const [],
+    required this.actions,
+  });
+  final String title, expandTooltip, kind, group, size, date, source;
+  final bool wrapTitle, expanded, recommended, spanConflict;
+  final VoidCallback onExpand;
+
+  /// The episodes the row covers, highlighted; in error colours when they
+  /// contradict the title.
+  final String? span;
+  final List<String> labels, notes, warnings;
+
+  /// Shown under the tags.
+  final List<Widget> details;
+
+  /// The row's buttons, given whether the row is wide.
+  final Widget? Function(bool wide) actions;
+
+  @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final wide = constraints.maxWidth >= resourceTableWidth;
       final scheme = Theme.of(context).colorScheme;
-      final groups = resourceGroupLabel(info);
-      final (group, size, date) = switch (candidate.target) {
-        ReleaseTarget(candidate: ReleaseCandidate(:final release)) => (
-          groups.isEmpty ? '—' : groups,
-          resourceSizeLabel(release, ByteUnitsScope.of(context)),
-          resourceDateLabel(release),
-        ),
-        DownloadTarget(:final task) => (
-          groups.isEmpty ? '—' : groups,
-          resourceBytesLabel(task.totalBytes, ByteUnitsScope.of(context)),
-          '—',
-        ),
-        OnlineTarget() => (
-          candidate.line.isEmpty ? '—' : candidate.line,
-          '—',
-          '—',
-        ),
-      };
-      final source = candidate.providerLabel ?? candidate.provider;
-      final detailUrl = switch (candidate.target) {
-        ReleaseTarget(candidate: ReleaseCandidate(:final release)) =>
-          release.detailUrl,
-        _ => null,
-      };
       final small = Theme.of(context).textTheme.bodySmall;
-      final episodeLabel = info.episodeLabel;
-      final warnings = [...info.warnings, ...this.warnings];
-      final notes = [
-        if (info.titleCredits.length > 1) info.titleCredits.join(' & '),
-        ...this.notes,
-      ];
+      final figures = small?.copyWith(
+        fontFeatures: const [FontFeature.tabularFigures()],
+      );
       return InkWell(
-        key: ValueKey('resource-original:${candidate.id}'),
         onTap: onExpand,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -417,14 +520,14 @@ class ResourceResultRow extends StatelessWidget {
                           padding: const EdgeInsets.only(top: 1, right: 2),
                           child: _RowChevron(
                             expanded: expanded,
-                            tooltip: '显示原标题',
+                            tooltip: expandTooltip,
                           ),
                         ),
                         Expanded(
                           child: Text(
-                            info.displayTitle,
-                            maxLines: expanded ? null : 1,
-                            overflow: expanded ? null : TextOverflow.ellipsis,
+                            title,
+                            maxLines: wrapTitle ? null : 1,
+                            overflow: wrapTitle ? null : TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -451,26 +554,23 @@ class ResourceResultRow extends StatelessWidget {
                                 foreground: scheme.onPrimary,
                               ),
                             ),
-                          _tag(context, switch (candidate.target) {
-                            DownloadTarget() =>
-                              candidate.kind == PlayKind.local
-                                  ? '本地'
-                                  : '${candidate.providerLabel} 缓存中',
-                            OnlineTarget() => '在线',
-                            ReleaseTarget() => candidate.kind.label,
-                          }, background: scheme.secondaryContainer),
-                          if (episodeLabel != null)
+                          _tag(
+                            context,
+                            kind,
+                            background: scheme.secondaryContainer,
+                          ),
+                          if (span case final span?)
                             _tag(
                               context,
-                              info.batch ? '合集 $episodeLabel' : episodeLabel,
-                              background: info.episodeConflict
+                              span,
+                              background: spanConflict
                                   ? scheme.errorContainer
                                   : scheme.primaryContainer,
-                              foreground: info.episodeConflict
+                              foreground: spanConflict
                                   ? scheme.onErrorContainer
                                   : scheme.onPrimaryContainer,
                             ),
-                          for (final label in info.labels) _tag(context, label),
+                          for (final label in labels) _tag(context, label),
                           for (final note in notes)
                             _tag(context, note, background: Colors.transparent),
                           for (final warning in warnings)
@@ -496,46 +596,7 @@ class ResourceResultRow extends StatelessWidget {
                           style: small,
                         ),
                       ),
-                    AnimatedSize(
-                      duration: motionDuration(context),
-                      alignment: Alignment.topLeft,
-                      curve: Curves.easeOutCubic,
-                      child: expanded
-                          ? Padding(
-                              padding: const EdgeInsets.only(left: 18, top: 8),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  SelectableText(
-                                    info.title,
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                  if (detailUrl != null)
-                                    TextButton.icon(
-                                      style: TextButton.styleFrom(
-                                        padding: EdgeInsets.zero,
-                                      ),
-                                      onPressed: () =>
-                                          openExternal(context, detailUrl),
-                                      icon: const Icon(
-                                        Icons.open_in_new,
-                                        size: 13,
-                                      ),
-                                      label: const Text('打开发布页'),
-                                    ),
-                                ],
-                              ),
-                            )
-                          : const SizedBox(width: double.infinity),
-                    ),
-                    if (error != null)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 18, top: 4),
-                        child: Text(
-                          error!,
-                          style: small?.copyWith(color: scheme.error),
-                        ),
-                      ),
+                    ...details,
                   ],
                 ),
               ),
@@ -547,7 +608,7 @@ class ResourceResultRow extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        group,
+                        group.isEmpty ? '—' : group,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: small?.copyWith(color: scheme.onSurface),
@@ -559,47 +620,61 @@ class ResourceResultRow extends StatelessWidget {
                 const SizedBox(width: Gap.md),
                 SizedBox(
                   width: resourceSizeColumnWidth,
-                  child: Text(
-                    size,
-                    style: small?.copyWith(
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
+                  child: Text(size, style: figures),
                 ),
                 const SizedBox(width: Gap.md),
                 SizedBox(
                   width: resourceDateColumnWidth,
-                  child: Text(
-                    date,
-                    style: small?.copyWith(
-                      fontSize: 11,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
+                  child: Text(date, style: figures?.copyWith(fontSize: 11)),
                 ),
               ],
               const SizedBox(width: Gap.sm),
               SizedBox(
-                width: resourceDownloadWidth(labelled: wide),
-                child: download?.call(wide),
-              ),
-              const SizedBox(width: _actionGap),
-              SizedBox(
-                width: resourcePlayWidth(labelled: wide),
-                child: playing || onPlay != null
-                    ? ResourcePlayButton(
-                        onPressed: onPlay,
-                        instant: candidate.instant,
-                        playing: playing,
-                        showLabel: wide,
-                      )
-                    : null,
+                width: resourceActionsWidth(wide: wide),
+                child: actions(wide),
               ),
             ],
           ),
         ),
       );
     },
+  );
+}
+
+/// A release's original [title] and a link to its page, unfolding when the
+/// title is given.
+class _OriginalTitle extends StatelessWidget {
+  const _OriginalTitle({
+    required this.title,
+    required this.detailUrl,
+    required this.padding,
+  });
+  final String? title, detailUrl;
+  final EdgeInsets padding;
+
+  @override
+  Widget build(BuildContext context) => AnimatedSize(
+    duration: motionDuration(context),
+    alignment: Alignment.topLeft,
+    curve: Curves.easeOutCubic,
+    child: title == null
+        ? const SizedBox(width: double.infinity)
+        : Padding(
+            padding: padding,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SelectableText(title!, style: const TextStyle(fontSize: 12)),
+                if (detailUrl case final url?)
+                  TextButton.icon(
+                    style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                    onPressed: () => openExternal(context, url),
+                    icon: const Icon(Icons.open_in_new, size: 13),
+                    label: const Text('打开发布页'),
+                  ),
+              ],
+            ),
+          ),
   );
 }
 
@@ -684,153 +759,23 @@ class ResourceSeriesRow extends StatelessWidget {
   final Widget Function(bool wide)? action;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final wide = constraints.maxWidth >= resourceTableWidth;
-      final scheme = Theme.of(context).colorScheme;
-      final small = Theme.of(context).textTheme.bodySmall;
-      final source = candidate.providerLabel ?? candidate.provider;
-      return InkWell(
-        onTap: onExpand,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 1, right: 2),
-                          child: _RowChevron(
-                            expanded: expanded,
-                            tooltip: '展开各集',
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 18),
-                      child: Wrap(
-                        spacing: 5,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          if (recommended)
-                            Tooltip(
-                              message: '综合画质、字幕和大小推荐',
-                              child: _tag(
-                                context,
-                                '推荐',
-                                background: scheme.primary,
-                                foreground: scheme.onPrimary,
-                              ),
-                            ),
-                          _tag(
-                            context,
-                            candidate.kind.label,
-                            background: scheme.secondaryContainer,
-                          ),
-                          if (coverage != null)
-                            _tag(
-                              context,
-                              coverage!,
-                              background: scheme.primaryContainer,
-                              foreground: scheme.onPrimaryContainer,
-                            ),
-                          for (final label in info.labels) _tag(context, label),
-                          for (final note in notes)
-                            _tag(context, note, background: Colors.transparent),
-                          for (final warning in warnings)
-                            _tag(
-                              context,
-                              warning,
-                              background: scheme.tertiaryContainer,
-                              foreground: scheme.onTertiaryContainer,
-                            ),
-                        ],
-                      ),
-                    ),
-                    if (!wide)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 18, top: 5),
-                        child: Text(
-                          [
-                            group,
-                            size,
-                            date,
-                            source,
-                          ].where((e) => e.isNotEmpty && e != '—').join('  '),
-                          style: small,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              if (wide) ...[
-                const SizedBox(width: Gap.md),
-                SizedBox(
-                  width: resourceGroupColumnWidth,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        group.isEmpty ? '—' : group,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: small?.copyWith(color: scheme.onSurface),
-                      ),
-                      Text(source, style: small?.copyWith(fontSize: 10)),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: Gap.md),
-                SizedBox(
-                  width: resourceSizeColumnWidth,
-                  child: Text(
-                    size,
-                    style: small?.copyWith(
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: Gap.md),
-                SizedBox(
-                  width: resourceDateColumnWidth,
-                  child: Text(
-                    date,
-                    style: small?.copyWith(
-                      fontSize: 11,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(width: Gap.sm),
-              SizedBox(
-                width: resourceActionsWidth(wide: wide),
-                child: action?.call(wide),
-              ),
-            ],
-          ),
-        ),
-      );
-    },
+  Widget build(BuildContext context) => _ResourceRowFrame(
+    title: title,
+    wrapTitle: false,
+    expanded: expanded,
+    expandTooltip: '展开各集',
+    onExpand: onExpand,
+    recommended: recommended,
+    kind: candidate.kind.label,
+    span: coverage,
+    labels: info.labels,
+    notes: notes,
+    warnings: warnings,
+    group: group,
+    size: size,
+    date: date,
+    source: candidate.providerLabel ?? candidate.provider,
+    actions: (wide) => action?.call(wide),
   );
 }
 
@@ -972,37 +917,10 @@ class ResourceEpisodeRow extends StatelessWidget {
                       ],
                     ),
                   ),
-                  AnimatedSize(
-                    duration: motionDuration(context),
-                    alignment: Alignment.topLeft,
-                    curve: Curves.easeOutCubic,
-                    child: expanded && title != null
-                        ? Padding(
-                            padding: const EdgeInsets.only(left: 18, bottom: 4),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                SelectableText(
-                                  title!,
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                                if (detailUrl != null)
-                                  TextButton.icon(
-                                    style: TextButton.styleFrom(
-                                      padding: EdgeInsets.zero,
-                                    ),
-                                    onPressed: () =>
-                                        openExternal(context, detailUrl!),
-                                    icon: const Icon(
-                                      Icons.open_in_new,
-                                      size: 13,
-                                    ),
-                                    label: const Text('打开发布页'),
-                                  ),
-                              ],
-                            ),
-                          )
-                        : const SizedBox(width: double.infinity),
+                  _OriginalTitle(
+                    title: expanded ? title : null,
+                    detailUrl: detailUrl,
+                    padding: const EdgeInsets.only(left: 18, bottom: 4),
                   ),
                   if (error != null)
                     Padding(

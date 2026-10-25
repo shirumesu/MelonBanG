@@ -16,6 +16,35 @@ Future<dynamic> decodeJsonBytes(List<int> bytes) async =>
     ? jsonDecode(utf8.decode(bytes))
     : Isolate.run(() => jsonDecode(utf8.decode(bytes)));
 
+extension AbortableSend on http.Client {
+  /// Sends a request that stops once [abort] completes, which it does on its
+  /// own when no response arrives within [timeout]; the request then fails
+  /// with [message].
+  Future<http.StreamedResponse> sendAbortable(
+    String method,
+    Uri uri, {
+    required Completer<void> abort,
+    required Duration timeout,
+    required String message,
+    Map<String, String> headers = const {},
+    String? body,
+  }) {
+    final request = http.AbortableRequest(
+      method,
+      uri,
+      abortTrigger: abort.future,
+    )..headers.addAll(headers);
+    if (body != null) request.body = body;
+    return send(request).timeout(
+      timeout,
+      onTimeout: () {
+        if (!abort.isCompleted) abort.complete();
+        throw TimeoutException(message, timeout);
+      },
+    );
+  }
+}
+
 class _HostRequests {
   int active = 0;
   final waiting = Queue<Completer<void>>();

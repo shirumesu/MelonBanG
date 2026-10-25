@@ -43,8 +43,9 @@ class OnlineDownloads implements OnlineTransfer {
   @override
   Stream<void> get changes => _changes.stream;
   final _tasks = <String, Json>{};
+  late final _saved = TaskRecords(store, 'online_downloads', directory);
   final _received = <String, int>{};
-  Future<void>? _worker, _writes, _closing;
+  Future<void>? _worker, _closing;
   String? _runningId;
   Completer<void>? _halt;
   Timer? _ticker;
@@ -54,18 +55,7 @@ class OnlineDownloads implements OnlineTransfer {
   @override
   Future<void> initialize() async {
     _requireOpen();
-    for (final task in await store.list('online_downloads')) {
-      final id = '${task['id']}';
-      task['savePath'] = p.join(directory, id);
-      task['downloadSpeedBytesPerSecond'] = 0;
-      task['files'] = objects(task['files']).map((file) {
-        file['path'] = p.join('${task['savePath']}', '${file['relativePath']}');
-        return file;
-      }).toList();
-      if (await deletedOutside(task, directory)) {
-        await _discard(task);
-        continue;
-      }
+    for (final task in await _saved.restore()) {
       // A file deleted outside the app is fetched again.
       for (final file in _files(task)) {
         if (file['complete'] == true &&
@@ -79,7 +69,7 @@ class OnlineDownloads implements OnlineTransfer {
         task['status'] = task['manualPaused'] == true ? 'paused' : 'queued';
       }
       _updateProgress(task);
-      _tasks[id] = task;
+      _tasks['${task['id']}'] = task;
     }
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     _schedule();
@@ -310,16 +300,8 @@ class OnlineDownloads implements OnlineTransfer {
     final task = _tasks.remove(id);
     if (task == null) return;
     await _stopWorker(id);
-    await _discard(task);
+    await _saved.discard(id);
     _emit();
-  }
-
-  /// Deletes a task's record and folder.
-  Future<void> _discard(Json task) async {
-    await _writes;
-    await store.remove('online_downloads', '${task['id']}');
-    final folder = Directory('${task['savePath']}');
-    if (await folder.exists()) await folder.delete(recursive: true);
   }
 
   @override
@@ -358,15 +340,7 @@ class OnlineDownloads implements OnlineTransfer {
 
   Future<void> _persist(Json task) {
     _updateProgress(task);
-    final saved = Map<String, dynamic>.of(task)
-      ..['files'] = [
-        for (final file in objects(task['files'])) {...file},
-      ];
-    final writing = (_writes ?? Future<void>.value()).then(
-      (_) => store.put('online_downloads', '${task['id']}', saved),
-    );
-    _writes = writing.catchError((Object _) {});
-    return writing;
+    return _saved.put(task);
   }
 
   Json _task(String id) => _tasks[id] ?? (throw StateError('下载任务不存在'));
@@ -389,7 +363,7 @@ class OnlineDownloads implements OnlineTransfer {
       task['downloadSpeedBytesPerSecond'] = 0;
       await _persist(task);
     }
-    await _writes;
+    await _saved.settled;
     _http.close();
     await _changes.close();
   }
@@ -473,22 +447,14 @@ class _Job {
     halt.whenComplete(() {
       if (!abort.isCompleted) abort.complete();
     }).ignore();
-    final request =
-        http.AbortableRequest('GET', uri, abortTrigger: abort.future)
-          ..headers.addAll({
-            'User-Agent': 'Mozilla/5.0',
-            ...stream.headers,
-            ...headers,
-          });
-    final response = await transfer._http
-        .send(request)
-        .timeout(
-          OnlineDownloads._idle,
-          onTimeout: () {
-            if (!abort.isCompleted) abort.complete();
-            throw TimeoutException('视频源连接超时');
-          },
-        );
+    final response = await transfer._http.sendAbortable(
+      'GET',
+      uri,
+      abort: abort,
+      timeout: OnlineDownloads._idle,
+      message: '视频源连接超时',
+      headers: {'User-Agent': 'Mozilla/5.0', ...stream.headers, ...headers},
+    );
     if (const {401, 403, 404, 410}.contains(response.statusCode)) {
       await response.stream.listen(null).cancel();
       throw _Expired(response.statusCode);
