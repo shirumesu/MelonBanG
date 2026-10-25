@@ -230,7 +230,8 @@ class PlayerPageState extends State<PlayerPage> {
   void showFeedback(String text) {
     feedbackTimer?.cancel();
     setState(() => feedback = text);
-    feedbackTimer = Timer(const Duration(milliseconds: 900), () {
+    // Long enough to read: a word flashes by, a sentence stays a little.
+    feedbackTimer = Timer(Duration(milliseconds: 400 + 40 * text.length), () {
       if (mounted) setState(() => feedback = null);
     });
   }
@@ -563,7 +564,7 @@ class PlayerPageState extends State<PlayerPage> {
           children: [
             Row(
               children: [
-                Expanded(child: video(context)),
+                Expanded(child: video(context, panel: showPanel)),
                 ExcludeFocus(
                   excluding: !showPanel,
                   child: IgnorePointer(
@@ -674,7 +675,7 @@ class PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  Widget video(BuildContext context) => LayoutBuilder(
+  Widget video(BuildContext context, {required bool panel}) => LayoutBuilder(
     builder: (context, constraints) {
       final narrow = constraints.maxWidth < 680;
       final transportInset = narrow ? 136.0 : 108.0;
@@ -829,18 +830,17 @@ class PlayerPageState extends State<PlayerPage> {
                   },
                 ),
               ),
-              Positioned(
+              // In the middle, just above the paused play button.
+              Positioned.fill(
                 key: const ValueKey('player-feedback'),
-                top: 64,
-                left: 0,
-                right: 0,
+                bottom: 144,
                 child: IgnorePointer(
                   child: Center(
                     // Settles in from slightly smaller and keeps its text
                     // while fading out; a new message resizes it smoothly.
                     child: AnimatedOpacity(
                       opacity: toast ? 1 : 0,
-                      duration: motionDuration(context, toast ? 150 : 260),
+                      duration: motionDuration(context, toast ? 150 : 200),
                       child: AnimatedScale(
                         scale: toast ? 1 : .94,
                         duration: motionDuration(context, 220),
@@ -923,6 +923,37 @@ class PlayerPageState extends State<PlayerPage> {
                   ),
                 ),
               ),
+              if (!immersive)
+                Positioned(
+                  key: const ValueKey('player-panel-handle'),
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: IgnorePointer(
+                      ignoring: !controls && !danmakuMenu,
+                      child: AnimatedOpacity(
+                        opacity: controls || danmakuMenu ? 1 : 0,
+                        duration: motionDuration(context),
+                        curve: Curves.easeOutCubic,
+                        child: MouseRegion(
+                          onEnter: (_) {
+                            controlsHovered = true;
+                            reveal();
+                          },
+                          onExit: (_) {
+                            controlsHovered = false;
+                            reveal();
+                          },
+                          child: _PanelHandle(
+                            open: panel,
+                            onPressed: () => widget.panelOpen.value = !panel,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               if (playback.openingEnding case final marks?)
                 StreamBuilder<Duration>(
                   stream: player.stream.position,
@@ -1342,6 +1373,36 @@ class _SkipButton extends StatelessWidget {
               color: Colors.white,
             ),
           ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// Sits on the video's edge beside the side panel, so folding or unfolding
+/// it is a short move from either side.
+class _PanelHandle extends StatelessWidget {
+  const _PanelHandle({required this.open, required this.onPressed});
+  final bool open;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: open ? '收起侧边栏' : '展开侧边栏',
+    child: Material(
+      color: overlaySurface,
+      borderRadius: const BorderRadius.horizontal(left: Radius.circular(8)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onPressed,
+        child: SizedBox(
+          width: 24,
+          height: 64,
+          child: Icon(
+            open ? Icons.chevron_right_rounded : Icons.chevron_left_rounded,
+            size: 22,
+            color: Colors.white,
+          ),
         ),
       ),
     ),

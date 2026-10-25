@@ -796,13 +796,6 @@ class _MelonAppState extends State<MelonApp>
                           }
                         }),
                         onToggleTheme: () => setDark(!dark),
-                        panelOpen:
-                            route == 'player' &&
-                                ready &&
-                                coordinator.preparing == null &&
-                                playback.uri != null
-                            ? playerPanel
-                            : null,
                         search: search,
                         searchFocusNode: searchFocus,
                         onSearch: (query) => searchSubjects(query: query),

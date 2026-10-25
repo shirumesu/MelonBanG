@@ -23,14 +23,11 @@ class AppTitleBar extends StatelessWidget {
     this.onBack,
     this.backLabel = '返回',
     this.immersive = false,
-    this.panelOpen,
     this.update,
     this.onRestartToUpdate,
   });
   final String backLabel;
 
-  /// The player's side panel, toggled at the right end; null elsewhere.
-  final ValueNotifier<bool?>? panelOpen;
   final bool dark, sidebarVisible, immersive;
   final VoidCallback onToggleSidebar, onToggleTheme, onClearRecentSearches;
   final VoidCallback? onBack;
@@ -102,16 +99,6 @@ class AppTitleBar extends StatelessWidget {
                     tooltip: '切换主题',
                     onPressed: onToggleTheme,
                     icon: _ThemeGlyph(dark: dark),
-                  ),
-                if (!immersive && panelOpen != null)
-                  ValueListenableBuilder<bool?>(
-                    valueListenable: panelOpen!,
-                    builder: (context, open, _) => IconButton(
-                      tooltip: open == true ? '收起侧边栏' : '展开侧边栏',
-                      isSelected: open == true,
-                      onPressed: () => panelOpen!.value = !(open ?? false),
-                      icon: const Icon(Icons.view_sidebar_outlined, size: 18),
-                    ),
                   ),
                 if (!macOS) ...[
                   IconButton(
