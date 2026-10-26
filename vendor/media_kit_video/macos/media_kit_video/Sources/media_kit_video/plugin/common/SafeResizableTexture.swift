@@ -27,9 +27,15 @@ class SafeResizableTexture:
     }
   }
 
-  func render(_ size: CGSize) {
+  func render(_ size: CGSize) -> Bool {
     return locked {
       return child.render(size)
+    }
+  }
+
+  func dispose() {
+    locked {
+      child.dispose()
     }
   }
 

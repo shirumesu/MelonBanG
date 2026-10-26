@@ -47,23 +47,33 @@ public class VideoOutputManager: NSObject {
     )
   }
 
+  // Completion runs on the main thread once the render context is freed and
+  // the texture unregistered.
   public func destroy(
-    handle: Int64
+    handle: Int64,
+    completion: @escaping () -> Void
   ) {
     let videoOutput = self.videoOutputs[handle]
     if videoOutput == nil {
-      return
+      return completion()
     }
 
     self.videoOutputs[handle] = nil
+    videoOutput!.dispose(completion)
   }
 
-  public func reset() {
+  public func reset(completion: @escaping () -> Void) {
     // Every app player owns a VideoOutput. Its Dart NativeCallable no longer
     // exists after restart; even teardown must not invoke that callback.
-    for handle in self.videoOutputs.keys {
+    let group = DispatchGroup()
+    for (handle, videoOutput) in self.videoOutputs {
       mpv_set_wakeup_callback(OpaquePointer(bitPattern: Int(handle)), nil, nil)
+      group.enter()
+      videoOutput.dispose {
+        group.leave()
+      }
     }
     self.videoOutputs.removeAll()
+    group.notify(queue: .main, execute: completion)
   }
 }

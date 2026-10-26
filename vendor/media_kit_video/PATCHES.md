@@ -33,8 +33,8 @@ mpv's core thread then calls the dead wakeup callback from `mp_shutdown_clients`
 and the process crashes (EXC_BAD_ACCESS in `append_event` on macOS).
 Reset clears those wakeup callbacks and releases all old video outputs before
 replying on the platform thread. Windows also unregisters the textures and drains
-the render queue before replying; macOS replies after the texture unregistrations
-its outputs queued on the main thread. Every player in this app has a
+the render queue before replying; macOS replies after every output has freed its
+render context and unregistered its texture (see "macOS disposal"). Every player in this app has a
 VideoController, so the manager owns all affected handles. This also prevents old
 video outputs from accumulating across restarts. Keep this ordering if player
 initialization changes; audio-only players would need their own handle cleanup.
@@ -56,6 +56,46 @@ The macOS podspec also leaves `$(inherited)` unquoted in
 `GCC_PREPROCESSOR_DEFINITIONS`. Quoting the expansion combines CocoaPods' debug
 macros into one `POD_CONFIGURATION_DEBUG` definition and triggers redefinition
 warnings in Swift's Clang importer. Keep the inherited macros as separate tokens.
+
+## macOS disposal
+
+media_kit destroys the mpv handle five seconds after `Player.dispose`, and mpv
+aborts in `mp_clients_destroy` ("mpv_render_context_free() not called") when a
+render context still exists. `VideoOutputManager.Dispose` only dropped the
+manager's reference: the render context was freed in `TextureHW.deinit`, which
+waits for Flutter's texture registry and for render jobs that captured the
+output. Before the fix, three of four Command-Q quits during playback crashed
+on 2026-10-26 (macOS 27, Apple M4; shutdown took about six seconds). Dispose
+now queues on the worker the release of the render context and the
+unregistration of the texture, and replies on the main thread after both; five
+quits afterwards, two during playback, left no crash report. Reset disposes
+every output the same way before replying; two hot restarts during playback
+kept the app running and playback worked again afterwards. Revalidate by quitting with
+Command-Q during playback and checking that no new crash report appears.
+
+## macOS render scheduling
+
+Same purpose as "Windows render scheduling". Each mpv update queued its own
+render on the worker; with 4K and the quality super-resolution chain on an M4,
+mpv sent about 73 updates per 10 s while about 42 renders of 240 ms finished,
+so the queue grew by about three jobs per second, each pushing the current frame
+through the whole chain again. `VideoOutput.updateCallback` now queues one
+render that serves every update before it starts. `render` calls
+`mpv_render_context_update` with the CGL context current and draws, takes a
+buffer and calls `textureFrameAvailable` only for a new frame or after new pixel
+buffers. Measured afterwards: 51–70 updates per 10 s merged into 43–47 renders of
+212 ms; GPU-bound playback itself is unchanged. `setSize` also queues that
+render: the output was resized only on mpv's next update, which a paused
+player does not send, so toggling super-resolution or leaving fullscreen while
+paused kept the old size until playback resumed.
+
+Not ported: the Windows two-texture rotation; `SwappableObjectManager` already
+rotates three IOSurface buffers, so Flutter reads a finished one. The per-frame
+`DispatchQueue.main.sync` for `textureFrameAvailable` stays, since it measured
+0.1–3 ms. `mpv_render_context_render` blocks until the frame's target time
+(`MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME` defaults to on), so its wall time,
+about 41 ms at 24 fps, is not GPU time. Revalidate playback, pausing, seeking,
+resizing and super-resolution toggling after upgrades.
 
 ## macOS Swift Package Manager
 
