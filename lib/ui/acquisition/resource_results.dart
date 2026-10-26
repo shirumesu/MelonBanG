@@ -67,8 +67,8 @@ class ResourceResults {
           (entry) =>
               onlyGroups.isEmpty ||
               entry.$1.target is! ReleaseTarget ||
-              entry.$2.sourceGroups.isEmpty ||
-              preferredGroupIndex(entry.$2.sourceGroups, onlyGroups) != null,
+              entry.$2.groups.isEmpty ||
+              preferredGroupIndex(entry.$2.groups, onlyGroups) != null,
         )
         .toList();
     // Results stating nothing for a selection stay, after confirmed ones.
@@ -103,7 +103,7 @@ class ResourceResults {
     qualityCounts = tally(
       (info) => info.quality == null ? const [] : [info.quality!],
     );
-    groupCounts = tally((info) => info.sourceGroups);
+    groupCounts = tally((info) => info.groups);
     languageCounts = tally((info) => info.languages);
     formCounts = tally((info) => info.subtitleForms);
     groupNames = {...groupCounts.keys, ...groups}.toList()

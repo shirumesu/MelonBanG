@@ -82,7 +82,11 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                   child: Row(
                     children: [
                       const SizedBox(width: 12),
-                      FilterCheck(on),
+                      // A group without results offers nothing to show.
+                      Opacity(
+                        opacity: count > 0 || on ? 1 : .38,
+                        child: FilterCheck(on),
+                      ),
                       const SizedBox(width: 10),
                       if (isPreferred) ...[
                         Container(
