@@ -46,11 +46,8 @@ class AppUpdate extends ChangeNotifier {
   bool get autoCheck => preferences.getBool('update-auto-check') ?? true;
   bool get autoDownload => preferences.getBool('update-auto-download') ?? true;
 
-  /// Whether alpha and beta versions are offered; by default a prerelease
-  /// build follows them and a stable one does not.
-  bool get beta =>
-      preferences.getBool('update-beta') ??
-      SemanticVersion.parse(version).prerelease;
+  /// Whether alpha and beta versions are offered; off by default.
+  bool get beta => preferences.getBool('update-beta') ?? false;
 
   Future<void> setAutoCheck(bool value) async {
     await preferences.setBool('update-auto-check', value);
