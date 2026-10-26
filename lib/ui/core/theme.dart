@@ -44,7 +44,9 @@ class MelonAccent extends ThemeExtension<MelonAccent> {
   /// Progress, highlighted badges and section icons; [mint] by default.
   final Color accent;
 
-  /// The selected sidebar entry and the text on it.
+  /// The selected sidebar entry and the text on it: the colour of other
+  /// selections, fading a little toward the surface, so the sidebar does
+  /// not outshine the page.
   final LinearGradient navigation;
   final Color onNavigation;
 
@@ -311,14 +313,13 @@ ThemeData appTheme(bool dark, {Color accent = mint}) {
     extensions: [
       MelonAccent(
         accent: accent,
-        navigation: brand
-            ? const LinearGradient(
-                colors: [Color(0xff65cfad), Color(0xff8bddbf)],
-              )
-            : LinearGradient(
-                colors: [seeded.primaryFixedDim, seeded.primaryFixed],
-              ),
-        onNavigation: brand ? const Color(0xff08321f) : seeded.onPrimaryFixed,
+        navigation: LinearGradient(
+          colors: [
+            scheme.primaryContainer,
+            Color.lerp(scheme.primaryContainer, scheme.surface, .3)!,
+          ],
+        ),
+        onNavigation: scheme.onPrimaryContainer,
       ),
     ],
     badgeTheme: BadgeThemeData(
