@@ -53,6 +53,8 @@ flutter:
 
   # Licence shipped alongside the bundled font, as the OFL requires.
   assets:
+    # This version's notes for the About page.
+    - CHANGELOG.md
     - assets/fonts/OFL.txt
     - assets/images/akkarin.png
     - assets/images/logotype.png
