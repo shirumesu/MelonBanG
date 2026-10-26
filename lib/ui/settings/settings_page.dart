@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../core/app_chrome.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
@@ -275,28 +276,18 @@ class _Contents extends StatelessWidget {
               // sections.
               MotionSelection<String>(
                 selected: selected,
-                highlight: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).listTileTheme.selectedTileColor,
-                    borderRadius: controlBorderRadius,
-                  ),
-                ),
+                highlight: sidebarHighlight(context),
                 builder: (context, keyOf) => Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     for (final section in sections)
                       Padding(
                         padding: const EdgeInsets.only(bottom: Gap.xs),
-                        child: ListTile(
+                        child: SidebarTile(
                           key: keyOf(section.id),
-                          dense: true,
+                          label: section.title,
+                          icon: section.icon,
                           selected: section.id == selected,
-                          selectedTileColor: Colors.transparent,
-                          leading: Icon(section.icon, size: 20),
-                          titleTextStyle: Theme.of(context)
-                              .textTheme
-                              .titleSmall,
-                          title: Text(section.title),
                           onTap: () => onSelect(section.id),
                         ),
                       ),
