@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -42,8 +43,11 @@ class SettingsSection {
 /// filters the rows. New settings join a section without adding pages or
 /// nested navigation.
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key, required this.sections});
+  const SettingsPage({super.key, required this.sections, this.initial});
   final List<SettingsSection> sections;
+
+  /// The section shown first, by id.
+  final String? initial;
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
@@ -58,6 +62,16 @@ class _SettingsPageState extends State<SettingsPage> {
   /// Set while a contents click scrolls, so passing sections do not flash
   /// in the column.
   String? jumping;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initial case final id?) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(jump(id));
+      });
+    }
+  }
 
   @override
   void dispose() {

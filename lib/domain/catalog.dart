@@ -119,6 +119,32 @@ class Credit {
   );
 }
 
+/// A character's or person's own page: profile, the anime they appear in or
+/// worked on, and the voice parts linking characters and actors.
+class CreditProfile {
+  const CreditProfile({
+    required this.name,
+    this.nameCn,
+    this.imageUrl,
+    this.summary,
+    this.facts = const [],
+    this.works = const [],
+    this.parts = const [],
+  });
+  final String name;
+  final String? nameCn, imageUrl, summary;
+
+  /// Profile rows such as birthday or aliases.
+  final List<({String key, String value})> facts;
+
+  /// Anime, each with the role in it as [Subject.relation].
+  final List<Subject> works;
+
+  /// A character's voice actors, or the characters a person voices with the
+  /// anime as [Credit.role].
+  final List<Credit> parts;
+}
+
 class Episode {
   const Episode({
     required this.id,
@@ -840,6 +866,9 @@ abstract interface class Catalog implements SubjectCovers {
     FutureOr<void> Function(Subject)? onAvailable,
     bool forPlayback = false,
   });
+
+  /// The page of the character or person [id].
+  Future<CreditProfile> credit(int id, {required bool character});
 }
 
 /// The account collection edits sync to; `local` while signed out.

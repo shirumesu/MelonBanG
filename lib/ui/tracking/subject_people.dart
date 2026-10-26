@@ -7,10 +7,11 @@ import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
+import 'credit_profile.dart';
 
 /// A subject's characters with their voice actors, or its staff with one
 /// row per person holding all their positions; the first few show here and
-/// the rest in a dialog.
+/// the rest in a dialog. A person opens their own page in the app.
 class SubjectPeoplePanel extends StatelessWidget {
   const SubjectPeoplePanel({
     super.key,
@@ -18,8 +19,12 @@ class SubjectPeoplePanel extends StatelessWidget {
     required this.characters,
     required this.loading,
     required this.onRetry,
+    required this.catalog,
+    required this.onOpenSubject,
   });
   final Subject subject;
+  final Catalog catalog;
+  final ValueChanged<Subject> onOpenSubject;
 
   /// Characters, else staff.
   final bool characters;
@@ -169,9 +174,21 @@ class SubjectPeoplePanel extends StatelessWidget {
     return result;
   }
 
-  String _personLink(Credit person, {required bool character}) => person.id > 0
-      ? 'https://bgm.tv/${character ? 'character' : 'person'}/${person.id}'
-      : 'https://bgm.tv/subject/${subject.id}/${character ? 'characters' : 'persons'}';
+  /// [person]'s page; one Bangumi gives no id for is only on the subject's
+  /// list there.
+  void _open(BuildContext context, Credit person, {required bool character}) =>
+      person.id > 0
+      ? showCreditProfile(
+          context,
+          catalog: catalog,
+          credit: person,
+          character: character,
+          onOpenSubject: onOpenSubject,
+        )
+      : openExternal(
+          context,
+          'https://bgm.tv/subject/${subject.id}/${character ? 'characters' : 'persons'}',
+        );
 
   Widget _avatar(
     BuildContext context,
@@ -291,8 +308,7 @@ class SubjectPeoplePanel extends StatelessWidget {
       borderRadius: controlBorderRadius,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () =>
-            openExternal(context, _personLink(person, character: character)),
+        onTap: () => _open(context, person, character: character),
         child: Padding(
           padding: const EdgeInsets.all(10),
           child: Row(
@@ -347,7 +363,7 @@ class SubjectPeoplePanel extends StatelessWidget {
     final role = person.role ?? '';
     return InkWell(
       borderRadius: badgeBorderRadius,
-      onTap: () => openExternal(context, _personLink(person, character: false)),
+      onTap: () => _open(context, person, character: false),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
         decoration: BoxDecoration(

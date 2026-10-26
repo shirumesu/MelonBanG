@@ -292,6 +292,10 @@ class CatalogRepository implements Catalog {
   }
 
   @override
+  Future<CreditProfile> credit(int id, {required bool character}) =>
+      bangumi.credit(id, character: character);
+
+  @override
   Future<Subject> subject(
     int id, {
     FutureOr<void> Function(Subject)? onAvailable,

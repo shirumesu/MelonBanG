@@ -48,7 +48,7 @@ SettingsSection accountSection({
               ),
               title: account?.nickname ?? '未登录',
               subtitle: account == null
-                  ? '登录 Bangumi 后同步收藏和观看进度'
+                  ? '在浏览器中授权登录 Bangumi，之后同步收藏和观看进度'
                   : personal.needsAuthorization
                   ? '登录凭据待解锁'
                   : '@${account.username ?? ''}',
@@ -72,7 +72,7 @@ SettingsSection accountSection({
                       icon: const Icon(Icons.account_circle_outlined, size: 18),
                       label: Text(
                         personal.accountBusy
-                            ? '连接中…'
+                            ? '等待浏览器授权…'
                             : personal.needsAuthorization
                             ? '解锁同步'
                             : '登录 Bangumi',
