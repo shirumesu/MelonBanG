@@ -1342,7 +1342,7 @@ class _OverloadCard extends StatelessWidget {
       backgroundColor: Colors.white.withValues(alpha: .1),
       visualDensity: VisualDensity.compact,
       padding: const EdgeInsets.symmetric(horizontal: Gap.md),
-      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
     );
     return Material(
       color: overlaySurface,
@@ -1553,7 +1553,7 @@ class _GlassCard extends StatelessWidget {
       minimumSize: const Size(0, 30),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
-      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
       foregroundColor: primary ? overlayInk : Colors.white70,
       backgroundColor: primary ? Colors.white : null,
       overlayColor: primary ? overlayInk : Colors.white,

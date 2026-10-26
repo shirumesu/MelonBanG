@@ -657,7 +657,7 @@ class MelonFilterMenu<T> extends StatelessWidget {
                         : scheme.onSurface,
                     minimumSize: const Size(0, 36),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    textStyle: const TextStyle(
+                    textStyle: appFont.copyWith(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                     ),

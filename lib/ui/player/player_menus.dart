@@ -6,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 
 import '../../features/playback/playback.dart';
 import '../../features/playback/super_resolution.dart';
+import '../core/theme.dart';
 import 'player_popovers.dart';
 
 /// Mute button; hovering it raises a vertical volume slider above it, and the
@@ -113,7 +114,7 @@ class _TextAction extends StatelessWidget {
       overlayColor: Colors.white,
       minimumSize: const Size(44, 36),
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w700),
     ),
     onPressed: onPressed,
     child: Text(label),
@@ -200,7 +201,10 @@ class SuperResolutionMenu extends StatelessWidget {
           overlayColor: Colors.white,
           minimumSize: const Size(44, 36),
           padding: const EdgeInsets.symmetric(horizontal: 8),
-          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+          textStyle: appFont.copyWith(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         onPressed: () => unawaited(playback.toggleSuperResolution()),
         icon: on ? const Icon(Icons.auto_awesome_rounded, size: 15) : null,

@@ -24,6 +24,14 @@ const panelBorderRadius = BorderRadius.all(Radius.circular(12));
 const controlBorderRadius = BorderRadius.all(Radius.circular(8));
 const badgeBorderRadius = BorderRadius.all(Radius.circular(6));
 
+/// The interface typeface. A style that replaces a widget's whole text style,
+/// as button and chip label styles do, starts from it; a bare [TextStyle]
+/// there renders in the system font.
+const appFont = TextStyle(
+  fontFamily: 'Resource Han Rounded',
+  fontFamilyFallback: ['Microsoft YaHei UI', 'PingFang SC'],
+);
+
 /// Accent-dependent colours the colour scheme has no role for.
 @immutable
 class MelonAccent extends ThemeExtension<MelonAccent> {
@@ -167,8 +175,8 @@ ThemeData appTheme(bool dark, {Color accent = mint}) {
     scaffoldBackgroundColor: dark
         ? scheme.surfaceContainerLowest
         : scheme.surfaceContainer,
-    fontFamily: 'Resource Han Rounded',
-    fontFamilyFallback: const ['Microsoft YaHei UI', 'PingFang SC'],
+    fontFamily: appFont.fontFamily,
+    fontFamilyFallback: appFont.fontFamilyFallback,
     shadowColor: const Color(0xff203b30).withValues(alpha: dark ? .16 : .06),
     hoverColor: scheme.primary.withValues(alpha: .05),
     focusColor: scheme.primary.withValues(alpha: .12),
@@ -249,7 +257,7 @@ ThemeData appTheme(bool dark, {Color accent = mint}) {
         foregroundColor: scheme.onPrimaryContainer,
         minimumSize: const Size(64, 36),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
         shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
       ),
     ),
@@ -261,14 +269,14 @@ ThemeData appTheme(bool dark, {Color accent = mint}) {
         shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
         minimumSize: const Size(64, 36),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
         // Bold CJK at 12 px fills in dense strokes; links stay Regular.
-        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w400),
+        textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w400),
       ),
     ),
     chipTheme: ChipThemeData(
@@ -276,7 +284,7 @@ ThemeData appTheme(bool dark, {Color accent = mint}) {
       selectedColor: scheme.primaryContainer,
       side: BorderSide.none,
       shape: const RoundedRectangleBorder(borderRadius: badgeBorderRadius),
-      labelStyle: TextStyle(
+      labelStyle: appFont.copyWith(
         fontSize: 12,
         color: scheme.onSurface,
         fontWeight: FontWeight.w400,

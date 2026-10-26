@@ -450,13 +450,19 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  _watchButton(subject, ordered),
-                  IconButton(
-                    tooltip: open ? '收起' : '展开剧集',
-                    onPressed: () => setState(
-                      () => open ? expanded.remove(key) : expanded.add(key),
-                    ),
-                    icon: ExpandChevron(open: open),
+                  // Buttons of different heights centre on one line.
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _watchButton(subject, ordered),
+                      IconButton(
+                        tooltip: open ? '收起' : '展开剧集',
+                        onPressed: () => setState(
+                          () => open ? expanded.remove(key) : expanded.add(key),
+                        ),
+                        icon: ExpandChevron(open: open),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -632,21 +638,27 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 ),
               ),
               const SizedBox(width: 12),
-              _watchButton(subject, [task]),
-              if (task.toggle != null) ...[
-                const SizedBox(width: 8),
-                DownloadToggleButton(
-                  task: task,
-                  onToggle: _toggle,
-                  labelled: true,
-                ),
-              ],
-              IconButton(
-                tooltip: details ? '收起详情' : '详情',
-                onPressed: () => setState(
-                  () => details ? expanded.remove(id) : expanded.add(id),
-                ),
-                icon: ExpandChevron(open: details),
+              // Buttons of different heights centre on one line.
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _watchButton(subject, [task]),
+                  if (task.toggle != null) ...[
+                    const SizedBox(width: 8),
+                    DownloadToggleButton(
+                      task: task,
+                      onToggle: _toggle,
+                      labelled: true,
+                    ),
+                  ],
+                  IconButton(
+                    tooltip: details ? '收起详情' : '详情',
+                    onPressed: () => setState(
+                      () => details ? expanded.remove(id) : expanded.add(id),
+                    ),
+                    icon: ExpandChevron(open: details),
+                  ),
+                ],
               ),
             ],
           ),

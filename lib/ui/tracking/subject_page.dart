@@ -688,8 +688,11 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(child: Text(item.title, style: text.titleLarge)),
+            // As tall as one title line, so it centres on the first.
             IconButton(
               tooltip: '在 Bangumi 打开',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
               onPressed: () =>
                   openExternal(context, 'https://bgm.tv/subject/${item.id}'),
               icon: const Icon(Icons.open_in_new_rounded, size: 18),
