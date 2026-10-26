@@ -10,7 +10,7 @@ body:
     attributes:
       label: 版本
       description: 在 设置 → 更新与关于 里可以看到
-      placeholder: 1.0.0-alpha.1
+      placeholder: 0.1.0
     validations:
       required: true
   - type: dropdown
