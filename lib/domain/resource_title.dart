@@ -1,5 +1,7 @@
 import 'package:pinyin/pinyin.dart';
 
+import 'sources.dart';
+
 /// Read-only release annotations. These never establish episode/file identity.
 class ResourceTitleInfo {
   const ResourceTitleInfo({
@@ -145,11 +147,29 @@ ResourceTitleInfo describeResource(
   String original, {
   Iterable<String> releaseGroups = const [],
 }) {
-  final key = [original, ...releaseGroups].join('\u0000');
+  final key = _describedKey(original, releaseGroups);
   if (_described[key] case final info?) return info;
   if (_described.length >= 4096) _described.clear();
   return _described[key] = _describe(original, releaseGroups);
 }
+
+String _describedKey(String original, Iterable<String> releaseGroups) =>
+    [original, ...releaseGroups].join('\u0000');
+
+/// Parsed titles of [releases], worked out where they were parsed, off the
+/// UI isolate, for that isolate to [keepDescribed].
+Map<String, ResourceTitleInfo> describeReleases(
+  Iterable<TorrentRelease> releases,
+) => {
+  for (final release in releases)
+    _describedKey(release.title, release.releaseGroups): describeResource(
+      release.title,
+      releaseGroups: release.releaseGroups,
+    ),
+};
+
+void keepDescribed(Map<String, ResourceTitleInfo> described) =>
+    _described.addAll(described);
 
 ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
   final title = original.trim();

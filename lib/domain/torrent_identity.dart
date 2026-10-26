@@ -40,6 +40,15 @@ String torrentIdentity(String locator) {
 
 final _identities = <String, String>{};
 
+/// Identities of [locators], worked out off the UI isolate for that isolate
+/// to [keepIdentities].
+Map<String, String> torrentIdentities(Iterable<String> locators) => {
+  for (final locator in locators) locator: torrentIdentity(locator),
+};
+
+void keepIdentities(Map<String, String> identities) =>
+    _identities.addAll(identities);
+
 String _identity(String locator) {
   final uri = Uri.parse(locator);
   if (uri.scheme == 'magnet') {

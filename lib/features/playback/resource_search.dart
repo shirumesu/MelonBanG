@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../core/network.dart';
 import '../../domain/catalog.dart';
@@ -129,10 +130,25 @@ class ResourceSearchController extends ChangeNotifier {
     RememberedSource? remembered;
     final progress = <String, SourceProgress>{};
     Timer? pending;
+    // Results and progress arrive in bursts (a page of torrents, a PikPak
+    // lookup per torrent). Showing them ranks everything found and lays the
+    // page out on the thread that also handles input and moves the window,
+    // so each update waits three times as long as the last one took, which
+    // leaves most of that thread free however slow the machine or build.
+    var interval = const Duration(milliseconds: 120);
     void show() {
       pending?.cancel();
       pending = null;
       if (ticket != _ticket) return;
+      final took = Stopwatch()..start();
+      unawaited(
+        SchedulerBinding.instance.endOfFrame.then((_) {
+          final wait = took.elapsed * 3;
+          interval = wait > const Duration(milliseconds: 120)
+              ? wait
+              : const Duration(milliseconds: 120);
+        }),
+      );
       if (stale) {
         candidates = _rank!();
         stale = false;
@@ -149,10 +165,7 @@ class ResourceSearchController extends ChangeNotifier {
       notifyListeners();
     }
 
-    // Results and progress arrive in bursts (a page of torrents, a PikPak
-    // lookup per torrent); rebuilding the page for each would stall it.
-    void showSoon() =>
-        pending ??= Timer(const Duration(milliseconds: 120), show);
+    void showSoon() => pending ??= Timer(interval, show);
 
     busy = true;
     show();

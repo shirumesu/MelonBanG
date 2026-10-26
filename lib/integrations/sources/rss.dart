@@ -6,6 +6,7 @@ import 'package:xml/xml.dart';
 
 import '../../core/json.dart';
 import '../../core/network.dart';
+import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
 import '../../domain/torrent_identity.dart';
 
@@ -48,7 +49,7 @@ class RssEngine implements TorrentSourceEngine {
   }) async {
     final step = object(instance.config['search']);
     final uri = _address(step, keyword);
-    return _parse(
+    return _releases(
       _rss,
       await _read(
         uri,
@@ -76,7 +77,7 @@ class RssEngine implements TorrentSourceEngine {
     final uri = _address(step, keyword);
     switch (step['parser']) {
       case 'dmhy':
-        yield await _parse(dmhyMetadata, await page(uri), uri);
+        yield await _releases(dmhyMetadata, await page(uri), uri);
       case 'mikan':
         final series = await _parse(mikanSeriesPages, await page(uri), uri);
         // Publish each series as it arrives. Its page names the groups but
@@ -89,7 +90,7 @@ class RssEngine implements TorrentSourceEngine {
               '/RSS/Bangumi?bangumiId=${address.pathSegments.last}',
             );
             final listed = page(address)
-                .then((body) => _parse(_mikan, body, address));
+                .then((body) => _releases(_mikan, body, address));
             final complete = shared
                 .putIfAbsent(
                   feed,
@@ -100,7 +101,7 @@ class RssEngine implements TorrentSourceEngine {
                     cancel: cancel,
                   ),
                 )
-                .then((body) => _parse(_rss, body, feed));
+                .then((body) => _releases(_rss, body, feed));
             final groups = {
               for (final row in await listed) torrentIdentity(row.locator): row,
             };
@@ -124,6 +125,27 @@ class RssEngine implements TorrentSourceEngine {
 /// closure carries nothing but the text.
 Future<T> _parse<T>(T Function(String, Uri) parse, String body, Uri base) =>
     Isolate.run(() => parse(body, base));
+
+/// Parses releases like [_parse], along with what a search works out from
+/// each: its identity and title annotations, which the UI isolate then only
+/// looks up. Working them out there stalled it for a page of releases.
+Future<List<TorrentRelease>> _releases(
+  List<TorrentRelease> Function(String, Uri) parse,
+  String body,
+  Uri base,
+) async {
+  final (rows, identities, described) = await Isolate.run(() {
+    final rows = parse(body, base);
+    return (
+      rows,
+      torrentIdentities(rows.map((row) => row.locator)),
+      describeReleases(rows),
+    );
+  });
+  keepIdentities(identities);
+  keepDescribed(described);
+  return rows;
+}
 
 List<TorrentRelease> _rss(String body, Uri base) => parseRss(body, base: base);
 List<TorrentRelease> _mikan(String body, Uri _) => mikanMetadata(body);
