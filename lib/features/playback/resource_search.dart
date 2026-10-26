@@ -201,7 +201,7 @@ class ResourceSearchController extends ChangeNotifier {
         settings.recordGroups([
           for (final candidate in candidates)
             if (candidate.kind == PlayKind.bt)
-              ...describeCandidate(candidate).sourceGroups,
+              ...describeCandidate(candidate).groups,
         ]),
       );
     } on RequestCancelled {

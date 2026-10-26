@@ -52,6 +52,15 @@ class ResourceTitleInfo {
   /// The leading bracket crediting the release: `[北宇治字幕组]`.
   final String? credit;
 
+  /// The groups of the release: the site's, else those the title credits,
+  /// as sites without group pages, or whose pages have not arrived, leave
+  /// only the title to go by.
+  List<String> get groups => sourceGroups.isNotEmpty
+      ? sourceGroups
+      : titleCredits.isNotEmpty
+      ? titleCredits
+      : [?credit];
+
   /// What releases of one series by one group share across episodes: the
   /// credited group, season, quality, encoding and platform. Null for
   /// batches and titles without a credited group or episode.
@@ -393,7 +402,7 @@ List<String>? resourceSelectionGaps(
   final gaps = <String>{};
   for (final (name, selected, values) in [
     ('画质', qualities, [?info.quality]),
-    ('字幕组', groups, info.sourceGroups),
+    ('字幕组', groups, info.groups),
     ('字幕', languages, info.languages),
     ('字幕', subtitleForms, info.subtitleForms),
   ]) {
