@@ -385,6 +385,7 @@ class MelonFilterMenu<T> extends StatelessWidget {
     this.compact = false,
     this.multiple = true,
     this.columns = 1,
+    this.panel,
   });
 
   final String label;
@@ -411,33 +412,17 @@ class MelonFilterMenu<T> extends StatelessWidget {
   /// Options per row, for long lists of short names.
   final int columns;
 
+  /// Menu content in place of [sections], such as options the user orders.
+  final Widget? panel;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final on = active ?? selected.isNotEmpty;
-    Widget check(bool value) => AnimatedContainer(
-      duration: motionDuration(context, 120),
-      width: 16,
-      height: 16,
-      decoration: BoxDecoration(
-        color: value ? scheme.primary : Colors.transparent,
-        borderRadius: const BorderRadius.all(Radius.circular(5)),
-        border: Border.all(
-          color: value ? scheme.primary : scheme.onSurfaceVariant,
-          width: 1.5,
-        ),
-      ),
-      child: AnimatedScale(
-        scale: value ? 1 : 0,
-        duration: motionDuration(context, 160),
-        curve: value ? Curves.easeOutBack : Curves.easeIn,
-        child: Icon(Icons.check_rounded, size: 12, color: scheme.onPrimary),
-      ),
-    );
     final menu = MenuController();
     Widget mark(bool value) => multiple
-        ? check(value)
+        ? FilterCheck(value)
         : SizedBox.square(
             dimension: 16,
             child: value
@@ -570,32 +555,34 @@ class MelonFilterMenu<T> extends StatelessWidget {
         ),
       ),
       menuChildren: [
-        for (final (index, section) in sections.indexed) ...[
-          if (index > 0) const Divider(height: 9, indent: 8, endIndent: 8),
-          if (section.title case final title?)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
-              child: Text(title, style: small?.copyWith(fontSize: 11)),
-            ),
-          if (columns == 1)
-            for (final option in section.options) item(option)
-          else
-            for (var i = 0; i < section.options.length; i += columns)
-              Row(
-                children: [
-                  for (final option in section.options.skip(i).take(columns))
-                    SizedBox(
-                      width: width,
-                      child: cells
-                          ? Padding(
-                              padding: const EdgeInsets.all(2),
-                              child: cell(option),
-                            )
-                          : item(option),
-                    ),
-                ],
+        ?panel,
+        if (panel == null)
+          for (final (index, section) in sections.indexed) ...[
+            if (index > 0) const Divider(height: 9, indent: 8, endIndent: 8),
+            if (section.title case final title?)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+                child: Text(title, style: small?.copyWith(fontSize: 11)),
               ),
-        ],
+            if (columns == 1)
+              for (final option in section.options) item(option)
+            else
+              for (var i = 0; i < section.options.length; i += columns)
+                Row(
+                  children: [
+                    for (final option in section.options.skip(i).take(columns))
+                      SizedBox(
+                        width: width,
+                        child: cells
+                            ? Padding(
+                                padding: const EdgeInsets.all(2),
+                                child: cell(option),
+                              )
+                            : item(option),
+                      ),
+                  ],
+                ),
+          ],
         if (actions.isNotEmpty) ...[
           const Divider(height: 9, indent: 8, endIndent: 8),
           Row(
@@ -667,6 +654,36 @@ class MelonFilterMenu<T> extends StatelessWidget {
                 ),
         );
       },
+    );
+  }
+}
+
+/// The check box of a multi-select filter option.
+class FilterCheck extends StatelessWidget {
+  const FilterCheck(this.value, {super.key});
+  final bool value;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return AnimatedContainer(
+      duration: motionDuration(context, 120),
+      width: 16,
+      height: 16,
+      decoration: BoxDecoration(
+        color: value ? scheme.primary : Colors.transparent,
+        borderRadius: const BorderRadius.all(Radius.circular(5)),
+        border: Border.all(
+          color: value ? scheme.primary : scheme.onSurfaceVariant,
+          width: 1.5,
+        ),
+      ),
+      child: AnimatedScale(
+        scale: value ? 1 : 0,
+        duration: motionDuration(context, 160),
+        curve: value ? Curves.easeOutBack : Curves.easeIn,
+        child: Icon(Icons.check_rounded, size: 12, color: scheme.onPrimary),
+      ),
     );
   }
 }

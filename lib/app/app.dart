@@ -950,6 +950,10 @@ class _MelonAppState extends State<MelonApp>
     sourcesSection(
       playback.settings,
       onForgetSources: service.selection.forgetAll,
+      cachedGroups: () => [
+        for (final task in service.downloads.snapshot().tasks)
+          ...task.releaseGroups,
+      ],
     ),
     downloadsSection(
       available: service.downloadsAvailable,

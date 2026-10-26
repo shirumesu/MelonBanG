@@ -55,11 +55,21 @@ class ResourceResults {
     required ResourceFamily kind,
     required Subject? subject,
     required this.grouping,
+    List<String> onlyGroups = const [],
   }) {
     bool kindShown(PlayCandidate candidate) =>
         kind == ResourceFamily.all || ResourceFamily.of(candidate) == kind;
     final fromShownProviders = annotated
         .where((entry) => !entry.$1.providers.every(excludedProviders.contains))
+        // With [onlyGroups], torrents credited only to other groups leave;
+        // ones crediting none stay.
+        .where(
+          (entry) =>
+              onlyGroups.isEmpty ||
+              entry.$1.target is! ReleaseTarget ||
+              entry.$2.sourceGroups.isEmpty ||
+              preferredGroupIndex(entry.$2.sourceGroups, onlyGroups) != null,
+        )
         .toList();
     // Results stating nothing for a selection stay, after confirmed ones.
     _gaps = {

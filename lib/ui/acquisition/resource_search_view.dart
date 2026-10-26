@@ -22,6 +22,7 @@ import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'resource_batch_dialog.dart';
+import 'group_filter.dart';
 import 'resource_results.dart';
 import 'resource_widgets.dart';
 
@@ -475,7 +476,11 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([controller, controller.sources]),
+    listenable: Listenable.merge([
+      controller,
+      controller.sources,
+      controller.playback.settings,
+    ]),
     builder: _page,
   );
 
@@ -493,6 +498,9 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       kind: kind,
       subject: subject,
       grouping: state.terms != null && searched == null,
+      onlyGroups: controller.playback.settings.onlyPreferredGroups
+          ? controller.playback.settings.preferredGroups
+          : const [],
     );
     final entries = results.entries;
     final scheme = Theme.of(context).colorScheme;
@@ -923,16 +931,15 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       label: '字幕组',
                       icon: Icons.groups_outlined,
                       summary: summary(groups, results.groupNames),
-                      tooltip: '按字幕组筛选',
-                      sections: [
-                        MelonFilterSection(
-                          [
-                            for (final name in results.groupNames)
-                              counted(name, results.groupCounts),
-                          ],
-                          title: results.groupNames.isEmpty ? '暂无字幕组信息' : null,
-                        ),
-                      ],
+                      tooltip: '按字幕组筛选，拖动设置偏好字幕组',
+                      sections: const [],
+                      panel: GroupFilterPanel(
+                        prefs: controller.playback.settings,
+                        names: results.groupNames,
+                        counts: results.groupCounts,
+                        selected: groups,
+                        onToggle: (value, on) => toggle(groups, value, on),
+                      ),
                       selected: groups,
                       onToggle: (value, on) => toggle(groups, value, on),
                       actions: [
