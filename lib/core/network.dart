@@ -137,6 +137,53 @@ class ApiClient {
     Map<String, String> headers = const {},
     Set<int> acceptedStatuses = const {},
     RequestCancellation? cancel,
+  }) => _exchange(
+    uri,
+    method: method,
+    body: body,
+    headers: headers,
+    cancel: cancel,
+    read: (streamed) async {
+      final response = await http.Response.fromStream(streamed);
+      if (!acceptedStatuses.contains(response.statusCode)) {
+        _checkResponse(response, uri);
+      }
+      return response;
+    },
+  );
+
+  /// [uri]'s text up to where [end] first matches, leaving the rest
+  /// undownloaded: what a large page on a slow site holds near its top. The
+  /// whole text when [end] never matches.
+  Future<String> head(
+    Uri uri,
+    Pattern end, {
+    Map<String, String> headers = const {},
+    RequestCancellation? cancel,
+  }) => _exchange(
+    uri,
+    headers: headers,
+    cancel: cancel,
+    read: (streamed) async {
+      if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+        _checkResponse(await http.Response.fromStream(streamed), uri);
+      }
+      final text = StringBuffer();
+      await for (final chunk in streamed.stream.transform(utf8.decoder)) {
+        text.write(chunk);
+        if (end.allMatches('$text').isNotEmpty) break;
+      }
+      return '$text';
+    },
+  );
+
+  Future<T> _exchange<T>(
+    Uri uri, {
+    String method = 'GET',
+    Object? body,
+    Map<String, String> headers = const {},
+    RequestCancellation? cancel,
+    required Future<T> Function(http.StreamedResponse) read,
   }) async {
     cancel?.throwIfCancelled();
     final abort = Completer<void>();
@@ -146,8 +193,10 @@ class ApiClient {
     });
     try {
       final queue = _hosts.putIfAbsent(uri.host, _HostRequests.new);
+      final started = Completer<void>();
       final receiving = queue
           .run(() async {
+            started.complete();
             for (var attempt = 0; ; attempt++) {
               if (abort.isCompleted) throw const RequestCancelled();
               final request = _request(
@@ -158,9 +207,7 @@ class ApiClient {
                 headers: headers,
               );
               try {
-                return await client
-                    .send(request)
-                    .then(http.Response.fromStream);
+                return await client.send(request).then(read);
               } on HandshakeException {
                 // Some networks reset a few percent of new TLS connections
                 // (measured ~2% to api.bgm.tv); the request was never sent and
@@ -174,15 +221,17 @@ class ApiClient {
               _hosts.remove(uri.host);
             }
           });
-      final response = await Future.any([
-        receiving,
-        abort.future.then<http.Response>((_) => throw const RequestCancelled()),
-      ]).timeout(timeout, onTimeout: () => _timedOut(uri, abort));
-      if (!acceptedStatuses.contains(response.statusCode)) {
-        _checkResponse(response, uri);
-      }
+      receiving.ignore();
+      final cancelled = abort.future.then<T>(
+        (_) => throw const RequestCancelled(),
+      );
+      // Waiting behind the host's other requests is not the request taking
+      // long: a search reading a dozen feeds of one site queues most of them.
+      await Future.any([started.future, cancelled]);
+      final result = await Future.any([receiving, cancelled])
+          .timeout(timeout, onTimeout: () => _timedOut(uri, abort));
       cancel?.throwIfCancelled();
-      return response;
+      return result;
     } catch (_) {
       cancel?.throwIfCancelled();
       rethrow;

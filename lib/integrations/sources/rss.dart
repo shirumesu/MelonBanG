@@ -25,20 +25,22 @@ class RssEngine implements TorrentSourceEngine {
     '${step['url']}'.replaceAll('{query}', Uri.encodeQueryComponent(keyword)),
   );
 
+  /// [uri]'s text, or with [end] only up to where it matches.
   Future<String> _read(
     Uri uri,
     Json step,
     String accept, {
+    Pattern? end,
     RequestCancellation? cancel,
   }) async {
-    final response = await api.send(
-      uri,
-      cancel: cancel,
-      headers: {
-        'Accept': accept,
-        ...object(step['headers']).map((k, v) => MapEntry(k, '$v')),
-      },
-    );
+    final headers = {
+      'Accept': accept,
+      ...object(step['headers']).map((k, v) => MapEntry(k, '$v')),
+    };
+    if (end != null) {
+      return api.head(uri, end, headers: headers, cancel: cancel);
+    }
+    final response = await api.send(uri, cancel: cancel, headers: headers);
     return utf8.decode(response.bodyBytes);
   }
 
@@ -70,48 +72,53 @@ class RssEngine implements TorrentSourceEngine {
     final step = _metadata;
     if (step.isEmpty) return;
     final shared = pages ?? {};
-    Future<String> page(Uri uri) => shared.putIfAbsent(
+    Future<String> page(Uri uri, {Pattern? end}) => shared.putIfAbsent(
       uri,
-      () => _read(uri, step, 'text/html', cancel: cancel),
+      () => _read(uri, step, 'text/html', end: end, cancel: cancel),
+    );
+    Future<String> feed(Uri uri) => shared.putIfAbsent(
+      uri,
+      () => _read(
+        uri,
+        step,
+        'application/rss+xml,application/xml,text/xml',
+        cancel: cancel,
+      ),
     );
     final uri = _address(step, keyword);
     switch (step['parser']) {
       case 'dmhy':
         yield await _releases(dmhyMetadata, await page(uri), uri);
       case 'mikan':
-        final series = await _parse(mikanSeriesPages, await page(uri), uri);
-        // Publish each series as it arrives. Its page names the groups but
-        // shows a group's latest 15 releases; its feed holds every release,
-        // while the search feed stops at 100 (2026-10-21: a whole-subject
-        // search of 二十世纪电气目录 lost a group's first two episodes).
+        // Mikan's pages are large and the site can be slow (2026-10-27: about
+        // 10 KB/s, a search page of 530 KB and a series page of 370 KB, past
+        // the request timeout). The series list and a series' group list sit
+        // in their first 15 KB, so only that is read; each group's feed then
+        // holds all its releases, past the search feed's 100 (2026-10-21: a
+        // whole-subject search of 二十世纪电气目录 lost a group's first two
+        // episodes). Each series publishes as it arrives.
+        final series = await _parse(
+          mikanSeriesPages,
+          await page(uri, end: RegExp(r'an-ul[\s\S]*?</ul>')),
+          uri,
+        );
         yield* Stream.fromFutures(
           series.map((address) async {
-            final feed = address.resolve(
-              '/RSS/Bangumi?bangumiId=${address.pathSegments.last}',
+            final groups = await _parse(
+              mikanGroups,
+              await page(address, end: RegExp(r'leftbar-nav[\s\S]*?</ul>')),
+              address,
             );
-            final listed = page(address)
-                .then((body) => _releases(_mikan, body, address));
-            final complete = shared
-                .putIfAbsent(
-                  feed,
-                  () => _read(
-                    feed,
-                    step,
-                    'application/rss+xml,application/xml,text/xml',
-                    cancel: cancel,
+            final bangumi = address.pathSegments.last;
+            final releases = await Future.wait([
+              for (final (group, name) in groups)
+                feed(
+                  address.resolve(
+                    '/RSS/Bangumi?bangumiId=$bangumi&subgroupid=$group',
                   ),
-                )
-                .then((body) => _releases(_rss, body, feed));
-            final groups = {
-              for (final row in await listed) torrentIdentity(row.locator): row,
-            };
-            return [
-              for (final row in await complete)
-                switch (groups[torrentIdentity(row.locator)]) {
-                  final known? => row.enrich(known),
-                  null => row,
-                },
-            ];
+                ).then((body) => _releases(_credited(name), body, address)),
+            ]);
+            return releases.expand((rows) => rows).toList();
           }),
         );
       default:
@@ -148,7 +155,22 @@ Future<List<TorrentRelease>> _releases(
 }
 
 List<TorrentRelease> _rss(String body, Uri base) => parseRss(body, base: base);
-List<TorrentRelease> _mikan(String body, Uri _) => mikanMetadata(body);
+
+/// Parses a Mikan group feed, crediting its releases to [group]; the
+/// closure carries only the name.
+List<TorrentRelease> Function(String, Uri) _credited(String? group) =>
+    (body, base) => [
+      for (final row in parseRss(body, base: base))
+        group == null
+            ? row
+            : row.enrich(
+                TorrentRelease(
+                  title: row.title,
+                  locator: row.locator,
+                  releaseGroups: [group],
+                ),
+              ),
+    ];
 
 List<TorrentRelease> parseRss(String xml, {required Uri base}) {
   final document = XmlDocument.parse(xml);
@@ -226,35 +248,14 @@ List<Uri> mikanSeriesPages(String body, Uri base) => html
     .toSet()
     .toList();
 
-List<TorrentRelease> mikanMetadata(String body) {
-  final document = html.parse(body);
-  final result = <TorrentRelease>[];
-  for (final group in document.querySelectorAll('.subgroup-text')) {
-    final name = group
-        .querySelector('a[href^="/Home/PublishGroup/"]')
-        ?.text
-        .trim();
-    final table = group.nextElementSibling;
-    if (name == null ||
-        name.isEmpty ||
-        table == null ||
-        !table.classes.contains('episode-table')) {
-      continue;
-    }
-    for (final row in table.querySelectorAll('tbody tr')) {
-      final title = row.querySelector('a[href^="/Home/Episode/"]');
-      final locator =
-          row.querySelector('[data-magnet]')?.attributes['data-magnet'] ??
-          row.querySelector('a[href^="magnet:"]')?.attributes['href'];
-      if (title == null || locator == null) continue;
-      result.add(
-        TorrentRelease(
-          title: title.text.trim(),
-          locator: locator,
-          releaseGroups: [name],
-        ),
-      );
-    }
-  }
-  return result;
-}
+/// A Mikan series page's groups as (id, name), from the list at its top.
+/// The name is null for 202, 生肉/不明字幕, where Mikan files releases of no
+/// known group.
+List<(String, String?)> mikanGroups(String body, Uri _) => [
+  for (final link
+      in html
+          .parse(body)
+          .querySelectorAll('.leftbar-nav a.subgroup-name[data-anchor]'))
+    if (link.attributes['data-anchor']!.substring(1) case final id)
+      (id, id == '202' ? null : link.text.trim()),
+];
