@@ -73,8 +73,10 @@ class PlaySelectionRepository {
   /// Cached files, online entries and torrents for [episode], or for the
   /// whole subject without one, ranked for playback. Outside playback,
   /// torrents PikPak's index holds are also PikPak candidates. [terms]
-  /// default to the catalogue names and the chapter number; [onProgress]
-  /// reports each online, torrent and PikPak search state.
+  /// default to the catalogue names and the chapter number; [onUpdate] hands
+  /// over the ranking of what is found so far each time results arrive, to
+  /// be worked out when shown; [onProgress] reports each online, torrent and
+  /// PikPak search state.
   Future<List<PlayCandidate>> candidates(
     Subject subject,
     Episode? episode, {
@@ -86,7 +88,7 @@ class PlaySelectionRepository {
     bool forPlayback = false,
     String language = 'auto',
     bool useContinuity = false,
-    void Function(List<PlayCandidate>)? onUpdate,
+    void Function(List<PlayCandidate> Function() ranked)? onUpdate,
     void Function(SourceProgress)? onProgress,
     RequestCancellation? cancel,
   }) async {
@@ -114,7 +116,7 @@ class PlaySelectionRepository {
         candidate.health = -(_failures[candidate.id] ?? 0);
         found[candidate.id] = candidate;
       }
-      onUpdate?.call(ranked());
+      onUpdate?.call(ranked);
     }
 
     final binding = episodeId == null || !includeDownloads
@@ -406,7 +408,8 @@ class PlaySelectionRepository {
 
 final _infoHash = RegExp(r'^[0-9a-f]{40}$');
 
-/// A torrent fetched over BT, or through PikPak when its index holds it.
+/// A torrent fetched over BT, or through PikPak when its index holds it; both
+/// belong to the site that listed the torrent.
 PlayCandidate releaseCandidate(
   ReleaseCandidate candidate,
   int order, {
@@ -420,7 +423,7 @@ PlayCandidate releaseCandidate(
   final cloud = kind == PlayKind.pikpak;
   return PlayCandidate(
     kind: kind,
-    provider: cloud ? 'pikpak' : candidate.sourceId,
+    provider: candidate.sourceId,
     providerLabel: cloud ? 'PikPak' : candidate.sourceName,
     title: info.title,
     line: info.sourceGroups.join(' & '),
@@ -527,27 +530,32 @@ List<PlayCandidate> rankPlayCandidates(
     language: language,
     singleEpisode: singleEpisode,
   );
-  // Keys that build strings are worked out once per candidate.
-  final continuing = {
-    for (final c in result) c.id: c.continuityKey == continuity ? 1 : 0,
+  // Each candidate's keys are worked out once, smaller first; sorting
+  // compares hundreds of results many times over.
+  final keys = <PlayCandidate, List<num>>{
+    for (final c in result)
+      c: [
+        tier(c),
+        c.possibleMatch ? 1 : 0,
+        -c.health,
+        -affinity(c),
+        c.continuityKey == continuity ? 0 : 1,
+        preference(c),
+        -scores[c.id]!,
+        c.order,
+      ],
   };
-  final preferences = {for (final c in result) c.id: preference(c)};
   result.sort((a, b) {
-    // Later keys only break ties, so they are compared only when needed.
-    for (final comparison in <int Function()>[
-      () => tier(a).compareTo(tier(b)),
-      () => (a.possibleMatch ? 1 : 0).compareTo(b.possibleMatch ? 1 : 0),
-      () => b.health.compareTo(a.health),
-      () => affinity(b).compareTo(affinity(a)),
-      () => continuing[b.id]!.compareTo(continuing[a.id]!),
-      () => preferences[a.id]!.compareTo(preferences[b.id]!),
-      () => scores[b.id]!.compareTo(scores[a.id]!),
-      () => a.order.compareTo(b.order),
-      () => a.provider.compareTo(b.provider),
-      () => a.title.compareTo(b.title),
-      () => a.id.compareTo(b.id),
+    final x = keys[a]!, y = keys[b]!;
+    for (var i = 0; i < x.length; i++) {
+      final value = x[i].compareTo(y[i]);
+      if (value != 0) return value;
+    }
+    for (final value in [
+      a.provider.compareTo(b.provider),
+      a.title.compareTo(b.title),
+      a.id.compareTo(b.id),
     ]) {
-      final value = comparison();
       if (value != 0) return value;
     }
     return 0;

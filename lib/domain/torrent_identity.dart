@@ -3,10 +3,11 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
+final _btih = RegExp(r'^urn:btih:([a-fA-F0-9]{40}|[A-Z2-7a-z]{32})$');
+
 String magnetInfoHash(Uri uri) {
   for (final topic in uri.queryParametersAll['xt'] ?? <String>[]) {
-    final match = RegExp(r'^urn:btih:([a-fA-F0-9]{40}|[A-Z2-7a-z]{32})$')
-        .firstMatch(topic);
+    final match = _btih.firstMatch(topic);
     if (match == null) continue;
     final encoded = match[1]!;
     if (encoded.length == 40) return encoded.toLowerCase();
@@ -28,8 +29,18 @@ String magnetInfoHash(Uri uri) {
 }
 
 /// Deduplication key of a search result: infohash when the locator carries
-/// one, otherwise the original locator.
+/// one, otherwise the original locator. Every update of a search reads the
+/// identity of each result again, and parsing a magnet with its trackers is
+/// slow, so identities are kept.
 String torrentIdentity(String locator) {
+  if (_identities[locator] case final identity?) return identity;
+  if (_identities.length >= 8192) _identities.clear();
+  return _identities[locator] = _identity(locator);
+}
+
+final _identities = <String, String>{};
+
+String _identity(String locator) {
   final uri = Uri.parse(locator);
   if (uri.scheme == 'magnet') {
     try {

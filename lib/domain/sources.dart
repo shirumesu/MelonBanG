@@ -281,12 +281,16 @@ final class ReleaseCandidate {
     required this.subjectId,
     this.episodeId,
     this.coverUrl,
+    this.otherSources = const [],
   });
   final String candidateId, sourceId, sourceName;
   final TorrentRelease release;
   final int subjectId;
   final int? episodeId;
   final String? coverUrl;
+
+  /// Other index sites listing the same torrent; DMHY and Mikan share many.
+  final List<String> otherSources;
 
   ReleaseCandidate withRelease(TorrentRelease value) => ReleaseCandidate(
     candidateId: candidateId,
@@ -296,7 +300,23 @@ final class ReleaseCandidate {
     subjectId: subjectId,
     episodeId: episodeId,
     coverUrl: coverUrl,
+    otherSources: otherSources,
   );
+
+  /// This result, also listed by [source].
+  ReleaseCandidate listedBy(String source) =>
+      source == sourceId || otherSources.contains(source)
+      ? this
+      : ReleaseCandidate(
+          candidateId: candidateId,
+          sourceId: sourceId,
+          sourceName: sourceName,
+          release: release,
+          subjectId: subjectId,
+          episodeId: episodeId,
+          coverUrl: coverUrl,
+          otherSources: [...otherSources, source],
+        );
 }
 
 enum SearchStatus { loading, ready, partial, error }

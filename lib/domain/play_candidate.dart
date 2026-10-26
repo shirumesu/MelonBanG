@@ -72,13 +72,25 @@ class PlayCandidate {
   int health;
 
   /// A torrent is one candidate per site however its groups are enriched.
-  String get id => switch (target) {
+  /// Worked out once: ranking and grouping read it many times, and a
+  /// torrent's identity parses its whole locator.
+  late final String id = switch (target) {
     DownloadTarget(:final downloadId, :final fileId) =>
       '${kind.name}:$provider:$line:$downloadId:${fileId ?? ''}',
     OnlineTarget(:final candidateId) =>
       '${kind.name}:$provider:$line:$candidateId',
     ReleaseTarget(:final candidate) =>
       '${kind.name}:$provider:${torrentIdentity(candidate.release.locator)}',
+  };
+
+  /// The sites listing this result: one torrent may come from several index
+  /// sites, and a PikPak copy from the sites listing its torrent.
+  List<String> get providers => switch (target) {
+    ReleaseTarget(:final candidate) => [
+      candidate.sourceId,
+      ...candidate.otherSources,
+    ],
+    _ => [provider],
   };
 
   /// Where the source comes from (online, BT or PikPak), which
