@@ -292,7 +292,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
               child: Center(
                 child: AnimatedDefaultTextStyle(
                   duration: motionDuration(context, 120),
-                  style: TextStyle(
+                  style: appFont.copyWith(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: foreground,

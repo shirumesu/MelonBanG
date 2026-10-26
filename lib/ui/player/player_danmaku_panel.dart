@@ -374,9 +374,12 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
                 ),
               ),
               const SizedBox(width: Gap.sm),
-              FilledButton.tonal(
-                onPressed: busy ? null : () => search(source.id),
-                child: const Text('搜索'),
+              SizedBox(
+                height: 36,
+                child: FilledButton.tonal(
+                  onPressed: busy ? null : () => search(source.id),
+                  child: const Text('搜索'),
+                ),
               ),
             ],
           ),

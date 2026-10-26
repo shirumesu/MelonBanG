@@ -235,7 +235,7 @@ class _DetailButton extends StatelessWidget {
         backgroundColor: scheme.surfaceContainerHigh,
         foregroundColor: scheme.onSurface,
         shape: const RoundedRectangleBorder(borderRadius: badgeBorderRadius),
-        textStyle: const TextStyle(fontSize: 12),
+        textStyle: appFont.copyWith(fontSize: 12),
       ),
       onPressed: onPressed,
       icon: const Icon(Icons.info_outline_rounded, size: 15),
