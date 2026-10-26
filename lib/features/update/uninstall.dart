@@ -11,7 +11,8 @@ enum UninstallKind {
   /// The app bundle goes to the Trash once the app has quit.
   macOSBundle,
 
-  /// A portable Windows copy: deleting its folder removes it.
+  /// A portable Windows copy or a Linux AppImage: deleting its folder or
+  /// file removes it.
   portable,
 
   /// A development build or a copy macOS runs from a temporary location.
@@ -31,10 +32,15 @@ class AppUninstall {
 
   static const _bundleIdentifier = 'org.melonbang.melonbang';
 
-  /// The install directory on Windows, the app bundle on macOS.
+  /// The install directory on Windows, the app bundle on macOS, the AppImage
+  /// on Linux (or the build directory when not run from one).
   static String get installation => Platform.isMacOS
       ? p.dirname(p.dirname(p.dirname(Platform.resolvedExecutable)))
-      : File(Platform.resolvedExecutable).parent.path;
+      : appImage ?? File(Platform.resolvedExecutable).parent.path;
+
+  /// The AppImage this copy runs from, as its runtime reports it.
+  static String? get appImage =>
+      Platform.isLinux ? Platform.environment['APPIMAGE'] : null;
 
   UninstallKind get kind {
     if (AppUpdate.version.isEmpty) return UninstallKind.unavailable;
@@ -43,6 +49,7 @@ class AppUninstall {
           ? UninstallKind.windowsInstaller
           : UninstallKind.portable;
     }
+    if (appImage != null) return UninstallKind.portable;
     if (Platform.isMacOS &&
         installation.endsWith('.app') &&
         !installation.contains('/AppTranslocation/')) {

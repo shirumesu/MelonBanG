@@ -9,3 +9,4 @@ analyzer:
     - temp/**
     - windows/**
     - macos/**
+    - linux/**

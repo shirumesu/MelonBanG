@@ -6,6 +6,8 @@ project(libtorrent_flutter LANGUAGES C CXX)
 
 include(FetchContent)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+# The static libraries end up inside a shared one.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(OPENSSL_USE_STATIC_LIBS TRUE)
 set(CMAKE_FIND_PACKAGE_PREFER_CONFIG TRUE)
 FetchContent_Declare(libtorrent
@@ -21,8 +23,14 @@ add_library(libtorrent_flutter SHARED
 )
 target_compile_features(libtorrent_flutter PRIVATE cxx_std_17)
 target_link_libraries(libtorrent_flutter PRIVATE torrent-rasterbar)
-target_link_options(libtorrent_flutter PRIVATE "-Wl,-exported_symbol,_lt_*" "-Wl,-dead_strip")
-set_target_properties(libtorrent_flutter PROPERTIES
-  BUILD_WITH_INSTALL_NAME_DIR TRUE
-  INSTALL_NAME_DIR "@rpath"
-)
+# Only the C bridge is exported.
+if(APPLE)
+  target_link_options(libtorrent_flutter PRIVATE "-Wl,-exported_symbol,_lt_*" "-Wl,-dead_strip")
+  set_target_properties(libtorrent_flutter PROPERTIES
+    BUILD_WITH_INSTALL_NAME_DIR TRUE
+    INSTALL_NAME_DIR "@rpath"
+  )
+else()
+  target_link_options(libtorrent_flutter PRIVATE
+    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/exports.map" "-Wl,--gc-sections")
+endif()

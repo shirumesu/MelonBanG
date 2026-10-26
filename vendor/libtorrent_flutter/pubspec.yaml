@@ -34,7 +34,7 @@ flutter:
   assets:
     - assets/cacert.pem
   licenses:
-    - macos/licenses/boost.txt
-    - macos/licenses/libtorrent.txt
-    - macos/licenses/native-dependencies.txt
-    - macos/licenses/openssl.txt
+    - licenses/boost.txt
+    - licenses/libtorrent.txt
+    - licenses/native-dependencies.txt
+    - licenses/openssl.txt

@@ -16,8 +16,7 @@ Credentials platformCredentials(String directory) {
   if (Platform.isWindows) {
     return CachedCredentials(WindowsCredentials(directory));
   }
-  if (Platform.isMacOS) return CachedCredentials(MacOSCredentials(directory));
-  throw UnsupportedError('Unsupported credential platform');
+  return CachedCredentials(KeyringCredentials(directory));
 }
 
 class CredentialInteractionRequired implements Exception {
@@ -65,11 +64,12 @@ class CachedCredentials implements Credentials {
   });
 }
 
-/// Store account tokens in the login keychain, isolated by data directory.
-class MacOSCredentials implements Credentials {
-  MacOSCredentials(String directory) : _service = serviceFor(directory);
+/// Store account tokens in the login keychain on macOS or the Secret Service
+/// keyring on Linux, isolated by data directory.
+class KeyringCredentials implements Credentials {
+  KeyringCredentials(String directory) : _service = serviceFor(directory);
 
-  /// The keychain service holding the items of [directory]'s data.
+  /// The keyring service holding the items of [directory]'s data.
   static String serviceFor(String directory) =>
       'org.melonbang.credentials.${sha256.convert(utf8.encode(p.normalize(p.absolute(directory))))}';
 

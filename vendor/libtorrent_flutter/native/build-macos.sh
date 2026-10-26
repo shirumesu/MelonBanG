@@ -39,7 +39,7 @@ if [ ! -f "$openssl_install/lib/libssl.a" ]; then
   )
 fi
 
-cmake -S "$source_dir" -B "$cache_dir/native" -G Ninja \
+cmake -S "$source_dir" -B "$cache_dir/bridge" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="$openssl_install;$(brew --prefix boost)" \
   -DCMAKE_OSX_ARCHITECTURES="$architecture" \
@@ -47,5 +47,5 @@ cmake -S "$source_dir" -B "$cache_dir/native" -G Ninja \
   -DCMAKE_OSX_DEPLOYMENT_TARGET="$deployment_target" \
   -DOPENSSL_ROOT_DIR="$openssl_install" \
   -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="$output_dir"
-cmake --build "$cache_dir/native" --parallel 4
+cmake --build "$cache_dir/bridge" --parallel 4
 xcrun strip -x "$output_dir/liblibtorrent_flutter.dylib"

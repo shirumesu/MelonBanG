@@ -43,7 +43,7 @@ int _directoryBytes(String path) {
   if (type != FileSystemEntityType.directory) {
     throw FileSystemException('Storage location is not a directory', path);
   }
-  if (Platform.isMacOS) {
+  if (!Platform.isWindows) {
     // du counts allocated blocks, including sparse downloads, without following
     // links inside the tree. Run off the UI isolate and never through a shell.
     final result = Process.runSync('/usr/bin/du', ['-skP', path]);
@@ -131,7 +131,7 @@ DiskSpace _diskSpace(String path) {
   while (!Directory(existing).existsSync() && p.dirname(existing) != existing) {
     existing = p.dirname(existing);
   }
-  if (Platform.isMacOS) {
+  if (!Platform.isWindows) {
     final result = Process.runSync('/bin/df', ['-kP', existing]);
     // "Filesystem 1024-blocks Used Available Capacity Mounted on".
     final match = RegExp(r'\s(\d+)\s+(\d+)\s+(\d+)\s+\d+%\s+(.+)$')

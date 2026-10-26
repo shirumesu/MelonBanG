@@ -1,0 +1,52 @@
+name: 问题反馈
+description: 闪退、报错、功能不正常
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: 提交前请先搜一下 [已有的 Issues](https://github.com/shirumesu/MelonBanG/issues?q=is%3Aissue)，也看看 README 里的常见问题。
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 在 设置 → 更新与关于 里可以看到
+      placeholder: 1.0.0-alpha.1
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 系统
+      options:
+        - Windows（安装版）
+        - Windows（便携版）
+        - macOS
+        - Linux（AppImage）
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: 系统版本
+      placeholder: Windows 11 24H2 / macOS 15.5 / Ubuntu 24.04
+  - type: textarea
+    id: description
+    attributes:
+      label: 发生了什么
+      description: 你看到了什么，原本期望的是什么。截图或录屏会很有帮助。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 涉及具体番剧或资源时，请写出条目名称和来源。
+      placeholder: |
+        1. 打开……
+        2. 点击……
+        3. 出现……
+  - type: textarea
+    id: context
+    attributes:
+      label: 补充信息
+      description: 是否开了代理、播放的是本地缓存还是在线资源等。

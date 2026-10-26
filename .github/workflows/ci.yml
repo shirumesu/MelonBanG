@@ -1,0 +1,35 @@
+name: CI
+
+# Static analysis of the app and the Windows installer on every push and pull
+# request. Packaging runs only in release.yml.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.5'
+          cache: true
+      - name: Analyze the app
+        run: |
+          flutter pub get
+          flutter analyze
+      - name: Analyze the installer
+        working-directory: installer
+        run: |
+          flutter pub get
+          flutter analyze

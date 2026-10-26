@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -18,11 +17,16 @@ enum UpdatePhase { idle, checking, available, downloading, ready, failed }
 
 /// Keeps the installed copy current: finds a newer release, downloads and
 /// unpacks it beside the program while the app runs, and swaps it in once the
-/// app has exited: `updater.exe` on Windows, a shell script on macOS.
+/// app has exited: `updater.exe` on Windows, a shell script on macOS and for
+/// the Linux AppImage.
 class AppUpdate extends ChangeNotifier {
   AppUpdate(this.api, this.preferences) : releases = AppReleases(api);
   static const version = String.fromEnvironment('MELONBANG_VERSION');
-  static final _platform = Platform.isMacOS ? 'macos-arm64' : 'windows-x64';
+  static final _platform = Platform.isMacOS
+      ? 'macos-arm64'
+      : Platform.isLinux
+      ? 'linux-x64'
+      : 'windows-x64';
   final ApiClient api;
   final SharedPreferences preferences;
   final AppReleases releases;
@@ -53,9 +57,10 @@ class AppUpdate extends ChangeNotifier {
   }
 
   /// On the program's volume, so the swap is a rename. A bundle cannot hold
-  /// it without breaking its signature, so macOS keeps it beside the bundle.
+  /// it without breaking its signature, so macOS keeps it beside the bundle,
+  /// and Linux beside the AppImage.
   Directory get _pending => Directory(
-    Platform.isMacOS
+    !Platform.isWindows
         ? p.join(
             p.dirname(AppUninstall.installation),
             '.${p.basenameWithoutExtension(AppUninstall.installation)}-update',
@@ -65,8 +70,12 @@ class AppUpdate extends ChangeNotifier {
   File get _readyMarker => File(p.join(_pending.path, 'ready.json'));
 
   Future<void> initialize() async {
-    if (!(Platform.isWindows || Platform.isMacOS) || version.isEmpty) {
+    if (version.isEmpty) {
       unavailable = '开发版本不自动更新';
+      return;
+    }
+    if (Platform.isLinux && AppUninstall.appImage == null) {
+      unavailable = '只有 AppImage 版本能自动更新';
       return;
     }
     if (Platform.isWindows &&
@@ -139,34 +148,19 @@ class AppUpdate extends ChangeNotifier {
     try {
       if (await _pending.exists()) await _pending.delete(recursive: true);
       await _pending.create();
-      final archive = File(p.join(_pending.path, 'update.zip'));
-      await _fetch(release.package, archive);
       final staging = Directory(p.join(_pending.path, release.version));
       await staging.create();
-      // ditto keeps the bundle's symbolic links, which its signature covers.
-      final unpacked = Platform.isMacOS
-          ? await Process.run('/usr/bin/ditto', [
-              '-x',
-              '-k',
-              archive.path,
-              staging.path,
-            ])
-          : await Process.run(
-              p.join(
-                Platform.environment['SystemRoot']!,
-                'System32',
-                'tar.exe',
-              ),
-              ['-xf', archive.path, '-C', staging.path],
-            );
-      if (unpacked.exitCode != 0) {
-        throw StateError('解压失败：${unpacked.stderr}'.trim());
+      if (Platform.isLinux) {
+        // The AppImage is the package itself.
+        final image = File(p.join(staging.path, _appImageName));
+        await _fetch(release.package, image);
+        final executable = await Process.run('chmod', ['755', image.path]);
+        if (executable.exitCode != 0) {
+          throw StateError('无法设置执行权限：${executable.stderr}'.trim());
+        }
+      } else {
+        await _unpack(release.package, staging);
       }
-      if (Platform.isMacOS &&
-          !await Directory(p.join(staging.path, _bundleName)).exists()) {
-        throw StateError('更新包缺少 $_bundleName');
-      }
-      await archive.delete();
       // Renamed into place so an interrupted write never leaves a marker
       // that the next start cannot read.
       final marker = File('${_readyMarker.path}.tmp');
@@ -179,7 +173,7 @@ class AppUpdate extends ChangeNotifier {
       phase = UpdatePhase.ready;
     } on FileSystemException catch (e) {
       phase = UpdatePhase.failed;
-      final location = Platform.isMacOS ? ' MelonBanG 所在的文件夹' : '安装目录';
+      final location = Platform.isWindows ? '安装目录' : ' MelonBanG 所在的文件夹';
       error =
           '无法写入$location（${e.osError?.message ?? e.message}），请到 GitHub 手动下载新版本';
     } catch (e) {
@@ -189,12 +183,46 @@ class AppUpdate extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Downloads the archive of [package] and unpacks it into [staging].
+  Future<void> _unpack(ReleaseFile package, Directory staging) async {
+    final archive = File(p.join(_pending.path, 'update.zip'));
+    await _fetch(package, archive);
+    // ditto keeps the bundle's symbolic links, which its signature covers.
+    final unpacked = Platform.isMacOS
+        ? await Process.run('/usr/bin/ditto', [
+            '-x',
+            '-k',
+            archive.path,
+            staging.path,
+          ])
+        : await Process.run(
+            p.join(Platform.environment['SystemRoot']!, 'System32', 'tar.exe'),
+            ['-xf', archive.path, '-C', staging.path],
+          );
+    if (unpacked.exitCode != 0) {
+      throw StateError('解压失败：${unpacked.stderr}'.trim());
+    }
+    if (Platform.isMacOS &&
+        !await Directory(p.join(staging.path, _bundleName)).exists()) {
+      throw StateError('更新包缺少 $_bundleName');
+    }
+    await archive.delete();
+  }
+
   Future<void> _fetch(ReleaseFile file, File target) async {
     Object? failure;
     for (final url in file.urls) {
       try {
-        final response = await api.client.send(http.Request('GET', url));
+        // A stalled connection fails, so the next address gets its turn.
+        final response = await api.client.sendAbortable(
+          'GET',
+          url,
+          abort: Completer<void>(),
+          timeout: _idle,
+          message: '连接 ${url.host} 超时',
+        );
         if (response.statusCode != 200) {
+          await response.stream.listen(null).cancel();
           throw ApiException(response.statusCode, url.host);
         }
         final digest = _DigestSink();
@@ -202,7 +230,7 @@ class AppUpdate extends ChangeNotifier {
         final output = await target.open(mode: FileMode.write);
         var received = 0;
         try {
-          await for (final chunk in response.stream) {
+          await for (final chunk in response.stream.timeout(_idle)) {
             await output.writeFrom(chunk);
             hashing.add(chunk);
             received += chunk.length;
@@ -231,6 +259,19 @@ class AppUpdate extends ChangeNotifier {
   Future<void> applyOnExit({required bool restart}) async {
     if (phase != UpdatePhase.ready) return;
     final staging = p.join(_pending.path, readyVersion!);
+    if (Platform.isLinux) {
+      await Process.start('/bin/sh', [
+        '-c',
+        _linuxSwap,
+        'melonbang-update',
+        '$pid',
+        AppUninstall.installation,
+        p.join(staging, _appImageName),
+        _pending.path,
+        if (restart) 'restart',
+      ], mode: ProcessStartMode.detached);
+      return;
+    }
     if (Platform.isMacOS) {
       await Process.start('/bin/sh', [
         '-c',
@@ -284,6 +325,17 @@ Future<void> relaunchAfterExit() async {
     ], mode: ProcessStartMode.detached);
     return;
   }
+  if (Platform.isLinux) {
+    // An AppImage's own mount disappears with the app, so start the image.
+    await Process.start('/bin/sh', [
+      '-c',
+      r'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; "$2" >/dev/null 2>&1 &',
+      'melonbang-relaunch',
+      '$pid',
+      AppUninstall.appImage ?? executable,
+    ], mode: ProcessStartMode.detached);
+    return;
+  }
   await Process.start('powershell', [
     '-NoProfile',
     '-WindowStyle',
@@ -296,6 +348,12 @@ Future<void> relaunchAfterExit() async {
 
 /// The bundle inside the macOS update package.
 const _bundleName = 'MelonBanG.app';
+
+/// The staged Linux package.
+const _appImageName = 'MelonBanG.AppImage';
+
+/// How long a download may wait for its next bytes.
+const _idle = Duration(seconds: 30);
 
 /// Arguments: app process, installed bundle, staged bundle, pending
 /// directory, and `restart` to open the app again. Waits for the app to
@@ -314,6 +372,15 @@ if mv "$2" "$previous"; then
   fi
 fi
 if [ -n "$5" ]; then open "$2"; fi
+''';
+
+/// Arguments: app process, installed AppImage, staged AppImage, pending
+/// directory, and `restart`. A rename replaces the file in one step; the
+/// AppImage keeps whatever name the person gave it.
+const _linuxSwap = r'''
+while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
+if mv -f "$3" "$2"; then rm -rf "$4"; fi
+if [ -n "$5" ]; then "$2" >/dev/null 2>&1 & fi
 ''';
 
 class _DigestSink implements Sink<Digest> {

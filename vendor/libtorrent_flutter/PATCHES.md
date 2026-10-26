@@ -24,16 +24,21 @@ The Windows plugin prefers package configs so libtorrent's Boost dependency uses
 BoostConfig.cmake without the removed FindBoost module warning on CMake 3.30+.
 Setting CMP0167 only in the plugin does not reach vcpkg's captured macro policy scope.
 
-The macOS Dart build hook builds the same bridge with CMake and bundles it as a
-native code asset. Pinned libtorrent 2.1.2 and OpenSSL 3.6.5 sources are downloaded
-with SHA-256 verification and linked statically; Homebrew supplies only the build
-tools and Boost headers. All native code uses the hook's target architecture and
-macOS deployment version, independent of the host's OS version or Homebrew bottle
-requirements. Only C bridge symbols are exported. Flutter embeds and signs the
-single resulting library, and its native asset resolver locates it at runtime.
-Sources and compilation caches stay in the generated hook output directory.
-Ordinary `flutter build macos` rebuilds changed bridge sources without CocoaPods
-or a manual native preparation step.
+On macOS and Linux the Dart build hook builds the same bridge with CMake
+(`native/CMakeLists.txt`, run by `native/build-macos.sh` or `native/build-linux.sh`)
+and bundles it as a native code asset. Pinned libtorrent 2.1.2 and OpenSSL 3.6.5
+sources are downloaded with SHA-256 verification and linked statically. On macOS
+Homebrew supplies the build tools and Boost headers; on Linux the distribution
+supplies the build tools, and pinned Boost 1.92.0 headers are downloaded too, because
+libtorrent's Boost.JSON is newer than the Boost of older distributions. On macOS all native
+code uses the hook's target architecture and deployment version, independent of the
+host's OS version or Homebrew bottle requirements. Only C bridge symbols are exported
+(`native/exports.map` on Linux). Flutter bundles the single resulting library (and
+signs it on macOS); `lt_library_path` reports where the native asset resolver loaded
+it from. Sources and compilation caches stay in the generated hook output directory.
+Ordinary `flutter build macos` or `flutter build linux` rebuilds changed bridge
+sources without CocoaPods or a manual native preparation step. Native license
+notices are in `licenses/`.
 
 Engine `dispose` destroys the session without calling the destructive upstream
 `disposeAll`; explicit torrent removal still supports file deletion. Native libraries
