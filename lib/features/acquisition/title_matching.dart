@@ -15,7 +15,7 @@ import '../../domain/transfer.dart';
 
 /// [normalizeSourceTitle] with the season only when the title states one.
 (String, int?) _normalize(String input) {
-  var title = ChineseHelper.convertToSimplifiedChinese(
+  var title = simplifiedChinese(
     String.fromCharCodes(
       input.runes.map(
         (c) => c == 0x3000
@@ -93,8 +93,7 @@ double sourceMatchScore(
 }
 
 bool sourceEpisodeMatches(String label, Episode episode) {
-  final normalized = ChineseHelper.convertToSimplifiedChinese(label)
-      .toUpperCase();
+  final normalized = simplifiedChinese(label).toUpperCase();
   final special = RegExp(r'SP|OVA|OAD|特别').hasMatch(normalized);
   // A special is named as one, though an interlude may be named by its
   // number (11.5).

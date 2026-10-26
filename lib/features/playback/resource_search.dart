@@ -39,6 +39,15 @@ class ResourceSearchState {
   final List<PlayCandidate> candidates;
   final List<SourceProgress> sources;
 
+  /// Progress of the sites searched, without PikPak, which only looks up the
+  /// torrents they list.
+  List<SourceProgress> get sites =>
+      sources.where((e) => e.sourceId != 'pikpak').toList();
+
+  /// PikPak's lookups of the torrents found, while it takes part.
+  SourceProgress? get cloud =>
+      sources.where((e) => e.sourceId == 'pikpak').firstOrNull;
+
   /// The source the subject was last played from, which ranks first.
   final RememberedSource? remembered;
 }
@@ -88,6 +97,8 @@ class ResourceSearchController extends ChangeNotifier {
     final episode = state.episode;
     final searched = keywordEpisode(subject, terms.episodeKeyword, episode);
     var candidates = const <PlayCandidate>[];
+    // Ranked only when shown: PikPak reports its lookups one at a time.
+    List<PlayCandidate> Function()? ranked;
     RememberedSource? remembered;
     final progress = <String, SourceProgress>{};
     Timer? pending;
@@ -95,6 +106,10 @@ class ResourceSearchController extends ChangeNotifier {
       pending?.cancel();
       pending = null;
       if (ticket != _ticket) return;
+      if (ranked != null) {
+        candidates = ranked!();
+        ranked = null;
+      }
       state = ResourceSearchState(
         subject: subject,
         episode: episode,
@@ -130,8 +145,8 @@ class ResourceSearchController extends ChangeNotifier {
             'online',
         language: settings.subtitleLanguage,
         useContinuity: playback.session?.subjectId == subject.id,
-        onUpdate: (values) {
-          candidates = values;
+        onUpdate: (rank) {
+          ranked = rank;
           showSoon();
         },
         onProgress: (value) {
@@ -139,6 +154,7 @@ class ResourceSearchController extends ChangeNotifier {
           showSoon();
         },
       );
+      ranked = null;
       show();
     } on RequestCancelled {
       // A newer search or leaving the page replaced this one.

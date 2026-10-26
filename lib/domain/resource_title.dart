@@ -94,9 +94,20 @@ final _seasons = [
   ),
 ];
 
+/// [text] in simplified Chinese. Release titles repeat the same blocks
+/// (`[1080p]`, `[简繁内封]`) and the conversion is slow on long text, so
+/// results are kept.
+String simplifiedChinese(String text) {
+  if (_simplified[text] case final value?) return value;
+  if (_simplified.length >= 8192) _simplified.clear();
+  return _simplified[text] = ChineseHelper.convertToSimplifiedChinese(text);
+}
+
+final _simplified = <String, String>{};
+
 /// The season [text] names, such as 第二季, 第3期, S2 or 2nd Season.
 int? resourceSeason(String text) {
-  final normalized = ChineseHelper.convertToSimplifiedChinese(text);
+  final normalized = simplifiedChinese(text);
   for (final pattern in _seasons) {
     if (pattern.firstMatch(normalized) case final match?) {
       final value = match
@@ -142,7 +153,7 @@ ResourceTitleInfo describeResource(
 
 ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
   final title = original.trim();
-  final normalized = ChineseHelper.convertToSimplifiedChinese(title);
+  final normalized = simplifiedChinese(title);
   final sourceGroups = releaseGroups
       .map((value) => value.trim())
       .where((value) => value.isNotEmpty)
@@ -206,9 +217,7 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
       : null;
   final titleCredits =
       prefix != null &&
-          !_technical.hasMatch(
-            ChineseHelper.convertToSimplifiedChinese(prefix),
-          ) &&
+          !_technical.hasMatch(simplifiedChinese(prefix)) &&
           RegExp(r'[&＆]').hasMatch(prefix)
       ? prefix.split(RegExp(r'\s*[&＆]\s*')).where((e) => e.isNotEmpty).toList()
       : <String>[];
@@ -262,7 +271,7 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
 
   var display = title.replaceAllMapped(_brackets, (match) {
     final text = (match.group(1) ?? match.group(2) ?? match.group(3))!.trim();
-    final normalizedBlock = ChineseHelper.convertToSimplifiedChinese(text);
+    final normalizedBlock = simplifiedChinese(text);
     final credit =
         match.start == first?.start &&
         (titleCredits.isNotEmpty ||
@@ -296,14 +305,13 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
   if (display.isEmpty) display = title;
   final season = resourceSeason(normalized);
   final credit =
-      prefix == null ||
-          _technical.hasMatch(ChineseHelper.convertToSimplifiedChinese(prefix))
+      prefix == null || _technical.hasMatch(simplifiedChinese(prefix))
       ? null
       : prefix.trim();
   final series = episode == null || credit == null || credit.isEmpty
       ? null
       : [
-          ChineseHelper.convertToSimplifiedChinese(credit).toLowerCase(),
+          simplifiedChinese(credit).toLowerCase(),
           season ?? '',
           quality ?? '',
           labels.where((e) => !subtitleLabels.contains(e)).toSet().toList()

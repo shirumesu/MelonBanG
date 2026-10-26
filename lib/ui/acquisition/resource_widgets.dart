@@ -271,8 +271,9 @@ String resourceProviderStatus(SourceProgress source) => switch (source.status) {
 };
 
 class ResourceSearchStatus extends StatelessWidget {
-  const ResourceSearchStatus({super.key, required this.providers});
+  const ResourceSearchStatus({super.key, required this.providers, this.cloud});
   final List<SourceProgress> providers;
+  final SourceProgress? cloud;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -283,6 +284,8 @@ class ResourceSearchStatus extends StatelessWidget {
       Text(
         providers.any((e) => e.status == SearchStatus.loading)
             ? '正在搜索 ${providers.where((e) => e.status != SearchStatus.loading).length}/${providers.length} 个资源站'
+            : cloud?.status == SearchStatus.loading
+            ? '正在查询 PikPak ${cloud!.completed}/${cloud!.total}'
             : '正在补充字幕组信息',
         style: Theme.of(context).textTheme.bodySmall,
       ),

@@ -59,7 +59,7 @@ class ResourceResults {
     bool kindShown(PlayCandidate candidate) =>
         kind == ResourceFamily.all || ResourceFamily.of(candidate) == kind;
     final fromShownProviders = annotated
-        .where((entry) => !excludedProviders.contains(entry.$1.provider))
+        .where((entry) => !entry.$1.providers.every(excludedProviders.contains))
         .toList();
     // Results stating nothing for a selection stay, after confirmed ones.
     _gaps = {

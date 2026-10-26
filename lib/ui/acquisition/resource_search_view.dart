@@ -583,7 +583,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   Widget _form(BuildContext context) {
     final names = subject == null ? const <String>[] : resourceNames(subject!);
     final aliases = names.where((name) => name != keyword.text.trim()).toList();
-    final sources = state.sources;
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final shownEpisode = state.terms == null ? episode : searched;
@@ -738,7 +737,10 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           visible: searchBusy,
           child: Padding(
             padding: const EdgeInsets.only(top: Gap.md),
-            child: ResourceSearchStatus(providers: sources),
+            child: ResourceSearchStatus(
+              providers: state.sites,
+              cloud: state.cloud,
+            ),
           ),
         ),
         for (final rule in failingSites)
@@ -772,7 +774,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   }
 
   Widget _filterBar(BuildContext context, ResourceResults results) {
-    final sources = state.sources;
+    final sources = state.sites;
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final background = Material.of(context).color!;
@@ -1038,7 +1040,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
 
   /// Why no result shows, with the action that brings some back.
   Widget _emptyResults(ResourceResults results) {
-    final candidates = state.candidates, sources = state.sources;
+    final candidates = state.candidates, sources = state.sites;
     final providersFailed =
         sources.isNotEmpty &&
         sources.every((e) => e.status == SearchStatus.error) &&

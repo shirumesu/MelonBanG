@@ -1,4 +1,4 @@
-import 'package:pinyin/pinyin.dart';
+import '../../domain/resource_title.dart';
 
 import '../../core/error_message.dart';
 import '../../core/json.dart';
@@ -50,7 +50,10 @@ class ReleaseSearch {
           total: keywords.length,
         ),
     };
+    // One candidate per torrent, whichever sites list it; each site counts
+    // the torrents it lists.
     final candidates = <String, ReleaseCandidate>{};
+    final listed = {for (final source in sources) source.id: <String>{}};
     final metadata = <String, TorrentRelease>{};
     final pages = <Uri, Future<String>>{};
     bool current() => cancel?.isCancelled != true;
@@ -70,14 +73,16 @@ class ReleaseSearch {
                 .metadata(name, pages: pages, cancel: cancel)) {
           if (!current()) return;
           for (final row in rows) {
-            final identity = '${source.id}:${torrentIdentity(row.locator)}';
+            final identity = torrentIdentity(row.locator);
             metadata[identity] = row;
             final candidate = candidates[identity];
             if (candidate != null) {
-              candidates[identity] = candidate.withRelease(
-                candidate.release.enrich(row),
-              );
+              listed[source.id]!.add(identity);
+              candidates[identity] = candidate
+                  .listedBy(source.id)
+                  .withRelease(candidate.release.enrich(row));
             } else if (_mentions(row.title, name)) {
+              listed[source.id]!.add(identity);
               candidates[identity] = ReleaseCandidate(
                 candidateId: newId(),
                 sourceId: source.id,
@@ -115,8 +120,12 @@ class ReleaseSearch {
                 .search(name, cancel: cancel);
             if (!current()) return;
             for (final row in rows) {
-              final identity = '${source.id}:${torrentIdentity(row.locator)}';
-              if (candidates.containsKey(identity)) continue;
+              final identity = torrentIdentity(row.locator);
+              listed[source.id]!.add(identity);
+              if (candidates[identity] case final candidate?) {
+                candidates[identity] = candidate.listedBy(source.id);
+                continue;
+              }
               final known = metadata[identity];
               candidates[identity] = ReleaseCandidate(
                 candidateId: newId(),
@@ -141,9 +150,7 @@ class ReleaseSearch {
             final completed = state.completed + 1;
             progress[source.id] = state.copyWith(
               completed: completed,
-              resultCount: candidates.values
-                  .where((e) => e.sourceId == source.id)
-                  .length,
+              resultCount: listed[source.id]!.length,
               status: completed < state.total
                   ? null
                   : state.failed == 0
@@ -195,8 +202,7 @@ class ReleaseSearch {
 /// Whether [title] holds every word of [keyword], as the site search matched
 /// it, ignoring case and script.
 bool _mentions(String title, String keyword) {
-  String fold(String text) =>
-      ChineseHelper.convertToSimplifiedChinese(text).toLowerCase();
+  String fold(String text) => simplifiedChinese(text).toLowerCase();
   final text = fold(title);
   return fold(keyword)
       .split(RegExp(r'\s+'))
