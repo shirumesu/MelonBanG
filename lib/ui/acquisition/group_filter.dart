@@ -9,7 +9,8 @@ import '../core/theme.dart';
 /// The release group filter's menu: the preferred groups first, in their
 /// order, then the others by result count. Dragging a group above or below
 /// the line, or within the preferred ones, sets the preference and its
-/// order; hovering offers the same as text.
+/// order; a row drags from anywhere, and a click still toggles it. Hovering
+/// offers the same as text.
 class GroupFilterPanel extends StatefulWidget {
   const GroupFilterPanel({
     super.key,
@@ -66,92 +67,87 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
           onExit: (_) => setState(() {
             if (hovered == name) hovered = null;
           }),
-          child: Material(
-            type: MaterialType.transparency,
-            child: InkWell(
-              onTap: count > 0 || on ? () => widget.onToggle(name, !on) : null,
-              child: SizedBox(
-                height: _rowHeight,
-                child: Row(
-                  children: [
-                    ReorderableDragStartListener(
-                      index: index,
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.grab,
-                        child: SizedBox(
-                          width: 28,
-                          height: _rowHeight,
-                          child: Icon(
-                            Icons.drag_indicator_rounded,
-                            size: 16,
-                            color: scheme.onSurfaceVariant,
+          // The drag starts only once the pointer moves, so taps reach the
+          // row and its button.
+          child: ReorderableDragStartListener(
+            index: index,
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                onTap: count > 0 || on
+                    ? () => widget.onToggle(name, !on)
+                    : null,
+                child: SizedBox(
+                  height: _rowHeight,
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 12),
+                      FilterCheck(on),
+                      const SizedBox(width: 10),
+                      if (isPreferred) ...[
+                        Container(
+                          width: 18,
+                          height: 18,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: accentOf(context).accent
+                                .withValues(alpha: .16),
+                            borderRadius: badgeBorderRadius,
+                          ),
+                          child: Text(
+                            '${index + 1}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: scheme.primary,
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                    FilterCheck(on),
-                    const SizedBox(width: 10),
-                    if (isPreferred) ...[
-                      Container(
-                        width: 18,
-                        height: 18,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: accentOf(context).accent
-                              .withValues(alpha: .16),
-                          borderRadius: badgeBorderRadius,
-                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      Expanded(
                         child: Text(
-                          '${index + 1}',
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: scheme.primary,
+                            fontSize: 13,
+                            color: count > 0 || on
+                                ? null
+                                : scheme.onSurfaceVariant,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: Gap.sm),
+                      if (hovered == name)
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            minimumSize: const Size(0, 28),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            textStyle: appFont.copyWith(fontSize: 12),
+                          ),
+                          onPressed: () => prefer(
+                            isPreferred
+                                ? (List.of(preferred)..remove(name))
+                                : [...preferred, name],
+                          ),
+                          child: Text(isPreferred ? '取消偏好' : '设为偏好'),
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Text(
+                            '$count',
+                            style: small?.copyWith(
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ),
+                      const SizedBox(width: 4),
                     ],
-                    Expanded(
-                      child: Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: count > 0 || on
-                              ? null
-                              : scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: Gap.sm),
-                    if (hovered == name)
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          minimumSize: const Size(0, 28),
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          textStyle: appFont.copyWith(fontSize: 12),
-                        ),
-                        onPressed: () => prefer(
-                          isPreferred
-                              ? (List.of(preferred)..remove(name))
-                              : [...preferred, name],
-                        ),
-                        child: Text(isPreferred ? '取消偏好' : '设为偏好'),
-                      )
-                    else
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: Text(
-                          '$count',
-                          style: small?.copyWith(
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                      ),
-                    const SizedBox(width: 4),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -201,7 +197,7 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                   height: _rowHeight,
                   child: Row(
                     children: [
-                      const SizedBox(width: 28),
+                      const SizedBox(width: 12),
                       FilterCheck(widget.prefs.onlyPreferredGroups),
                       const SizedBox(width: 10),
                       const Text('只显示偏好字幕组', style: TextStyle(fontSize: 13)),
