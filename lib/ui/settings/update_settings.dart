@@ -8,6 +8,7 @@ import '../../features/update/app_update.dart';
 import '../../features/update/uninstall.dart';
 import '../../integrations/github/app_releases.dart';
 import '../core/external_link.dart';
+import '../core/selection_controls.dart';
 import '../core/motion.dart';
 import '../core/theme.dart';
 import 'settings_page.dart';
@@ -29,6 +30,23 @@ SettingsSection aboutSection({
         _UpdateStatus(update: update, onRestart: onRestart),
       ),
       if (update.unavailable == null) ...[
+        SettingsItem(
+          '更新渠道 稳定版 测试版 beta alpha 预发布',
+          ListenableBuilder(
+            listenable: update,
+            builder: (context, _) => SettingRow(
+              title: '更新渠道',
+              subtitle: update.beta
+                  ? '测试版能更早用上新功能，但问题可能更多'
+                  : '只更新到稳定版；正在用测试版时，等下一个稳定版发布再更新',
+              trailing: MelonChoiceMenu(
+                options: const {false: '稳定版', true: '测试版'},
+                value: update.beta,
+                onSelected: update.setBeta,
+              ),
+            ),
+          ),
+        ),
         SettingsItem(
           '自动检查更新 启动',
           ListenableBuilder(

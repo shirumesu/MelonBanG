@@ -46,6 +46,12 @@ class AppUpdate extends ChangeNotifier {
   bool get autoCheck => preferences.getBool('update-auto-check') ?? true;
   bool get autoDownload => preferences.getBool('update-auto-download') ?? true;
 
+  /// Whether alpha and beta versions are offered; by default a prerelease
+  /// build follows them and a stable one does not.
+  bool get beta =>
+      preferences.getBool('update-beta') ??
+      SemanticVersion.parse(version).prerelease;
+
   Future<void> setAutoCheck(bool value) async {
     await preferences.setBool('update-auto-check', value);
     notifyListeners();
@@ -54,6 +60,12 @@ class AppUpdate extends ChangeNotifier {
   Future<void> setAutoDownload(bool value) async {
     await preferences.setBool('update-auto-download', value);
     notifyListeners();
+  }
+
+  Future<void> setBeta(bool value) async {
+    await preferences.setBool('update-beta', value);
+    notifyListeners();
+    await check();
   }
 
   /// On the program's volume, so the swap is a rename. A bundle cannot hold
@@ -128,7 +140,11 @@ class AppUpdate extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      release = await releases.newerThan(version, _platform);
+      release = await releases.newerThan(
+        version,
+        _platform,
+        prereleases: beta,
+      );
       phase = release == null ? UpdatePhase.idle : UpdatePhase.available;
       checkedAt = DateTime.now();
     } catch (e) {

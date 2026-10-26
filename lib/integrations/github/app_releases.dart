@@ -39,9 +39,13 @@ class AppReleases {
   AppReleases(this.api);
   final ApiClient api;
 
-  /// The newest release after [current] with a package for [platform].
-  /// Prereleases are offered only while [current] is one.
-  Future<AppRelease?> newerThan(String current, String platform) async {
+  /// The newest release after [current] with a package for [platform];
+  /// prereleases only with [prereleases].
+  Future<AppRelease?> newerThan(
+    String current,
+    String platform, {
+    required bool prereleases,
+  }) async {
     final installed = SemanticVersion.parse(current);
     final listed = await api.json(
       Uri.https('api.github.com', '/repos/$releaseRepository/releases', {
@@ -57,7 +61,7 @@ class AppReleases {
       if (release['draft'] == true ||
           version == null ||
           version.compareTo(installed) <= 0 ||
-          (version.prerelease && !installed.prerelease) ||
+          (version.prerelease && !prereleases) ||
           (newestVersion != null && version.compareTo(newestVersion) <= 0)) {
         continue;
       }
