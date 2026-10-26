@@ -582,7 +582,9 @@ class AppSidebar extends StatelessWidget {
                   duration: motionDuration(context, 200),
                   style: appFont.copyWith(
                     fontSize: 11,
-                    color: selected ? accent.onNavigation : accent.accent,
+                    color: selected
+                        ? accent.onNavigation
+                        : Theme.of(context).colorScheme.primary,
                     fontWeight: FontWeight.w800,
                   ),
                   child: Text(count),
