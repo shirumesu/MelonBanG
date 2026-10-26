@@ -36,6 +36,7 @@ class SubjectPage extends StatelessWidget {
     required this.resume,
     required this.airings,
     required this.community,
+    required this.catalog,
     required this.onFindResources,
     required this.onPlayEpisode,
     required this.onOpenEpisode,
@@ -50,6 +51,9 @@ class SubjectPage extends StatelessWidget {
   /// The subject's broadcasts in the coming week's schedule.
   final List<DateTime> airings;
   final SubjectCommunitySource community;
+
+  /// Reads the pages of the subject's characters and staff.
+  final Catalog catalog;
   final ValueChanged<Episode?> onFindResources;
   final ValueChanged<Episode> onPlayEpisode;
 
@@ -71,6 +75,7 @@ class SubjectPage extends StatelessWidget {
         loading: subjects.loading,
         signedIn: personal.signedIn,
         community: community,
+        catalog: catalog,
         collectionSyncError: personal.lastSyncError,
         onRetryCollectionSync: personal.flush,
         resume: resume.resumeOf(subject?.id),
@@ -99,6 +104,7 @@ class _SubjectDetail extends StatefulWidget {
   const _SubjectDetail({
     required this.subject,
     required this.community,
+    required this.catalog,
     required this.onSaveCollection,
     required this.onSaveEpisodes,
     required this.onFindResources,
@@ -120,6 +126,7 @@ class _SubjectDetail extends StatefulWidget {
   final bool loading;
   final bool signedIn;
   final SubjectCommunitySource community;
+  final Catalog catalog;
   final String? collectionSyncError;
   final Future<void> Function() onRetryCollectionSync;
   final PlaybackResume? resume;
@@ -1396,6 +1403,8 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       characters: characters,
       loading: loading,
       onRetry: widget.onRetry,
+      catalog: widget.catalog,
+      onOpenSubject: widget.onOpenSubject,
     );
   }
 }

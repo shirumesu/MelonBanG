@@ -534,7 +534,16 @@ class _MelonAppState extends State<MelonApp>
     return discovery.searchSubjects(query);
   }
 
+  /// The settings section [openSettings] shows first.
+  String? settingsSection;
+
+  void openSettings(String section) {
+    settingsSection = section;
+    navigate('settings');
+  }
+
   void navigate(String target) {
+    if (target != 'settings') settingsSection = null;
     if (target == route) return;
     leavePlayer();
     rememberLocation();
@@ -1073,7 +1082,7 @@ class _MelonAppState extends State<MelonApp>
           },
           onOpenSubject: openSubject,
           feedback: syncFeedback,
-          onSignIn: () => navigate('settings'),
+          onSignIn: () => openSettings('account'),
           onSync: syncCollection,
           onExplore: focusSearch,
         );
@@ -1088,6 +1097,7 @@ class _MelonAppState extends State<MelonApp>
                 if (item.id == subjects.id) ?item.airingAt,
           ],
           community: service.community,
+          catalog: service.catalog,
           onFindResources: (episode) {
             final item = subjects.subject;
             if (episode == null) {
@@ -1173,9 +1183,13 @@ class _MelonAppState extends State<MelonApp>
             () async => service.library.online(stream),
             title: '在线视频',
           ),
+          onOpenUpdates: () => openSettings('about'),
         );
       case 'settings':
-        return SettingsPage(sections: settingsSections());
+        return SettingsPage(
+          sections: settingsSections(),
+          initial: settingsSection,
+        );
       default:
         return const EmptyState(text: '打开一部喜欢的作品');
     }

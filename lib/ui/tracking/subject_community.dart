@@ -178,7 +178,26 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                                 ? '/blog/${entry.id}'
                                 : '/subject/topic/${entry.id}',
                           ),
-                    child: Text(title),
+                    // The post reads here; its title opens the thread on
+                    // Bangumi, to reply or read it there.
+                    child: Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(text: title),
+                          if (entry.id > 0)
+                            const WidgetSpan(
+                              alignment: PlaceholderAlignment.middle,
+                              child: Padding(
+                                padding: EdgeInsets.only(left: 4),
+                                child: Icon(
+                                  Icons.open_in_new_rounded,
+                                  size: 13,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                 _PostMeta(
                   name: name,

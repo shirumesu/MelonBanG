@@ -127,6 +127,73 @@ class BangumiSubjects {
   Future<List<Json>> persons(int id) async =>
       objects(await _get('/v0/subjects/$id/persons')).map(_person).toList();
 
+  /// A character's or person's page. Bangumi lists every kind of subject;
+  /// only anime are kept.
+  Future<CreditProfile> credit(int id, {required bool character}) async {
+    final kind = character ? 'characters' : 'persons';
+    final (profile, subjects, parts) = await (
+      _get('/v0/$kind/$id'),
+      _get('/v0/$kind/$id/subjects'),
+      _get(
+        character ? '/v0/characters/$id/persons' : '/v0/persons/$id/characters',
+      ),
+    ).wait;
+    final value = object(profile);
+    final facts = [
+      for (final row in objects(value['infobox']))
+        if ((_text(row['key']), _infoValue(row['value'])) case (
+          final key?,
+          final text?,
+        ))
+          (key: key, value: text),
+    ];
+    // A person lists an anime once per position held in it.
+    final works = <Object?, (Json, List<String>)>{};
+    for (final subject in objects(subjects)) {
+      if (number(subject['type']) != 2) continue;
+      final (_, roles) = works[subject['id']] ??= (subject, []);
+      if (_text(subject['staff']) case final role? when !roles.contains(role)) {
+        roles.add(role);
+      }
+    }
+    final seen = <Object?>{};
+    return CreditProfile(
+      name: _text(value['name']) ?? '',
+      nameCn: facts.where((row) => row.key == '简体中文名').firstOrNull?.value,
+      imageUrl: [
+        object(value['images'])['large'],
+        _image(value['images']),
+      ].map(_text).nonNulls.firstOrNull,
+      summary: _text(value['summary']),
+      facts: facts.where((row) => row.key != '简体中文名').toList(),
+      works: [
+        for (final (subject, roles) in works.values)
+          Subject(
+            id: number(subject['id']).toInt(),
+            name: _text(subject['name']),
+            nameCn: _text(subject['name_cn']),
+            coverUrl: _text(subject['image']),
+            relation: roles.join('、'),
+          ),
+      ],
+      parts: [
+        for (final part in objects(parts))
+          // A character's actor lists once per anime; keep one.
+          if ((character || number(part['subject_type']) == 2) &&
+              seen.add(part['id']))
+            Credit(
+              id: number(part['id']).toInt(),
+              name: _text(part['name']) ?? '',
+              imageUrl: _image(part['images']),
+              role: character
+                  ? null
+                  : _text(part['subject_name_cn']) ??
+                        _text(part['subject_name']),
+            ),
+      ],
+    );
+  }
+
   Json _person(Json person) => {
     'personId': person['id'],
     'name': person['name'],

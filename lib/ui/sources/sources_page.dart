@@ -7,7 +7,6 @@ import '../../domain/sources.dart';
 import '../../features/acquisition/source_registry.dart';
 import '../../features/danmaku/danmaku_controller.dart';
 import '../../features/network/connectivity.dart';
-import '../../integrations/github/app_releases.dart' show releasePage;
 import '../core/action_feedback.dart';
 import '../core/external_link.dart';
 import '../core/motion.dart';
@@ -27,12 +26,16 @@ class SourcesPage extends StatefulWidget {
     required this.connectivity,
     required this.pikpakAccount,
     required this.onPlay,
+    required this.onOpenUpdates,
   });
   final SourceRegistry registry;
   final DanmakuController danmaku;
   final ConnectivityCheck connectivity;
   final Widget pikpakAccount;
   final Future<void> Function(ResolvedStream) onPlay;
+
+  /// Opens the app's update settings.
+  final VoidCallback onOpenUpdates;
   @override
   State<SourcesPage> createState() => _SourcesPageState();
 }
@@ -313,8 +316,8 @@ class _SourcesPageState extends State<SourcesPage> {
                       ),
                     FeedbackIssue(
                       feedback: _engineIssue,
-                      actionLabel: '查看版本',
-                      onRetry: () => openExternal(context, '$releasePage'),
+                      actionLabel: '检查更新',
+                      onRetry: widget.onOpenUpdates,
                     ),
                   ],
                 ),

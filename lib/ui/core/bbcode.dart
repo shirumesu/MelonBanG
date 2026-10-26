@@ -360,17 +360,18 @@ class _Renderer {
 
     final hidden = mask != null && !state._revealed.contains(mask);
     final tap = _recognizer(open);
+    final spans = inline(
+      children,
+      hidden
+          ? style
+          : style.copyWith(
+              color: scheme.primary,
+              decorationColor: scheme.primary,
+            ),
+      mask: mask,
+    );
     return [
-      for (final span in inline(
-        children,
-        hidden
-            ? style
-            : style.copyWith(
-                color: scheme.primary,
-                decorationColor: scheme.primary,
-              ),
-        mask: mask,
-      ))
+      for (final span in spans)
         switch (span) {
           // A link inside a spoiler opens only once the spoiler shows.
           TextSpan(:final text, :final style) when !hidden => TextSpan(
@@ -391,6 +392,29 @@ class _Renderer {
           ),
           _ => span,
         },
+      // Marks a text link as leaving the app; an image link shows its
+      // address on hover instead.
+      if (!hidden && spans.any((span) => span is TextSpan))
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: Tooltip(
+            message: address,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: open,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 2),
+                  child: Icon(
+                    Icons.open_in_new_rounded,
+                    size: (style.fontSize ?? 14) * .85,
+                    color: scheme.primary,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
     ];
   }
 
