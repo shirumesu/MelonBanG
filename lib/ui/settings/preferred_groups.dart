@@ -128,7 +128,7 @@ class _GroupTag extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       height: 32,
-      padding: const EdgeInsets.only(left: 4),
+      padding: const EdgeInsets.only(left: 10),
       decoration: BoxDecoration(
         color: scheme.primaryContainer,
         borderRadius: controlBorderRadius,
@@ -136,12 +136,6 @@ class _GroupTag extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.drag_indicator_rounded,
-            size: 16,
-            color: scheme.onPrimaryContainer.withValues(alpha: .6),
-          ),
-          const SizedBox(width: 4),
           Text(
             '${index + 1}',
             style: TextStyle(
