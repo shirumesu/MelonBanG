@@ -347,6 +347,18 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
   );
 }
 
+/// The place in [preferred] of the first name one of the credited [groups]
+/// holds, by part and ignoring case, so `喵萌` finds 喵萌奶茶屋; null when
+/// none does.
+int? preferredGroupIndex(Iterable<String> groups, List<String> preferred) {
+  final credited = [for (final group in groups) group.toLowerCase()];
+  for (final (index, name) in preferred.indexed) {
+    final wanted = name.toLowerCase();
+    if (credited.any((group) => group.contains(wanted))) return index;
+  }
+  return null;
+}
+
 /// What a title leaves unstated of the selections: each non-empty selection
 /// must overlap its annotations or find none stated. Null when it fails one;
 /// otherwise the names of the selections it states nothing for, so such

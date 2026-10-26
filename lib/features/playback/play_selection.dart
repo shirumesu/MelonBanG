@@ -512,17 +512,9 @@ List<PlayCandidate> rankPlayCandidates(
     PlayKind.pikpak => remembered?.family == 'pikpak' ? torrents - .5 : 3,
   };
   int affinity(PlayCandidate c) => remembered?.affinity(c) ?? 0;
-  // Typed names match credited ones by part, ignoring case: `喵萌` finds
-  // 喵萌奶茶屋.
-  final wanted = [for (final group in groups) group.toLowerCase()];
-  int preference(PlayCandidate c) {
-    if (c.kind == PlayKind.online) return wanted.length;
-    final credited = c.line.toLowerCase().split(' & ');
-    final index = wanted.indexWhere(
-      (group) => credited.any((name) => name.contains(group)),
-    );
-    return index < 0 ? wanted.length : index;
-  }
+  int preference(PlayCandidate c) => c.kind == PlayKind.online
+      ? groups.length
+      : preferredGroupIndex(c.line.split(' & '), groups) ?? groups.length;
 
   final result = candidates.toList();
   final scores = resourceScores(

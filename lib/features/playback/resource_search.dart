@@ -50,15 +50,32 @@ class ResourceSearchState {
 
   /// The source the subject was last played from, which ranks first.
   final RememberedSource? remembered;
+
+  ResourceSearchState withCandidates(List<PlayCandidate> value) =>
+      ResourceSearchState(
+        subject: subject,
+        episode: episode,
+        searched: searched,
+        terms: terms,
+        candidates: value,
+        sources: sources,
+        remembered: remembered,
+      );
 }
 
 /// Searches online sources, torrent indexes and PikPak's index together for
 /// a subject or one of its chapters. Starting a new search or [cancel]
 /// cancels the running one.
 class ResourceSearchController extends ChangeNotifier {
-  ResourceSearchController(this.selection, this.playback);
+  ResourceSearchController(this.selection, this.playback) {
+    playback.settings.addListener(_rerank);
+  }
   final PlaySelectionRepository selection;
   final Playback playback;
+
+  /// Ranks what the current search found; run again when preferences such
+  /// as the preferred groups change.
+  List<PlayCandidate> Function()? _rank;
 
   DownloadRepository get downloads => selection.downloads;
 
@@ -72,12 +89,14 @@ class ResourceSearchController extends ChangeNotifier {
   /// Shows [subject] with no results yet.
   void open(Subject? subject, {Episode? episode}) {
     cancel();
+    _rank = null;
     state = ResourceSearchState(subject: subject, episode: episode);
     notifyListeners();
   }
 
   void restore(ResourceSearchState value) {
     cancel();
+    _rank = null;
     state = value;
     notifyListeners();
   }
@@ -86,6 +105,13 @@ class ResourceSearchController extends ChangeNotifier {
     _cancel.cancel();
     _ticket++;
     busy = false;
+  }
+
+  void _rerank() {
+    if (_rank case final rank?) {
+      state = state.withCandidates(rank());
+      notifyListeners();
+    }
   }
 
   Future<void> search(ResourceTerms terms) async {
@@ -98,7 +124,8 @@ class ResourceSearchController extends ChangeNotifier {
     final searched = keywordEpisode(subject, terms.episodeKeyword, episode);
     var candidates = const <PlayCandidate>[];
     // Ranked only when shown: PikPak reports its lookups one at a time.
-    List<PlayCandidate> Function()? ranked;
+    _rank = null;
+    var stale = false;
     RememberedSource? remembered;
     final progress = <String, SourceProgress>{};
     Timer? pending;
@@ -106,9 +133,9 @@ class ResourceSearchController extends ChangeNotifier {
       pending?.cancel();
       pending = null;
       if (ticket != _ticket) return;
-      if (ranked != null) {
-        candidates = ranked!();
-        ranked = null;
+      if (stale) {
+        candidates = _rank!();
+        stale = false;
       }
       state = ResourceSearchState(
         subject: subject,
@@ -146,7 +173,8 @@ class ResourceSearchController extends ChangeNotifier {
         language: settings.subtitleLanguage,
         useContinuity: playback.session?.subjectId == subject.id,
         onUpdate: (rank) {
-          ranked = rank;
+          _rank = rank;
+          stale = true;
           showSoon();
         },
         onProgress: (value) {
@@ -154,8 +182,15 @@ class ResourceSearchController extends ChangeNotifier {
           showSoon();
         },
       );
-      ranked = null;
+      stale = false;
       show();
+      unawaited(
+        settings.recordGroups([
+          for (final candidate in candidates)
+            if (candidate.kind == PlayKind.bt)
+              ...describeCandidate(candidate).sourceGroups,
+        ]),
+      );
     } on RequestCancelled {
       // A newer search or leaving the page replaced this one.
     } finally {
@@ -202,6 +237,7 @@ class ResourceSearchController extends ChangeNotifier {
   @override
   void dispose() {
     cancel();
+    playback.settings.removeListener(_rerank);
     super.dispose();
   }
 }

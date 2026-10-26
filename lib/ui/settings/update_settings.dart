@@ -10,10 +10,12 @@ import '../../integrations/github/app_releases.dart';
 import '../core/external_link.dart';
 import '../core/selection_controls.dart';
 import '../core/motion.dart';
+import '../core/page_widgets.dart';
 import '../core/theme.dart';
 import 'settings_page.dart';
 
-/// Version, update state and preferences, the license and uninstalling.
+/// The app's card (version, update state, project links), the update
+/// preferences and uninstalling.
 SettingsSection aboutSection({
   required AppUpdate update,
   required VoidCallback onRestart,
@@ -26,10 +28,12 @@ SettingsSection aboutSection({
   groups: [
     SettingsGroup([
       SettingsItem(
-        '版本 更新 检查更新 下载更新 重启',
-        _UpdateStatus(update: update, onRestart: onRestart),
+        '关于 版本 更新 检查更新 下载更新 重启 源代码 github 反馈 问题 更新日志 开源 许可 gpl',
+        _AboutCard(update: update, onRestart: onRestart),
       ),
-      if (update.unavailable == null) ...[
+    ]),
+    if (update.unavailable == null)
+      SettingsGroup([
         SettingsItem(
           '更新渠道 稳定版 测试版 beta alpha 预发布',
           ListenableBuilder(
@@ -71,70 +75,146 @@ SettingsSection aboutSection({
             ),
           ),
         ),
-      ],
-    ], title: '版本'),
-    SettingsGroup([
-      SettingsItem(
-        '开源 许可 gpl 源代码 github',
-        SettingRow(
-          title: '开源许可',
-          subtitle: 'MelonBanG 以 GNU GPL 3.0 许可发布',
-          trailing: Builder(
-            builder: (context) => OutlinedButton.icon(
-              onPressed: () => openExternal(
-                context,
-                'https://github.com/$releaseRepository',
-              ),
-              icon: const Icon(Icons.open_in_new, size: 18),
-              label: const Text('源代码'),
-            ),
-          ),
-        ),
-      ),
-      if (uninstall != null)
+      ], title: '更新'),
+    if (uninstall != null)
+      SettingsGroup([
         SettingsItem(
           '卸载 删除 移除 uninstall 清除数据',
           _UninstallRow(uninstall: uninstall, onUninstall: onUninstall),
         ),
-    ], title: '关于'),
+      ], title: '卸载'),
   ],
 );
 
-class _UpdateStatus extends StatelessWidget {
-  const _UpdateStatus({required this.update, required this.onRestart});
+/// The mark, wordmark and version with the update state and its action,
+/// over links to the project.
+class _AboutCard extends StatelessWidget {
+  const _AboutCard({required this.update, required this.onRestart});
   final AppUpdate update;
   final VoidCallback onRestart;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: update,
-    builder: (context, _) => Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SettingRow(
-          title: AppUpdate.version.isEmpty
-              ? 'MelonBanG 开发版本'
-              : 'MelonBanG ${AppUpdate.version}',
-          subtitle: _status(),
-          subtitleColor: update.phase == UpdatePhase.failed ? coral : null,
-          trailing: _action(context),
-        ),
-        if (update.phase == UpdatePhase.downloading)
+    builder: (context, _) {
+      final small = Theme.of(context).textTheme.bodySmall;
+      const version = AppUpdate.version;
+      Widget link(String label, IconData icon, VoidCallback onPressed) =>
+          TextButton.icon(
+            onPressed: onPressed,
+            icon: Icon(icon, size: 16),
+            label: Text(label),
+          );
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, Gap.lg),
-            child: LinearProgressIndicator(value: update.progress),
+            padding: const EdgeInsets.all(Gap.xl),
+            child: Row(
+              children: [
+                Image.asset('assets/images/mark.png', width: 72, height: 72),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Image.asset(
+                        'assets/images/logotype.png',
+                        width: 160,
+                        semanticLabel: 'MelonBanG',
+                      ),
+                      const SizedBox(height: Gap.sm),
+                      Wrap(
+                        spacing: Gap.sm,
+                        runSpacing: Gap.xs,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            version.isEmpty ? '开发版本' : version,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontFeatures: [FontFeature.tabularFigures()],
+                            ),
+                          ),
+                          if (SemanticVersion.tryParse(version)?.prerelease ??
+                              false)
+                            const MelonBadge('测试版', color: coral),
+                          Text(
+                            _status(),
+                            style: small?.copyWith(
+                              color: update.phase == UpdatePhase.failed
+                                  ? coral
+                                  : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Gap.lg),
+                _action(context),
+              ],
+            ),
           ),
-        if (update.release case final release?
-            when release.notes.isNotEmpty &&
-                update.phase != UpdatePhase.idle) ...[
+          if (update.phase == UpdatePhase.downloading)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, Gap.lg),
+              child: LinearProgressIndicator(value: update.progress),
+            ),
+          if (update.release case final release?
+              when release.notes.isNotEmpty &&
+                  update.phase != UpdatePhase.idle) ...[
+            const Divider(height: 1, indent: 20, endIndent: 20),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: _ReleaseNotes(release.notes),
+            ),
+          ],
           const Divider(height: 1, indent: 20, endIndent: 20),
           Padding(
-            padding: const EdgeInsets.all(20),
-            child: _ReleaseNotes(release.notes),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Wrap(
+              spacing: Gap.xs,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                link(
+                  '源代码',
+                  Icons.code_rounded,
+                  () => openExternal(
+                    context,
+                    'https://github.com/$releaseRepository',
+                  ),
+                ),
+                link(
+                  '反馈问题',
+                  Icons.chat_bubble_outline_rounded,
+                  () => openExternal(
+                    context,
+                    'https://github.com/$releaseRepository/issues',
+                  ),
+                ),
+                link(
+                  '更新日志',
+                  Icons.article_outlined,
+                  () => openExternal(context, '$releasePage'),
+                ),
+                link(
+                  '开源许可',
+                  Icons.verified_user_outlined,
+                  () => showLicensePage(
+                    context: context,
+                    applicationName: 'MelonBanG',
+                    applicationVersion: version.isEmpty ? '开发版本' : version,
+                    applicationLegalese: 'MelonBanG 以 GNU GPL 3.0 许可发布',
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
-      ],
-    ),
+      );
+    },
   );
 
   String _status() {

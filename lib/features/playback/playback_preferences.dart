@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -16,16 +18,44 @@ class PlaybackPreferences extends ChangeNotifier {
   String get completedPriority =>
       storage.getString('player-completed-priority') ?? 'online';
 
-  /// Release groups as typed, most preferred first.
-  String get preferredGroupsText =>
-      storage.getString('player-preferred-groups') ?? '';
-
-  /// [preferredGroupsText] split at commas, semicolons and 、, half or full
-  /// width; names themselves may hold spaces (`Nekomoe kissaten`).
+  /// Release groups whose releases rank first, most preferred first. Kept
+  /// as text split at commas, semicolons and 、, half or full width, as it
+  /// was once typed; names themselves may hold spaces (`Nekomoe kissaten`).
   List<String> get preferredGroups => [
-    for (final name in preferredGroupsText.split(RegExp('[,，;；、]')))
+    for (final name
+        in (storage.getString('player-preferred-groups') ?? '').split(
+          RegExp('[,，;；、]'),
+        ))
       if (name.trim().isNotEmpty) name.trim(),
   ];
+
+  /// Torrents credited only to other groups are left out of resource lists.
+  bool get onlyPreferredGroups =>
+      storage.getBool('player-only-preferred-groups') ?? false;
+
+  /// Release groups resource searches have found, with how many releases,
+  /// suggested when adding a preferred group.
+  Map<String, int> get seenGroups => {
+    for (final MapEntry(:key, :value) in (jsonDecode(
+      storage.getString('resource-seen-groups') ?? '{}',
+    ) as Map<String, dynamic>).entries)
+      key: value as int,
+  };
+
+  /// Counts the groups credited on a search's releases, keeping the 300 seen
+  /// most.
+  Future<void> recordGroups(Iterable<String> groups) async {
+    final counts = seenGroups;
+    for (final group in groups) {
+      counts[group] = (counts[group] ?? 0) + 1;
+    }
+    final kept = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    await storage.setString(
+      'resource-seen-groups',
+      jsonEncode(Map.fromEntries(kept.take(300))),
+    );
+  }
 
   /// mpv `hwdec`: `auto`, `auto-copy` (decoded frames copied back to memory,
   /// for drivers whose direct output misbehaves) or `no`.
@@ -81,8 +111,10 @@ class PlaybackPreferences extends ChangeNotifier {
       _string('player-airing-priority', value);
   Future<void> setCompletedPriority(String value) =>
       _string('player-completed-priority', value);
-  Future<void> setPreferredGroups(String value) =>
-      _string('player-preferred-groups', value);
+  Future<void> setPreferredGroups(List<String> value) =>
+      _string('player-preferred-groups', value.join(', '));
+  Future<void> setOnlyPreferredGroups(bool value) =>
+      _bool('player-only-preferred-groups', value);
   Future<void> _string(String key, String value) async {
     await storage.setString(key, value);
     notifyListeners();

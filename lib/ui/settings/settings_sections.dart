@@ -9,6 +9,7 @@ import '../core/action_feedback.dart';
 import '../core/motion.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
+import 'preferred_groups.dart';
 import 'settings_page.dart';
 
 /// Rebuilds [builder] when [listenable] changes.
@@ -366,6 +367,7 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
 SettingsSection sourcesSection(
   PlaybackPreferences prefs, {
   required Future<void> Function() onForgetSources,
+  required Iterable<String> Function() cachedGroups,
 }) {
   return SettingsSection(
     id: 'sources',
@@ -388,7 +390,22 @@ SettingsSection sourcesSection(
               ),
             ),
           ),
-        SettingsItem('字幕组 偏好 优先 喜欢 bt 发布组', _PreferredGroups(prefs: prefs)),
+        SettingsItem(
+          '字幕组 偏好 优先 喜欢 bt 发布组',
+          PreferredGroupsSetting(prefs: prefs, cachedGroups: cachedGroups),
+        ),
+        SettingsItem(
+          '只显示 偏好 字幕组 隐藏 其他',
+          _watch(
+            prefs,
+            (context) => SettingSwitch(
+              title: '只显示偏好字幕组',
+              subtitle: '资源列表里 BT 和 PikPak 只列出偏好字幕组的发布；没写明字幕组的和在线资源照常显示',
+              value: prefs.onlyPreferredGroups,
+              onChanged: prefs.setOnlyPreferredGroups,
+            ),
+          ),
+        ),
       ], title: '来源优先级'),
       SettingsGroup([
         SettingsItem(
@@ -424,39 +441,6 @@ SettingsSection sourcesSection(
         ),
       ], title: '记忆与缓存'),
     ],
-  );
-}
-
-class _PreferredGroups extends StatefulWidget {
-  const _PreferredGroups({required this.prefs});
-  final PlaybackPreferences prefs;
-  @override
-  State<_PreferredGroups> createState() => _PreferredGroupsState();
-}
-
-class _PreferredGroupsState extends State<_PreferredGroups> {
-  late final input = TextEditingController(
-    text: widget.prefs.preferredGroupsText,
-  );
-
-  @override
-  void dispose() {
-    input.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => SettingRow(
-    title: '字幕组偏好',
-    subtitle: '用逗号或分号隔开，越靠前越优先；BT 和 PikPak 资源中这些字幕组的发布排在前面并优先推荐',
-    trailing: SizedBox(
-      width: 300,
-      child: TextField(
-        controller: input,
-        decoration: const InputDecoration(hintText: '喵萌奶茶屋, LoliHouse, 桜都字幕组'),
-        onChanged: widget.prefs.setPreferredGroups,
-      ),
-    ),
   );
 }
 
