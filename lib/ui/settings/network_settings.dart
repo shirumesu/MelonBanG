@@ -29,7 +29,8 @@ SettingsSection networkSection({
                 subtitle: proxy.describe(),
                 help:
                     '作用于 Bangumi、资源站、弹幕、PikPak、更新和在线播放\n'
-                    'BT 下载与做种不走代理\n'
+                    'BT 下载与做种不走这里的代理\n'
+                    'TUN 模式会接管所有流量，BT 没速度时给 MelonBanG 加直连规则\n'
                     '系统代理只读手动设置的地址，不支持 PAC',
                 trailing: MelonChoiceMenu<ProxyMode>(
                   options: {

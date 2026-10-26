@@ -448,12 +448,7 @@ class AppSidebar extends StatelessWidget {
     // One highlight glides between entries instead of each lighting up.
     child: MotionSelection<String>(
       selected: _selected,
-      highlight: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: controlBorderRadius,
-          gradient: accentOf(context).navigation,
-        ),
-      ),
+      highlight: sidebarHighlight(context),
       builder: (context, keyOf) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -572,40 +567,74 @@ class AppSidebar extends StatelessWidget {
     final accent = accentOf(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: Gap.xs),
-      child: Material(
+      child: SidebarTile(
         key: keyOf(target),
-        type: MaterialType.transparency,
-        child: ListTile(
-          dense: true,
-          selected: selected,
-          selectedColor: accent.onNavigation,
-          iconColor: Theme.of(context).colorScheme.onSurfaceVariant,
-          titleTextStyle: Theme.of(context).textTheme.titleSmall,
-          selectedTileColor: Colors.transparent,
-          shape: const RoundedRectangleBorder(
-            borderRadius: controlBorderRadius,
-          ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-          leading: Icon(icon, size: 20),
-          title: Text(label),
-          trailing: count == null
-              ? null
-              : MotionSwap(
-                  value: count,
-                  scale: .6,
-                  child: AnimatedDefaultTextStyle(
-                    duration: motionDuration(context, 200),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: selected ? accent.onNavigation : accent.accent,
-                      fontWeight: FontWeight.w800,
-                    ),
-                    child: Text(count),
+        label: label,
+        icon: icon,
+        selected: selected,
+        onTap: () => onNavigate(target),
+        trailing: count == null
+            ? null
+            : MotionSwap(
+                value: count,
+                scale: .6,
+                child: AnimatedDefaultTextStyle(
+                  duration: motionDuration(context, 200),
+                  style: appFont.copyWith(
+                    fontSize: 11,
+                    color: selected ? accent.onNavigation : accent.accent,
+                    fontWeight: FontWeight.w800,
                   ),
+                  child: Text(count),
                 ),
-          onTap: () => onNavigate(target),
-        ),
+              ),
       ),
     );
   }
+}
+
+/// The highlight a [MotionSelection] glides under the selected
+/// [SidebarTile].
+Widget sidebarHighlight(BuildContext context) => DecoratedBox(
+  decoration: BoxDecoration(
+    borderRadius: controlBorderRadius,
+    gradient: accentOf(context).navigation,
+  ),
+);
+
+/// An entry of the main sidebar or the settings contents column, drawn over
+/// a [sidebarHighlight] when selected.
+class SidebarTile extends StatelessWidget {
+  const SidebarTile({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+    this.trailing,
+  });
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    type: MaterialType.transparency,
+    child: ListTile(
+      dense: true,
+      selected: selected,
+      selectedColor: accentOf(context).onNavigation,
+      iconColor: Theme.of(context).colorScheme.onSurfaceVariant,
+      titleTextStyle: Theme.of(context).textTheme.titleSmall,
+      selectedTileColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      leading: Icon(icon, size: 20),
+      title: Text(label),
+      trailing: trailing,
+      onTap: onTap,
+    ),
+  );
 }
