@@ -1,0 +1,4 @@
+{
+  global: lt_*;
+  local: *;
+};

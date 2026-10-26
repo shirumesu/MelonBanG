@@ -27,14 +27,13 @@ The local libtorrent_flutter override includes its license and recovery patch in
 `vendor/libtorrent_flutter/PATCHES.md`. Windows CMake pins the native vcpkg registry
 and builds the patched bridge from source. `scripts/build.ps1` copies native
 dependency copyright files into the Release directory's `licenses` folder.
-The macOS Dart build hook compiles the same patched bridge with pinned libtorrent
-2.1.2 and OpenSSL 3.6.5 sources, linking both statically into one bundled library.
-Homebrew supplies build tools and Boost headers, not runtime libraries.
-Native license notices are retained in `vendor/libtorrent_flutter/macos/licenses`
-and included in Flutter's license bundle.
+On macOS and Linux the Dart build hook compiles the same patched bridge with pinned
+libtorrent 2.1.2 and OpenSSL 3.6.5 sources, linking both statically into one bundled
+library; Boost is used for its headers only (Homebrew's on macOS, pinned Boost 1.92.0
+on Linux). No runtime library comes from Homebrew. Native license notices are retained in
+`vendor/libtorrent_flutter/licenses` and included in Flutter's license bundle.
 See [OpenSSL's license](https://www.openssl.org/source/license.html) and
-[Boost's license](https://www.boost.org/users/license.html). The local macOS build
-is intended for development; distribution needs a native-license packaging review.
+[Boost's license](https://www.boost.org/users/license.html).
 
 ## PikPak protocol reference
 

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=MelonBanG
+Comment=Bangumi 追番客户端
+Exec=melonbang
+Icon=melonbang
+Terminal=false
+Categories=AudioVideo;Video;Player;
+StartupWMClass=org.melonbang.melonbang

@@ -358,11 +358,12 @@ class PlayerControls extends StatelessWidget {
     mainAxisSize: MainAxisSize.min,
     children: [
       PlaybackMenu(playback: playback, onPopupChanged: onPopupChanged),
-      SuperResolutionMenu(
-        playback: playback,
-        onPopupChanged: onPopupChanged,
-        compact: compact,
-      ),
+      if (Playback.superResolutionAvailable)
+        SuperResolutionMenu(
+          playback: playback,
+          onPopupChanged: onPopupChanged,
+          compact: compact,
+        ),
       SpeedMenu(
         player: player,
         onPopupChanged: onPopupChanged,

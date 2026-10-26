@@ -140,10 +140,10 @@ class AppServices {
     _dispose.add(cache.close);
     await cache.initialize();
     final credentialFolder = p.join(dataDirectory!, 'credentials');
-    // On macOS the keychain entry outlives a moved data folder.
+    // A keyring entry (macOS, Linux) outlives a moved data folder.
     final credentialIdentity = storage?.credentialIdentity ?? credentialFolder;
     credentials = platformCredentials(
-      Platform.isMacOS ? credentialIdentity : credentialFolder,
+      Platform.isWindows ? credentialFolder : credentialIdentity,
     );
     account = AccountRepository(
       api,
@@ -213,7 +213,7 @@ class AppServices {
     uninstall = AppUninstall(
       dataFolders: folders,
       keychainService: Platform.isMacOS
-          ? MacOSCredentials.serviceFor(credentialIdentity)
+          ? KeyringCredentials.serviceFor(credentialIdentity)
           : null,
     );
     releases = ReleaseSearch(api, sources, downloads);

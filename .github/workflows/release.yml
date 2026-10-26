@@ -1,9 +1,9 @@
 name: Release
 
 # A pushed v* tag builds the release files for every platform and opens a
-# draft GitHub release; publishing that draft makes it visible to the in-app
-# updater. A manual run builds the same files as workflow artifacts without
-# releasing.
+# draft GitHub release whose notes are CHANGELOG.md; publishing that draft
+# makes it visible to the in-app updater. A manual run builds the same files
+# as workflow artifacts without releasing.
 on:
   push:
     tags: ['v*']
@@ -108,11 +108,58 @@ jobs:
           compression-level: 0
           if-no-files-found: error
 
+  linux:
+    # The AppImage runs on distributions whose glibc is at least this one's.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.5'
+          cache: true
+      - name: Check tag and version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(sed -nE 's/^version:[[:space:]]*([^+[:space:]]+).*/\1/p' pubspec.yaml)
+          if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match pubspec version $version." >&2
+            exit 1
+          fi
+      # The torrent bridge's build hook compiles OpenSSL and libtorrent.
+      - name: Install build packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang ninja-build pkg-config libgtk-3-dev \
+            libmpv-dev libsecret-1-dev patchelf jq
+      - name: Package
+        env:
+          MELONBANG_SERVICES_JSON: ${{ secrets.MELONBANG_SERVICES_JSON }}
+        run: |
+          if [[ -z "${MELONBANG_SERVICES_JSON//[[:space:]]/}" ]]; then
+            echo 'Set the MELONBANG_SERVICES_JSON repository secret.' >&2
+            exit 1
+          fi
+          configuration="$RUNNER_TEMP/melonbang-services.json"
+          trap 'rm -f "$configuration"' EXIT
+          printf '%s' "$MELONBANG_SERVICES_JSON" > "$configuration"
+          scripts/package-linux.sh -c "$configuration"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: melonbang-linux-x64
+          path: dist/*
+          compression-level: 0
+          if-no-files-found: error
+
   release:
     if: github.ref_type == 'tag'
-    needs: [windows, macos]
+    needs: [windows, macos, linux]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
           path: parts
@@ -134,12 +181,18 @@ jobs:
           trap 'rm -f "$key"' EXIT
           printf '%s' "$MELONBANG_UPDATE_SIGNING_KEY" > "$key"
           openssl dgst -sha256 -sign "$key" -out dist/manifest.json.sig dist/manifest.json
+      # CHANGELOG.md is rewritten for every release; its heading names the
+      # version and the rest becomes the release notes.
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
-          NOTES: |
-            **macOS**：没有 Apple 开发者签名。把 MelonBanG 拖进“应用程序”后，第一次打开会提示无法打开，请到“系统设置 → 隐私与安全性”点“仍要打开”，或在终端运行 `xattr -dr com.apple.quarantine /Applications/MelonBanG.app`。每次更新后首次读取 Bangumi 或 PikPak 登录信息时，系统会请求访问钥匙串，选择“始终允许”即可。
         run: |
-          options=(--draft --generate-notes --notes "$NOTES" --title "MelonBanG ${GITHUB_REF_NAME#v}")
+          heading=$(head -n 1 CHANGELOG.md)
+          if [[ "$heading" != "# MelonBanG ${GITHUB_REF_NAME#v}" ]]; then
+            echo "CHANGELOG.md is for ${heading#\# }, not ${GITHUB_REF_NAME#v}." >&2
+            exit 1
+          fi
+          tail -n +2 CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          options=(--draft --notes-file "$RUNNER_TEMP/notes.md" --title "MelonBanG ${GITHUB_REF_NAME#v}")
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then options+=(--prerelease); fi
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" "${options[@]}"

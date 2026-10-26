@@ -327,17 +327,18 @@ String readCharArray(Array<Char> arr, int maxLen) {
 }
 
 // ─── Cross-platform library resolution ──────────────────────────────────────
+/// Where the build hook's bundled library was loaded from (macOS, Linux).
 @Native<Pointer<Utf8> Function()>(symbol: 'lt_library_path')
-external Pointer<Utf8> _macosLibraryPath();
+external Pointer<Utf8> _bundledLibraryPath();
 
 DynamicLibrary _openNativeLib() {
   const libName = 'libtorrent_flutter';
   if (Platform.isWindows) {
     return DynamicLibrary.open('$libName.dll');
-  } else if (Platform.isAndroid || Platform.isLinux) {
+  } else if (Platform.isAndroid) {
     return DynamicLibrary.open('lib$libName.so');
-  } else if (Platform.isMacOS) {
-    return DynamicLibrary.open(_macosLibraryPath().toDartString());
+  } else if (Platform.isMacOS || Platform.isLinux) {
+    return DynamicLibrary.open(_bundledLibraryPath().toDartString());
   } else if (Platform.isIOS) {
     return DynamicLibrary.process();
   }

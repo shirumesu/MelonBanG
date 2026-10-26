@@ -23,12 +23,13 @@ class SystemProxy {
 
 /// Reads appearance and network settings of the operating system: macOS
 /// through the runner's `org.melonbang/system` channel, Windows from the
-/// current user's registry.
+/// current user's registry, Linux from GNOME settings and the environment.
 abstract final class SystemSettings {
   static const _channel = MethodChannel('org.melonbang/system');
 
   /// The system accent colour, or null when it cannot be read.
   static Future<Color?> accentColor() async {
+    if (Platform.isLinux) return null;
     if (Platform.isMacOS) {
       final value = await _channel.invokeMethod<int>('accentColor');
       return value == null ? null : Color(value);
@@ -51,6 +52,7 @@ abstract final class SystemSettings {
   /// scripts (PAC) are not evaluated.
   static Future<SystemProxy> proxy() async {
     if (Platform.isWindows) return _windowsProxy();
+    if (Platform.isLinux) return _linuxProxy();
     final value = await _channel.invokeMapMethod<String, Object?>('proxy');
     if (value == null) return const SystemProxy();
     return SystemProxy(
@@ -58,6 +60,69 @@ abstract final class SystemSettings {
       https: value['https'] as String?,
       exceptions: [
         for (final item in value['exceptions'] as List? ?? const []) '$item',
+      ],
+    );
+  }
+
+  /// GNOME's manual proxy, or else the `http_proxy` family of variables the
+  /// app was started with.
+  static Future<SystemProxy> _linuxProxy() async {
+    final gnome = <String, String>{};
+    try {
+      final result = await Process.run('gsettings', [
+        'list-recursively',
+        'org.gnome.system.proxy',
+      ]);
+      // "org.gnome.system.proxy.http host '127.0.0.1'"
+      final line = RegExp(
+        r"^org\.gnome\.system\.proxy(?:\.(\w+))? (\S+) '?(.*?)'?$",
+      );
+      for (final text in '${result.stdout}'.split('\n')) {
+        if (line.firstMatch(text.trim()) case final match?) {
+          gnome[[?match[1], match[2]].join('.')] = match[3]!;
+        }
+      }
+    } on ProcessException {
+      // A desktop without GNOME settings.
+    }
+    if (gnome['mode'] == 'manual') {
+      String? server(String scheme) {
+        final host = gnome['$scheme.host'] ?? '';
+        final port = gnome['$scheme.port'] ?? '0';
+        return host.isEmpty || port == '0' ? null : '$host:$port';
+      }
+
+      return SystemProxy(
+        http: server('http'),
+        https: server('https'),
+        // "['localhost', '127.0.0.0/8', '::1']"
+        exceptions: [
+          for (final match in RegExp(
+            "'([^']+)'",
+          ).allMatches(gnome['ignore-hosts'] ?? ''))
+            match[1]!,
+        ],
+      );
+    }
+    final environment = Platform.environment;
+    String? variable(String name) =>
+        environment[name] ?? environment[name.toUpperCase()];
+    String? server(String name) {
+      final value = variable(name)?.trim() ?? '';
+      final uri = Uri.tryParse(value.contains('://') ? value : 'http://$value');
+      return uri == null || uri.host.isEmpty || !uri.hasPort
+          ? null
+          : '${uri.host}:${uri.port}';
+    }
+
+    return SystemProxy(
+      http: server('http_proxy'),
+      https: server('https_proxy'),
+      exceptions: [
+        for (final rule in (variable('no_proxy') ?? '').split(','))
+          if (rule.trim().replaceFirst(RegExp(r'^\.'), '') case final host
+              when host.isNotEmpty)
+            host,
       ],
     );
   }

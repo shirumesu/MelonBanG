@@ -4,12 +4,12 @@
 
 <h3>追番？轻而易举！一个桌面应用全搞定!</h3>
 
-<sub>基于 [Bangumi][bangumi] 的 Windows / macOS 原生追番客户端</sub>
+<sub>基于 [Bangumi][bangumi] 的 Windows / macOS / Linux 原生追番客户端</sub>
 
 <p>
   <a href="https://github.com/shirumesu/MelonBanG/releases"><img alt="版本" src="https://img.shields.io/github/v/release/shirumesu/MelonBanG?include_prereleases&label=%E7%89%88%E6%9C%AC&color=22B388"></a>
   <a href="https://github.com/shirumesu/MelonBanG/releases"><img alt="下载量" src="https://img.shields.io/github/downloads/shirumesu/MelonBanG/total?label=%E4%B8%8B%E8%BD%BD&color=FF6B81"></a>
-  <img alt="平台" src="https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%20%7C%20macOS-0F5C46">
+  <img alt="平台" src="https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%20%7C%20macOS%20%7C%20Linux-0F5C46">
   <a href="LICENSE"><img alt="许可证" src="https://img.shields.io/github/license/shirumesu/MelonBanG?label=%E8%AE%B8%E5%8F%AF%E8%AF%81&color=0F5C46"></a>
   <img alt="Flutter" src="https://img.shields.io/badge/Flutter-02569B?logo=flutter&logoColor=white">
 </p>
@@ -54,12 +54,19 @@
 
 ## 下载
 
-前往 [Releases](https://github.com/shirumesu/MelonBanG/releases) 下载最新版本，应用内会自动检查更新。
+<p align="center">
+  <a href="CHANGELOG.md#下载安装"><b>⬇ 下载最新版本</b></a> &nbsp;｜&nbsp;
+  <a href="CHANGELOG.md">更新日志</a> &nbsp;｜&nbsp;
+  <a href="https://github.com/shirumesu/MelonBanG/releases">全部版本</a>
+</p>
 
-| 平台 | 要求 | 文件 |
+[更新日志](CHANGELOG.md) 里有当前版本每个平台安装包的直接下载链接。装好以后应用会自己检查更新，在后台下载，重启即完成。
+
+| 平台 | 要求 | 安装包 |
 | --- | --- | --- |
-| Windows | Windows 10 / 11，x64 | `MelonBanG-<版本>-windows-x64-setup.exe`（安装版）<br>`MelonBanG-<版本>-windows-x64.zip`（便携版） |
-| macOS | macOS 13 及以上，Apple 芯片 | `MelonBanG-<版本>-macos-arm64.dmg` |
+| Windows | Windows 10 / 11，x64 | 安装版 `setup.exe`、便携版 `zip` |
+| macOS | macOS 13 及以上，Apple 芯片 | `dmg` |
+| Linux | x64，glibc 2.35 及以上 | `AppImage` |
 
 > [!NOTE]
 > 目前处于早期阶段，可能会遇到各种问题，欢迎在 [Issues](https://github.com/shirumesu/MelonBanG/issues) 反馈。
@@ -107,7 +114,8 @@ MelonBanG 本身不存储、不提供任何视频。资源来自公开的 BT 网
 增加一条直连规则即可，以 Clash 为例：
 
 ```yaml
-- PROCESS-NAME,melonbang.exe,DIRECT
+- PROCESS-NAME,melonbang.exe,DIRECT   # Windows
+- PROCESS-NAME,melonbang,DIRECT       # macOS、Linux
 ```
 
 如果问题无法改善，请考虑更快速的 Pikpak 方式或者播放/缓存在线源。
@@ -117,20 +125,24 @@ MelonBanG 本身不存储、不提供任何视频。资源来自公开的 BT 网
 <details>
 <summary><b>怎么卸载？</b></summary>
 
-在 **设置 → 更新与关于** 里卸载，可以选择是否保留数据和缓存。
+Windows 和 macOS 在 **设置 → 更新与关于** 里卸载，可以选择是否保留数据和缓存；Linux 的 AppImage 直接删除文件即可。
 
 </details>
 
 ## 从源码构建
 
-需要 Flutter 稳定版。Windows 需要 Visual Studio C++ 桌面开发组件，macOS 需要 Xcode 和 Homebrew。
+需要 Flutter 稳定版。Windows 需要 Visual Studio C++ 桌面开发组件，macOS 需要 Xcode 和 Homebrew，Linux 需要 CMake 3.24 以上和以下开发包（以 Ubuntu 为例）：
+
+```sh
+sudo apt install clang ninja-build pkg-config libgtk-3-dev libmpv-dev libsecret-1-dev
+```
 
 ```sh
 git clone https://github.com/shirumesu/MelonBanG.git
 cd MelonBanG
 cp .env.service.example.json .env.service.json   # 可留空，留空时 Bangumi 登录和弹弹play 弹幕不可用
 flutter pub get
-flutter run -d windows   # 或 -d macos
+flutter run -d windows   # 或 -d macos、-d linux
 ```
 
 ## 致谢与许可
@@ -143,6 +155,21 @@ flutter run -d windows   # 或 -d macos
 本项目以 [GPL-3.0](LICENSE) 开源，第三方许可证见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
 <sub>本项目仅供学习交流，使用者需遵守所在地的法律法规。MelonBanG 不对通过它获取的任何内容负责，也不收集任何使用数据。</sub>
+
+## Star History
+
+<a href="https://star-history.com/#shirumesu/MelonBanG&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=shirumesu/MelonBanG&type=Date&theme=dark">
+    <img alt="Star History" src="https://api.star-history.com/svg?repos=shirumesu/MelonBanG&type=Date" width="600">
+  </picture>
+</a>
+
+## 贡献者
+
+<a href="https://github.com/shirumesu/MelonBanG/graphs/contributors">
+  <img alt="贡献者" src="https://contrib.rocks/image?repo=shirumesu/MelonBanG">
+</a>
 
 
 [bangumi]: https://bgm.tv

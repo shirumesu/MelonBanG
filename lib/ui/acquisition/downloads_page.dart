@@ -742,7 +742,13 @@ class _DownloadsPageState extends State<DownloadsPage> {
             TextButton.icon(
               onPressed: () => _perform(() => widget.downloads.reveal(task)),
               icon: const Icon(Icons.folder_open_outlined, size: 17),
-              label: Text(Platform.isMacOS ? '在访达中显示' : '在资源管理器中显示'),
+              label: Text(
+                Platform.isMacOS
+                    ? '在访达中显示'
+                    : Platform.isWindows
+                    ? '在资源管理器中显示'
+                    : '在文件管理器中显示',
+              ),
             ),
           TextButton.icon(
             onPressed: () => _remove(task),

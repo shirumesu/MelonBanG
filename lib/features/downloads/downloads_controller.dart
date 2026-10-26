@@ -85,6 +85,23 @@ class DownloadsController {
   static Future<void> _show(String path, {bool select = false}) async {
     if (Platform.isMacOS) {
       await Process.run('open', [if (select) '-R', path]);
+    } else if (Platform.isLinux) {
+      // Nautilus, Dolphin and Nemo select a file through this interface.
+      if (select) {
+        final shown = await Process.run('gdbus', [
+          'call',
+          '--session',
+          '--dest=org.freedesktop.FileManager1',
+          '--object-path=/org/freedesktop/FileManager1',
+          '--method=org.freedesktop.FileManager1.ShowItems',
+          "['${Uri.file(path)}']",
+          '',
+        ]);
+        if (shown.exitCode == 0) return;
+      }
+      await Process.start('xdg-open', [
+        select ? p.dirname(path) : path,
+      ], mode: ProcessStartMode.detached);
     } else {
       // Explorer exits with 1 even when it opened the window.
       await Process.start('explorer.exe', [

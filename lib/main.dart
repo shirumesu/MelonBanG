@@ -37,7 +37,7 @@ Future<void> main() async {
   final proxy = NetworkProxy(preferences);
   await proxy.initialize();
   final configuration = await ServiceConfiguration.load();
-  MediaKit.ensureInitialized();
+  MediaKit.ensureInitialized(libmpv: Platform.isLinux ? _linkedLibmpv() : null);
   await windowManager.ensureInitialized();
   await windowManager.waitUntilReadyToShow(
     const WindowOptions(
@@ -63,4 +63,15 @@ Future<void> main() async {
       preferences: preferences,
     ),
   );
+}
+
+/// The libmpv the video plugin links, already loaded. media_kit would
+/// otherwise open `libmpv.so`, which can be the system's copy beside the
+/// AppImage's, and mpv aborts when handles cross the two.
+String? _linkedLibmpv() {
+  final library = RegExp(r'\s(/\S*/libmpv\.so[.\d]*)$');
+  for (final line in File('/proc/self/maps').readAsLinesSync()) {
+    if (library.firstMatch(line) case final match?) return match[1];
+  }
+  return null;
 }

@@ -36,7 +36,7 @@ class Playback extends ChangeNotifier {
     _hwdec = settings.hardwareDecoding;
     video = VideoController(
       player,
-      configuration: VideoControllerConfiguration(hwdec: _hwdec),
+      configuration: VideoControllerConfiguration(hwdec: _mpvHwdec(_hwdec)),
     );
     unawaited(_applyShaders());
     _subscriptions.add(
@@ -163,6 +163,13 @@ class Playback extends ChangeNotifier {
   /// mpv's `http-proxy` for the file being opened.
   String? _httpProxy;
   late String _hwdec;
+
+  /// media_kit draws Linux video in software, so decoded frames come back to
+  /// memory anyway. `auto` would first try Vulkan decoding, whose failure
+  /// mpv reports as an error before it falls back; `auto-safe` keeps to
+  /// VA-API and NVDEC.
+  static String _mpvHwdec(String setting) =>
+      Platform.isLinux && setting == 'auto' ? 'auto-safe' : setting;
   String _shaders = 'off';
 
   /// The player's size in physical pixels, for super-resolution output.
@@ -436,7 +443,7 @@ class Playback extends ChangeNotifier {
     final platform = player.platform;
     if (settings.hardwareDecoding != _hwdec && platform is NativePlayer) {
       _hwdec = settings.hardwareDecoding;
-      unawaited(platform.setProperty('hwdec', _hwdec));
+      unawaited(platform.setProperty('hwdec', _mpvHwdec(_hwdec)));
     }
     if (settings.superResolution != _shaders) unawaited(_applyShaders());
     notifyListeners();
@@ -492,10 +499,19 @@ class Playback extends ChangeNotifier {
 
   /// Loads the chosen super-resolution shaders, which mpv applies to the
   /// current file at once.
+  /// Anime4K runs as GLSL shaders in mpv's GPU renderer. media_kit falls
+  /// back to software rendering on Linux with current Flutter, where the
+  /// shaders do nothing (media-kit/media-kit#1404).
+  static final superResolutionAvailable = !Platform.isLinux;
+
   Future<void> _applyShaders() async {
     final mode = settings.superResolution;
     final platform = player.platform;
-    if (platform is! NativePlayer || mode == _shaders) return;
+    if (!superResolutionAvailable ||
+        platform is! NativePlayer ||
+        mode == _shaders) {
+      return;
+    }
     _shaders = mode;
     _dropSeconds.clear();
     try {

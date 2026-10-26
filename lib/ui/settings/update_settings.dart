@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../features/update/app_update.dart';
@@ -109,10 +112,7 @@ class _UpdateStatus extends StatelessWidget {
           const Divider(height: 1, indent: 20, endIndent: 20),
           Padding(
             padding: const EdgeInsets.all(20),
-            child: SelectableText(
-              release.notes,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            child: _ReleaseNotes(release.notes),
           ),
         ],
       ],
@@ -169,6 +169,52 @@ class _UpdateStatus extends StatelessWidget {
   }
 }
 
+/// The release's CHANGELOG.md up to its download table, which is of no use
+/// to an app that updates itself: `##` headings, `-` items and paragraphs,
+/// with links and emphasis reduced to their text.
+class _ReleaseNotes extends StatelessWidget {
+  const _ReleaseNotes(this.notes);
+  final String notes;
+
+  static String _plain(String text) => text
+      .replaceAllMapped(RegExp(r'\[([^\]]*)\]\([^)]*\)'), (m) => m[1]!)
+      .replaceAll(RegExp(r'\*\*|`'), '');
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final lines = notes.split('## 下载安装').first.split('\n');
+    return SelectionArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final raw in lines)
+            if (raw.trim() case final line
+                when line.isNotEmpty && !line.startsWith('> [!'))
+              if (line.startsWith('## '))
+                Padding(
+                  padding: const EdgeInsets.only(top: Gap.md, bottom: Gap.xs),
+                  child: Text(line.substring(3), style: text.titleSmall),
+                )
+              else if (line.startsWith('- '))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text(
+                    '•  ${_plain(line.substring(2))}',
+                    style: text.bodySmall,
+                  ),
+                )
+              else
+                Text(
+                  _plain(line.replaceFirst(RegExp(r'^>\s?'), '')),
+                  style: text.bodySmall,
+                ),
+        ],
+      ),
+    );
+  }
+}
+
 class _UninstallRow extends StatelessWidget {
   const _UninstallRow({required this.uninstall, required this.onUninstall});
   final AppUninstall uninstall;
@@ -196,16 +242,24 @@ class _UninstallRow extends StatelessWidget {
     ),
     UninstallKind.portable => SettingRow(
       title: '卸载 MelonBanG',
-      subtitle: '便携版不需要卸载：退出后删除程序所在的文件夹即可',
+      subtitle: AppUninstall.appImage == null
+          ? '便携版不需要卸载：退出后删除程序所在的文件夹即可'
+          : 'AppImage 不需要卸载：退出后删除这个 AppImage 文件即可',
       trailing: OutlinedButton.icon(
-        onPressed: () => launchUrl(Uri.directory(AppUninstall.installation)),
+        onPressed: () => launchUrl(
+          Uri.directory(
+            AppUninstall.appImage == null
+                ? AppUninstall.installation
+                : p.dirname(AppUninstall.installation),
+          ),
+        ),
         icon: const Icon(Icons.folder_open_outlined, size: 18),
         label: const Text('打开文件夹'),
       ),
     ),
     UninstallKind.unavailable => SettingRow(
       title: '卸载 MelonBanG',
-      subtitle: AppUpdate.version.isEmpty
+      subtitle: AppUpdate.version.isEmpty || !Platform.isMacOS
           ? '开发版本不提供卸载'
           : '请先把 MelonBanG 拖到“应用程序”文件夹再打开',
     ),

@@ -83,10 +83,12 @@ bool cloudSynced(String path) {
           environment['OneDriveConsumer'],
           environment['OneDriveCommercial'],
         ].nonNulls
-      : [
+      : Platform.isMacOS
+      ? [
           p.join(environment['HOME']!, 'Library', 'Mobile Documents'),
           p.join(environment['HOME']!, 'Library', 'CloudStorage'),
-        ];
+        ]
+      : const <String>[];
   return roots.any((root) => p.equals(root, path) || p.isWithin(root, path));
 }
 
