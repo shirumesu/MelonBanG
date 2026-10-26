@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 
@@ -99,12 +100,27 @@ class _AboutCard extends StatelessWidget {
     builder: (context, _) {
       final small = Theme.of(context).textTheme.bodySmall;
       const version = AppUpdate.version;
-      Widget link(String label, IconData icon, VoidCallback onPressed) =>
-          TextButton.icon(
-            onPressed: onPressed,
-            icon: Icon(icon, size: 16),
-            label: Text(label),
-          );
+      // A development build neither updates nor has notes of its own.
+      final development = version.isEmpty;
+      Widget link(
+        String label,
+        IconData icon,
+        VoidCallback onPressed, {
+        bool external = false,
+      }) => TextButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 16),
+        label: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label),
+            if (external) ...[
+              const SizedBox(width: 3),
+              const Icon(Icons.open_in_new_rounded, size: 12),
+            ],
+          ],
+        ),
+      );
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -118,42 +134,56 @@ class _AboutCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Image.asset(
-                        'assets/images/logotype.png',
-                        width: 160,
-                        semanticLabel: 'MelonBanG',
+                      // The wordmark image has a transparent margin; line its
+                      // letters up with the version below.
+                      Transform.translate(
+                        offset: const Offset(-6, 0),
+                        child: Image.asset(
+                          'assets/images/logotype.png',
+                          width: 160,
+                          semanticLabel: 'MelonBanG',
+                        ),
                       ),
                       const SizedBox(height: Gap.sm),
-                      Wrap(
-                        spacing: Gap.sm,
-                        runSpacing: Gap.xs,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            version.isEmpty ? '开发版本' : version,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontFeatures: [FontFeature.tabularFigures()],
+                      // One paragraph, so the version and the smaller status
+                      // share a baseline.
+                      Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(
+                              text: development ? '开发版本' : version,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontFeatures: [FontFeature.tabularFigures()],
+                              ),
                             ),
-                          ),
-                          if (SemanticVersion.tryParse(version)?.prerelease ??
-                              false)
-                            const MelonBadge('测试版', color: coral),
-                          Text(
-                            _status(),
-                            style: small?.copyWith(
-                              color: update.phase == UpdatePhase.failed
-                                  ? coral
-                                  : null,
-                            ),
-                          ),
-                        ],
+                            if (SemanticVersion.tryParse(version)?.prerelease ??
+                                false) ...[
+                              const TextSpan(text: '  '),
+                              const WidgetSpan(
+                                alignment: PlaceholderAlignment.middle,
+                                child: MelonBadge('测试版', color: coral),
+                              ),
+                            ],
+                            if (!development)
+                              TextSpan(
+                                text: '   ${_status()}',
+                                style: small?.copyWith(
+                                  color: update.phase == UpdatePhase.failed
+                                      ? coral
+                                      : null,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(width: Gap.lg),
-                _action(context),
+                if (!development) ...[
+                  const SizedBox(width: Gap.lg),
+                  _action(context),
+                ],
               ],
             ),
           ),
@@ -178,6 +208,12 @@ class _AboutCard extends StatelessWidget {
               spacing: Gap.xs,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
+                if (!development)
+                  link(
+                    '更新日志',
+                    Icons.article_outlined,
+                    () => _showChangelog(context),
+                  ),
                 link(
                   '源代码',
                   Icons.code_rounded,
@@ -185,6 +221,7 @@ class _AboutCard extends StatelessWidget {
                     context,
                     'https://github.com/$releaseRepository',
                   ),
+                  external: true,
                 ),
                 link(
                   '反馈问题',
@@ -193,21 +230,7 @@ class _AboutCard extends StatelessWidget {
                     context,
                     'https://github.com/$releaseRepository/issues',
                   ),
-                ),
-                link(
-                  '更新日志',
-                  Icons.article_outlined,
-                  () => openExternal(context, '$releasePage'),
-                ),
-                link(
-                  '开源许可',
-                  Icons.verified_user_outlined,
-                  () => showLicensePage(
-                    context: context,
-                    applicationName: 'MelonBanG',
-                    applicationVersion: version.isEmpty ? '开发版本' : version,
-                    applicationLegalese: 'MelonBanG 以 GNU GPL 3.0 许可发布',
-                  ),
+                  external: true,
                 ),
               ],
             ),
@@ -270,6 +293,52 @@ class _AboutCard extends StatelessWidget {
 /// The release's CHANGELOG.md up to its download table, which is of no use
 /// to an app that updates itself: `##` headings, `-` items and paragraphs,
 /// with links and emphasis reduced to their text.
+/// This version's notes: the CHANGELOG.md its release shows, bundled.
+void _showChangelog(BuildContext context) => showMelonDialog<void>(
+  context: context,
+  builder: (context) => Dialog(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560, maxHeight: 640),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 12, 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${AppUpdate.version} 更新内容',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                IconButton(
+                  tooltip: '关闭',
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+          Flexible(
+            child: FutureBuilder(
+              future: rootBundle.loadString('CHANGELOG.md'),
+              builder: (context, notes) => SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                child: _ReleaseNotes(
+                  // Its heading names the version, which the title shows.
+                  (notes.data ?? '').split('\n').skip(1).join('\n'),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  ),
+);
+
 class _ReleaseNotes extends StatelessWidget {
   const _ReleaseNotes(this.notes);
   final String notes;
