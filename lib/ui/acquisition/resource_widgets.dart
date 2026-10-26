@@ -284,7 +284,9 @@ class ResourceSearchStatus extends StatelessWidget {
       Text(
         providers.any((e) => e.status == SearchStatus.loading)
             ? '正在搜索 ${providers.where((e) => e.status != SearchStatus.loading).length}/${providers.length} 个资源站'
-            : cloud?.status == SearchStatus.loading
+            // PikPak stays loading until the sites' group pages finish too.
+            : cloud?.status == SearchStatus.loading &&
+                  cloud!.completed < cloud!.total
             ? '正在查询 PikPak ${cloud!.completed}/${cloud!.total}'
             : '正在补充字幕组信息',
         style: Theme.of(context).textTheme.bodySmall,
