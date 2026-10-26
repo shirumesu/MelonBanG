@@ -7,7 +7,7 @@
 <sub>基于 [Bangumi][bangumi] 的 Windows / macOS / Linux 原生追番客户端</sub>
 
 <p>
-  <a href="https://github.com/shirumesu/MelonBanG/releases"><img alt="版本" src="https://img.shields.io/github/v/release/shirumesu/MelonBanG?include_prereleases&label=%E7%89%88%E6%9C%AC&color=22B388"></a>
+  <a href="https://github.com/shirumesu/MelonBanG/releases"><img alt="版本" src="https://img.shields.io/github/v/release/shirumesu/MelonBanG?label=%E7%89%88%E6%9C%AC&color=22B388"></a>
   <a href="https://github.com/shirumesu/MelonBanG/releases"><img alt="下载量" src="https://img.shields.io/github/downloads/shirumesu/MelonBanG/total?label=%E4%B8%8B%E8%BD%BD&color=FF6B81"></a>
   <img alt="平台" src="https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%20%7C%20macOS%20%7C%20Linux-0F5C46">
   <a href="LICENSE"><img alt="许可证" src="https://img.shields.io/github/license/shirumesu/MelonBanG?label=%E8%AE%B8%E5%8F%AF%E8%AF%81&color=0F5C46"></a>
@@ -55,7 +55,7 @@
 ## 下载
 
 <p align="center">
-  <a href="CHANGELOG.md#下载安装"><b>⬇ 下载最新版本</b></a> &nbsp;｜&nbsp;
+  <a href="https://github.com/shirumesu/MelonBanG/releases/latest"><b>⬇ 下载最新版本</b></a> &nbsp;｜&nbsp;
   <a href="CHANGELOG.md">更新日志</a> &nbsp;｜&nbsp;
   <a href="https://github.com/shirumesu/MelonBanG/releases">全部版本</a>
 </p>

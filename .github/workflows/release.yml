@@ -194,5 +194,10 @@ jobs:
           fi
           tail -n +2 CHANGELOG.md > "$RUNNER_TEMP/notes.md"
           options=(--draft --notes-file "$RUNNER_TEMP/notes.md" --title "MelonBanG ${GITHUB_REF_NAME#v}")
-          if [[ "$GITHUB_REF_NAME" == *-* ]]; then options+=(--prerelease); fi
+          # Until a stable version exists, an alpha or beta is the latest
+          # release, so the repository page and releases/latest show it. The
+          # app picks updates by version and its channel, not by this flag.
+          stable=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 1000 \
+            --json tagName --jq '[.[].tagName | select(contains("-") | not)] | length')
+          if [[ "$GITHUB_REF_NAME" == *-* && $stable -gt 0 ]]; then options+=(--prerelease); fi
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" "${options[@]}"
