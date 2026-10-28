@@ -302,11 +302,19 @@ class CatalogRepository implements Catalog {
     bool forPlayback = false,
   }) async {
     // Detail and list caches have distinct keys; a search cannot erase detail.
+    // A saved detail stays shown while it refreshes and is replaced whole,
+    // rather than by a partial one whose sections load again.
     final response = object(
       await _cached(
         forPlayback ? 'playback-detail:$id' : 'detail:$id',
-        (_) async => (
-          value: {'data': await _detail(id, forPlayback, onAvailable)},
+        (cached) async => (
+          value: {
+            'data': await _detail(
+              id,
+              forPlayback,
+              cached == null ? onAvailable : null,
+            ),
+          },
           etag: null,
         ),
         ttl: const Duration(hours: 1),

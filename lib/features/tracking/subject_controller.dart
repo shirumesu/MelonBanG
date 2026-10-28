@@ -11,6 +11,11 @@ class SubjectController extends ChangeNotifier {
 
   Subject? subject;
   bool loading = false;
+
+  /// Whether the running load has yet to show a detail: until then the page
+  /// has only the card it was opened from. Afterwards its sections show
+  /// their own progress, and a saved detail refreshes without one.
+  bool waiting = false;
   int _ticket = 0, _saveTicket = 0;
 
   int? get id => subject?.id;
@@ -20,7 +25,7 @@ class SubjectController extends ChangeNotifier {
   Future<void> open(Subject item) async {
     final ticket = ++_ticket;
     subject = item;
-    loading = true;
+    loading = waiting = true;
     notifyListeners();
     try {
       final detail = await tracking.subject(
@@ -28,6 +33,7 @@ class SubjectController extends ChangeNotifier {
         onAvailable: (value) {
           if (ticket != _ticket) return;
           subject = value;
+          waiting = false;
           notifyListeners();
         },
       );
@@ -37,7 +43,7 @@ class SubjectController extends ChangeNotifier {
       if (ticket == _ticket) rethrow;
     } finally {
       if (ticket == _ticket) {
-        loading = false;
+        loading = waiting = false;
         notifyListeners();
       }
     }
@@ -47,14 +53,14 @@ class SubjectController extends ChangeNotifier {
   void show(Subject? item) {
     _ticket++;
     subject = item;
-    loading = false;
+    loading = waiting = false;
     notifyListeners();
   }
 
   /// Stops delivering the running load.
   void cancel() {
     _ticket++;
-    loading = false;
+    loading = waiting = false;
   }
 
   Future<void> saveCollection(CollectionChange change) => _save(

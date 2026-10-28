@@ -1,4 +1,9 @@
+import 'dart:isolate';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:material_color_utilities/material_color_utilities.dart';
 
 import '../../core/content_cache.dart';
 import '../../core/json.dart';
@@ -17,11 +22,18 @@ class CoverColors {
     if (address == null) return Future.value();
     return _seeds.putIfAbsent(address, () async {
       try {
-        final bytes = await cache.image(address);
-        final scheme = await ColorScheme.fromImageProvider(
-          provider: ResizeImage(MemoryImage(bytes), width: 96),
+        final codec = await ui.instantiateImageCodec(
+          await cache.image(address),
+          targetWidth: 96,
         );
-        return scheme.primary;
+        final frame = await codec.getNextFrame();
+        codec.dispose();
+        final pixels = (await frame.image.toByteData())!.buffer.asUint32List();
+        frame.image.dispose();
+        // What ColorScheme.fromImageProvider does, but quantizing off the
+        // UI isolate, where it takes long enough to drop frames.
+        final source = await Isolate.run(() => _sourceColor(pixels));
+        return ColorScheme.fromSeed(seedColor: Color(source)).primary;
       } catch (_) {
         // A failed read can succeed on the next visit.
         _seeds.remove(address);
@@ -29,4 +41,14 @@ class CoverColors {
       }
     });
   }
+}
+
+/// The best theme source colour among [pixels], read as RGBA bytes.
+Future<int> _sourceColor(Uint32List pixels) async {
+  final quantized = await QuantizerCelebi().quantize(pixels, 128);
+  return Score.score({
+    // Little-endian RGBA bytes read as ABGR words; Score takes ARGB.
+    for (final MapEntry(key: abgr, :value) in quantized.colorToCount.entries)
+      (abgr & 0xff00ff00) | (abgr & 0xff) << 16 | (abgr >> 16) & 0xff: value,
+  }, desired: 1).first;
 }

@@ -59,16 +59,16 @@ class BangumiSubjects {
   }
 
   /// Main episodes in order, the first page then the remaining pages, and
-  /// last the specials ([_specials]).
+  /// last the specials ([_specials]), requested alongside the main ones.
   Stream<List<Json>> episodes(int id) async* {
+    final specials = _episodePages(id, 1).expand((page) => page).toList()
+      ..ignore();
     final main = <Json>[];
     await for (final page in _episodePages(id, 0)) {
       main.addAll(page);
       yield page;
     }
-    yield _specials(main, [
-      await for (final page in _episodePages(id, 1)) ...page,
-    ]);
+    yield _specials(main, await specials);
   }
 
   Stream<List<Json>> _episodePages(int id, int type) async* {

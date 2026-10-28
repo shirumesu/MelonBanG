@@ -126,7 +126,7 @@ class _MelonAppState extends State<MelonApp>
       route == 'player' ? playerSidebarVisible : sidebarVisible;
 
   /// Whether the current page is still loading.
-  bool get busy =>
+  bool get loading =>
       ready &&
       switch (route) {
         'subject' => subjects.loading,
@@ -134,6 +134,10 @@ class _MelonAppState extends State<MelonApp>
         'resources' => resources.busy,
         _ => false,
       };
+
+  /// Whether the title-bar progress shows: a subject only until its detail
+  /// is shown, after which its sections show what they still load.
+  bool get busy => loading && (route != 'subject' || subjects.waiting);
 
   @override
   void initState() {
@@ -230,7 +234,7 @@ class _MelonAppState extends State<MelonApp>
     query: search.text,
     search: discovery.search,
     resources: resources.state,
-    pending: busy,
+    pending: loading,
   );
 
   void rememberLocation() {
