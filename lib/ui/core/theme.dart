@@ -100,10 +100,22 @@ LinearGradient sidebarSurface(BuildContext context) => LinearGradient(
   stops: const [.82, 1],
 );
 
+/// The theme last built for each brightness: the window rebuilds on every
+/// service change and must not build an identical theme each time.
+final _themes = <bool, ({Color accent, ThemeData theme})>{};
+
 /// The application theme. [accent] seeds the primary roles; the default
 /// mint keeps its hand-tuned values, other colours take Material's tones
 /// while surfaces stay neutral.
 ThemeData appTheme(bool dark, {Color accent = mint}) {
+  final saved = _themes[dark];
+  if (saved != null && saved.accent == accent) return saved.theme;
+  final theme = _appTheme(dark, accent);
+  _themes[dark] = (accent: accent, theme: theme);
+  return theme;
+}
+
+ThemeData _appTheme(bool dark, Color accent) {
   final brightness = dark ? Brightness.dark : Brightness.light;
   final brand = accent == mint;
   final seeded = ColorScheme.fromSeed(

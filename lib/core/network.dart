@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 
 import 'cancellation.dart';
 import 'json.dart';
@@ -81,12 +82,21 @@ class ApiException implements Exception {
 
 class ApiClient {
   ApiClient({this.timeout = const Duration(seconds: 20)});
-  static const maxRequestsPerHost = 4;
+
+  /// A subject page reads six parts from Bangumi at once.
+  static const maxRequestsPerHost = 6;
   final Duration timeout;
   final _active = <Completer<void>>{};
   final _hosts = <String, _HostRequests>{};
   bool _closed = false;
-  final client = http.Client();
+
+  // A new TLS connection took 0.2–3 s on the user's network, against 0.1 s
+  // for a request on an open one; Dart drops idle connections after 15 s,
+  // so returning to a page after reading one would connect again. Bangumi's
+  // and Melon API's servers kept idle connections over five minutes.
+  final client = IOClient(
+    HttpClient()..idleTimeout = const Duration(minutes: 2),
+  );
   http.AbortableRequest _request(
     Uri uri, {
     required Completer<void> abort,

@@ -159,7 +159,9 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   Timer? _feedbackTimer;
   final _episodeOverrides = <int, EpisodeStatus>{};
   String? _episodeError;
-  Episode? _hoverEpisode;
+
+  /// The episode under the pointer; only the summary beside 剧集 follows it.
+  final _hoverEpisode = ValueNotifier<Episode?>(null);
   final _collectionIssue = ActionFeedback();
 
   @override
@@ -206,7 +208,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     if (oldWidget.subject?.id != widget.subject?.id) {
       _feedbackTimer?.cancel();
       _selectedStatus = _feedback = _collectionError = _nudge = null;
-      _undo = _hoverEpisode = null;
+      _undo = _hoverEpisode.value = null;
       _episodeError = null;
       _completeOffer = 0;
       _savingCollection = _summaryExpanded = _infoExpanded = false;
@@ -222,6 +224,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     _feedbackTimer?.cancel();
     _releaseTimer?.cancel();
     _collectionIssue.dispose();
+    _hoverEpisode.dispose();
     super.dispose();
   }
 
@@ -925,7 +928,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
 
   Widget _episodeSection(List<Episode> episodes, Episode? next) {
     final text = Theme.of(context).textTheme;
-    final hover = _hoverEpisode;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -933,15 +935,20 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           children: [
             Text('剧集', style: text.titleSmall),
             const SizedBox(width: Gap.md),
-            if (hover ?? next case final shown?)
-              Expanded(
-                child: Text.rich(
-                  _episodeSummary(shown),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: text.bodySmall,
-                ),
+            Expanded(
+              child: ValueListenableBuilder(
+                valueListenable: _hoverEpisode,
+                builder: (context, hover, _) => switch (hover ?? next) {
+                  final shown? => Text.rich(
+                    _episodeSummary(shown),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.bodySmall,
+                  ),
+                  null => const SizedBox.shrink(),
+                },
               ),
+            ),
           ],
         ),
         const SizedBox(height: Gap.sm + 2),
@@ -969,8 +976,8 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             onMark: (values, status) =>
                 unawaited(_markEpisodes(values, status)),
             onHover: (episode) {
-              if (episode?.id != _hoverEpisode?.id) {
-                setState(() => _hoverEpisode = episode);
+              if (episode?.id != _hoverEpisode.value?.id) {
+                _hoverEpisode.value = episode;
               }
             },
           ),
