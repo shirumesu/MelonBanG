@@ -32,7 +32,9 @@ class SubjectController extends ChangeNotifier {
         item.id,
         onAvailable: (value) {
           if (ticket != _ticket) return;
-          subject = value;
+          subject = value.pending?.contains('base') ?? false
+              ? item.withSections(value)
+              : value;
           waiting = false;
           notifyListeners();
         },

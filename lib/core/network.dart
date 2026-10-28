@@ -92,10 +92,10 @@ class ApiClient {
 
   // A new TLS connection took 0.2–3 s on the user's network, against 0.1 s
   // for a request on an open one; Dart drops idle connections after 15 s,
-  // so returning to a page after reading one would connect again. Bangumi's
-  // and Melon API's servers kept idle connections over five minutes.
+  // so opening a page after reading another would connect again. Bangumi's
+  // and Melon API's servers (Cloudflare) close idle connections after 398 s.
   final client = IOClient(
-    HttpClient()..idleTimeout = const Duration(minutes: 2),
+    HttpClient()..idleTimeout = const Duration(minutes: 5),
   );
   http.AbortableRequest _request(
     Uri uri, {

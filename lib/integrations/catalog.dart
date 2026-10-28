@@ -327,8 +327,10 @@ class CatalogRepository implements Catalog {
   }
 
   /// Requests the detail parts concurrently and publishes each one as it
-  /// arrives once the base metadata is known. A failed part fails the detail
-  /// after the others settle and stays pending in the last published value.
+  /// arrives; until the base metadata does, `base` stays pending and the
+  /// page shows the parts on the card it opened from. A failed part fails
+  /// the detail after the others settle and stays pending in the last
+  /// published value.
   Future<Json> _detail(
     int id,
     bool forPlayback,
@@ -343,12 +345,13 @@ class CatalogRepository implements Catalog {
     };
     var published = Future<void>.value();
     void publish() {
-      if (onAvailable == null || base == null) return;
+      if (onAvailable == null) return;
       final value = Subject.fromJson({
         ..._subjectJson(id, {
-          'data': {...base!, ...parts},
+          'data': {...?base, ...parts},
         }),
-        '_pending': [...pending],
+        'subjectId': id,
+        '_pending': [...pending, if (base == null) 'base'],
       });
       published = published.then((_) => onAvailable(value));
     }
