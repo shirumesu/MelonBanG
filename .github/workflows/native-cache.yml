@@ -1,0 +1,50 @@
+name: Native cache
+
+# vcpkg builds libtorrent, Boost and OpenSSL from source for Windows, about 16
+# minutes. A tag run restores only caches saved on master, so this saves
+# vcpkg's binary packages there for release.yml: when the native dependencies
+# change, and weekly, so the runner image's compiler updates are rebuilt
+# ahead of a release and GitHub does not drop a cache unused for 7 days.
+on:
+  push:
+    branches: [master]
+    paths: [windows/vcpkg.json, windows/CMakeLists.txt]
+  schedule:
+    - cron: '0 18 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.5'
+      - uses: actions/cache/restore@v5
+        with:
+          path: ${{ runner.temp }}\vcpkg
+          key: vcpkg-${{ github.run_id }}
+          restore-keys: vcpkg-
+      # The same build as release.yml, so vcpkg computes the same ABI.
+      - name: Build
+        id: build
+        shell: pwsh
+        env:
+          VCPKG_BINARY_SOURCES: clear;files,${{ runner.temp }}\vcpkg,readwrite
+        run: |
+          $cache = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          New-Item -ItemType Directory -Force $cache | Out-Null
+          $before = @(Get-ChildItem -LiteralPath $cache -Recurse -File).Count
+          ./scripts/build.ps1 -Development
+          $after = @(Get-ChildItem -LiteralPath $cache -Recurse -File).Count
+          "changed=$($after -ne $before)" >> $env:GITHUB_OUTPUT
+      - if: steps.build.outputs.changed == 'True'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ runner.temp }}\vcpkg
+          key: vcpkg-${{ github.run_id }}
