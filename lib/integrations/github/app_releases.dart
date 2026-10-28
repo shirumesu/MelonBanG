@@ -88,7 +88,7 @@ class AppReleases {
     final package = object(object(manifest['platforms'])[platform]);
     return AppRelease(
       latest.toString(),
-      '${newest['body'] ?? ''}'.trim(),
+      _unseenNotes('${newest['body'] ?? ''}', installed, latest),
       Uri.parse('${newest['html_url']}'),
       ReleaseFile(
         [for (final url in package['urls'] as List) Uri.parse('$url')],
@@ -106,6 +106,37 @@ class AppReleases {
     );
     return response.bodyBytes;
   }
+}
+
+/// The part of [latest]'s notes that [installed] lacks. A prerelease's notes
+/// have a `## <version>` section for each prerelease of its cycle, newest
+/// first; those up to [installed] are dropped. A stable release sums up its
+/// prereleases and ships the last one unchanged, so a copy running one of
+/// them has it all.
+String _unseenNotes(
+  String notes,
+  SemanticVersion installed,
+  SemanticVersion latest,
+) {
+  if (installed.prerelease &&
+      !latest.prerelease &&
+      installed.core.join('.') == latest.core.join('.')) {
+    return '$latest 是正式版，内容与正在使用的 $installed 相同。';
+  }
+  bool seen(String section) {
+    final heading = RegExp(
+      r'^## (\S+)\s*$',
+      multiLine: true,
+    ).matchAsPrefix(section);
+    final version = SemanticVersion.tryParse(heading?[1] ?? '');
+    return version != null && version.compareTo(installed) <= 0;
+  }
+
+  return notes
+      .split(RegExp(r'^(?=## )', multiLine: true))
+      .where((section) => !seen(section))
+      .join()
+      .trim();
 }
 
 bool _verify(Uint8List message, Uint8List signature) {

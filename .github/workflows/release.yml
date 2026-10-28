@@ -1,9 +1,15 @@
 name: Release
 
 # A pushed v* tag builds the release files for every platform and opens a
-# draft GitHub release whose notes are CHANGELOG.md; publishing that draft
-# makes it visible to the in-app updater. A manual run builds the same files
-# as workflow artifacts without releasing.
+# GitHub release whose notes are CHANGELOG.md. A prerelease (beta) is
+# published at once; a stable release stays a draft until someone publishes
+# it, which makes it visible to the in-app updater. A manual run builds the
+# same files as workflow artifacts without releasing.
+#
+# A tag run restores only caches saved on master, not ones saved by another
+# tag. ci.yml saves the Linux Flutter caches there; Windows and macOS do not
+# cache Flutter, whose save took minutes and was never restored.
+# native-cache.yml keeps the Windows native dependencies cached on master.
 on:
   push:
     tags: ['v*']
@@ -21,7 +27,6 @@ jobs:
         with:
           channel: stable
           flutter-version: '3.47.5'
-          cache: true
       - name: Check tag and version
         if: github.ref_type == 'tag'
         shell: pwsh
@@ -46,12 +51,22 @@ jobs:
       - name: Install NSIS
         shell: pwsh
         run: choco install nsis --no-progress -y
+      # vcpkg's binary packages of libtorrent, Boost and OpenSSL, saved by
+      # native-cache.yml; the newest one is restored, and vcpkg rebuilds only
+      # ports whose ABI (sources, compiler) differs.
+      - uses: actions/cache/restore@v5
+        with:
+          path: ${{ runner.temp }}\vcpkg
+          key: vcpkg-${{ github.run_id }}
+          restore-keys: vcpkg-
       # The release job signs the manifest once both platforms are in it.
       - name: Package
         shell: pwsh
         env:
           MELONBANG_SERVICES_JSON: ${{ secrets.MELONBANG_SERVICES_JSON }}
+          VCPKG_BINARY_SOURCES: clear;files,${{ runner.temp }}\vcpkg,read
         run: |
+          New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'vcpkg') | Out-Null
           if ([string]::IsNullOrWhiteSpace($env:MELONBANG_SERVICES_JSON)) {
             throw 'Set the MELONBANG_SERVICES_JSON repository secret.'
           }
@@ -77,7 +92,6 @@ jobs:
         with:
           channel: stable
           flutter-version: '3.47.5'
-          cache: true
       - name: Check tag and version
         if: github.ref_type == 'tag'
         run: |
@@ -183,7 +197,7 @@ jobs:
           openssl dgst -sha256 -sign "$key" -out dist/manifest.json.sig dist/manifest.json
       # CHANGELOG.md is rewritten for every release; its heading names the
       # version and the rest becomes the release notes.
-      - name: Create draft release
+      - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -193,11 +207,16 @@ jobs:
             exit 1
           fi
           tail -n +2 CHANGELOG.md > "$RUNNER_TEMP/notes.md"
-          options=(--draft --notes-file "$RUNNER_TEMP/notes.md" --title "MelonBanG ${GITHUB_REF_NAME#v}")
-          # Until a stable version exists, an alpha or beta is the latest
-          # release, so the repository page and releases/latest show it. The
-          # app picks updates by version and its channel, not by this flag.
-          stable=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 1000 \
-            --json tagName --jq '[.[].tagName | select(contains("-") | not)] | length')
-          if [[ "$GITHUB_REF_NAME" == *-* && $stable -gt 0 ]]; then options+=(--prerelease); fi
+          options=(--notes-file "$RUNNER_TEMP/notes.md" --title "MelonBanG ${GITHUB_REF_NAME#v}")
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            # Until a stable version exists, an alpha or beta is the latest
+            # release, so the repository page and releases/latest show it.
+            # The app picks updates by version and its channel, not by this
+            # flag.
+            stable=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 1000 \
+              --json tagName --jq '[.[].tagName | select(contains("-") | not)] | length')
+            if [[ $stable -gt 0 ]]; then options+=(--prerelease); fi
+          else
+            options+=(--draft)
+          fi
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" "${options[@]}"
