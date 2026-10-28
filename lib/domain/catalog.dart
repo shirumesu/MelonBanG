@@ -478,9 +478,27 @@ class Subject {
         .lastOrNull;
   }
 
+  /// This card with the sections [detail] has received so far, shown until
+  /// the detail's own base metadata arrives.
+  Subject withSections(Subject detail) => copyWith(
+    aliases: detail.aliases,
+    characters: detail.characters,
+    staff: detail.staff,
+    episodes: detail.episodes,
+    collection: detail.collection,
+    clearCollection: detail.collection == null,
+    detailed: true,
+    pending: detail.pending,
+  );
+
   Subject copyWith({
     SubjectCollection? collection,
+    List<String>? aliases,
+    List<Credit>? characters,
+    List<Credit>? staff,
     List<Episode>? episodes,
+    bool? detailed,
+    Set<String>? pending,
     bool clearCollection = false,
   }) => Subject(
     id: id,
@@ -499,14 +517,14 @@ class Subject {
     collectionTotal: collectionTotal,
     tags: tags,
     metaTags: metaTags,
-    aliases: aliases,
+    aliases: aliases ?? this.aliases,
     infoBox: infoBox,
     collectionStats: collectionStats,
-    characters: characters,
-    staff: staff,
+    characters: characters ?? this.characters,
+    staff: staff ?? this.staff,
     episodes: episodes ?? this.episodes,
-    detailed: detailed,
-    pending: pending,
+    detailed: detailed ?? this.detailed,
+    pending: pending ?? this.pending,
     collection: clearCollection ? null : collection ?? this.collection,
     watchedEpisodes: watchedEpisodes,
     airingAt: airingAt,
