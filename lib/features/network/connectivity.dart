@@ -58,7 +58,7 @@ class ConnectivityCheck extends ChangeNotifier {
       Uri.https('lain.bgm.tv'),
     ),
     ProbeTarget('melon-api', 'Melon API', '服务', Uri.parse('$melonApiOrigin/')),
-    ProbeTarget('github', 'GitHub（更新）', '服务', Uri.https('api.github.com')),
+    ProbeTarget('github', 'GitHub（更新）', '服务', Uri.https('github.com')),
     ProbeTarget('dandanplay', '弹弹play', '弹幕', Uri.https('api.dandanplay.net')),
     ProbeTarget('bilibili', 'Bilibili', '弹幕', Uri.https('api.bilibili.com')),
     ProbeTarget('bahamut', '巴哈姆特', '弹幕', Uri.https('api.gamer.com.tw')),

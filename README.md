@@ -123,6 +123,27 @@ MelonBanG 本身不存储、不提供任何视频。资源来自公开的 BT 网
 </details>
 
 <details>
+<summary><b>怎么提前体验新功能？</b></summary>
+
+在 **设置 → 更新与关于** 把更新渠道改为 **测试版**，就能收到测试版更新。各测试版的内容会在下一个正式版里汇总。
+
+</details>
+
+<details>
+<summary><b>Windows 安装版和便携版有什么区别？</b></summary>
+
+安装版可以选择安装位置和下载位置，并会创建快捷方式；便携版解压即用。两者都能自动更新。
+
+</details>
+
+<details>
+<summary><b>Linux 版有什么限制？</b></summary>
+
+下载后先 `chmod +x` 再运行，登录信息保存在系统钥匙环（GNOME Keyring、KWallet 等）里。播放器的画面暂时只能用 CPU 绘制（[上游问题](https://github.com/media-kit/media-kit/issues/1404)），所以 Linux 版没有超分辨率，CPU 占用也会高一些。
+
+</details>
+
+<details>
 <summary><b>怎么卸载？</b></summary>
 
 Windows 和 macOS 在 **设置 → 更新与关于** 里卸载，可以选择是否保留数据和缓存；Linux 的 AppImage 直接删除文件即可。
