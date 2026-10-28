@@ -24,17 +24,18 @@ class ReleaseFile {
 }
 
 class AppRelease {
-  const AppRelease(this.version, this.notes, this.page, this.package);
+  const AppRelease(this.version, this.notes, this.package);
   final String version, notes;
-  final Uri page;
 
   /// The update package for this platform.
   final ReleaseFile package;
 }
 
-/// Published releases on GitHub. Each carries `manifest.json`, signed in
-/// `manifest.json.sig`, naming every package with its digest; the app trusts
-/// a package only through that signature.
+/// Published releases on GitHub, read from the public release feed and files
+/// rather than the REST API, which allows 60 unauthenticated requests per IP
+/// an hour and runs out on shared proxy exits. Each release carries
+/// `manifest.json`, signed in `manifest.json.sig`, naming every package with
+/// its digest; the app trusts a package only through that signature.
 class AppReleases {
   AppReleases(this.api);
   final ApiClient api;
@@ -47,39 +48,40 @@ class AppReleases {
     required bool prereleases,
   }) async {
     final installed = SemanticVersion.parse(current);
-    final listed = await api.json(
-      Uri.https('api.github.com', '/repos/$releaseRepository/releases', {
-        'per_page': '20',
-      }),
-      headers: {'Accept': 'application/vnd.github+json'},
+    // The feed lists the latest published releases; drafts are not public.
+    final feed = await _text(
+      Uri.https('github.com', '/$releaseRepository/releases.atom'),
     );
-    Json? newest;
-    SemanticVersion? newestVersion;
-    for (final release in objects(listed)) {
-      final tag = '${release['tag_name']}';
-      final version = SemanticVersion.tryParse(tag.replaceFirst('v', ''));
-      if (release['draft'] == true ||
-          version == null ||
+    SemanticVersion? latest;
+    for (final match in RegExp(r'/releases/tag/v([^"/]+)"').allMatches(feed)) {
+      final version = SemanticVersion.tryParse(match[1]!);
+      if (version == null ||
           version.compareTo(installed) <= 0 ||
           (version.prerelease && !prereleases) ||
-          (newestVersion != null && version.compareTo(newestVersion) <= 0)) {
+          (latest != null && version.compareTo(latest) <= 0)) {
         continue;
       }
-      newest = release;
-      newestVersion = version;
+      latest = version;
     }
-    if (newest == null) return null;
-    final latest = newestVersion!;
-    final assets = {
-      for (final asset in objects(newest['assets']))
-        '${asset['name']}': Uri.parse('${asset['browser_download_url']}'),
-    };
-    final [manifestBytes, signature] = await Future.wait([
-      _download(assets['manifest.json']),
-      _download(assets['manifest.json.sig']),
-    ]);
+    if (latest == null) return null;
+    final tag = 'v$latest';
+    Uri asset(String name) => Uri.https(
+      'github.com',
+      '/$releaseRepository/releases/download/$tag/$name',
+    );
+    final (manifestBytes, signature, changelog) = await (
+      _download(asset('manifest.json')),
+      _download(asset('manifest.json.sig')),
+      // Release CI makes the notes from this file without its heading.
+      _text(
+        Uri.https(
+          'raw.githubusercontent.com',
+          '/$releaseRepository/$tag/CHANGELOG.md',
+        ),
+      ),
+    ).wait;
     if (!_verify(manifestBytes, signature)) {
-      throw StateError('发行版 ${newest['tag_name']} 的更新清单签名无效');
+      throw StateError('发行版 $tag 的更新清单签名无效');
     }
     final manifest = object(jsonDecode(utf8.decode(manifestBytes)));
     if (manifest['version'] != latest.toString()) {
@@ -88,8 +90,11 @@ class AppReleases {
     final package = object(object(manifest['platforms'])[platform]);
     return AppRelease(
       latest.toString(),
-      _unseenNotes('${newest['body'] ?? ''}', installed, latest),
-      Uri.parse('${newest['html_url']}'),
+      _unseenNotes(
+        changelog.substring(changelog.indexOf('\n') + 1),
+        installed,
+        latest,
+      ),
       ReleaseFile(
         [for (final url in package['urls'] as List) Uri.parse('$url')],
         '${package['sha256']}',
@@ -98,8 +103,10 @@ class AppReleases {
     );
   }
 
-  Future<Uint8List> _download(Uri? uri) async {
-    if (uri == null) throw StateError('发行版缺少更新清单');
+  Future<String> _text(Uri uri) async =>
+      utf8.decode((await api.send(uri)).bodyBytes);
+
+  Future<Uint8List> _download(Uri uri) async {
     final response = await api.send(
       uri,
       headers: {'Accept': 'application/octet-stream'},

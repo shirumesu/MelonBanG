@@ -363,6 +363,11 @@ class _ReleaseNotes extends StatelessWidget {
                   padding: const EdgeInsets.only(top: Gap.md, bottom: Gap.xs),
                   child: Text(line.substring(3), style: text.titleSmall),
                 )
+              else if (line.startsWith('### '))
+                Padding(
+                  padding: const EdgeInsets.only(top: Gap.sm, bottom: 2),
+                  child: Text(line.substring(4), style: text.labelLarge),
+                )
               else if (line.startsWith('- '))
                 Padding(
                   padding: const EdgeInsets.only(bottom: 2),
