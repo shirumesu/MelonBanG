@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 Duration motionDuration(BuildContext context, [int milliseconds = 180]) =>
@@ -143,27 +145,43 @@ class MotionSwap extends StatelessWidget {
   );
 }
 
-/// Glides to each new [value] instead of jumping, e.g. a progress bar;
-/// [from] animates the first value in too.
-class MotionValue extends StatelessWidget {
+/// Glides to each new [value] instead of jumping, e.g. a progress bar.
+/// [from] animates the first value in too, once per page: such a bar needs a
+/// [PageStorageKey], so one scrolled out of view and back does not replay.
+class MotionValue extends StatefulWidget {
   const MotionValue({
     super.key,
     required this.value,
     required this.builder,
     this.from,
     this.milliseconds = 320,
-  });
+  }) : assert(from == null || key is PageStorageKey);
   final double value;
   final double? from;
   final int milliseconds;
   final Widget Function(BuildContext context, double value) builder;
 
   @override
+  State<MotionValue> createState() => _MotionValueState();
+}
+
+class _MotionValueState extends State<MotionValue> {
+  late final double? _from = _introduce();
+
+  double? _introduce() {
+    if (widget.from == null) return null;
+    final storage = PageStorage.of(context);
+    if (storage.readState(context) == true) return null;
+    storage.writeState(context, true);
+    return widget.from;
+  }
+
+  @override
   Widget build(BuildContext context) => TweenAnimationBuilder<double>(
-    tween: Tween(begin: from, end: value),
-    duration: motionDuration(context, milliseconds),
+    tween: Tween(begin: _from, end: widget.value),
+    duration: motionDuration(context, widget.milliseconds),
     curve: Curves.easeOutCubic,
-    builder: (context, value, _) => builder(context, value),
+    builder: (context, value, _) => widget.builder(context, value),
   );
 }
 
@@ -254,6 +272,93 @@ class ExpandChevron extends StatelessWidget {
     duration: motionDuration(context, 240),
     curve: Curves.easeOutCubic,
     child: Icon(Icons.expand_more_rounded, size: size, color: color),
+  );
+}
+
+/// How an icon answers the pointer arriving: [turn] advances a six-tooth cog
+/// by one tooth, [back] and [forward] nudge toward where the button leads,
+/// [swell] grows briefly outward. Each ends where it began.
+enum IconGesture { turn, back, forward, swell }
+
+/// Plays the [GestureIcon] inside [child] each time the pointer enters it, so
+/// the whole button, not just its glyph, starts the motion.
+class IconHover extends StatefulWidget {
+  const IconHover({super.key, required this.child});
+  final Widget child;
+
+  /// Runs from 0 to 1 once per entry.
+  static Animation<double> of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_IconHoverScope>()!.animation;
+
+  @override
+  State<IconHover> createState() => _IconHoverState();
+}
+
+class _IconHoverState extends State<IconHover>
+    with SingleTickerProviderStateMixin {
+  late final _controller = AnimationController(vsync: this);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    opaque: false,
+    onEnter: (_) {
+      final duration = motionDuration(context, 420);
+      // A pass over the button mid-motion lets the motion finish.
+      if (duration == Duration.zero || _controller.isAnimating) return;
+      _controller.duration = duration;
+      _controller.forward(from: 0);
+    },
+    child: _IconHoverScope(animation: _controller, child: widget.child),
+  );
+}
+
+class _IconHoverScope extends InheritedWidget {
+  const _IconHoverScope({required this.animation, required super.child});
+  final Animation<double> animation;
+
+  @override
+  bool updateShouldNotify(_IconHoverScope old) => false;
+}
+
+/// An icon that moves by [gesture] when its [IconHover] is entered.
+class GestureIcon extends StatelessWidget {
+  const GestureIcon(this.gesture, {super.key, required this.child});
+  final IconGesture gesture;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: IconHover.of(context),
+    child: child,
+    builder: (context, child) {
+      final t = IconHover.of(context).value;
+      // Out and back for the nudges and the swell.
+      final bump = math.sin(math.pi * Curves.easeOutCubic.transform(t));
+      return switch (gesture) {
+        IconGesture.turn => Transform.rotate(
+          angle: Curves.easeInOutCubic.transform(t) * math.pi / 3,
+          child: child,
+        ),
+        IconGesture.back => Transform.translate(
+          offset: Offset(-2.5 * bump, 0),
+          child: child,
+        ),
+        IconGesture.forward => Transform.translate(
+          offset: Offset(2.5 * bump, 0),
+          child: child,
+        ),
+        IconGesture.swell => Transform.scale(
+          scale: 1 + .12 * bump,
+          child: child,
+        ),
+      };
+    },
   );
 }
 
