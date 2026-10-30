@@ -255,10 +255,15 @@ class PlayerControls extends StatelessWidget {
     mainAxisSize: MainAxisSize.min,
     children: [
       if (episodes)
-        IconButton(
-          tooltip: '上一话',
-          onPressed: onPrevious,
-          icon: const Icon(Icons.skip_previous_rounded),
+        IconHover(
+          child: IconButton(
+            tooltip: '上一话',
+            onPressed: onPrevious,
+            icon: const GestureIcon(
+              IconGesture.back,
+              child: Icon(Icons.skip_previous_rounded),
+            ),
+          ),
         ),
       StreamBuilder<bool>(
         stream: player.stream.playing,
@@ -282,21 +287,36 @@ class PlayerControls extends StatelessWidget {
         ),
       ),
       if (episodes)
-        IconButton(
-          tooltip: '下一话',
-          onPressed: onNext,
-          icon: const Icon(Icons.skip_next_rounded),
+        IconHover(
+          child: IconButton(
+            tooltip: '下一话',
+            onPressed: onNext,
+            icon: const GestureIcon(
+              IconGesture.forward,
+              child: Icon(Icons.skip_next_rounded),
+            ),
+          ),
         ),
       if (frames) ...[
-        IconButton(
-          tooltip: '上一帧 (,)',
-          onPressed: () => onStepFrame(false),
-          icon: const PlayerGlyph(PlayerGlyphKind.previousFrame),
+        IconHover(
+          child: IconButton(
+            tooltip: '上一帧 (,)',
+            onPressed: () => onStepFrame(false),
+            icon: const GestureIcon(
+              IconGesture.back,
+              child: PlayerGlyph(PlayerGlyphKind.previousFrame),
+            ),
+          ),
         ),
-        IconButton(
-          tooltip: '下一帧 (.)',
-          onPressed: () => onStepFrame(true),
-          icon: const PlayerGlyph(PlayerGlyphKind.nextFrame),
+        IconHover(
+          child: IconButton(
+            tooltip: '下一帧 (.)',
+            onPressed: () => onStepFrame(true),
+            icon: const GestureIcon(
+              IconGesture.forward,
+              child: PlayerGlyph(PlayerGlyphKind.nextFrame),
+            ),
+          ),
         ),
       ],
       if (volume)
@@ -340,12 +360,14 @@ class PlayerControls extends StatelessWidget {
     AnchoredPanel(
       open: danmakuMenuOpen,
       panel: danmakuMenu,
-      child: IconButton(
-        focusNode: danmakuMenuFocus,
-        tooltip: '弹幕设置',
-        isSelected: danmakuMenuOpen,
-        onPressed: onDanmakuMenu,
-        icon: const PlayerGlyph(PlayerGlyphKind.danmakuSettings),
+      child: IconHover(
+        child: IconButton(
+          focusNode: danmakuMenuFocus,
+          tooltip: '弹幕设置',
+          isSelected: danmakuMenuOpen,
+          onPressed: onDanmakuMenu,
+          icon: const PlayerGlyph(PlayerGlyphKind.danmakuSettings),
+        ),
       ),
     ),
   ];
@@ -371,30 +393,40 @@ class PlayerControls extends StatelessWidget {
       ),
       if (!trimmed) ...[
         SubtitleMenu(playback: playback, onPopupChanged: onPopupChanged),
-        IconButton(
-          tooltip: windowFullScreen ? '退出窗口全屏' : '窗口全屏',
-          onPressed: onWindowFullScreen,
-          icon: MotionSwap(
-            value: windowFullScreen,
-            child: Icon(
-              windowFullScreen
-                  ? Icons.close_fullscreen_rounded
-                  : Icons.open_in_full_rounded,
-              size: compact ? 16 : 18,
+        IconHover(
+          child: IconButton(
+            tooltip: windowFullScreen ? '退出窗口全屏' : '窗口全屏',
+            onPressed: onWindowFullScreen,
+            icon: GestureIcon(
+              IconGesture.swell,
+              child: MotionSwap(
+                value: windowFullScreen,
+                child: Icon(
+                  windowFullScreen
+                      ? Icons.close_fullscreen_rounded
+                      : Icons.open_in_full_rounded,
+                  size: compact ? 16 : 18,
+                ),
+              ),
             ),
           ),
         ),
       ],
-      IconButton(
-        tooltip: fullScreen ? '退出全屏 (F)' : '全屏 (F)',
-        onPressed: onFullscreen,
-        icon: MotionSwap(
-          value: fullScreen,
-          child: Icon(
-            fullScreen
-                ? Icons.fullscreen_exit_rounded
-                : Icons.fullscreen_rounded,
-            size: fullscreenIcon,
+      IconHover(
+        child: IconButton(
+          tooltip: fullScreen ? '退出全屏 (F)' : '全屏 (F)',
+          onPressed: onFullscreen,
+          icon: GestureIcon(
+            IconGesture.swell,
+            child: MotionSwap(
+              value: fullScreen,
+              child: Icon(
+                fullScreen
+                    ? Icons.fullscreen_exit_rounded
+                    : Icons.fullscreen_rounded,
+                size: fullscreenIcon,
+              ),
+            ),
           ),
         ),
       ),
@@ -421,17 +453,38 @@ class PlayerGlyph extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = IconTheme.of(context);
+    if (kind != PlayerGlyphKind.danmakuSettings) {
+      return SizedBox.square(
+        dimension: theme.size,
+        child: CustomPaint(painter: _GlyphPainter(kind, theme.color!)),
+      );
+    }
+    // Only the small cog turns, a quarter turn to its next spoke, as
+    // [IconGesture.turn] does for the whole settings cog.
+    final hover = IconHover.of(context);
     return SizedBox.square(
       dimension: theme.size,
-      child: CustomPaint(painter: _GlyphPainter(kind, theme.color!)),
+      child: AnimatedBuilder(
+        animation: hover,
+        builder: (context, _) => CustomPaint(
+          painter: _GlyphPainter(
+            kind,
+            theme.color!,
+            turn: Curves.easeInOutCubic.transform(hover.value) * math.pi / 2,
+          ),
+        ),
+      ),
     );
   }
 }
 
 class _GlyphPainter extends CustomPainter {
-  _GlyphPainter(this.kind, this.color);
+  _GlyphPainter(this.kind, this.color, {this.turn = 0});
   final PlayerGlyphKind kind;
   final Color color;
+
+  /// The small cog's angle in the danmaku settings glyph.
+  final double turn;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -476,11 +529,13 @@ class _GlyphPainter extends CustomPainter {
         );
         line(7, 10, 13, 10);
         line(7, 14, 10, 14);
-        canvas.drawCircle(const Offset(18, 17), 2.2, stroke);
-        line(18, 13.3, 18, 14.6);
-        line(18, 19.4, 18, 20.7);
-        line(14.3, 17, 15.6, 17);
-        line(20.4, 17, 21.7, 17);
+        canvas.translate(18, 17);
+        canvas.rotate(turn);
+        canvas.drawCircle(Offset.zero, 2.2, stroke);
+        line(0, -3.7, 0, -2.4);
+        line(0, 2.4, 0, 3.7);
+        line(-3.7, 0, -2.4, 0);
+        line(2.4, 0, 3.7, 0);
       case PlayerGlyphKind.previousFrame:
         stroke.strokeWidth = 2.2;
         canvas.drawPath(
@@ -531,5 +586,5 @@ class _GlyphPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_GlyphPainter old) =>
-      old.kind != kind || old.color != color;
+      old.kind != kind || old.color != color || old.turn != turn;
 }

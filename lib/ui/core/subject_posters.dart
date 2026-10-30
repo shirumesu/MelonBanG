@@ -521,6 +521,10 @@ class _SubjectPosterState extends State<SubjectPoster> {
                       right: 0,
                       bottom: 0,
                       child: MotionValue(
+                        key: PageStorageKey((
+                          'poster-progress',
+                          widget.item.id,
+                        )),
                         value: progress,
                         from: 0,
                         milliseconds: 700,

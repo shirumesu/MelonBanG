@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../features/danmaku/danmaku_preferences.dart';
 import '../../features/playback/playback.dart';
+import '../core/motion.dart';
 import '../core/theme.dart';
 import 'player_controls.dart';
 import 'player_popovers.dart';
@@ -43,11 +44,16 @@ class PlaybackMenu extends StatelessWidget {
         );
     return HoverPopover(
       onPopupChanged: onPopupChanged,
-      anchor: (popover) => IconButton(
-        tooltip: '播放设置',
-        isSelected: popover.open,
-        onPressed: popover.toggle,
-        icon: const PlayerGlyph(PlayerGlyphKind.settings),
+      anchor: (popover) => IconHover(
+        child: IconButton(
+          tooltip: '播放设置',
+          isSelected: popover.open,
+          onPressed: popover.toggle,
+          icon: const GestureIcon(
+            IconGesture.turn,
+            child: PlayerGlyph(PlayerGlyphKind.settings),
+          ),
+        ),
       ),
       popover: (popover) => SizedBox(
         width: 264,

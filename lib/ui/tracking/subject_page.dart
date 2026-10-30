@@ -795,6 +795,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(99),
                     child: MotionValue(
+                      key: const PageStorageKey('watch-progress'),
                       value: total == 0 ? 0 : watched / total,
                       from: 0,
                       milliseconds: 600,
@@ -1265,6 +1266,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           const SizedBox(height: Gap.md),
           // The bar fills in from the left when the card first shows.
           MotionValue(
+            key: const PageStorageKey('collection-stats'),
             value: 1,
             from: 0,
             milliseconds: 800,

@@ -590,7 +590,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
             padding: const EdgeInsets.fromLTRB(74, 4, 8, 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: _details(context, task, subject),
+              // The row above already has the remove button.
+              children: _details(context, task, subject, removable: false),
             ),
           ),
         ),
@@ -676,7 +677,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Divider(height: 28),
-                ..._details(context, task, subject),
+                ..._details(context, task, subject, removable: true),
               ],
             ),
           ),
@@ -685,27 +686,34 @@ class _DownloadsPageState extends State<DownloadsPage> {
     );
   }
 
-  /// Files, transfer counters and actions of [task], shown on request.
+  /// Files, transfer counters and actions of [task], shown on request. The
+  /// file name shows only where it differs from the title above it.
   List<Widget> _details(
     BuildContext context,
     DownloadTask task,
-    Subject? subject,
-  ) {
+    Subject? subject, {
+    required bool removable,
+  }) {
     final swarm = task.swarm;
     final files = task.files;
     return [
-      if (task.videos.length > 1)
-        _videos(context, task, subject)
-      else if (files.isNotEmpty)
+      if (task.videos.length > 1) ...[
+        _videos(context, task, subject),
+        const SizedBox(height: 8),
+      ] else if (files.length > 1 ||
+          (files.length == 1 && files.single.name != task.title)) ...[
         Text(
           files.length == 1
               ? files.single.name
               : '${files.first.name} 等 ${files.length} 个文件',
           style: Theme.of(context).textTheme.bodySmall,
         ),
-      const SizedBox(height: 8),
+        const SizedBox(height: 8),
+      ],
       _stats(context, [
-        '↓ ${ByteUnitsScope.of(context).rate(task.downloadSpeed)}',
+        // A finished task downloads nothing more.
+        if (!task.complete)
+          '↓ ${ByteUnitsScope.of(context).rate(task.downloadSpeed)}',
         if (task.seeds) ...[
           '↑ ${ByteUnitsScope.of(context).rate(task.uploadSpeed)}',
           '${swarm.peers} 个连接',
@@ -762,11 +770,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     : '在文件管理器中显示',
               ),
             ),
-          TextButton.icon(
-            onPressed: () => _remove(task),
-            icon: const Icon(Icons.delete_outline, size: 17),
-            label: const Text('移除任务与缓存'),
-          ),
+          if (removable)
+            TextButton.icon(
+              onPressed: () => _remove(task),
+              icon: const Icon(Icons.delete_outline, size: 17),
+              label: const Text('移除任务与缓存'),
+            ),
         ],
       ),
     ];

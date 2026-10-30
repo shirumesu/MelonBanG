@@ -6,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 
 import '../../features/playback/playback.dart';
 import '../../features/playback/super_resolution.dart';
+import '../core/motion.dart';
 import '../core/theme.dart';
 import 'player_popovers.dart';
 
@@ -40,15 +41,14 @@ class PlayerVolumeControl extends StatelessWidget {
       initialData: player.state.volume,
       builder: (context, snapshot) {
         final volume = snapshot.data!;
+        final icon = volume == 0
+            ? Icons.volume_off_rounded
+            : volume < 50
+            ? Icons.volume_down_rounded
+            : Icons.volume_up_rounded;
         return IconButton(
           onPressed: playback.toggleMute,
-          icon: Icon(
-            volume == 0
-                ? Icons.volume_off_rounded
-                : volume < 50
-                ? Icons.volume_down_rounded
-                : Icons.volume_up_rounded,
-          ),
+          icon: MotionSwap(value: icon, child: Icon(icon)),
         );
       },
     ),
