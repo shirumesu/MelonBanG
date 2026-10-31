@@ -60,7 +60,7 @@
   <a href="https://github.com/shirumesu/MelonBanG/releases">全部版本</a>
 </p>
 
-[更新日志](CHANGELOG.md) 里有当前版本每个平台安装包的直接下载链接。装好以后应用会自己检查更新，在后台下载，重启即完成。
+每个版本的[发布页](https://github.com/shirumesu/MelonBanG/releases/latest)最下面有各平台安装包的直接下载链接。装好以后应用会自己检查更新，在后台下载，重启即完成。
 
 | 平台 | 要求 | 安装包 |
 | --- | --- | --- |

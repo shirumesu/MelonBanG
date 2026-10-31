@@ -290,9 +290,6 @@ class _AboutCard extends StatelessWidget {
   }
 }
 
-/// The release's CHANGELOG.md up to its download table, which is of no use
-/// to an app that updates itself: `##` headings, `-` items and paragraphs,
-/// with links and emphasis reduced to their text.
 /// This version's notes: the CHANGELOG.md its release shows, bundled.
 void _showChangelog(BuildContext context) => showMelonDialog<void>(
   context: context,
@@ -339,6 +336,8 @@ void _showChangelog(BuildContext context) => showMelonDialog<void>(
   ),
 );
 
+/// A release's CHANGELOG.md: `##` headings, `-` items and paragraphs, with
+/// links and emphasis reduced to their text.
 class _ReleaseNotes extends StatelessWidget {
   const _ReleaseNotes(this.notes);
   final String notes;
@@ -350,7 +349,7 @@ class _ReleaseNotes extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final lines = notes.split('## 下载安装').first.split('\n');
+    final lines = notes.split('\n');
     return SelectionArea(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
