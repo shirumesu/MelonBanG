@@ -44,6 +44,7 @@ class PlaybackMenu extends StatelessWidget {
         );
     return HoverPopover(
       onPopupChanged: onPopupChanged,
+      borderRadius: panelBorderRadius,
       anchor: (popover) => IconHover(
         child: IconButton(
           tooltip: '播放设置',
@@ -230,8 +231,8 @@ class DanmakuQuickSettings extends StatelessWidget {
                 ),
                 const SizedBox(height: Gap.sm),
                 Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
+                  spacing: Gap.sm,
+                  runSpacing: Gap.sm,
                   children: [
                     toggle('滚动', prefs.scroll, (v) => prefs.scroll = v),
                     toggle('顶部', prefs.top, (v) => prefs.top = v),
@@ -320,7 +321,10 @@ class _Toggle extends StatelessWidget {
         borderRadius: badgeBorderRadius,
         onTap: onPressed,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          padding: const EdgeInsets.symmetric(
+            horizontal: Gap.md,
+            vertical: Gap.xs,
+          ),
           child: Text(
             label,
             style: TextStyle(

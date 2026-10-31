@@ -45,7 +45,7 @@ class EpisodeGrid extends StatefulWidget {
 }
 
 class _EpisodeGridState extends State<EpisodeGrid> {
-  static const _gap = 6.0, _minWidth = 40.0, _height = 30.0, _rows = 4;
+  static const _gap = 8.0, _minWidth = 40.0, _height = 32.0, _rows = 4;
   static const _cancelMargin = 48.0;
   bool expanded = false;
   int? hovered;
@@ -308,10 +308,10 @@ class _EpisodeGridState extends State<EpisodeGrid> {
         Widget swatch(Color fill, Color border) => Container(
           width: 12,
           height: 12,
-          margin: const EdgeInsets.only(right: 5),
+          margin: const EdgeInsets.only(right: Gap.xs),
           decoration: BoxDecoration(
             color: fill,
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: badgeBorderRadius,
             border: Border.all(color: border),
           ),
         );
@@ -446,7 +446,6 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                       hint,
                       style: TextStyle(
                         color: outside ? scheme.error : scheme.primary,
-                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   if (collapsible)
@@ -495,7 +494,6 @@ class EpisodeNumber extends StatelessWidget {
           style: TextStyle(
             fontSize: 9,
             height: 1.1,
-            fontWeight: FontWeight.w500,
             color: color?.withValues(alpha: .7),
           ),
         ),

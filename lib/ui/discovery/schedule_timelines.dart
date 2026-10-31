@@ -144,7 +144,11 @@ class _TodayTimelineState extends State<TodayTimeline> {
             padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.sm, Gap.xs, 0),
             child: Row(
               children: [
-                const Icon(Icons.auto_awesome_outlined, size: 18, color: coral),
+                Icon(
+                  Icons.calendar_today_outlined,
+                  size: 18,
+                  color: scheme.onSurfaceVariant,
+                ),
                 const SizedBox(width: 6),
                 Text('今日更新', style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(width: Gap.sm),
@@ -218,7 +222,7 @@ class _TimelineEntry extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final instant = item.airingAt;
     final line = aired
-        ? scheme.primary.withValues(alpha: .55)
+        ? scheme.primary.withValues(alpha: .35)
         : scheme.outlineVariant;
     return SizedBox(
       height: _TodayTimelineState.rowHeight,
@@ -236,7 +240,7 @@ class _TimelineEntry extends StatelessWidget {
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     fontFeatures: const [FontFeature.tabularFigures()],
-                    color: aired ? scheme.primary : scheme.onSurfaceVariant,
+                    color: aired ? scheme.onSurface : scheme.onSurfaceVariant,
                   ),
                 ),
               ),

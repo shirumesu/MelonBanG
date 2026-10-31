@@ -61,6 +61,7 @@ class HomePage extends StatelessWidget {
       successLabel: '已更新',
       icon: Icons.refresh,
       onPressed: onRefresh,
+      iconOnly: true,
     );
     final Widget showcase;
     if (trendingLoading && trending.isEmpty) {
@@ -124,6 +125,7 @@ class HomePage extends StatelessWidget {
           SectionTitle(
             title: '本季热度',
             icon: Icons.local_fire_department_outlined,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
             top: 0,
             trailing: refresh,
           ),
@@ -198,7 +200,6 @@ class _TrendingShowcaseState extends State<_TrendingShowcase> {
       item: widget.items[current],
       direction: direction,
       rank: current + 1,
-      count: widget.items.length,
       onOpen: widget.onOpen,
       onPrevious: () => select(current - 1),
       onNext: () => select(current + 1),
@@ -233,7 +234,6 @@ class _Spotlight extends StatelessWidget {
     required this.item,
     required this.direction,
     required this.rank,
-    required this.count,
     required this.onOpen,
     required this.onPrevious,
     required this.onNext,
@@ -242,7 +242,7 @@ class _Spotlight extends StatelessWidget {
 
   /// 1 when moving down the ranking, -1 when moving back up.
   final int direction;
-  final int rank, count;
+  final int rank;
   final ValueChanged<Subject> onOpen;
   final VoidCallback onPrevious, onNext;
 
@@ -341,11 +341,13 @@ class _Spotlight extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '#$rank 本季热度',
+                              '#$rank',
                               style: TextStyle(
                                 color: rank <= 3 ? gold : muted,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
                               ),
                             ),
                             const SizedBox(height: Gap.sm),
@@ -357,7 +359,7 @@ class _Spotlight extends StatelessWidget {
                                 color: white,
                                 fontSize: 24,
                                 height: 1.25,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                             if (original.isNotEmpty && original != title)
@@ -369,8 +371,8 @@ class _Spotlight extends StatelessWidget {
                               ),
                             const SizedBox(height: Gap.lg),
                             Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
+                              spacing: Gap.sm,
+                              runSpacing: Gap.sm,
                               crossAxisAlignment: WrapCrossAlignment.center,
                               children: [
                                 Text(
@@ -378,10 +380,11 @@ class _Spotlight extends StatelessWidget {
                                   style: const TextStyle(
                                     color: gold,
                                     fontSize: 17,
-                                    fontWeight: FontWeight.w800,
+                                    fontFeatures: [
+                                      FontFeature.tabularFigures(),
+                                    ],
                                   ),
                                 ),
-                                const SizedBox(width: 4),
                                 for (final tag in tags)
                                   Container(
                                     padding: const EdgeInsets.symmetric(
@@ -396,8 +399,7 @@ class _Spotlight extends StatelessWidget {
                                       tag,
                                       style: const TextStyle(
                                         color: white,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12,
                                       ),
                                     ),
                                   ),
@@ -414,7 +416,7 @@ class _Spotlight extends StatelessWidget {
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       color: muted,
-                                      fontSize: 12.5,
+                                      fontSize: 13,
                                       height: 1.6,
                                     ),
                                   ),
@@ -432,17 +434,6 @@ class _Spotlight extends StatelessWidget {
                                   child: const Text('查看详情'),
                                 ),
                                 const Spacer(),
-                                Text(
-                                  '$rank / $count',
-                                  style: TextStyle(
-                                    color: muted,
-                                    fontSize: 12,
-                                    fontFeatures: const [
-                                      FontFeature.tabularFigures(),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: Gap.sm),
                                 for (final (icon, tooltip, action) in [
                                   (Icons.chevron_left, '上一部', onPrevious),
                                   (Icons.chevron_right, '下一部', onNext),
@@ -502,7 +493,7 @@ class _RankList extends StatelessWidget {
         selected: selected,
         highlight: DecoratedBox(
           decoration: BoxDecoration(
-            color: scheme.primaryContainer.withValues(alpha: .6),
+            color: scheme.primaryContainer.withValues(alpha: .35),
             borderRadius: badgeBorderRadius,
           ),
         ),
@@ -512,10 +503,10 @@ class _RankList extends StatelessWidget {
               padding: const EdgeInsets.only(left: Gap.sm, bottom: Gap.xs),
               child: Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.local_fire_department_outlined,
                     size: 18,
-                    color: coral,
+                    color: scheme.onSurfaceVariant,
                   ),
                   const SizedBox(width: 6),
                   Text('本季热度', style: Theme.of(context).textTheme.titleSmall),
@@ -546,7 +537,9 @@ class _RankList extends StatelessWidget {
                                 '${i + 1}',
                                 style: TextStyle(
                                   fontSize: 14,
-                                  fontWeight: FontWeight.w800,
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures(),
+                                  ],
                                   color: i < 3
                                       ? coral
                                       : scheme.onSurfaceVariant,
@@ -558,12 +551,7 @@ class _RankList extends StatelessWidget {
                                 items[i].title,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: i == selected
-                                      ? FontWeight.w800
-                                      : FontWeight.w600,
-                                ),
+                                style: const TextStyle(fontSize: 13),
                               ),
                             ),
                             const SizedBox(width: Gap.sm),
@@ -571,7 +559,9 @@ class _RankList extends StatelessWidget {
                               '★ ${scoreLabel(items[i].score)}',
                               style: TextStyle(
                                 fontSize: 12,
-                                fontWeight: FontWeight.w700,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
                                 color: scheme.tertiary,
                               ),
                             ),
@@ -628,7 +618,7 @@ class _ContinueSection extends StatelessWidget {
         SectionTitle(
           title: '继续观看',
           icon: Icons.play_circle_outline,
-          color: accentOf(context).accent,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
           top: 0,
           trailing: TextButton(
             onPressed: onOpenTracking,

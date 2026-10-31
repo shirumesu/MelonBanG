@@ -105,7 +105,7 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
           if (subject.episodeTotal case final total?) '$total 话',
           ?subject.description,
           if (subject.danmakuCount case final count?) _comments(count),
-        ].join(' · '),
+        ].join('  '),
         site: subject,
         open: subject.choosePart
             ? () => _video(subject.id)
@@ -183,7 +183,7 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
           subtitle: [
             '${(number(page['duration']) / 60).round()} 分钟',
             if (comments != null && pages.length == 1) _comments(comments),
-          ].join(' · '),
+          ].join('  '),
           locator: '${video['bvid']}?p=${page['page']}',
         ),
     ];

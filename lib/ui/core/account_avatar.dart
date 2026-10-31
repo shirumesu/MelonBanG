@@ -18,11 +18,17 @@ class AccountAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    // Nobody to show, such as before signing in: a neutral silhouette.
     final fallback = ColoredBox(
-      color: grape,
+      color: name.isEmpty ? scheme.surfaceContainerHigh : grape,
       child: Center(
         child: name.isEmpty
-            ? const Icon(Icons.person_outline, color: Colors.white)
+            ? Icon(
+                Icons.person_outline,
+                size: size * .55,
+                color: scheme.onSurfaceVariant,
+              )
             : Text(
                 name.characters.first,
                 style: const TextStyle(

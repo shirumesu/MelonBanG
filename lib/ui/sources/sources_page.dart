@@ -117,11 +117,7 @@ class _SourcesPageState extends State<SourcesPage> {
           : enabled
           ? '已启用'
           : '已停用',
-      color: unconfigured != null
-          ? gold
-          : enabled
-          ? mint
-          : sky,
+      color: null,
       enabled: enabled,
       onToggle: unconfigured != null
           ? null
@@ -161,11 +157,12 @@ class _SourcesPageState extends State<SourcesPage> {
     SourceHealth.update => '需要更新应用',
     SourceHealth.disabled => '已停用',
   };
-  Color color(SourceHealth status) => switch (status) {
-    SourceHealth.enabled => mint,
+
+  /// Only a problem has a colour; a source simply on or off has none.
+  Color? color(SourceHealth status) => switch (status) {
     SourceHealth.error => coral,
     SourceHealth.verification || SourceHealth.update => gold,
-    SourceHealth.disabled => sky,
+    SourceHealth.enabled || SourceHealth.disabled => null,
   };
   void _select(String id) {
     if (id == 'melon') unawaited(danmaku.refreshQuota());
@@ -394,11 +391,13 @@ class _SourcesPageState extends State<SourcesPage> {
               : () => setState(
                   () => folded ? _folded.remove(kind) : _folded.add(kind),
                 ),
-          padding: const EdgeInsets.fromLTRB(Gap.xs, Gap.md, Gap.sm, 6),
+          padding: const EdgeInsets.fromLTRB(Gap.xs, Gap.md, Gap.sm, Gap.xs),
           trailing: issues > 0
               ? Text(
                   '$issues 个异常',
-                  style: theme.textTheme.bodySmall?.copyWith(color: coral),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: badgeInk(coral, theme.brightness == Brightness.dark),
+                  ),
                 )
               : null,
         ),
@@ -446,8 +445,8 @@ class _SourcesPageState extends State<SourcesPage> {
               ),
               const SizedBox(height: Gap.sm),
               Wrap(
-                spacing: 6,
-                runSpacing: 6,
+                spacing: Gap.sm,
+                runSpacing: Gap.sm,
                 children: [
                   ChoiceChip(
                     label: Text('全部 ${all.length}'),
@@ -466,7 +465,6 @@ class _SourcesPageState extends State<SourcesPage> {
                     FilterChip(
                       label: Text('异常 $problems'),
                       selected: _problemsOnly,
-                      selectedColor: coral.withValues(alpha: .18),
                       onSelected: (value) =>
                           setState(() => _problemsOnly = value),
                     ),
@@ -540,11 +538,7 @@ class _SourcesPageState extends State<SourcesPage> {
       padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
       children: [
         if (narrow) _back(),
-        SectionTitle(
-          title: entry.name,
-          top: 0,
-          trailing: MelonBadge(entry.status, color: entry.color),
-        ),
+        SectionTitle(title: entry.name, top: 0, trailing: _badge(entry)),
         MelonPanel(
           padding: const EdgeInsets.symmetric(
             horizontal: Gap.lg,
@@ -554,9 +548,8 @@ class _SourcesPageState extends State<SourcesPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (address.isNotEmpty) _connection(entry, address, null),
-              Text('弹幕', style: theme.textTheme.bodySmall),
               Padding(
-                padding: const EdgeInsets.only(top: Gap.sm),
+                padding: EdgeInsets.only(top: address.isNotEmpty ? Gap.sm : 0),
                 child: Text(
                   provider.description,
                   style: theme.textTheme.bodySmall,
@@ -565,10 +558,7 @@ class _SourcesPageState extends State<SourcesPage> {
               if (provider.unconfigured case final reason?)
                 Padding(
                   padding: const EdgeInsets.only(top: Gap.sm),
-                  child: Text(
-                    reason,
-                    style: theme.textTheme.bodySmall?.copyWith(color: gold),
-                  ),
+                  child: Text(reason, style: theme.textTheme.bodySmall),
                 ),
             ],
           ),
@@ -598,6 +588,14 @@ class _SourcesPageState extends State<SourcesPage> {
       ],
     );
   }
+
+  /// Nothing while the source is simply on.
+  Widget? _badge(_Entry entry) => entry.quiet
+      ? null
+      : MelonBadge(
+          entry.status,
+          color: entry.color ?? Theme.of(context).colorScheme.onSurfaceVariant,
+        );
 
   Widget _back() => Align(
     alignment: Alignment.centerLeft,
@@ -629,11 +627,7 @@ class _SourcesPageState extends State<SourcesPage> {
           onRetry: manual ? () => _manualSearch(id) : null,
         ),
         if (narrow) _back(),
-        SectionTitle(
-          title: entry.name,
-          top: 0,
-          trailing: MelonBadge(entry.status, color: entry.color),
-        ),
+        SectionTitle(title: entry.name, top: 0, trailing: _badge(entry)),
         MelonPanel(
           padding: const EdgeInsets.symmetric(
             horizontal: Gap.lg,
@@ -643,14 +637,11 @@ class _SourcesPageState extends State<SourcesPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _connection(entry, domain, instance?.website ?? domain),
-              Text(
-                instance == null
-                    ? '网盘'
-                    : manual
-                    ? '需要手动选择条目'
-                    : instance.engine,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+              if (instance != null)
+                Text(
+                  manual ? '需要手动选择条目' : instance.engine,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               if (instance?.description case final description?)
                 Padding(
                   padding: const EdgeInsets.only(top: Gap.sm),
@@ -846,7 +837,9 @@ final class _Entry {
   final String id, name;
   final _Kind kind;
   final String status;
-  final Color color;
+
+  /// Set only for a problem.
+  final Color? color;
   final bool enabled;
 
   /// Needs attention: failing, asking for verification or for an update.
@@ -862,6 +855,9 @@ final class _Entry {
   /// The rule behind an online source or BT index.
   final SourceInstance? instance;
   final DanmakuMatcher? danmaku;
+
+  /// Simply on, so the list shows no status and the details no badge.
+  bool get quiet => enabled && !problem;
 }
 
 /// A source in the list: status dot, name, status when it is not simply on,
@@ -879,7 +875,7 @@ class _SourceRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final quiet = entry.enabled && !entry.problem;
+    final dark = theme.brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: AnimatedContainer(
@@ -907,10 +903,12 @@ class _SourceRow extends StatelessWidget {
                     child: Container(
                       width: 8,
                       height: 8,
-                      decoration: BoxDecoration(
-                        color: entry.color,
-                        shape: BoxShape.circle,
-                      ),
+                      decoration: entry.color == null
+                          ? null
+                          : BoxDecoration(
+                              color: entry.color,
+                              shape: BoxShape.circle,
+                            ),
                     ),
                   ),
                   const SizedBox(width: Gap.md),
@@ -919,18 +917,19 @@ class _SourceRow extends StatelessWidget {
                       entry.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: selected ? FontWeight.w700 : null,
-                      ),
+                      style: theme.textTheme.bodyMedium,
                     ),
                   ),
-                  if (!quiet)
+                  if (!entry.quiet)
                     Padding(
                       padding: const EdgeInsets.only(left: Gap.sm),
                       child: Text(
                         entry.status,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: entry.problem ? entry.color : null,
+                          color: switch (entry.color) {
+                            final color? => badgeInk(color, dark),
+                            null => null,
+                          },
                         ),
                       ),
                     ),

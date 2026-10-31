@@ -67,7 +67,7 @@ class PlayerVolumeControl extends StatelessWidget {
                 '${volume.round()}',
                 style: const TextStyle(
                   fontSize: 12,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
                   color: Colors.white,
                   fontFeatures: [FontFeature.tabularFigures()],
                 ),
@@ -217,7 +217,7 @@ class SuperResolutionMenu extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
             child: Text(
               switch (upscale) {
                 _ when !on => 'Anime4K 放大到窗口分辨率',

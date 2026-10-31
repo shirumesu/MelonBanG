@@ -25,13 +25,16 @@ class DownloadTaskStatus extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Wrap(
-          spacing: 10,
-          runSpacing: 5,
+          spacing: Gap.sm,
+          runSpacing: Gap.xs,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            DownloadStatusBadge(task),
+            if (DownloadStatusBadge.shows(task)) DownloadStatusBadge(task),
             if (downloadOrigin(task) case final origin?)
-              MelonBadge(origin, color: sky),
+              MelonBadge(
+                origin,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             if (measured) ...[
               Text('${(progress * 100).floor()}%', style: small),
               Text(
@@ -48,7 +51,7 @@ class DownloadTaskStatus extends StatelessWidget {
         ),
         if (!task.complete)
           Padding(
-            padding: const EdgeInsets.only(top: 10),
+            padding: const EdgeInsets.only(top: Gap.sm),
             child: MotionValue(
               value: task.cloudProgress ?? progress,
               builder: (context, value) => LinearProgressIndicator(
@@ -131,7 +134,7 @@ class DownloadToggleButton extends StatelessWidget {
     if (labelled) {
       return OutlinedButton.icon(
         onPressed: () => onToggle(task),
-        icon: MotionSwap(value: icon, child: Icon(icon, size: 19)),
+        icon: MotionSwap(value: icon, child: Icon(icon, size: 18)),
         label: Text(toggleLabel(toggle)),
       );
     }
@@ -191,18 +194,26 @@ Future<void> chooseDownloadVideo(
   ),
 );
 
-/// A task's status, red when it failed and blue once complete.
+/// A task's status, red when it failed and blue once complete; nothing for
+/// a finished task that does not seed, which needs no badge.
 class DownloadStatusBadge extends StatelessWidget {
   const DownloadStatusBadge(this.task, {super.key});
   final DownloadTask task;
 
+  /// Whether [task] has a status worth a badge.
+  static bool shows(DownloadTask task) =>
+      task.status != DownloadStatus.completed || task.seeds;
+
   @override
-  Widget build(BuildContext context) => MelonBadge(
-    downloadStatus(task),
-    color: task.status == DownloadStatus.failed
-        ? coral
-        : task.complete
-        ? sky
-        : mint,
-  );
+  Widget build(BuildContext context) {
+    if (!shows(task)) return const SizedBox.shrink();
+    return MelonBadge(
+      downloadStatus(task),
+      color: task.status == DownloadStatus.failed
+          ? coral
+          : task.complete
+          ? sky
+          : mint,
+    );
+  }
 }

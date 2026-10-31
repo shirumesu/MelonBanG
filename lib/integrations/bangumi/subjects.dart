@@ -283,7 +283,7 @@ class BangumiSubjects {
     return {
       'year': season.year,
       'label':
-          '${season.year} ${const ['WINTER', 'SPRING', 'SUMMER', 'FALL'][season.month! ~/ 3]}',
+          '${season.year} ${const ['冬', '春', '夏', '秋'][season.month! ~/ 3]}',
     };
   }
 

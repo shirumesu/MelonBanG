@@ -622,7 +622,7 @@ class ScoreText extends StatelessWidget {
                 text: ' ${scoreLabels[score]}',
                 style: TextStyle(
                   fontSize: 12,
-                  color: Color.lerp(gold, Colors.black, .35),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
             ],

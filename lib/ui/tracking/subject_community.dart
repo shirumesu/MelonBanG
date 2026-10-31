@@ -267,10 +267,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
     final status = collection?.status;
     final score = collection?.score ?? 0;
     final comment = collection?.comment ?? '';
-    final scoreStyle = small?.copyWith(
-      color: Color.lerp(gold, Colors.black, .35),
-      fontWeight: FontWeight.w700,
-    );
+    final scoreStyle = small?.copyWith(color: scheme.onSurfaceVariant);
     final Widget body;
     if (status == null) {
       body = Padding(
@@ -350,7 +347,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
         children: [
           Row(
             children: [
-              Text('我', style: small?.copyWith(fontWeight: FontWeight.w700)),
+              Text('我', style: small),
               if (score > 0) ...[const SizedBox(width: 8), _ScoreStars(score)],
               Text('  ${collectionLabels[status] ?? ''}', style: small),
               const Spacer(),
@@ -503,14 +500,14 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                             onPressed: _feedback.busy
                                 ? null
                                 : () => unawaited(_load(refresh: true)),
-                            icon: const Icon(Icons.refresh, size: 18),
+                            icon: const Icon(Icons.refresh_rounded, size: 18),
                           ),
                         ),
                         IconButton(
                           tooltip: '在 Bangumi 打开',
                           onPressed: () =>
                               _open('/subject/${widget.subjectId}'),
-                          icon: const Icon(Icons.open_in_new, size: 18),
+                          icon: const Icon(Icons.open_in_new_rounded, size: 18),
                         ),
                       ],
                     ),
@@ -643,7 +640,6 @@ class _SubjectRelationsState extends State<SubjectRelations> {
     ];
     final shown = _expanded ? ordered : ordered.take(6).toList();
     return MelonPanel(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -669,10 +665,7 @@ class _SubjectRelationsState extends State<SubjectRelations> {
             if (index == 0 || _group(shown[index - 1]) != _group(row))
               Padding(
                 padding: const EdgeInsets.only(top: 8, bottom: 2),
-                child: Text(
-                  _group(row),
-                  style: text.bodySmall?.copyWith(fontWeight: FontWeight.w700),
-                ),
+                child: Text(_group(row), style: text.bodySmall),
               ),
             InkWell(
               borderRadius: controlBorderRadius,
@@ -776,7 +769,6 @@ class _PostMeta extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: small?.copyWith(
                     color: Theme.of(context).colorScheme.onSurface,
-                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),

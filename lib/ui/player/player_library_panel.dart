@@ -136,7 +136,7 @@ class _PlayerSidePanelState extends State<PlayerSidePanel> {
                             ?.copyWith(fontSize: 15),
                       ),
                       if (episode != null) ...[
-                        const SizedBox(height: 3),
+                        const SizedBox(height: Gap.xs),
                         Text(
                           episodeLabel(episode),
                           maxLines: 1,
@@ -231,7 +231,7 @@ class _DetailButton extends StatelessWidget {
     return TextButton.icon(
       style: TextButton.styleFrom(
         minimumSize: const Size(0, 30),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+        padding: const EdgeInsets.symmetric(horizontal: Gap.md),
         backgroundColor: scheme.surfaceContainerHigh,
         foregroundColor: scheme.onSurface,
         shape: const RoundedRectangleBorder(borderRadius: badgeBorderRadius),
@@ -276,7 +276,7 @@ class _EpisodesPane extends StatefulWidget {
 }
 
 class _EpisodesPaneState extends State<_EpisodesPane> {
-  static const columns = 6, cellHeight = 40.0, cellGap = 6.0;
+  static const columns = 6, cellHeight = 40.0, cellGap = 8.0;
   static const specialsHeader = 36.0;
   final scroll = ScrollController();
   Episode? hovered;
@@ -358,9 +358,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
         byEpisode.putIfAbsent(id, () => []).add((task: task, file: null));
       }
     }
-    final shown =
-        hovered ??
-        episodes.where((episode) => episode.id == episodeId).firstOrNull;
+    final shown = hovered;
     final source = sourceCard(context);
     // The card's height is not known here; scroll by an estimate of it.
     reveal(source == null ? 40 : 170);
@@ -427,7 +425,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
   bool aired(Episode episode) =>
       !(episode.aired?.isAfter(DateTime.now()) ?? false);
 
-  /// The hovered or playing episode: title, then its state.
+  /// The hovered episode: title, then its state.
   Widget episodeLine(Episode episode, List<EpisodeCache> caches) {
     final small = Theme.of(context).textTheme.bodySmall;
     final cache =
@@ -475,15 +473,19 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
       CacheMethod.online => '在线缓存',
       null => source?.kind.label ?? '在线',
     };
+    // Only a torrent's file name says more than the episode.
+    final torrent = switch (task?.method) {
+      CacheMethod.bt || CacheMethod.pikpak => true,
+      CacheMethod.online => false,
+      null => source?.kind == PlayKind.bt || source?.kind == PlayKind.pikpak,
+    };
     final name = switch (source) {
       PlayCandidate(:final line) when line.isNotEmpty => line,
       PlayCandidate(:final providerLabel?) => providerLabel,
       _ => task?.releaseGroups.firstOrNull ?? task?.source,
     };
-    final live = task == null
+    final live = task == null || task.complete
         ? null
-        : task.complete
-        ? '已缓存'
         : transferLine(
             task,
             ByteUnitsScope.of(context),
@@ -513,7 +515,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                   kind,
                   style: TextStyle(
                     fontSize: 11,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: torrent ? FontWeight.w700 : FontWeight.w400,
                     color: scheme.onPrimaryContainer,
                   ),
                 ),
@@ -534,15 +536,16 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                 ),
             ],
           ),
-          Padding(
-            padding: const EdgeInsets.only(right: Gap.sm),
-            child: Text(
-              task?.title ?? source?.title ?? session.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: small,
+          if (torrent)
+            Padding(
+              padding: const EdgeInsets.only(right: Gap.sm),
+              child: Text(
+                task?.title ?? source?.title ?? session.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: small,
+              ),
             ),
-          ),
           if (live != null) ...[
             const SizedBox(height: Gap.xs),
             Text(
@@ -553,7 +556,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
             ),
           ],
           if (task != null && !task.complete) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: Gap.sm),
             Padding(
               padding: const EdgeInsets.only(right: Gap.sm),
               child: MotionValue(
@@ -857,7 +860,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
     return Padding(
       padding: const EdgeInsets.only(bottom: Gap.sm),
       child: Ink(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(Gap.md),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerLow,
           borderRadius: controlBorderRadius,
@@ -872,7 +875,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                     width: 28,
                     height: 38,
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(5),
+                      borderRadius: BorderRadius.circular(4),
                       child: SubjectCover(
                         url: task.coverUrl,
                         title: task.title,
@@ -902,7 +905,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
             DownloadTaskStatus(task: task),
             if (task.errorMessage case final message?)
               Padding(
-                padding: const EdgeInsets.only(top: 6),
+                padding: const EdgeInsets.only(top: Gap.xs),
                 child: Text(
                   message,
                   style: TextStyle(fontSize: 11, color: scheme.error),
@@ -1069,7 +1072,12 @@ class _CommentState extends State<_Comment> {
                 if (replies.isNotEmpty) ...[
                   const SizedBox(height: Gap.sm),
                   Container(
-                    padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+                    padding: const EdgeInsets.fromLTRB(
+                      Gap.md,
+                      Gap.sm,
+                      Gap.md,
+                      Gap.sm,
+                    ),
                     decoration: BoxDecoration(
                       color: scheme.surfaceContainerLow,
                       borderRadius: badgeBorderRadius,

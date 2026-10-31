@@ -154,14 +154,14 @@ class _TrackingPageState extends State<TrackingPage> {
           onChanged: personal.setFilter,
           semanticLabel: '追番分类',
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: Gap.lg),
         Wrap(
-          spacing: 10,
-          runSpacing: 10,
+          spacing: Gap.sm,
+          runSpacing: Gap.sm,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             SizedBox(
-              width: 235,
+              width: 236,
               child: TextField(
                 key: const PageStorageKey('collection-search'),
                 controller: search,
@@ -176,6 +176,7 @@ class _TrackingPageState extends State<TrackingPage> {
               message: '7 天内有新一话放送',
               child: FilterChip(
                 label: const Text('本周更新'),
+                labelStyle: const TextStyle(fontSize: 13),
                 selected: airingOnly,
                 backgroundColor: Theme.of(context)
                     .colorScheme
@@ -252,7 +253,10 @@ class _TrackingPageState extends State<TrackingPage> {
             padding: const EdgeInsets.only(top: 12),
             child: Text(
               '${personal.sync.pending} 项修改等待同步',
-              style: const TextStyle(color: gold, fontSize: 12),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.tertiary,
+                fontSize: 12,
+              ),
             ),
           ),
         const SizedBox(height: Gap.lg),
@@ -274,6 +278,7 @@ class _TrackingPageState extends State<TrackingPage> {
               onOpen: widget.onOpenSubject,
               items: items,
               tracking: true,
+              statusBadge: false,
               personalScore: order == _Order.personal,
             ),
           ),
