@@ -116,13 +116,13 @@ class ResourceSearchController extends ChangeNotifier {
   }
 
   Future<void> search(ResourceTerms terms) async {
-    final subject = state.subject;
+    var subject = state.subject;
     if (subject == null || terms.searchNames.isEmpty) return;
     _cancel.cancel();
     final cancellation = _cancel = RequestCancellation();
     final ticket = ++_ticket;
     final episode = state.episode;
-    final searched = keywordEpisode(subject, terms.episodeKeyword, episode);
+    var searched = keywordEpisode(subject, terms.episodeKeyword, episode);
     var candidates = const <PlayCandidate>[];
     // Ranked only when shown: PikPak reports its lookups one at a time.
     _rank = null;
@@ -171,6 +171,18 @@ class ResourceSearchController extends ChangeNotifier {
     show();
     final settings = playback.settings;
     try {
+      // Opened from a detail page whose episodes had yet to arrive; releases
+      // and site entries are matched to them.
+      if (subject.pending?.contains('episodes') ?? !subject.detailed) {
+        final detail = await selection.library.catalog.subject(
+          subject.id,
+          forPlayback: true,
+        );
+        if (ticket != _ticket) return;
+        subject = detail.copyWith(collection: subject.collection);
+        searched = keywordEpisode(subject, terms.episodeKeyword, episode);
+        show();
+      }
       remembered = await selection.remembered(subject.id);
       candidates = await selection.candidates(
         subject,
