@@ -194,6 +194,20 @@ bool releaseMayHold(Subject subject, Episode episode, ResourceTitleInfo info) {
   return within(episode.sort) || within(episode.absolute);
 }
 
+/// Whether a site subject a search found may hold [subject]'s episodes: one
+/// looked up by an identifier the user entered, an upload passing
+/// [uploadMatches], or a season scoring at least a possible match.
+bool siteMatches(
+  Subject subject,
+  Episode? episode,
+  SourceSubject site,
+  Iterable<String> names,
+) =>
+    site.direct ||
+    (site.choosePart
+        ? uploadMatches(subject, episode, site, names)
+        : sourceMatchScore(subject, site, names) >= .55);
+
 /// Openings/endings, soundtracks and songs, audio tracks, recaps, tutorials and
 /// merchandise reuse a title without holding an episode.
 final _notEpisode = RegExp(
@@ -220,9 +234,7 @@ bool uploadMatches(
       published.isBefore(aired.subtract(const Duration(days: 1)))) {
     return false;
   }
-  final length =
-      episode?.durationSeconds ??
-      subject.episodes.map((e) => e.durationSeconds).nonNulls.firstOrNull;
+  final length = episodeLength(subject, episode);
   final duration = upload.durationSeconds;
   if (duration != null && duration < (length ?? 240) * 3 ~/ 4) return false;
   final stated = _normalize(upload.title).$2;
@@ -239,6 +251,39 @@ bool uploadMatches(
         : 0;
     return _closestDistance(_sounds(expected), text) <= allowed;
   });
+}
+
+/// [episode]'s length in seconds, else the subject's first known one.
+int? episodeLength(Subject subject, Episode? episode) =>
+    episode?.durationSeconds ??
+    subject.episodes.map((e) => e.durationSeconds).nonNulls.firstOrNull;
+
+/// How an upload's title places [episode]: 0 when it names the episode or a
+/// range holding it (`第3集`, `EP03`, `1-12`, `全12集`), 2 when it names only
+/// other episodes, 1 when it names none, as fan works seldom do.
+int uploadNamesEpisode(String title, Episode episode) {
+  final text = simplifiedChinese(title).toUpperCase();
+  final number = episode.sort;
+  var other = false;
+  for (final match in RegExp(
+    r'(\d{1,3})\s*[-–~～至到]\s*(\d{1,3})\s*(?:[集话\]】)）])',
+  ).allMatches(text)) {
+    if (number >= int.parse(match[1]!) && number <= int.parse(match[2]!)) {
+      return 0;
+    }
+    other = true;
+  }
+  for (final match in RegExp(r'全\s*(\d{1,3})\s*[集话]').allMatches(text)) {
+    if (number <= int.parse(match[1]!)) return 0;
+    other = true;
+  }
+  for (final match in RegExp(
+    r'第\s*(\d{1,3})\s*[集话]|(?<![A-Z])EP\s*(\d{1,3})(?!\d)',
+  ).allMatches(text)) {
+    if (double.parse(match[1] ?? match[2]!) == number) return 0;
+    other = true;
+  }
+  return other ? 2 : 1;
 }
 
 /// Each character with its toneless readings, so homophones compare equal.

@@ -1,3 +1,5 @@
+import 'sources.dart';
+
 enum DanmakuMode { scroll, top, bottom }
 
 class DanmakuComment {
@@ -73,9 +75,14 @@ class DanmakuCandidate {
     this.subtitle,
     this.locator,
     this.open,
+    this.site,
   });
   final String title;
   final String? subtitle;
+
+  /// The resource search's entry a search row stands for, checked against
+  /// the playing subject the way resource search checks it.
+  final SourceSubject? site;
 
   /// The episode to load; null for a group.
   final String? locator;

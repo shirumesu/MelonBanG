@@ -106,6 +106,7 @@ final class SourceSubject {
     this.durationSeconds,
     this.publishedAt,
     this.tags = const [],
+    this.danmakuCount,
     this.direct = false,
     this.data = const {},
   });
@@ -120,6 +121,9 @@ final class SourceSubject {
   final int? durationSeconds;
   final DateTime? publishedAt;
   final List<String> tags;
+
+  /// Comments posted on an upload, across its parts.
+  final int? danmakuCount;
 
   /// Looked up by an identifier the user entered rather than found by title,
   /// so it is never filtered out as a mismatch.

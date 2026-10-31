@@ -52,10 +52,7 @@ Future<List<PlayCandidate>> onlineCandidates(
   }
 
   bool accepted(SourceSubject site) =>
-      site.direct ||
-      (site.choosePart
-          ? uploadMatches(subject, episode, site, names)
-          : sourceMatchScore(subject, site, names) >= .55);
+      siteMatches(subject, episode, site, names);
   final all = Future.wait(
     usable.map((rule) async {
       final id = rule.id;
