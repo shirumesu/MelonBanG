@@ -31,19 +31,23 @@ public class VideoOutputManager: NSObject {
     self.videoOutputs[handle] = videoOutput
   }
 
+  // MelonBanG: |onDrawn| runs on the main thread once a frame is drawn at
+  // the size.
   public func setSize(
     handle: Int64,
     width: Int64?,
-    height: Int64?
+    height: Int64?,
+    onDrawn: @escaping () -> Void
   ) {
     let videoOutput = self.videoOutputs[handle]
     if videoOutput == nil {
-      return
+      return onDrawn()
     }
 
     videoOutput!.setSize(
       width: width,
-      height: height
+      height: height,
+      onDrawn: onDrawn
     )
   }
 

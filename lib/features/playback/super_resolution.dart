@@ -26,21 +26,26 @@ const _chains = {
   ],
 };
 
-/// Files of the shader chain for [mode], empty for `off`. mpv reads shaders
-/// from disk, so the bundled assets are copied under application support
-/// once per shader version.
-Future<List<String>> superResolutionShaders(String mode) async {
-  final names = _chains[mode];
-  if (names == null) return const [];
-  final folder = Directory(
-    p.join(
-      (await getApplicationSupportDirectory()).path,
-      'shaders',
-      'anime4k-4.0.1',
-    ),
+/// Files of the shader chain for [mode], empty for `off`, and the folder for
+/// mpv's compiled shaders. mpv reads shaders from disk, so the bundled
+/// assets are copied under application support once per shader version.
+Future<({List<String> files, String cache})> superResolutionShaders(
+  String mode,
+) async {
+  final shaders = p.join(
+    (await getApplicationSupportDirectory()).path,
+    'shaders',
   );
+  final cache = Directory(p.join(shaders, 'cache'));
+  await cache.create(recursive: true);
+  final names = _chains[mode];
+  if (names == null) return (files: const <String>[], cache: cache.path);
+  final folder = Directory(p.join(shaders, 'anime4k-4.0.1'));
   await folder.create(recursive: true);
-  return [for (final name in names) await _copy(folder, name)];
+  return (
+    files: [for (final name in names) await _copy(folder, name)],
+    cache: cache.path,
+  );
 }
 
 Future<String> _copy(Directory folder, String name) async {

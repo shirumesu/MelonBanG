@@ -208,7 +208,24 @@ void MediaKitVideoPlugin::HandleMethodCall(
     if (height.compare("null") != 0) {
       height_value = static_cast<int64_t>(std::stoll(height.c_str()));
     }
-    video_output_manager_->SetSize(handle_value, width_value, height_value);
+    // MelonBanG: replies once a frame is drawn at the size.
+    auto reply = std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(
+        std::move(result));
+    video_output_manager_->SetSize(
+        handle_value, width_value, height_value, [this, reply]() {
+          RunOnMainThread([reply]() {
+            reply->Success(flutter::EncodableValue(std::monostate{}));
+          });
+        });
+  } else if (method_call.method_name().compare(
+                 "VideoOutputManager.TextureShown") == 0) {
+    auto arguments = std::get<flutter::EncodableMap>(*method_call.arguments());
+    auto handle =
+        std::get<std::string>(arguments[flutter::EncodableValue("handle")]);
+    auto id = std::get<std::string>(arguments[flutter::EncodableValue("id")]);
+    video_output_manager_->TextureShown(
+        static_cast<int64_t>(std::stoll(handle.c_str())),
+        static_cast<int64_t>(std::stoll(id.c_str())));
     result->Success(flutter::EncodableValue(std::monostate{}));
   } else if (method_call.method_name().compare("Utils.EnterNativeFullscreen") ==
              0) {
