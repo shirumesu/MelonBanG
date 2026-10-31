@@ -33,6 +33,12 @@ class SafeResizableTexture:
     }
   }
 
+  func redrawNext() {
+    locked {
+      child.redrawNext()
+    }
+  }
+
   func dispose() {
     locked {
       child.dispose()

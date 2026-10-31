@@ -105,7 +105,7 @@ public class MediaKitVideoPlugin: NSObject, FlutterPlugin {
 
   private func handleSetSizeMethodCall(
     _ arguments: Any?,
-    _ result: FlutterResult
+    _ result: @escaping FlutterResult
   ) {
     let args = arguments as? [String: Any]
     let handleStr = args?["handle"] as! String
@@ -118,13 +118,14 @@ public class MediaKitVideoPlugin: NSObject, FlutterPlugin {
 
     assert(handle != nil, "handle must be an Int64")
 
+    // MelonBanG: replies once a frame is drawn at the size.
     self.videoOutputManager.setSize(
       handle: handle!,
       width: width,
       height: height
-    )
-
-    result(nil)
+    ) {
+      result(nil)
+    }
   }
 
   private func handleDisposeMethodCall(

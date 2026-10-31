@@ -40,6 +40,9 @@ public class VideoOutput: NSObject {
   private var disposed: Bool = false
   private let renderLock = NSLock()
   private var renderPending = false
+  // MelonBanG: |setSize| callers waiting for the next drawn frame; used on
+  // the worker only.
+  private var drawnCallbacks: [() -> Void] = []
 
   init(
     handle: Int64,
@@ -82,18 +85,40 @@ public class VideoOutput: NSObject {
       self.disposed = true
       self.texture.dispose()
       self.disposeTextureId()
+      // MelonBanG: no frame follows, and each caller still gets its reply.
+      let callbacks = self.drawnCallbacks
+      self.drawnCallbacks = []
       DispatchQueue.main.async {
+        callbacks.forEach { $0() }
         completion()
       }
     }
   }
 
-  public func setSize(width: Int64?, height: Int64?) {
+  // MelonBanG: |onDrawn| runs on the main thread once a frame is drawn with
+  // this size and every option set before, such as the shaders.
+  public func setSize(
+    width: Int64?,
+    height: Int64?,
+    onDrawn: @escaping () -> Void
+  ) {
     worker.enqueue {
       self.width = width
       self.height = height
-      // MelonBanG: a paused player sends no update that would apply the size.
+      self.drawnCallbacks.append(onDrawn)
+      // MelonBanG: a paused player sends no update that would draw the size.
+      self.texture.redrawNext()
       self.updateCallback()
+    }
+  }
+
+  private func drawn() {
+    let callbacks = drawnCallbacks
+    drawnCallbacks = []
+    if !callbacks.isEmpty {
+      DispatchQueue.main.async {
+        callbacks.forEach { $0() }
+      }
     }
   }
 
@@ -193,6 +218,8 @@ public class VideoOutput: NSObject {
     let size = videoSize
 
     if size.width == 0 || size.height == 0 {
+      // MelonBanG: without a video there is nothing to wait for.
+      drawn()
       return
     }
 
@@ -215,6 +242,7 @@ public class VideoOutput: NSObject {
       // Textures must be marked as available from the main thread
       that.registry.textureFrameAvailable(that.textureId)
     }
+    drawn()
   }
 
     private var videoSize: CGSize {

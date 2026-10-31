@@ -16,8 +16,10 @@
 #include <render_gl.h>
 
 #include <atomic>
+#include <functional>
 #include <future>
 #include <memory>
+#include <vector>
 
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
@@ -75,7 +77,15 @@ class VideoOutput {
   void SetTextureUpdateCallback(
       std::function<void(int64_t, int64_t, int64_t)> callback);
 
-  void SetSize(std::optional<int64_t> width, std::optional<int64_t> height);
+  // MelonBanG: |on_drawn| runs on the render thread once a frame is drawn
+  // with this size and every option set before, such as the shaders.
+  void SetSize(std::optional<int64_t> width,
+               std::optional<int64_t> height,
+               std::function<void()> on_drawn);
+
+  // MelonBanG: Flutter has drawn a frame showing the texture |id|, so the
+  // textures it replaced can go.
+  void TextureShown(int64_t id);
 
  private:
   void NotifyRender();
@@ -87,6 +97,10 @@ class VideoOutput {
   void CheckAndResize();
 
   void Resize(int64_t required_width, int64_t required_height);
+
+  void RegisterSurfaceTexture();
+
+  void UnregisterTexture(int64_t id);
 
   int64_t GetVideoWidth();
 
@@ -109,6 +123,14 @@ class VideoOutput {
   std::atomic<bool> render_pending_ = false;
   // MelonBanG: the surface was recreated and holds no frame yet.
   bool redraw_ = false;
+  // MelonBanG: the recreated surface replaces the shown texture once it holds
+  // a frame.
+  bool texture_pending_ = false;
+  // MelonBanG: |SetSize| callers waiting for the next drawn frame.
+  std::vector<std::function<void()>> drawn_callbacks_ = {};
+  // MelonBanG: replaced textures Flutter may still show, kept until
+  // |TextureShown| reports the newer one shown.
+  std::vector<int64_t> retired_texture_ids_ = {};
 
   std::mutex textures_mutex_ = std::mutex();
 

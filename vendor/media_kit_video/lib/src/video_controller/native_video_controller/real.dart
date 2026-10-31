@@ -8,6 +8,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:synchronized/synchronized.dart';
 
 import 'package:media_kit/media_kit.dart';
@@ -213,10 +214,9 @@ class NativeVideoController extends PlatformVideoController {
     int? height,
   }) async {
     final handle = await player.handle;
-    if (this.width == width && this.height == height) {
-      // No need to resize if the requested size is same as the current size.
-      return;
-    }
+    // MelonBanG: an unchanged size is sent too. On Windows the call completes
+    // once a frame is drawn at the size, with the options set before it, such
+    // as new shaders.
     if (width != null && height != null) {
       this.width = width;
       this.height = height;
@@ -261,7 +261,7 @@ class NativeVideoController extends PlatformVideoController {
   static final _controllers = HashMap<int, NativeVideoController>();
 
   /// [MethodChannel] for invoking platform specific native implementation.
-  static final _channel =
+  static final MethodChannel _channel =
       const MethodChannel('com.alexmercerind/media_kit_video')
         ..setMethodCallHandler(
           (MethodCall call) async {
@@ -282,6 +282,21 @@ class NativeVideoController extends PlatformVideoController {
                     final int id = call.arguments['id'];
                     _controllers[handle]?.rect.value = rect;
                     _controllers[handle]?.id.value = id;
+                    // MelonBanG: Windows keeps the replaced texture until a
+                    // frame shows this one, so the switch draws no blank frame.
+                    if (Platform.isWindows) {
+                      SchedulerBinding.instance
+                        ..addPostFrameCallback((_) {
+                          _channel.invokeMethod(
+                            'VideoOutputManager.TextureShown',
+                            {
+                              'handle': handle.toString(),
+                              'id': id.toString(),
+                            },
+                          );
+                        })
+                        ..ensureVisualUpdate();
+                    }
                     // Notify about the first frame being rendered.
                     if (rect.width > 0 && rect.height > 0) {
                       final completer = _controllers[handle]

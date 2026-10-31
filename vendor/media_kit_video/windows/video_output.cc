@@ -109,6 +109,16 @@ VideoOutput::VideoOutput(int64_t handle,
 
 VideoOutput::~VideoOutput() {
   destroyed_ = true;
+  // MelonBanG: unregistered first, so Flutter frees them before the current
+  // texture's callback below releases the objects they use.
+  thread_pool_ref_
+      ->Post([&]() {
+        for (auto id : retired_texture_ids_) {
+          UnregisterTexture(id);
+        }
+        retired_texture_ids_.clear();
+      })
+      .wait();
   auto promise = std::promise<void>();
   if (texture_id_) {
     registrar_->texture_registrar()->UnregisterTexture(
@@ -141,6 +151,11 @@ VideoOutput::~VideoOutput() {
 
   promise.get_future().wait();
   texture_id_ = 0;
+  // MelonBanG: no frame follows, and each caller still gets its reply.
+  for (auto& callback : drawn_callbacks_) {
+    callback();
+  }
+  drawn_callbacks_.clear();
 
   thread_pool_ref_->Post([render_context = render_context_]() {
     mpv_render_context_free(render_context);
@@ -189,6 +204,10 @@ void VideoOutput::Render() {
       if (!rendered) {
         return;
       }
+      if (texture_pending_) {
+        texture_pending_ = false;
+        RegisterSurfaceTexture();
+      }
     }
     // S/W
     if (pixel_buffer_ != nullptr) {
@@ -215,6 +234,10 @@ void VideoOutput::Render() {
     } catch (...) {
       // Prevent any redundant exceptions if the texture is unregistered etc.
     }
+    for (auto& callback : drawn_callbacks_) {
+      callback();
+    }
+    drawn_callbacks_.clear();
   }
 }
 
@@ -238,8 +261,9 @@ void VideoOutput::SetTextureUpdateCallback(
 }
 
 void VideoOutput::SetSize(std::optional<int64_t> width,
-                          std::optional<int64_t> height) {
-  thread_pool_ref_->Post([&, width, height]() {
+                          std::optional<int64_t> height,
+                          std::function<void()> on_drawn) {
+  thread_pool_ref_->Post([&, width, height, on_drawn]() {
     if (width.has_value()) {
       // H/W
       if (surface_manager_ != nullptr) {
@@ -268,6 +292,10 @@ void VideoOutput::SetSize(std::optional<int64_t> width,
     } else {
       height_ = std::nullopt;
     }
+    // MelonBanG: a paused player sends no update that would draw the size.
+    drawn_callbacks_.push_back(on_drawn);
+    redraw_ = true;
+    NotifyRender();
   });
 }
 
@@ -300,34 +328,6 @@ void VideoOutput::CheckAndResize() {
 
 void VideoOutput::Resize(int64_t required_width, int64_t required_height) {
   std::cout << required_width << " " << required_height << std::endl;
-  // Unregister previously registered texture & delete underlying objects.
-  if (texture_id_) {
-    registrar_->texture_registrar()->UnregisterTexture(
-        texture_id_, [&, id = texture_id_]() {
-          if (id) {
-            std::cout << "media_kit: VideoOutput: Free Texture: " << id
-                      << std::endl;
-            std::lock_guard<std::mutex> lock(textures_mutex_);
-            if (destroyed_) {
-              return;
-            }
-            if (texture_variants_.find(id) != texture_variants_.end()) {
-              texture_variants_.erase(id);
-            }
-            // H/W
-            if (textures_.find(id) != textures_.end()) {
-              textures_.erase(id);
-            }
-            // S/W
-            if (pixel_buffer_textures_.find(id) !=
-                pixel_buffer_textures_.end()) {
-              pixel_buffer_textures_.erase(id);
-            }
-          }
-        });
-    std::lock_guard<std::mutex> lock(textures_mutex_);
-    texture_id_ = 0;
-  }
   redraw_ = true;
   // H/W
   if (surface_manager_ != nullptr) {
@@ -340,42 +340,25 @@ void VideoOutput::Resize(int64_t required_width, int64_t required_height) {
       surface_manager_->SetSize(static_cast<int32_t>(required_width),
                                 static_cast<int32_t>(required_height));
     }
-    auto texture = std::make_unique<FlutterDesktopGpuSurfaceDescriptor>();
-    texture->struct_size = sizeof(FlutterDesktopGpuSurfaceDescriptor);
-    texture->handle = surface_manager_->handle();
-    texture->width = texture->visible_width = surface_manager_->width();
-    texture->height = texture->visible_height = surface_manager_->height();
-    texture->release_context = nullptr;
-    texture->release_callback = [](void*) {};
-    texture->format = kFlutterDesktopPixelFormatBGRA8888;
-    auto texture_variant =
-        std::make_unique<flutter::TextureVariant>(flutter::GpuSurfaceTexture(
-            kFlutterDesktopGpuSurfaceTypeDxgiSharedHandle, [&](auto, auto) {
-              std::lock_guard<std::mutex> lock(textures_mutex_);
-              // MelonBanG: the previous texture stays registered until
-              // Flutter frees it, so its callback also lands here, while the
-              // current texture may be unset.
-              auto texture = textures_.find(texture_id_);
-              if (texture == textures_.end()) {
-                return (FlutterDesktopGpuSurfaceDescriptor*)nullptr;
-              }
-              surface_manager_->Read();
-              return texture->second.get();
-            }));
-    // Register new texture.
-    auto id =
-        registrar_->texture_registrar()->RegisterTexture(texture_variant.get());
-    std::cout << "media_kit: VideoOutput: Create Texture: " << id << std::endl;
-    std::lock_guard<std::mutex> lock(textures_mutex_);
-    textures_.emplace(std::make_pair(id, std::move(texture)));
-    texture_variants_.emplace(std::make_pair(id, std::move(texture_variant)));
-    // MelonBanG: set only once stored, where the texture callbacks look it up.
-    texture_id_ = id;
-    // Notify public texture update callback.
-    texture_update_callback_(texture_id_, required_width, required_height);
+    // MelonBanG: Flutter keeps showing the previous texture's last frame
+    // until |Render| has drawn the first one at the new size, which can take
+    // seconds while new super-resolution shaders compile; a new texture is
+    // black until then. The first texture is registered at once, since Dart
+    // waits for its ID.
+    if (texture_id_) {
+      texture_pending_ = true;
+    } else {
+      RegisterSurfaceTexture();
+    }
   }
   // S/W
   if (pixel_buffer_ != nullptr) {
+    // Unregister previously registered texture & delete underlying objects.
+    if (texture_id_) {
+      UnregisterTexture(texture_id_);
+      std::lock_guard<std::mutex> lock(textures_mutex_);
+      texture_id_ = 0;
+    }
     auto pixel_buffer_texture = std::make_unique<FlutterDesktopPixelBuffer>();
     pixel_buffer_texture->buffer = pixel_buffer_.get();
     pixel_buffer_texture->width = required_width;
@@ -404,6 +387,88 @@ void VideoOutput::Resize(int64_t required_width, int64_t required_height) {
     // Notify public texture update callback.
     texture_update_callback_(texture_id_, required_width, required_height);
   }
+}
+
+void VideoOutput::RegisterSurfaceTexture() {
+  auto previous = texture_id_;
+  auto texture = std::make_unique<FlutterDesktopGpuSurfaceDescriptor>();
+  texture->struct_size = sizeof(FlutterDesktopGpuSurfaceDescriptor);
+  texture->handle = surface_manager_->handle();
+  texture->width = texture->visible_width = surface_manager_->width();
+  texture->height = texture->visible_height = surface_manager_->height();
+  texture->release_context = nullptr;
+  texture->release_callback = [](void*) {};
+  texture->format = kFlutterDesktopPixelFormatBGRA8888;
+  auto texture_variant =
+      std::make_unique<flutter::TextureVariant>(flutter::GpuSurfaceTexture(
+          kFlutterDesktopGpuSurfaceTypeDxgiSharedHandle, [&](auto, auto) {
+            std::lock_guard<std::mutex> lock(textures_mutex_);
+            // MelonBanG: the previous texture stays registered until
+            // Flutter frees it, so its callback also lands here, while the
+            // current texture may be unset. Until a frame at a new size is
+            // drawn, the current one is the previous texture, whose surface
+            // Flutter keeps.
+            auto texture = textures_.find(texture_id_);
+            if (texture == textures_.end()) {
+              return (FlutterDesktopGpuSurfaceDescriptor*)nullptr;
+            }
+            surface_manager_->Read();
+            return texture->second.get();
+          }));
+  // Register new texture.
+  auto id =
+      registrar_->texture_registrar()->RegisterTexture(texture_variant.get());
+  std::cout << "media_kit: VideoOutput: Create Texture: " << id << std::endl;
+  {
+    std::lock_guard<std::mutex> lock(textures_mutex_);
+    textures_.emplace(std::make_pair(id, std::move(texture)));
+    texture_variants_.emplace(std::make_pair(id, std::move(texture_variant)));
+    // MelonBanG: set only once stored, where the texture callbacks look it up.
+    texture_id_ = id;
+  }
+  // Notify public texture update callback.
+  texture_update_callback_(texture_id_, surface_manager_->width(),
+                           surface_manager_->height());
+  // MelonBanG: Dart switches to the new texture a frame or two later, and
+  // an unregistered texture draws nothing, so the switch flashed black.
+  if (previous) {
+    retired_texture_ids_.push_back(previous);
+  }
+}
+
+void VideoOutput::TextureShown(int64_t id) {
+  thread_pool_ref_->Post([&, id]() {
+    auto kept = std::vector<int64_t>{};
+    for (auto retired : retired_texture_ids_) {
+      if (retired == id) {
+        kept.push_back(retired);
+      } else {
+        UnregisterTexture(retired);
+      }
+    }
+    retired_texture_ids_ = kept;
+  });
+}
+
+void VideoOutput::UnregisterTexture(int64_t id) {
+  registrar_->texture_registrar()->UnregisterTexture(id, [&, id]() {
+    std::cout << "media_kit: VideoOutput: Free Texture: " << id << std::endl;
+    std::lock_guard<std::mutex> lock(textures_mutex_);
+    if (destroyed_) {
+      return;
+    }
+    if (texture_variants_.find(id) != texture_variants_.end()) {
+      texture_variants_.erase(id);
+    }
+    // H/W
+    if (textures_.find(id) != textures_.end()) {
+      textures_.erase(id);
+    }
+    // S/W
+    if (pixel_buffer_textures_.find(id) != pixel_buffer_textures_.end()) {
+      pixel_buffer_textures_.erase(id);
+    }
+  });
 }
 
 int64_t VideoOutput::GetVideoWidth() {

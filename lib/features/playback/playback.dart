@@ -176,14 +176,17 @@ class Playback extends ChangeNotifier {
   Size? _display;
   Timer? _outputTimer;
 
+  /// Counts output resizes, so only the latest one updates [upscale].
+  int _outputRevision = 0;
+
   /// What super-resolution does at the current size: the video's own size
   /// and, when the shaders upscale it, the size they render. Null while it
   /// is off or no video is shown.
   ({Size source, Size? output})? upscale;
 
-  /// Announces [upscale] once it is known, after the player turned
-  /// super-resolution on or changed its chain.
-  bool _announceUpscale = false;
+  /// Announces the switch once its first frame is shown, after the player
+  /// turned super-resolution on or off or changed its chain.
+  bool _announceSwitch = false;
 
   /// The super-resolution chain the GPU cannot keep up with, while the
   /// player suggests a lighter choice; suggested once per file and chain.
@@ -457,10 +460,10 @@ class Playback extends ChangeNotifier {
   /// Chooses the super-resolution chain from the player, which then says
   /// what it does to the video.
   Future<void> setSuperResolution(String mode) async {
-    _announceUpscale = mode != 'off';
+    if (mode == settings.superResolution) return;
+    _announceSwitch = true;
     overloaded = null;
     await settings.setSuperResolution(mode);
-    if (mode == 'off') showNotice('超分已关闭');
   }
 
   void dismissOverload() {
@@ -513,22 +516,29 @@ class Playback extends ChangeNotifier {
       return;
     }
     _shaders = mode;
-    _dropSeconds.clear();
     try {
-      final files = await superResolutionShaders(mode);
+      final shaders = await superResolutionShaders(mode);
       if (_closed || _shaders != mode) return;
+      // Compiling a chain takes seconds, as ANGLE translates each shader for
+      // Direct3D on Windows; mpv keeps the results there for later switches.
+      await platform.setProperty('gpu-shader-cache-dir', shaders.cache);
       // One write, so a quick toggle cannot interleave with a chain still
       // being appended.
       await platform.setProperty(
         'glsl-shaders',
-        files.join(Platform.isWindows ? ';' : ':'),
+        shaders.files.join(Platform.isWindows ? ';' : ':'),
       );
     } catch (e) {
       _shaders = 'off';
-      _announceUpscale = false;
+      _announceSwitch = false;
       showNotice('超分辨率不可用：${errorMessage(e)}');
     }
-    _scheduleOutputSize();
+    // The output takes its new size at once, so the first frame drawn at it
+    // already has the new shaders. Until then the player keeps showing the
+    // last frame, and the frames dropped meanwhile do not count as overload.
+    _outputTimer?.cancel();
+    await _resizeOutput();
+    _dropSeconds.clear();
   }
 
   /// Tells the player how large it is shown, in physical pixels.
@@ -549,6 +559,7 @@ class Playback extends ChangeNotifier {
   }
 
   Future<void> _resizeOutput() async {
+    final revision = ++_outputRevision;
     final params = player.state.videoParams;
     final rotated = params.rotate == 90 || params.rotate == 270;
     final width = ((rotated ? params.dh : params.dw) ?? 0).toDouble();
@@ -571,11 +582,12 @@ class Playback extends ChangeNotifier {
       }
     }
     try {
+      // Completes once a frame is drawn at the size.
       await video.setSize(width: outputWidth, height: outputHeight);
     } catch (_) {
       // The output keeps its previous size.
     }
-    if (_closed) return;
+    if (_closed || revision != _outputRevision) return;
     // Anime4K's upscaling passes run only above 1.2×; below that only its
     // restoration does.
     final next = on
@@ -588,9 +600,10 @@ class Playback extends ChangeNotifier {
         : null;
     final changed = next != upscale;
     upscale = next;
-    if (_announceUpscale && settings.superResolution != 'off') {
-      _announceUpscale = false;
+    if (_announceSwitch) {
+      _announceSwitch = false;
       showNotice(switch (next) {
+        _ when settings.superResolution == 'off' => '超分已关闭',
         null => '超分已开启',
         (:final source, output: final output?) =>
           '超分 ${resolutionLabel(source)} → ${resolutionLabel(output)}',

@@ -139,6 +139,36 @@ null when the ID is not stored, the ID is set under the lock after the descripto
 is stored, and the surface is recreated under the same lock so `Read` never copies
 from a surface being replaced.
 
+## Windows super-resolution switch
+
+Turning super-resolution on resizes the output, and the first frame at the new
+size compiles the shader chain, which ANGLE translates for Direct3D: seconds for
+the larger chains. `Resize` registered the new texture before that frame, so the
+video was black throughout. Now the recreated surface replaces the shown texture
+only after `Render` has drawn into it; until then Flutter keeps the previous
+texture's surface and its last frame (the first texture is still registered at
+once, since Dart waits for its ID). The render thread is single, so the picture
+stays on that frame while the chain compiles; the app points
+`gpu-shader-cache-dir` at its own folder, since mpv finds no cache folder with
+libmpv's `config=no`, so later switches load the compiled shaders.
+
+The replaced texture stays registered until Dart reports, after the frame that
+shows the new one, `VideoOutputManager.TextureShown`: Dart switches a frame or
+two after the new ID arrives, and an unregistered texture draws nothing, so
+unregistering it at once flashed black. Disposal unregisters the retired
+textures before the current one.
+
+`VideoOutputManager.SetSize` now replies once a frame is drawn at the size,
+forcing that render, so a paused player applies the size too; the Dart
+`setSize` no longer skips an unchanged size. The app sets the shaders, then
+awaits `setSize`, and announces the switch when it completes. macOS replies
+the same way (`redrawNext` forces the render; without a video size, and on
+disposal, it replies at once). It needs no texture change: its texture keeps
+the same ID, and Flutter shows the last pixel buffer until
+`textureFrameAvailable`. Revalidate turning super-resolution on, off and
+between chains while playing and paused, and resizing the window with it on,
+on both platforms.
+
 ## Windows render scheduling
 
 mpv notifies a render for every frame and also without one, and a render with

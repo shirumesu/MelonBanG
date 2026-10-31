@@ -29,11 +29,23 @@ void VideoOutputManager::Create(
 
 void VideoOutputManager::SetSize(int64_t handle,
                                  std::optional<int64_t> width,
-                                 std::optional<int64_t> height) {
+                                 std::optional<int64_t> height,
+                                 std::function<void()> on_drawn) {
   std::thread([=]() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (video_outputs_.find(handle) != video_outputs_.end()) {
-      video_outputs_[handle]->SetSize(width, height);
+      video_outputs_[handle]->SetSize(width, height, on_drawn);
+    } else {
+      on_drawn();
+    }
+  }).detach();
+}
+
+void VideoOutputManager::TextureShown(int64_t handle, int64_t id) {
+  std::thread([=]() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (video_outputs_.find(handle) != video_outputs_.end()) {
+      video_outputs_[handle]->TextureShown(id);
     }
   }).detach();
 }

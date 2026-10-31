@@ -125,6 +125,10 @@ class TextureHW: NSObject, FlutterTexture, ResizableTextureProtocol {
     renderContext = nil
   }
 
+  func redrawNext() {
+    redraw = true
+  }
+
   func resize(_ size: CGSize) {
     if size.width == 0 || size.height == 0 {
       return
