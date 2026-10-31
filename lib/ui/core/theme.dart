@@ -100,6 +100,16 @@ LinearGradient sidebarSurface(BuildContext context) => LinearGradient(
   stops: const [.82, 1],
 );
 
+/// Laid over the top of [sidebarSurface], from the title bar's colour to clear.
+LinearGradient sidebarTopFade(BuildContext context) => LinearGradient(
+  begin: Alignment.topCenter,
+  end: Alignment.bottomCenter,
+  colors: [
+    Theme.of(context).scaffoldBackgroundColor,
+    Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0),
+  ],
+);
+
 /// The theme last built for each brightness: the window rebuilds on every
 /// service change and must not build an identical theme each time.
 final _themes = <bool, ({Color accent, ThemeData theme})>{};
@@ -327,8 +337,8 @@ ThemeData _appTheme(bool dark, Color accent) {
         accent: accent,
         navigation: LinearGradient(
           colors: [
-            scheme.primaryContainer,
-            Color.lerp(scheme.primaryContainer, scheme.surface, .3)!,
+            Color.lerp(scheme.primaryContainer, scheme.surface, .4)!,
+            Color.lerp(scheme.primaryContainer, scheme.surface, .6)!,
           ],
         ),
         onNavigation: scheme.onPrimaryContainer,
@@ -336,7 +346,7 @@ ThemeData _appTheme(bool dark, Color accent) {
     ],
     badgeTheme: BadgeThemeData(
       largeSize: 24,
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       textStyle: textTheme.bodyMedium!.copyWith(
         fontSize: 11,
         fontWeight: FontWeight.w700,

@@ -229,7 +229,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       onPressed: selectedTasks.isEmpty && selectedFiles.isEmpty
                           ? null
                           : () => _removeSelected(snapshot),
-                      icon: const Icon(Icons.delete_outline, size: 17),
+                      icon: const Icon(Icons.delete_outline, size: 18),
                       label: const Text('删除'),
                     ),
                   ],
@@ -238,13 +238,13 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ? null
               : TextButton.icon(
                   onPressed: () => setState(() => selecting = true),
-                  icon: const Icon(Icons.checklist_rounded, size: 17),
+                  icon: const Icon(Icons.checklist_rounded, size: 18),
                   label: const Text('批量删除'),
                 ),
         ),
         Wrap(
           spacing: 12,
-          runSpacing: 10,
+          runSpacing: Gap.md,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             SizedBox(
@@ -341,7 +341,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
           : '还没有可以观看的视频',
       child: FilledButton.icon(
         onPressed: onPressed,
-        icon: const Icon(Icons.play_arrow_rounded, size: 19),
+        icon: const Icon(Icons.play_arrow_rounded, size: 18),
         label: Text(
           choose
               ? '选择视频'
@@ -400,7 +400,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
             onTap: () =>
                 setState(() => open ? expanded.remove(key) : expanded.add(key)),
             child: Padding(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(Gap.lg),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -429,13 +429,16 @@ class _DownloadsPageState extends State<DownloadsPage> {
                           title: title,
                           onOpen: () => widget.onOpenSubject(subjectId),
                         ),
-                        const SizedBox(height: 7),
+                        const SizedBox(height: Gap.sm),
                         Wrap(
-                          spacing: 10,
-                          runSpacing: 5,
+                          spacing: Gap.sm,
+                          runSpacing: Gap.xs,
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            if (done > 0) MelonBadge('已缓存 $done', color: sky),
+                            if (done == tasks.length)
+                              Text('$done 集', style: small)
+                            else if (done > 0)
+                              MelonBadge('已缓存 $done', color: sky),
                             if (ongoing > 0) MelonBadge('进行中 $ongoing'),
                             if (failed > 0)
                               MelonBadge('需要重试 $failed', color: coral),
@@ -475,7 +478,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
               children: [
                 Divider(height: 1, color: scheme.outlineVariant),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -525,7 +528,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
               children: [
                 if (selecting) _taskCheck(task),
                 SizedBox(
-                  width: 66,
+                  width: 64,
                   child: Text(label, style: const TextStyle(fontSize: 13)),
                 ),
                 Expanded(
@@ -538,8 +541,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 ),
                 const SizedBox(width: 12),
                 if (downloadOrigin(task) case final origin?) ...[
-                  MelonBadge(origin, color: sky),
-                  const SizedBox(width: 6),
+                  MelonBadge(origin, color: scheme.onSurfaceVariant),
+                  if (DownloadStatusBadge.shows(task))
+                    const SizedBox(width: Gap.sm),
                 ],
                 DownloadStatusBadge(task),
                 if (!task.complete && task.cloudProgress == null)
@@ -552,12 +556,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     ),
                   ),
                 const SizedBox(width: 4),
-                DownloadToggleButton(task: task, onToggle: _toggle, size: 18),
+                DownloadToggleButton(task: task, onToggle: _toggle, size: 20),
                 DownloadPlayButton(task: task, onPlay: widget.onPlay),
                 IconButton(
                   tooltip: '移除任务与缓存',
                   onPressed: () => _remove(task),
-                  icon: const Icon(Icons.delete_outline, size: 18),
+                  icon: const Icon(Icons.delete_outline, size: 20),
                 ),
               ],
             ),
@@ -565,7 +569,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         ),
         if (!task.complete)
           Padding(
-            padding: const EdgeInsets.fromLTRB(74, 0, 8, 4),
+            padding: const EdgeInsets.fromLTRB(72, 0, 8, 4),
             child: MotionValue(
               value: task.cloudProgress ?? progress,
               builder: (context, value) => LinearProgressIndicator(
@@ -578,7 +582,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
           ),
         if ((task.errorMessage ?? task.persistenceError) case final issue?)
           Padding(
-            padding: const EdgeInsets.fromLTRB(74, 0, 8, 6),
+            padding: const EdgeInsets.fromLTRB(72, 0, 8, 6),
             child: Text(
               issue,
               style: TextStyle(color: scheme.error, fontSize: 12),
@@ -587,7 +591,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         MotionReveal(
           visible: details,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(74, 4, 8, 10),
+            padding: const EdgeInsets.fromLTRB(72, 4, 8, 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               // The row above already has the remove button.
@@ -604,7 +608,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     final scheme = Theme.of(context).colorScheme;
     final details = expanded.contains(id);
     return MelonPanel(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(Gap.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -633,7 +637,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                         null => null,
                       },
                     ),
-                    const SizedBox(height: 7),
+                    const SizedBox(height: Gap.sm),
                     DownloadTaskStatus(task: task),
                   ],
                 ),
@@ -676,7 +680,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Divider(height: 28),
+                const Divider(height: 24),
                 ..._details(context, task, subject, removable: true),
               ],
             ),
@@ -721,7 +725,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         ],
       ]),
       if (task.seeds && !task.complete && swarm.trackers != null) ...[
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         _stats(context, [
           '发现 ${swarm.knownPeers ?? 0} 个节点',
           'Tracker ${swarm.workingTrackers ?? 0}/${swarm.trackers} 可用',
@@ -733,7 +737,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 task.status == DownloadStatus.downloading) &&
             swarm.peers == 0)
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: const EdgeInsets.only(top: 4),
             child: Text(
               (swarm.knownPeers ?? 0) > 0
                   ? '已发现节点，正在连接'
@@ -747,7 +751,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
           ),
       ],
       if (task.seeds && task.complete) ...[
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         _stats(context, [
           '已上传 ${ByteUnitsScope.of(context).format(task.uploadedBytes)}',
           '做种 ${(task.seedSeconds / 60).floor()} 分钟',
@@ -761,7 +765,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
           if (files.isNotEmpty)
             TextButton.icon(
               onPressed: () => _perform(() => widget.downloads.reveal(task)),
-              icon: const Icon(Icons.folder_open_outlined, size: 17),
+              icon: const Icon(Icons.folder_open_outlined, size: 18),
               label: Text(
                 Platform.isMacOS
                     ? '在访达中显示'
@@ -773,7 +777,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
           if (removable)
             TextButton.icon(
               onPressed: () => _remove(task),
-              icon: const Icon(Icons.delete_outline, size: 17),
+              icon: const Icon(Icons.delete_outline, size: 18),
               label: const Text('移除任务与缓存'),
             ),
         ],
@@ -821,7 +825,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                         ),
                 ),
               SizedBox(
-                width: 66,
+                width: 64,
                 child: Text(switch (episodes[file.id]) {
                   final episode? => episode.label,
                   null => '—',
@@ -854,7 +858,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 IconButton(
                   tooltip: '删除这个视频',
                   onPressed: () => _removeFile(task, file),
-                  icon: const Icon(Icons.delete_outline, size: 18),
+                  icon: const Icon(Icons.delete_outline, size: 20),
                 ),
             ],
           ),
@@ -899,7 +903,7 @@ class _SubjectCoverLinkState extends State<_SubjectCoverLink> {
       width: 58,
       height: 78,
       child: ClipRRect(
-        borderRadius: badgeBorderRadius,
+        borderRadius: posterBorderRadius,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -956,7 +960,7 @@ class _SubjectTitleLinkState extends State<_SubjectTitleLink> {
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
         fontSize: 14,
-        fontWeight: FontWeight.w600,
+        fontWeight: FontWeight.w700,
         color: hovered ? Theme.of(context).colorScheme.primary : null,
         decoration: hovered ? TextDecoration.underline : null,
       ),

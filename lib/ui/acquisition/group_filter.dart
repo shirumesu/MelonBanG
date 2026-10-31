@@ -87,7 +87,7 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                         opacity: count > 0 || on ? 1 : .38,
                         child: FilterCheck(on),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: Gap.sm),
                       if (isPreferred) ...[
                         Container(
                           width: 18,
@@ -166,7 +166,7 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             caption(
-              preferred.isEmpty ? '偏好 · 把字幕组拖到这条线上方，优先推荐' : '偏好 · 优先推荐，拖动调整顺序',
+              preferred.isEmpty ? '偏好：拖到这条线上方的字幕组优先推荐' : '偏好：优先推荐，拖动调整顺序',
             ),
             SizedBox(
               height: math.min(rows.length * _rowHeight + 8, 380),
@@ -203,7 +203,7 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                     children: [
                       const SizedBox(width: 12),
                       FilterCheck(widget.prefs.onlyPreferredGroups),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: Gap.sm),
                       const Text('只显示偏好字幕组', style: TextStyle(fontSize: 13)),
                     ],
                   ),

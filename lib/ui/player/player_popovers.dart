@@ -18,10 +18,12 @@ class HoverPopover extends StatefulWidget {
     required this.anchor,
     required this.popover,
     this.onPointerSignal,
+    this.borderRadius = controlBorderRadius,
   });
   final ValueChanged<bool> onPopupChanged;
   final Widget Function(HoverPopoverState popover) anchor, popover;
   final void Function(PointerSignalEvent)? onPointerSignal;
+  final BorderRadius borderRadius;
 
   @override
   State<HoverPopover> createState() => HoverPopoverState();
@@ -147,7 +149,11 @@ class HoverPopoverState extends State<HoverPopover>
                 final value = Curves.easeOutCubic.transform(_fade.value);
                 return Transform.translate(
                   offset: Offset(0, 4 * (1 - value)),
-                  child: OverlayGlass(visibility: value, child: child!),
+                  child: OverlayGlass(
+                    borderRadius: widget.borderRadius,
+                    visibility: value,
+                    child: child!,
+                  ),
                 );
               },
               child: Theme(data: overlayTheme, child: widget.popover(this)),

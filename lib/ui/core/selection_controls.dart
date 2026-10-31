@@ -230,9 +230,7 @@ class _MelonSegmentedControlState<T> extends State<MelonSegmentedControl<T>> {
                                                     : selected == i
                                                     ? scheme.primary
                                                     : scheme.onSurfaceVariant,
-                                                fontWeight: selected == i
-                                                    ? FontWeight.w600
-                                                    : FontWeight.w400,
+                                                fontWeight: FontWeight.w400,
                                               ),
                                           child: Text(
                                             entries[i].value,
@@ -300,6 +298,12 @@ class MelonChoiceMenu<T> extends StatelessWidget {
     builder: (context, controller, _) => Tooltip(
       message: tooltip ?? label ?? options[value] ?? '',
       child: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          textStyle: appFont.copyWith(
+            fontSize: 13,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
         onPressed: onSelected == null
             ? null
             : () => controller.isOpen ? controller.close() : controller.open(),
@@ -645,8 +649,8 @@ class MelonFilterMenu<T> extends StatelessWidget {
                     minimumSize: const Size(0, 36),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     textStyle: appFont.copyWith(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
                   onPressed: toggle,

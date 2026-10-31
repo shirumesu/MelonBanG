@@ -69,13 +69,13 @@ class SubjectPeoplePanel extends StatelessWidget {
                     (constraints.maxWidth / (characters ? 210 : 230))
                         .floor()
                         .clamp(1, 4);
-                final gap = characters ? 10.0 : 24.0;
+                final gap = characters ? Gap.md : Gap.xl;
                 final width =
                     (constraints.maxWidth - (columns - 1) * gap) / columns -
                     .01;
                 return Wrap(
                   spacing: gap,
-                  runSpacing: characters ? 10 : 0,
+                  runSpacing: characters ? Gap.md : 0,
                   children: [
                     for (final person in people.take(limit))
                       SizedBox(
@@ -310,12 +310,12 @@ class SubjectPeoplePanel extends StatelessWidget {
       child: InkWell(
         onTap: () => _open(context, person, character: character),
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(Gap.md),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _avatar(context, person, character: character),
-              const SizedBox(width: 10),
+              const SizedBox(width: Gap.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

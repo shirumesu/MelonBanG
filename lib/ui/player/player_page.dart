@@ -866,8 +866,8 @@ class PlayerPageState extends State<PlayerPage> {
                         curve: Curves.easeOutCubic,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 7,
+                            horizontal: Gap.lg,
+                            vertical: Gap.sm,
                           ),
                           decoration: const BoxDecoration(
                             color: Color(0xb3000000),
@@ -948,32 +948,43 @@ class PlayerPageState extends State<PlayerPage> {
                   top: 0,
                   right: 0,
                   bottom: 0,
-                  child: Center(
-                    // Folded, it stays out of sight until the pointer
-                    // reaches it.
-                    child: IgnorePointer(
-                      ignoring: panel && !controls && !danmakuMenu,
-                      child: AnimatedOpacity(
-                        opacity:
-                            (panel ? controls || danmakuMenu : handleHovered)
-                            ? 1
-                            : 0,
-                        duration: motionDuration(context),
-                        curve: Curves.easeOutCubic,
-                        child: MouseRegion(
-                          onEnter: (_) {
-                            controlsHovered = true;
-                            setState(() => handleHovered = true);
-                            reveal();
-                          },
-                          onExit: (_) {
-                            controlsHovered = false;
-                            setState(() => handleHovered = false);
-                            reveal();
-                          },
-                          child: _PanelHandle(
-                            open: panel,
-                            onPressed: () => widget.panelOpen.value = !panel,
+                  // Folded, it stays out of sight until the pointer comes
+                  // near the right edge, anywhere along its height; clicks
+                  // there still reach the video.
+                  child: MouseRegion(
+                    opaque: false,
+                    onEnter: (_) => setState(() => handleHovered = true),
+                    onExit: (_) => setState(() => handleHovered = false),
+                    child: SizedBox(
+                      width: panel ? null : _handleReach,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: IgnorePointer(
+                          ignoring: panel && !controls && !danmakuMenu,
+                          child: AnimatedOpacity(
+                            opacity:
+                                (panel
+                                    ? controls || danmakuMenu
+                                    : handleHovered)
+                                ? 1
+                                : 0,
+                            duration: motionDuration(context),
+                            curve: Curves.easeOutCubic,
+                            child: MouseRegion(
+                              onEnter: (_) {
+                                controlsHovered = true;
+                                reveal();
+                              },
+                              onExit: (_) {
+                                controlsHovered = false;
+                                reveal();
+                              },
+                              child: _PanelHandle(
+                                open: panel,
+                                onPressed: () =>
+                                    widget.panelOpen.value = !panel,
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -1217,6 +1228,10 @@ class PlayerPageState extends State<PlayerPage> {
 /// Room the transport bar takes at the bottom of the video.
 const _transportInset = 108.0;
 
+/// How far from the right edge the folded panel handle shows up; wide
+/// enough to still steer onto it on the way there.
+const _handleReach = 160.0;
+
 const _danmakuHints = ['发个友善的弹幕见证当下', '请输入文本', '前方高能？', '我掌握了弹幕的核心！'];
 
 String _danmakuHint() =>
@@ -1342,13 +1357,12 @@ class _OverloadCard extends StatelessWidget {
       backgroundColor: Colors.white.withValues(alpha: .1),
       visualDensity: VisualDensity.compact,
       padding: const EdgeInsets.symmetric(horizontal: Gap.md),
-      textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
+      textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w700),
     );
-    return Material(
-      color: overlaySurface,
-      borderRadius: controlBorderRadius,
+    return OverlayGlass(
+      borderRadius: panelBorderRadius,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+        padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1403,7 +1417,7 @@ class _SkipButton extends StatelessWidget {
     child: InkWell(
       onTap: onPressed,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+        padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1412,7 +1426,7 @@ class _SkipButton extends StatelessWidget {
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 13,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(width: 4),
@@ -1488,7 +1502,7 @@ class _Countdown extends StatelessWidget {
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 13,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 2),
@@ -1502,7 +1516,7 @@ class _Countdown extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(width: 20),
+        const SizedBox(width: Gap.xl),
         _GlassCard.button('取消', onCancel),
         const SizedBox(width: 4),
         _GlassCard.button(confirm, onConfirm, primary: true),
@@ -1527,11 +1541,11 @@ class _Notice extends StatelessWidget {
         style: const TextStyle(
           color: Colors.white,
           fontSize: 13,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
         ),
       ),
       if (action case final action?) ...[
-        const SizedBox(width: 20),
+        const SizedBox(width: Gap.xl),
         _GlassCard.button(action, onAction, primary: true),
       ],
     ],
@@ -1553,7 +1567,7 @@ class _GlassCard extends StatelessWidget {
       minimumSize: const Size(0, 30),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
-      textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
+      textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w700),
       foregroundColor: primary ? overlayInk : Colors.white70,
       backgroundColor: primary ? Colors.white : null,
       overlayColor: primary ? overlayInk : Colors.white,
@@ -1566,7 +1580,7 @@ class _GlassCard extends StatelessWidget {
   Widget build(BuildContext context) => OverlayGlass(
     borderRadius: panelBorderRadius,
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
       child: Row(mainAxisSize: MainAxisSize.min, children: children),
     ),
   );
@@ -1854,7 +1868,7 @@ class _PreparingView extends StatelessWidget {
                       FilledButton(
                         style: FilledButton.styleFrom(
                           backgroundColor: white,
-                          foregroundColor: const Color(0xff164d39),
+                          foregroundColor: overlayInk,
                         ),
                         onPressed: onRetry,
                         child: const Text('重试'),

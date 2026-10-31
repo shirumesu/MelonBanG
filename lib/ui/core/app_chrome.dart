@@ -444,117 +444,142 @@ class AppSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     decoration: BoxDecoration(gradient: sidebarSurface(context)),
-    padding: const EdgeInsets.fromLTRB(12, Gap.md, 12, Gap.md),
-    // One highlight glides between entries instead of each lighting up.
-    child: MotionSelection<String>(
-      selected: _selected,
-      highlight: sidebarHighlight(context),
-      builder: (context, keyOf) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: Gap.lg),
-            child: Tooltip(
-              message: '返回探索首页',
-              child: Material(
-                color: Colors.transparent,
-                borderRadius: controlBorderRadius,
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  key: const ValueKey('brand-home'),
-                  onTap: () => onNavigate('home'),
-                  child: Semantics(
-                    button: true,
-                    label: 'MelonBanG，返回探索首页',
-                    excludeSemantics: true,
-                    child: Padding(
-                      padding: const EdgeInsets.all(Gap.sm),
-                      child: Image.asset(
-                        'assets/images/logotype.png',
-                        width: 150,
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        // The top edge fades into the title bar the way the right edge
+        // fades into the page.
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: Gap.xl,
+          child: DecoratedBox(
+            decoration: BoxDecoration(gradient: sidebarTopFade(context)),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, Gap.md, 12, Gap.md),
+          // One highlight glides between entries instead of each lighting up.
+          child: MotionSelection<String>(
+            selected: _selected,
+            highlight: sidebarHighlight(context),
+            builder: (context, keyOf) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: Gap.lg),
+                  child: Tooltip(
+                    message: '返回探索首页',
+                    child: Material(
+                      color: Colors.transparent,
+                      borderRadius: controlBorderRadius,
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        key: const ValueKey('brand-home'),
+                        onTap: () => onNavigate('home'),
+                        child: Semantics(
+                          button: true,
+                          label: 'MelonBanG，返回探索首页',
+                          excludeSemantics: true,
+                          child: Padding(
+                            padding: const EdgeInsets.all(Gap.sm),
+                            child: Image.asset(
+                              'assets/images/logotype.png',
+                              width: 150,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ),
-          ),
-          _nav(context, keyOf, 'home', '探索', Icons.explore_outlined),
-          _nav(
-            context,
-            keyOf,
-            'tracking',
-            '追番',
-            Icons.favorite_border,
-            watchingCount > 0 ? '$watchingCount' : null,
-          ),
-          _nav(
-            context,
-            keyOf,
-            'downloads',
-            '缓存',
-            Icons.download_outlined,
-            downloadCount > 0 ? '$downloadCount' : null,
-          ),
-          const Spacer(),
-          _nav(
-            context,
-            keyOf,
-            'sources',
-            '数据源',
-            Icons.hub_outlined,
-            sourcesWarning ? '●' : null,
-          ),
-          _nav(context, keyOf, 'settings', '设置', Icons.settings_outlined),
-          const SizedBox(height: Gap.sm),
-          Material(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: posterBorderRadius,
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: () => onNavigate('settings'),
-              child: Padding(
-                padding: const EdgeInsets.all(Gap.sm),
-                child: Row(
-                  children: [
-                    AccountAvatar(url: avatarUrl, name: nickname, size: 32),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                _nav(context, keyOf, 'home', '探索', Icons.explore_outlined),
+                _nav(
+                  context,
+                  keyOf,
+                  'tracking',
+                  '追番',
+                  Icons.favorite_border,
+                  watchingCount > 0 ? '$watchingCount' : null,
+                ),
+                _nav(
+                  context,
+                  keyOf,
+                  'downloads',
+                  '缓存',
+                  Icons.download_outlined,
+                  downloadCount > 0 ? '$downloadCount' : null,
+                ),
+                const Spacer(),
+                _nav(
+                  context,
+                  keyOf,
+                  'sources',
+                  '数据源',
+                  Icons.hub_outlined,
+                  sourcesWarning ? '●' : null,
+                ),
+                _nav(context, keyOf, 'settings', '设置', Icons.settings_outlined),
+                const SizedBox(height: Gap.sm),
+                Material(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: posterBorderRadius,
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () => onNavigate('settings'),
+                    child: Padding(
+                      padding: const EdgeInsets.all(Gap.sm),
+                      child: Row(
                         children: [
-                          Text(
-                            nickname,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
+                          AccountAvatar(
+                            url: avatarUrl,
+                            name: username == null ? '' : nickname,
+                            size: 32,
                           ),
-                          Text(
-                            username == null ? '点击登录' : '@$username',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  nickname,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                Text(
+                                  username == null
+                                      ? '登录 Bangumi'
+                                      : '@$username',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     ),
   );
+
   Widget _nav(
     BuildContext context,
     Key Function(String) keyOf,

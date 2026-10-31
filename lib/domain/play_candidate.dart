@@ -108,6 +108,6 @@ class PlayCandidate {
 
   String get sourceLabel {
     final label = providerLabel ?? provider;
-    return line.isEmpty ? label : '$label · $line';
+    return line.isEmpty ? label : '$label  $line';
   }
 }

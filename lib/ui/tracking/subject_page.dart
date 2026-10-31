@@ -529,7 +529,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     if (item == null) return const Center(child: CircularProgressIndicator());
     return PageScroll(
       children: [
-        const SizedBox(height: 10),
+        const SizedBox(height: Gap.md),
         LayoutBuilder(
           builder: (context, constraints) {
             final hero = _hero(item);
@@ -713,8 +713,8 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           Text(item.name!, style: text.bodySmall),
         const SizedBox(height: Gap.md),
         Wrap(
-          spacing: 6,
-          runSpacing: 6,
+          spacing: Gap.sm,
+          runSpacing: Gap.sm,
           children: [
             if (date != null)
               MelonBadge(
@@ -791,7 +791,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                     _episodesLoading ? '正在加载剧集…' : '已看 $watched / 全 $total 话',
                     style: text.bodySmall,
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: Gap.sm),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(99),
                     child: MotionValue(
@@ -812,7 +812,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             ),
           ],
         ),
-        const SizedBox(height: Gap.lg + 2),
+        const SizedBox(height: Gap.lg),
         Wrap(
           spacing: Gap.sm,
           runSpacing: Gap.sm,
@@ -878,7 +878,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       ],
     );
     return MelonPanel(
-      padding: const EdgeInsets.all(22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -908,7 +907,11 @@ class _SubjectDetailState extends State<_SubjectDetail> {
               return narrow
                   ? Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [cover, const SizedBox(height: 18), info],
+                      children: [
+                        cover,
+                        const SizedBox(height: Gap.lg),
+                        info,
+                      ],
                     )
                   : Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -952,7 +955,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             ),
           ],
         ),
-        const SizedBox(height: Gap.sm + 2),
+        const SizedBox(height: Gap.sm),
         if (_episodesLoading)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
@@ -1026,7 +1029,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       ),
     );
     return MelonPanel(
-      padding: const EdgeInsets.fromLTRB(18, 12, 12, 12),
+      padding: const EdgeInsets.fromLTRB(20, Gap.md, Gap.md, Gap.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1035,7 +1038,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
               Text('我的收藏', style: text.titleSmall),
               if (draft) ...[
                 const SizedBox(width: Gap.sm),
-                const MelonBadge('有草稿', color: coral),
+                const MelonBadge('有草稿'),
               ],
               const Spacer(),
               if (widget.signedIn)
@@ -1046,9 +1049,9 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                 ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: Gap.sm),
           Padding(
-            padding: const EdgeInsets.only(right: 6),
+            padding: const EdgeInsets.only(right: Gap.sm),
             child: _Nudge(
               trigger: _nudges,
               child: MelonSegmentedControl<CollectionStatus>(
@@ -1092,8 +1095,8 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             field(
               '标签',
               Wrap(
-                spacing: 6,
-                runSpacing: 6,
+                spacing: Gap.sm,
+                runSpacing: Gap.sm,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   for (final tag in _tags)
@@ -1150,7 +1153,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
               padding: const EdgeInsets.only(top: Gap.md),
               child: Text('登录 Bangumi 后可以评分、加标签和写吐槽', style: text.bodySmall),
             ),
-          const SizedBox(height: 6),
+          const SizedBox(height: Gap.sm),
           _collectionFeedback(),
           FeedbackIssue(
             feedback: _collectionIssue,
@@ -1252,7 +1255,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     final small = Theme.of(context).textTheme.bodySmall;
     const tabular = [FontFeature.tabularFigures()];
     return MelonPanel(
-      padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1350,7 +1352,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     final small = Theme.of(context).textTheme.bodySmall;
     final shown = _infoExpanded ? rows : rows.take(10);
     return MelonPanel(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

@@ -607,7 +607,7 @@ class Playback extends ChangeNotifier {
         null => '超分已开启',
         (:final source, output: final output?) =>
           '超分 ${resolutionLabel(source)} → ${resolutionLabel(output)}',
-        _ => '超分已开启 · 画面不小于窗口，只修复线条',
+        _ => '超分已开启，只修复线条',
       });
     } else if (changed) {
       notifyListeners();

@@ -29,6 +29,7 @@ class _ResourceAction extends StatelessWidget {
     required this.background,
     required this.foreground,
     this.onTap,
+    this.numericLabel = false,
   });
   final Widget icon;
   final String? label;
@@ -36,6 +37,9 @@ class _ResourceAction extends StatelessWidget {
   final double width;
   final Color background, foreground;
   final VoidCallback? onTap;
+
+  /// Bold only a figure such as progress; Chinese labels stay regular.
+  final bool numericLabel;
 
   @override
   Widget build(BuildContext context) => Tooltip(
@@ -75,7 +79,9 @@ class _ResourceAction extends StatelessWidget {
                     label!,
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: numericLabel
+                          ? FontWeight.w700
+                          : FontWeight.w400,
                       color: foreground,
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
@@ -163,6 +169,7 @@ class ResourceDownloadButton extends StatelessWidget {
       child: _ResourceAction(
         icon: icon,
         label: showLabel ? label : null,
+        numericLabel: !adding && task != null && !task.complete,
         tooltip: tooltip,
         width: resourceDownloadWidth(labelled: showLabel),
         background: scheme.surfaceContainerHigh,
@@ -511,7 +518,7 @@ class _ResourceRowFrame extends StatelessWidget {
       return InkWell(
         onTap: onExpand,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
               Expanded(
@@ -535,17 +542,17 @@ class _ResourceRowFrame extends StatelessWidget {
                             overflow: wrapTitle ? null : TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 5),
+                    const SizedBox(height: 4),
                     Padding(
                       padding: const EdgeInsets.only(left: 18),
                       child: Wrap(
-                        spacing: 5,
+                        spacing: 4,
                         runSpacing: 4,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
@@ -557,6 +564,7 @@ class _ResourceRowFrame extends StatelessWidget {
                                 '推荐',
                                 background: scheme.primary,
                                 foreground: scheme.onPrimary,
+                                bold: true,
                               ),
                             ),
                           _tag(
@@ -590,7 +598,7 @@ class _ResourceRowFrame extends StatelessWidget {
                     ),
                     if (!wide)
                       Padding(
-                        padding: const EdgeInsets.only(left: 18, top: 5),
+                        padding: const EdgeInsets.only(left: 18, top: 4),
                         child: Text(
                           [
                             group,
@@ -618,7 +626,7 @@ class _ResourceRowFrame extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: small?.copyWith(color: scheme.onSurface),
                       ),
-                      Text(source, style: small?.copyWith(fontSize: 10)),
+                      Text(source, style: small?.copyWith(fontSize: 11)),
                     ],
                   ),
                 ),
@@ -630,7 +638,7 @@ class _ResourceRowFrame extends StatelessWidget {
                 const SizedBox(width: Gap.md),
                 SizedBox(
                   width: resourceDateColumnWidth,
-                  child: Text(date, style: figures?.copyWith(fontSize: 11)),
+                  child: Text(date, style: figures?.copyWith(fontSize: 12)),
                 ),
               ],
               const SizedBox(width: Gap.sm),
@@ -710,18 +718,19 @@ Widget _tag(
   String text, {
   Color? background,
   Color? foreground,
+  bool bold = false,
 }) => Container(
   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
   decoration: BoxDecoration(
     color: background ?? Theme.of(context).colorScheme.surfaceContainerLow,
-    borderRadius: const BorderRadius.all(Radius.circular(5)),
+    borderRadius: badgeBorderRadius,
   ),
   child: Text(
     text,
     style: Theme.of(context).textTheme.bodySmall?.copyWith(
       fontSize: 11,
       color: foreground,
-      fontWeight: foreground == null ? null : FontWeight.w700,
+      fontWeight: bold ? FontWeight.w700 : null,
     ),
   ),
 );
@@ -848,7 +857,7 @@ class ResourceEpisodeRow extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final meta = [size, date].where((e) => e.isNotEmpty && e != '—');
-    Widget cell(double width, String text, {double? fontSize}) => SizedBox(
+    Widget cell(double width, String text) => SizedBox(
       width: width,
       height: 34,
       child: Align(
@@ -856,7 +865,6 @@ class ResourceEpisodeRow extends StatelessWidget {
         child: Text(
           text,
           style: small?.copyWith(
-            fontSize: fontSize,
             fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
@@ -865,7 +873,7 @@ class ResourceEpisodeRow extends StatelessWidget {
     return InkWell(
       onTap: title == null ? null : onExpand,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -890,14 +898,14 @@ class ResourceEpisodeRow extends StatelessWidget {
                           label,
                           style: const TextStyle(
                             fontSize: 13,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w700,
                             fontFeatures: [FontFeature.tabularFigures()],
                           ),
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: Gap.md),
                         Expanded(
                           child: Wrap(
-                            spacing: 5,
+                            spacing: 4,
                             runSpacing: 4,
                             crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
@@ -942,7 +950,7 @@ class ResourceEpisodeRow extends StatelessWidget {
               const SizedBox(width: Gap.md + resourceGroupColumnWidth + Gap.md),
               cell(resourceSizeColumnWidth, size),
               const SizedBox(width: Gap.md),
-              cell(resourceDateColumnWidth, date, fontSize: 11),
+              cell(resourceDateColumnWidth, date),
             ],
             const SizedBox(width: Gap.sm),
             SizedBox(

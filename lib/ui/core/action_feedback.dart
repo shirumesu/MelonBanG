@@ -55,57 +55,72 @@ class FeedbackButton extends StatelessWidget {
     required this.successLabel,
     required this.icon,
     required this.onPressed,
+    this.iconOnly = false,
   });
   final ActionFeedback feedback;
   final String label, runningLabel, successLabel;
   final IconData icon;
   final VoidCallback onPressed;
 
+  /// Shows only the icon, with the current label as its tooltip.
+  final bool iconOnly;
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: feedback,
-    builder: (context, _) => Semantics(
-      liveRegion: true,
-      child: TextButton.icon(
-        onPressed: feedback.busy ? null : onPressed,
-        style: TextButton.styleFrom(
-          disabledForegroundColor: Theme.of(context).colorScheme.primary,
+    builder: (context, _) {
+      final current = feedback.busy
+          ? runningLabel
+          : feedback.succeeded
+          ? successLabel
+          : label;
+      final glyph = SizedBox.square(
+        dimension: 18,
+        child: AnimatedSwitcher(
+          duration: motionDuration(context, 150),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeOut,
+          child: feedback.busy
+              ? MediaQuery.disableAnimationsOf(context)
+                    ? const Icon(
+                        Icons.hourglass_empty_rounded,
+                        key: ValueKey('busy'),
+                        size: 18,
+                      )
+                    : const Padding(
+                        key: ValueKey('busy'),
+                        padding: EdgeInsets.all(1),
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+              : Icon(
+                  feedback.succeeded ? Icons.check_rounded : icon,
+                  key: ValueKey(feedback.succeeded),
+                  size: 18,
+                ),
         ),
-        icon: SizedBox.square(
-          dimension: 18,
-          child: AnimatedSwitcher(
-            duration: motionDuration(context, 150),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeOut,
-            child: feedback.busy
-                ? MediaQuery.disableAnimationsOf(context)
-                      ? const Icon(
-                          Icons.hourglass_empty_rounded,
-                          key: ValueKey('busy'),
-                          size: 18,
-                        )
-                      : const Padding(
-                          key: ValueKey('busy'),
-                          padding: EdgeInsets.all(1),
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                : Icon(
-                    feedback.succeeded ? Icons.check_rounded : icon,
-                    key: ValueKey(feedback.succeeded),
-                    size: 18,
-                  ),
-          ),
-        ),
-        label: _FeedbackLabel(
-          labels: [label, runningLabel, successLabel],
-          current: feedback.busy
-              ? runningLabel
-              : feedback.succeeded
-              ? successLabel
-              : label,
-        ),
-      ),
-    ),
+      );
+      final primary = Theme.of(context).colorScheme.primary;
+      return Semantics(
+        liveRegion: true,
+        child: iconOnly
+            ? IconButton(
+                tooltip: current,
+                onPressed: feedback.busy ? null : onPressed,
+                color: feedback.succeeded ? primary : null,
+                disabledColor: primary,
+                icon: glyph,
+              )
+            : TextButton.icon(
+                onPressed: feedback.busy ? null : onPressed,
+                style: TextButton.styleFrom(disabledForegroundColor: primary),
+                icon: glyph,
+                label: _FeedbackLabel(
+                  labels: [label, runningLabel, successLabel],
+                  current: current,
+                ),
+              ),
+      );
+    },
   );
 }
 

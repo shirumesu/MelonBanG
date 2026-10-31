@@ -137,10 +137,21 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
                           color: overlaySurface,
                           borderRadius: badgeBorderRadius,
                         ),
-                        child: Text(
-                          hovered == null
-                              ? formatTime(valueAt(bubbleX, width))
-                              : '${formatTime(hovered.at)}  ${hovered.label}',
+                        child: Text.rich(
+                          TextSpan(
+                            text: formatTime(
+                              hovered?.at ?? valueAt(bubbleX, width),
+                            ),
+                            children: [
+                              if (hovered != null)
+                                TextSpan(
+                                  text: '  ${hovered.label}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                ),
+                            ],
+                          ),
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 11,

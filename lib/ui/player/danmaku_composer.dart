@@ -139,7 +139,7 @@ class _DanmakuComposerState extends State<DanmakuComposer> {
                   onPopupChanged: widget.onPopupChanged,
                 ),
                 Container(width: 1, height: 16, color: Colors.white12),
-                const SizedBox(width: 10),
+                const SizedBox(width: Gap.sm),
                 Expanded(
                   child: TextField(
                     controller: widget.draft,
@@ -264,7 +264,7 @@ class _SendStyleMenu extends StatelessWidget {
                 'A',
                 style: TextStyle(
                   fontSize: 15,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: Color(0xff000000 | style.color),
                   shadows: const [Shadow(blurRadius: 3)],
                 ),
@@ -276,7 +276,7 @@ class _SendStyleMenu extends StatelessWidget {
       popover: (popover) => Padding(
         padding: const EdgeInsets.all(Gap.md),
         child: SizedBox(
-          width: 7 * 26 + 6 * 6,
+          width: 7 * 26 + 6 * Gap.sm,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -291,8 +291,8 @@ class _SendStyleMenu extends StatelessWidget {
               ),
               const SizedBox(height: Gap.md),
               Wrap(
-                spacing: 6,
-                runSpacing: 6,
+                spacing: Gap.sm,
+                runSpacing: Gap.sm,
                 children: [
                   for (final color in colors)
                     Semantics(

@@ -57,7 +57,7 @@ class _PikPakAccountState extends State<PikPakAccount> {
       if (mounted) {
         setState(() {
           if (failure is SourceVerificationRequired) {
-            error = 'PikPak 需要网页验证，请完成验证后重试。';
+            error = 'PikPak 需要网页验证，请完成验证后重试';
             captcha = Uri.parse(failure.url);
           } else {
             error = errorMessage(failure);
@@ -71,7 +71,7 @@ class _PikPakAccountState extends State<PikPakAccount> {
 
   Future<void> login() => run(() async {
     if (username.text.trim().isEmpty || password.text.isEmpty) {
-      throw StateError('请输入 PikPak 账号和密码。');
+      throw StateError('请输入 PikPak 账号和密码');
     }
     await widget.onLogin(username.text.trim(), password.text);
     password.clear();
@@ -79,7 +79,7 @@ class _PikPakAccountState extends State<PikPakAccount> {
 
   Future<void> openCaptcha(Uri url) async {
     if (await launchUrl(url, mode: LaunchMode.externalApplication)) return;
-    if (mounted) setState(() => error = '无法打开验证页面，请稍后重试。');
+    if (mounted) setState(() => error = '无法打开验证页面，请稍后重试');
   }
 
   @override
@@ -100,8 +100,6 @@ class _PikPakAccountState extends State<PikPakAccount> {
             ),
           ] else if (account != null) ...[
             Text(account, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            const MelonBadge('已连接'),
             const SizedBox(height: 16),
             OutlinedButton.icon(
               onPressed: busy ? null : () => run(widget.onLogout),

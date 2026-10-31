@@ -221,7 +221,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('搜索失败，请重试。')));
+            .showSnackBar(const SnackBar(content: Text('搜索失败，请重试')));
       }
     } finally {
       if (mounted) setState(() => searching = false);
@@ -470,7 +470,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       source: [
         parent.sourceLabel,
         if (lines.length > 1) lines.first.key,
-      ].join(' · '),
+      ].join('  '),
     );
   }
 
@@ -723,7 +723,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                   Row(
                     children: [
                       Expanded(child: episodeField),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: Gap.md),
                       button,
                     ],
                   ),
@@ -733,9 +733,9 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             return Row(
               children: [
                 Expanded(child: keywordField),
-                const SizedBox(width: 10),
+                const SizedBox(width: Gap.md),
                 SizedBox(width: 168, child: episodeField),
-                const SizedBox(width: 10),
+                const SizedBox(width: Gap.md),
                 button,
               ],
             );
@@ -756,7 +756,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             padding: const EdgeInsets.only(top: Gap.sm),
             child: Row(
               children: [
-                const Icon(Icons.error_outline, size: 18, color: coral),
+                Icon(Icons.error_outline, size: 18, color: scheme.error),
                 const SizedBox(width: Gap.sm),
                 Expanded(
                   child: Text(
@@ -1017,7 +1017,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 top: panelBorderRadius.topLeft,
               ),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 11, 16, 9),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                 child: Row(
                   children: [
                     Expanded(
@@ -1269,7 +1269,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                         ?info.quality,
                         ...info.languages,
                         ...info.subtitleForms,
-                      ].join(' · '),
+                      ].join('  '),
                     ),
             ),
           ),
@@ -1335,7 +1335,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                     onPressed: () => downloadRange(
                       options,
                       title: candidate.title,
-                      source: [candidate.sourceLabel, name].join(' · '),
+                      source: [candidate.sourceLabel, name].join('  '),
                     ),
                     icon: const Icon(Icons.download_rounded, size: 16),
                     label: const Text('批量下载'),

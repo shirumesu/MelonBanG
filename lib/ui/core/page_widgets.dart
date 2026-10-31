@@ -77,7 +77,7 @@ class SectionTitle extends StatelessWidget {
     this.subtitle,
     this.icon,
     this.color = coral,
-    this.top = 26,
+    this.top = Gap.xl,
   });
   final String title;
   final double top;
@@ -87,7 +87,7 @@ class SectionTitle extends StatelessWidget {
   final Color color;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.only(top: top, bottom: 14),
+    padding: EdgeInsets.only(top: top, bottom: Gap.md),
     child: Row(
       children: [
         if (icon != null) ...[
@@ -249,7 +249,7 @@ class EmptyState extends StatelessWidget {
               size: 32,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: Gap.md),
             Text(
               text,
               textAlign: TextAlign.center,

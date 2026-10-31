@@ -78,11 +78,12 @@ class SubjectPosterGrid extends StatefulWidget {
     required this.items,
     required this.onOpen,
     this.tracking = false,
+    this.statusBadge = true,
     this.personalScore = false,
   });
   final List<Subject> items;
   final ValueChanged<Subject> onOpen;
-  final bool tracking;
+  final bool tracking, statusBadge;
 
   /// Shows the user's own score instead of the public one.
   final bool personalScore;
@@ -144,6 +145,7 @@ class _SubjectPosterGridState extends State<SubjectPosterGrid> {
               onOpen: widget.onOpen,
               item: items[i],
               tracking: widget.tracking,
+              statusBadge: widget.statusBadge,
               personalScore: widget.personalScore,
             ),
           ),
@@ -479,9 +481,9 @@ class _SubjectPosterState extends State<SubjectPoster> {
                     ),
                   ),
                   Positioned(
-                    left: 11,
-                    right: 10,
-                    bottom: widget.progress == null ? 12 : 14,
+                    left: Gap.md,
+                    right: Gap.md,
+                    bottom: widget.progress == null ? Gap.md : Gap.lg,
                     child: Text(
                       item.title,
                       maxLines: 2,
@@ -490,16 +492,16 @@ class _SubjectPosterState extends State<SubjectPoster> {
                         fontSize: 13,
                         height: 1.3,
                         color: Colors.white,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
                   if (widget.badge case final badge?)
-                    Positioned(top: 10, left: 10, child: badge)
+                    Positioned(top: Gap.sm, left: Gap.sm, child: badge)
                   else if (tracking && widget.statusBadge && status != null)
                     Positioned(
-                      top: 10,
-                      left: 10,
+                      top: Gap.sm,
+                      left: Gap.sm,
                       child: Material(
                         color: Theme.of(context).colorScheme.surface,
                         borderRadius: badgeBorderRadius,
@@ -511,8 +513,8 @@ class _SubjectPosterState extends State<SubjectPoster> {
                     ),
                   if (widget.note case final note?)
                     Positioned(
-                      top: 10,
-                      right: 10,
+                      top: Gap.sm,
+                      right: Gap.sm,
                       child: PosterBadge(note, color: Colors.black38),
                     ),
                   if (widget.progress case final progress?)
@@ -561,7 +563,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
               ),
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: Gap.sm),
           PosterMeta(
             item: widget.meta ?? item,
             tracking: tracking,
@@ -589,7 +591,7 @@ class PosterBadge extends StatelessWidget {
       style: const TextStyle(
         color: Colors.white,
         fontSize: 11,
-        fontWeight: FontWeight.w800,
+        fontWeight: FontWeight.w700,
       ),
     ),
   );
@@ -694,19 +696,12 @@ class PosterMeta extends StatelessWidget {
         ),
         const Spacer(),
         if (tracking)
-          Text(
-            switch ((item.watchedEpisodes, item.episodeTotal)) {
-              (null, null) => '',
-              (null, final total?) => '全 $total 话',
-              (final watched?, null) => '已看 $watched 话',
-              (final watched?, final total?) => '已看 $watched/$total',
-            },
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: scheme.onSurfaceVariant,
-            ),
-          )
+          Text(switch ((item.watchedEpisodes, item.episodeTotal)) {
+            (null, null) => '',
+            (null, final total?) => '全 $total 话',
+            (final watched?, null) => '已看 $watched 话',
+            (final watched?, final total?) => '已看 $watched/$total',
+          }, style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant))
         else
           Text(
             [
