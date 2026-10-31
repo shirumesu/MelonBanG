@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:pinyin/pinyin.dart' show ChineseHelper;
 
 import '../../core/error_message.dart';
 import '../../domain/danmaku.dart';
+import '../../domain/sources.dart';
+import '../acquisition/resource_metadata.dart';
+import '../acquisition/title_matching.dart';
 import 'danmaku_preferences.dart';
 import 'danmaku_repository.dart';
 
@@ -151,8 +155,50 @@ class DanmakuController extends ChangeNotifier {
 
   bool searchable(String provider) =>
       repository.provider(provider) is DanmakuSearch;
-  Future<List<DanmakuCandidate>> search(String provider, String title) =>
-      (repository.provider(provider) as DanmakuSearch).search(title);
+
+  /// Search rows for [title]; rows standing for a resource search entry
+  /// keep only those resource search would offer for the playing subject.
+  Future<List<DanmakuCandidate>> search(String provider, String title) async {
+    final target = _target;
+    final rows = await (repository.provider(provider) as DanmakuSearch).search(
+      title,
+    );
+    final subjectId = target?.subjectId;
+    if (subjectId == null || rows.every((row) => row.site == null)) {
+      return rows;
+    }
+    final subject = await repository.catalog.subject(subjectId);
+    final episode = subject.episodes
+        .where((episode) => episode.id == target!.episodeId)
+        .firstOrNull;
+    final names = {title, ...resourceNames(subject)};
+    final kept = [
+      for (final row in rows)
+        if (row.site == null || siteMatches(subject, episode, row.site!, names))
+          row,
+    ];
+    // Uploads follow the other rows: first those whose titles name this
+    // episode, then by comments per episode they span, so a full-season
+    // compilation is not ranked by its whole count.
+    final length = episodeLength(subject, episode);
+    double perEpisode(SourceSubject site) =>
+        site.danmakuCount! /
+        (length == null ? 1 : max(1, (site.durationSeconds! / length).round()));
+    final uploads = kept.where((row) => row.site?.choosePart ?? false).toList()
+      ..sort((a, b) {
+        if (episode != null) {
+          final named =
+              uploadNamesEpisode(a.title, episode) -
+              uploadNamesEpisode(b.title, episode);
+          if (named != 0) return named;
+        }
+        return perEpisode(b.site!).compareTo(perEpisode(a.site!));
+      });
+    return [
+      ...kept.where((row) => !(row.site?.choosePart ?? false)),
+      ...uploads,
+    ];
+  }
 
   /// Imports a local JSON file into this session only, replacing an earlier
   /// import; failure leaves the existing local comments intact.

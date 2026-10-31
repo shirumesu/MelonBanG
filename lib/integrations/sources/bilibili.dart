@@ -86,6 +86,9 @@ class BilibiliEngine implements OnlineSourceEngine {
         for (final tag in '${row['tag'] ?? ''}'.split(','))
           if (tag.trim().isNotEmpty) tag.trim(),
       ],
+      // Search rows count comments as `video_review`; the view API in `stat`.
+      danmakuCount:
+          (row['video_review'] ?? object(row['stat'])['danmaku']) as int,
       direct: direct,
     );
   }

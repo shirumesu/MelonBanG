@@ -104,7 +104,9 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
           ?subject.year?.toString(),
           if (subject.episodeTotal case final total?) '$total 话',
           ?subject.description,
+          if (subject.danmakuCount case final count?) _comments(count),
         ].join(' · '),
+        site: subject,
         open: subject.choosePart
             ? () => _video(subject.id)
             : () async => [
@@ -126,7 +128,10 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
     final data = object(value['data']);
     final collection = object(data['ugc_season']);
     return [
-      ..._parts(data),
+      ..._parts(
+        data,
+        comments: number(object(data['stat'])['danmaku']).toInt(),
+      ),
       if (collection.isNotEmpty)
         DanmakuCandidate(
           title: '所属合集 · ${collection['title']}',
@@ -144,11 +149,13 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
         if (objects(video['pages']).length > 1)
           DanmakuCandidate(
             title: '${video['title']}',
-            subtitle: '${objects(video['pages']).length} P',
+            subtitle:
+                '${objects(video['pages']).length} P · '
+                '${_comments(_videoComments(video))}',
             open: () async => _parts(video),
           )
         else
-          ..._parts(video),
+          ..._parts(video, comments: _videoComments(video)),
     ];
     final sections = objects(collection['sections']);
     return sections.length == 1
@@ -163,8 +170,9 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
           ];
   }
 
-  /// A video's parts; a single part takes the video's title.
-  List<DanmakuCandidate> _parts(Json video) {
+  /// A video's parts; a single part takes the video's title and, when
+  /// known, its [comments] count. Bilibili counts comments per video only.
+  List<DanmakuCandidate> _parts(Json video, {int? comments}) {
     final pages = objects(video['pages']);
     return [
       for (final page in pages)
@@ -172,11 +180,18 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
           title: pages.length == 1
               ? '${video['title']}'
               : 'P${page['page']} · ${page['part']}',
-          subtitle: '${(number(page['duration']) / 60).round()} 分钟',
+          subtitle: [
+            '${(number(page['duration']) / 60).round()} 分钟',
+            if (comments != null && pages.length == 1) _comments(comments),
+          ].join(' · '),
           locator: '${video['bvid']}?p=${page['page']}',
         ),
     ];
   }
+
+  /// A collection video's comment count.
+  int _videoComments(Json video) =>
+      number(object(object(video['arc'])['stat'])['danmaku']).toInt();
 
   @override
   Future<DanmakuCandidate?> follow(
@@ -324,6 +339,10 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
     return compute(sortedComments, comments);
   }
 }
+
+/// "856 条弹幕", "1.2 万条弹幕".
+String _comments(int count) =>
+    count < 10000 ? '$count 条弹幕' : '${(count / 10000).toStringAsFixed(1)} 万条弹幕';
 
 List<DanmakuComment?> _decodeXml((List<int>, bool) payload) {
   var (bytes, deflated) = payload;
