@@ -196,17 +196,35 @@ jobs:
           printf '%s' "$MELONBANG_UPDATE_SIGNING_KEY" > "$key"
           openssl dgst -sha256 -sign "$key" -out dist/manifest.json.sig dist/manifest.json
       # CHANGELOG.md is rewritten for every release; its heading names the
-      # version and the rest becomes the release notes.
+      # version and the rest becomes the release notes, ending in a table of
+      # direct download links to this release's files.
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          version=${GITHUB_REF_NAME#v}
           heading=$(head -n 1 CHANGELOG.md)
-          if [[ "$heading" != "# MelonBanG ${GITHUB_REF_NAME#v}" ]]; then
-            echo "CHANGELOG.md is for ${heading#\# }, not ${GITHUB_REF_NAME#v}." >&2
+          if [[ "$heading" != "# MelonBanG $version" ]]; then
+            echo "CHANGELOG.md is for ${heading#\# }, not $version." >&2
             exit 1
           fi
-          tail -n +2 CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          {
+            tail -n +2 CHANGELOG.md
+            printf '\n## 下载安装\n\n| 系统 | 架构 | 类型 | GitHub |\n| --- | --- | --- | --- |\n'
+            while IFS='|' read -r system arch kind label file; do
+              if [[ ! -f "dist/$file" ]]; then
+                echo "The download table names dist/$file, which was not built." >&2
+                exit 1
+              fi
+              echo "| $system | $arch | $kind | [$label]($base/$file) |"
+            done <<EOF
+          Windows 10 / 11|x64|安装版|setup.exe|MelonBanG-$version-windows-x64-setup.exe
+          Windows 10 / 11|x64|便携版|zip|MelonBanG-$version-windows-x64.zip
+          macOS 13 及以上|Apple 芯片|磁盘映像|dmg|MelonBanG-$version-macos-arm64.dmg
+          Linux|x64|AppImage|AppImage|MelonBanG-$version-linux-x64.AppImage
+          EOF
+          } > "$RUNNER_TEMP/notes.md"
           options=(--notes-file "$RUNNER_TEMP/notes.md" --title "MelonBanG ${GITHUB_REF_NAME#v}")
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
             # Until a stable version exists, an alpha or beta is the latest

@@ -14,9 +14,13 @@ import 'theme.dart';
 /// size and links, selectable as text. Parsing follows bangumi/frontend's `packages/utils/bbcode`:
 /// a tag that does not close or fails its check stays as plain text.
 class BBCode extends StatefulWidget {
-  const BBCode(this.source, {super.key, this.style});
+  const BBCode(this.source, {super.key, this.style, this.inAppLink});
   final String source;
   final TextStyle? style;
+
+  /// What opening a link to [address], reading [text], does when the app
+  /// shows that page itself; null opens the browser.
+  final VoidCallback? Function(Uri address, String text)? inAppLink;
 
   @override
   State<BBCode> createState() => _BBCodeState();
@@ -356,7 +360,12 @@ class _Renderer {
     TextStyle style, {
     int? mask,
   }) {
-    void open() => openExternal(state.context, address);
+    final inApp = state.widget.inAppLink?.call(
+      Uri.parse(address.trim()),
+      _plainText(children),
+    );
+    void open() =>
+        inApp == null ? openExternal(state.context, address) : inApp();
 
     final hidden = mask != null && !state._revealed.contains(mask);
     final tap = _recognizer(open);
@@ -394,7 +403,7 @@ class _Renderer {
         },
       // Marks a text link as leaving the app; an image link shows its
       // address on hover instead.
-      if (!hidden && spans.any((span) => span is TextSpan))
+      if (!hidden && inApp == null && spans.any((span) => span is TextSpan))
         WidgetSpan(
           alignment: PlaceholderAlignment.middle,
           child: Tooltip(
@@ -857,6 +866,16 @@ class _Parser {
     };
   }
 }
+
+String _plainText(List<_Node> nodes) => nodes
+    .map(
+      (node) => switch (node) {
+        _Text(:final text) || _Code(:final text) => text,
+        _Tag(:final children) => _plainText(children),
+        _Sticker() => '',
+      },
+    )
+    .join();
 
 String? _stringChild(_Tag node) => switch (node.children) {
   [_Text(:final text)] => text,

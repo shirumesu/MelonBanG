@@ -1,5 +1,22 @@
 # MelonBanG 0.1.1-beta.2
 
+## Unreleased
+
+### 功能
+
+- 角色和人物简介里提到的其他角色、人物可以直接点开查看
+- 连续点开角色和人物时，看过的会收在弹窗左侧，随时点回去；也可以按 Esc 或鼠标侧键返回上一层
+
+### 优化
+
+- 番剧详情页的进度和统计动画不再在来回滚动时重复播放
+- 播放器按钮加入了更细腻的悬停动画
+- 缓存任务的详情更简洁，已完成的任务不再显示下载速度
+
+### 修复
+
+- 修复角色简介里显示出 [b]、[url] 等原始代码的问题
+
 ## 0.1.1-beta.2
 
 ### 优化
@@ -16,12 +33,3 @@
 
 - 优化了各页面加载时的等待时间和性能
 - 优化更新日志的呈现逻辑
-
-## 下载安装
-
-| 系统 | 架构 | 类型 | GitHub |
-| --- | --- | --- | --- |
-| Windows 10 / 11 | x64 | 安装版 | [setup.exe](https://github.com/shirumesu/MelonBanG/releases/download/v0.1.1-beta.2/MelonBanG-0.1.1-beta.2-windows-x64-setup.exe) |
-| Windows 10 / 11 | x64 | 便携版 | [zip](https://github.com/shirumesu/MelonBanG/releases/download/v0.1.1-beta.2/MelonBanG-0.1.1-beta.2-windows-x64.zip) |
-| macOS 13 及以上 | Apple 芯片 | 磁盘映像 | [dmg](https://github.com/shirumesu/MelonBanG/releases/download/v0.1.1-beta.2/MelonBanG-0.1.1-beta.2-macos-arm64.dmg) |
-| Linux | x64 | AppImage | [AppImage](https://github.com/shirumesu/MelonBanG/releases/download/v0.1.1-beta.2/MelonBanG-0.1.1-beta.2-linux-x64.AppImage) |
