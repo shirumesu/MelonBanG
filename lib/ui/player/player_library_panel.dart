@@ -718,6 +718,11 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final choice = await showMenu<String>(
       context: context,
+      popUpAnimationStyle: AnimationStyle(
+        duration: motionDuration(context, 150),
+        reverseDuration: motionDuration(context, 100),
+        curve: Curves.easeOutCubic,
+      ),
       position: RelativeRect.fromRect(
         position & const Size(1, 1),
         Offset.zero & overlay.size,
@@ -874,8 +879,8 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                   SizedBox(
                     width: 28,
                     height: 38,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
+                    child: CoverFrame(
+                      radius: BorderRadius.circular(4),
                       child: SubjectCover(
                         url: task.coverUrl,
                         title: task.title,

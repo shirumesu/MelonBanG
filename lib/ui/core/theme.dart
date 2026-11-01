@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
@@ -80,16 +82,77 @@ MelonAccent accentOf(BuildContext context) =>
 Color badgeInk(Color tint, bool dark) =>
     Color((Hct.fromInt(tint.toARGB32())..tone = dark ? 76 : 46).toInt());
 
-/// [raised] lifts the poster under the pointer.
+/// A tight contact shadow under a wide ambient one, both cast downward;
+/// [raised] lifts the poster under the pointer by deepening the ambient one.
 List<BoxShadow> posterShadows(BuildContext context, {bool raised = false}) {
-  final color = Theme.of(context).shadowColor;
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  const tint = Color(0xff203b30);
+  final base = dark ? Colors.black : tint;
   return [
     BoxShadow(
-      color: raised ? color.withValues(alpha: color.a * 2.2) : color,
-      blurRadius: raised ? 18 : 6,
-      offset: Offset(0, raised ? 8 : 2),
+      color: base.withValues(alpha: dark ? .35 : .1),
+      blurRadius: raised ? 4 : 2,
+      offset: Offset(0, raised ? 2 : 1),
+    ),
+    BoxShadow(
+      color: base.withValues(
+        alpha: switch ((dark, raised)) {
+          (true, true) => .42,
+          (true, false) => .28,
+          (false, true) => .16,
+          (false, false) => .08,
+        },
+      ),
+      blurRadius: raised ? 28 : 16,
+      offset: Offset(0, raised ? 12 : 6),
     ),
   ];
+}
+
+/// The hairline inside a cover's edge, so a pale cover keeps its outline on
+/// a pale page.
+Color coverEdgeColor(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark
+    ? Colors.white.withValues(alpha: .08)
+    : Colors.black.withValues(alpha: .07);
+
+/// A block sunk into a panel, such as the hero of 继续观看 or a resource
+/// group's episodes: below the panel in both themes.
+Color insetSurface(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark
+    ? const Color(0xff191e28)
+    : const Color(0xfff3f5f4);
+
+/// The light falling on a raised edge from above: a panel's top in dark
+/// mode, a prominent button's top.
+class EdgeLight extends CustomPainter {
+  const EdgeLight({required this.color, required this.radius, this.depth = 12});
+  final Color color;
+  final BorderRadius radius;
+
+  /// How far down the sides the light runs before it fades out.
+  final double depth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawRRect(
+      radius.toRRect(rect.deflate(.5)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [color, color.withValues(alpha: 0)],
+          stops: [0, math.min(1, depth / size.height)],
+        ).createShader(rect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(EdgeLight old) =>
+      old.color != color || old.radius != radius || old.depth != depth;
 }
 
 LinearGradient sidebarSurface(BuildContext context) => LinearGradient(
@@ -109,6 +172,18 @@ LinearGradient sidebarTopFade(BuildContext context) => LinearGradient(
     Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0),
   ],
 );
+
+/// A 2px ring on a button reached from the keyboard; pointer focus shows
+/// nothing extra. [rest] is the button's own outline.
+WidgetStateBorderSide focusRing(ColorScheme scheme, [BorderSide? rest]) =>
+    WidgetStateBorderSide.resolveWith(
+      (states) =>
+          states.contains(WidgetState.focused) &&
+              FocusManager.instance.highlightMode ==
+                  FocusHighlightMode.traditional
+          ? BorderSide(color: scheme.primary, width: 2)
+          : rest,
+    );
 
 /// The theme last built for each brightness: the window rebuilds on every
 /// service change and must not build an identical theme each time.
@@ -202,7 +277,11 @@ ThemeData _appTheme(bool dark, Color accent) {
     fontFamily: appFont.fontFamily,
     fontFamilyFallback: appFont.fontFamilyFallback,
     shadowColor: const Color(0xff203b30).withValues(alpha: dark ? .16 : .06),
-    hoverColor: scheme.primary.withValues(alpha: .05),
+    // Desktop feedback without Material's ripple: neutral washes for hover
+    // and press.
+    splashFactory: NoSplash.splashFactory,
+    hoverColor: scheme.onSurface.withValues(alpha: .04),
+    highlightColor: scheme.onSurface.withValues(alpha: .08),
     focusColor: scheme.primary.withValues(alpha: .12),
     dialogTheme: DialogThemeData(
       backgroundColor: scheme.surface,
@@ -283,24 +362,39 @@ ThemeData _appTheme(bool dark, Color accent) {
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
         textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
         shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
-      ),
+      ).copyWith(side: focusRing(scheme)),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         foregroundColor: scheme.onSurface,
         backgroundColor: scheme.surface,
-        side: BorderSide(color: scheme.outlineVariant),
         shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
         minimumSize: const Size(64, 36),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
-      ),
+      ).copyWith(side: focusRing(scheme, BorderSide(color: scheme.outlineVariant))),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
         // Bold CJK at 12 px fills in dense strokes; links stay Regular.
         textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w400),
+      ).copyWith(side: focusRing(scheme)),
+    ),
+    iconButtonTheme: IconButtonThemeData(
+      style: ButtonStyle(side: focusRing(scheme)),
+    ),
+    scrollbarTheme: ScrollbarThemeData(
+      thickness: const WidgetStatePropertyAll(6),
+      radius: const Radius.circular(3),
+      thumbColor: WidgetStateProperty.resolveWith(
+        (states) => scheme.onSurface.withValues(
+          alpha: states.contains(WidgetState.dragged)
+              ? .4
+              : states.contains(WidgetState.hovered)
+              ? .3
+              : .18,
+        ),
       ),
     ),
     chipTheme: ChipThemeData(
@@ -323,8 +417,19 @@ ThemeData _appTheme(bool dark, Color accent) {
     ),
     // Hints wait for the pointer to rest instead of flashing up while it
     // passes over toolbars.
-    tooltipTheme: const TooltipThemeData(
-      waitDuration: Duration(milliseconds: 400),
+    tooltipTheme: TooltipThemeData(
+      waitDuration: const Duration(milliseconds: 400),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: scheme.inverseSurface,
+        borderRadius: badgeBorderRadius,
+        boxShadow: [BoxShadow(color: menuShadow, blurRadius: 8, offset: const Offset(0, 2))],
+      ),
+      textStyle: appFont.copyWith(
+        fontSize: 12,
+        height: 1.4,
+        color: scheme.onInverseSurface,
+      ),
     ),
   );
   final textTheme = theme.textTheme.apply(

@@ -260,7 +260,7 @@ class _ConnectivityState extends State<_Connectivity> {
                       if (failed > 0)
                         _Tally(
                           icon: Icons.error_outline,
-                          color: coral,
+                          color: Theme.of(context).colorScheme.error,
                           count: failed,
                           label: '失败',
                         ),
@@ -271,7 +271,7 @@ class _ConnectivityState extends State<_Connectivity> {
                   // so opened results are never clipped into a nested list.
                   DecoratedBox(
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceContainerLow,
+                      color: insetSurface(context),
                       borderRadius: controlBorderRadius,
                     ),
                     child: groups.isEmpty
@@ -328,7 +328,12 @@ class _ConnectivityState extends State<_Connectivity> {
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             : problems > 0
-            ? Text('$problems 项有问题', style: small?.copyWith(color: coral))
+            ? Text(
+                '$problems 项有问题',
+                style: small?.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              )
             : ok == members.length
             ? Text(
                 '全部正常',
@@ -430,7 +435,11 @@ class ProbeStatus extends StatelessWidget {
         Icons.warning_amber_rounded,
         gold,
       ),
-      ProbeState.failed => (value!.error ?? '无法连接', Icons.error_outline, coral),
+      ProbeState.failed => (
+        value!.error ?? '无法连接',
+        Icons.error_outline,
+        Theme.of(context).colorScheme.error,
+      ),
     };
     if (text == null) {
       return const SizedBox.square(
@@ -452,7 +461,7 @@ class ProbeStatus extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: style?.copyWith(
-              color: color == coral || color == gold ? color : null,
+              color: value?.state == ProbeState.reachable ? null : color,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),

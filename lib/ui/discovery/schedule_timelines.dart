@@ -158,28 +158,30 @@ class _TodayTimelineState extends State<TodayTimeline> {
         ),
       );
     } else {
-      body = ListView.builder(
-        controller: scroll,
-        padding: const EdgeInsets.only(bottom: Gap.sm),
-        itemCount: items.length + 1,
-        itemBuilder: (context, i) {
-          if (i == nowIndex) {
-            return _NowMarker(
-              label: shanghaiClock(now),
-              connectAbove: nowIndex > 0,
-              connectBelow: nowIndex < items.length,
+      body = ScrollEdgeFade(
+        child: ListView.builder(
+          controller: scroll,
+          padding: const EdgeInsets.only(bottom: Gap.sm),
+          itemCount: items.length + 1,
+          itemBuilder: (context, i) {
+            if (i == nowIndex) {
+              return _NowMarker(
+                label: shanghaiClock(now),
+                connectAbove: nowIndex > 0,
+                connectBelow: nowIndex < items.length,
+              );
+            }
+            final index = i > nowIndex ? i - 1 : i;
+            return _TimelineEntry(
+              item: items[index],
+              aired: aired[index],
+              first: index == 0 && nowIndex != 0,
+              last: index == items.length - 1 && nowIndex != items.length,
+              watching: widget.watchingIds.contains(items[index].id),
+              onOpen: widget.onOpen,
             );
-          }
-          final index = i > nowIndex ? i - 1 : i;
-          return _TimelineEntry(
-            item: items[index],
-            aired: aired[index],
-            first: index == 0 && nowIndex != 0,
-            last: index == items.length - 1 && nowIndex != items.length,
-            watching: widget.watchingIds.contains(items[index].id),
-            onOpen: widget.onOpen,
-          );
-        },
+          },
+        ),
       );
     }
     final airedCount = aired.where((value) => value).length;
@@ -284,8 +286,8 @@ class _TimelineEntry extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              ClipRRect(
-                borderRadius: const BorderRadius.all(Radius.circular(6)),
+              CoverFrame(
+                radius: badgeBorderRadius,
                 child: SizedBox(
                   width: 34,
                   height: 46,
@@ -541,8 +543,7 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                             SizedBox(
                               width: 80,
                               height: 108,
-                              child: ClipRRect(
-                                borderRadius: posterBorderRadius,
+                              child: CoverFrame(
                                 child: SubjectCover(
                                   url: item.coverUrl,
                                   title: item.title,

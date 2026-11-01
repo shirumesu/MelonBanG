@@ -63,6 +63,11 @@ class _SettingsPageState extends State<SettingsPage> {
   /// in the column.
   String? jumping;
 
+  /// The section a contents click landed on, washed briefly; [flashes]
+  /// replays it on another click.
+  String? flashing;
+  int flashes = 0;
+
   @override
   void initState() {
     super.initState();
@@ -131,7 +136,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (found != current) setState(() => current = found);
   }
 
-  Future<void> jump(String id) async {
+  Future<void> jump(String id, {bool flash = false}) async {
     final target = keys[id]?.currentContext;
     if (target == null) return;
     setState(() => current = jumping = id);
@@ -140,7 +145,14 @@ class _SettingsPageState extends State<SettingsPage> {
       duration: motionDuration(context, 260),
       curve: Curves.easeOutCubic,
     );
-    if (mounted) setState(() => jumping = null);
+    if (!mounted) return;
+    setState(() {
+      jumping = null;
+      if (flash) {
+        flashing = id;
+        flashes++;
+      }
+    });
   }
 
   @override
@@ -163,7 +175,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 current = null;
                 if (scroll.hasClients) scroll.jumpTo(0);
               }),
-              onSelect: jump,
+              onSelect: (id) => jump(id, flash: true),
             ),
           ),
           Expanded(
@@ -198,30 +210,37 @@ class _SettingsPageState extends State<SettingsPage> {
                     alignment: Alignment.topLeft,
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 880),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (sections.isEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: Gap.xl),
-                              child: EmptyState(
-                                text: '没有与“${query.text.trim()}”相关的设置',
+                      child: _SearchQuery(
+                        text: query.text.trim(),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (sections.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: Gap.xl),
+                                child: EmptyState(
+                                  text: '没有与“${query.text.trim()}”相关的设置',
+                                ),
+                              ),
+                            for (final (index, section) in sections.indexed)
+                              _SectionView(
+                                key: keys.putIfAbsent(
+                                  section.id,
+                                  GlobalKey.new,
+                                ),
+                                section: section,
+                                first: index == 0,
+                                flash: section.id == flashing ? flashes : null,
+                              ),
+                            // The last sections can still scroll to the top.
+                            SizedBox(
+                              height: math.max(
+                                Gap.xxl,
+                                viewportSize.maxHeight * .6,
                               ),
                             ),
-                          for (final (index, section) in sections.indexed)
-                            _SectionView(
-                              key: keys.putIfAbsent(section.id, GlobalKey.new),
-                              section: section,
-                              first: index == 0,
-                            ),
-                          // The last sections can still scroll to the top.
-                          SizedBox(
-                            height: math.max(
-                              Gap.xxl,
-                              viewportSize.maxHeight * .6,
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -317,9 +336,17 @@ class _Contents extends StatelessWidget {
 }
 
 class _SectionView extends StatelessWidget {
-  const _SectionView({super.key, required this.section, required this.first});
+  const _SectionView({
+    super.key,
+    required this.section,
+    required this.first,
+    this.flash,
+  });
   final SettingsSection section;
   final bool first;
+
+  /// Changes each time a contents click lands here, washing the first card.
+  final int? flash;
 
   @override
   Widget build(BuildContext context) {
@@ -331,7 +358,11 @@ class _SectionView extends StatelessWidget {
           padding: EdgeInsets.only(top: first ? Gap.lg : 40, bottom: Gap.md),
           child: Row(
             children: [
-              Icon(section.icon, size: 20, color: accentOf(context).accent),
+              Icon(
+                section.icon,
+                size: 20,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
               const SizedBox(width: Gap.sm),
               Text(section.title, style: text.titleMedium),
             ],
@@ -353,23 +384,121 @@ class _SectionView extends StatelessWidget {
             )
           else if (index > 0)
             const SizedBox(height: Gap.md),
-          MelonPanel(
-            padding: EdgeInsets.zero,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final (row, item) in group.items.indexed) ...[
-                  if (row > 0)
-                    const Divider(height: 1, indent: 20, endIndent: 20),
-                  item.child,
+          _JumpFlash(
+            flash: index == 0 ? flash : null,
+            child: MelonPanel(
+              padding: EdgeInsets.zero,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final (row, item) in group.items.indexed) ...[
+                    if (row > 0)
+                      const Divider(height: 1, indent: 20, endIndent: 20),
+                    item.child,
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ],
       ],
     );
   }
+}
+
+/// Washes its card in the primary colour, fading out, each time [flash]
+/// changes to a new value.
+class _JumpFlash extends StatefulWidget {
+  const _JumpFlash({required this.flash, required this.child});
+  final int? flash;
+  final Widget child;
+
+  @override
+  State<_JumpFlash> createState() => _JumpFlashState();
+}
+
+class _JumpFlashState extends State<_JumpFlash>
+    with SingleTickerProviderStateMixin {
+  late final _controller = AnimationController(vsync: this, value: 1);
+
+  @override
+  void didUpdateWidget(_JumpFlash oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.flash == null || widget.flash == oldWidget.flash) return;
+    _controller.duration = motionDuration(context, 700);
+    _controller.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return AnimatedBuilder(
+      animation: _controller,
+      child: widget.child,
+      builder: (context, child) => DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(
+          color: primary.withValues(
+            alpha: .16 * (1 - Curves.easeOut.transform(_controller.value)),
+          ),
+          borderRadius: panelBorderRadius,
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
+/// The search text, for rows to mark where it matches their labels.
+class _SearchQuery extends InheritedWidget {
+  const _SearchQuery({required this.text, required super.child});
+  final String text;
+
+  static String of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_SearchQuery>()?.text ?? '';
+
+  @override
+  bool updateShouldNotify(_SearchQuery oldWidget) => text != oldWidget.text;
+}
+
+/// [text] with each match of the search marked; a row found by one of its
+/// other keywords marks nothing.
+Widget _marked(BuildContext context, String text, TextStyle? style) {
+  final query = _SearchQuery.of(context).toLowerCase();
+  final lower = text.toLowerCase();
+  if (query.isEmpty || !lower.contains(query)) return Text(text, style: style);
+  final mark = BoxDecoration(
+    color: Theme.of(context).colorScheme.primary.withValues(alpha: .2),
+    borderRadius: const BorderRadius.all(Radius.circular(3)),
+  );
+  final spans = <InlineSpan>[];
+  var start = 0;
+  for (
+    var at = lower.indexOf(query);
+    at >= 0;
+    at = lower.indexOf(query, start)
+  ) {
+    if (at > start) spans.add(TextSpan(text: text.substring(start, at)));
+    spans.add(
+      WidgetSpan(
+        alignment: PlaceholderAlignment.baseline,
+        baseline: TextBaseline.alphabetic,
+        child: DecoratedBox(
+          decoration: mark,
+          child: Text(text.substring(at, at + query.length), style: style),
+        ),
+      ),
+    );
+    start = at + query.length;
+  }
+  if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
+  return Text.rich(TextSpan(children: spans), style: style);
 }
 
 /// A settings line: label and explanation on the left, its control at the
@@ -403,12 +532,10 @@ class SettingRow extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Flexible(
-              child: Text(
+              child: _marked(
+                context,
                 title,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
+                const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
               ),
             ),
             if (help != null) ...[
@@ -419,9 +546,10 @@ class SettingRow extends StatelessWidget {
         ),
         if (subtitle != null) ...[
           const SizedBox(height: 3),
-          Text(
+          _marked(
+            context,
             subtitle!,
-            style: Theme.of(context).textTheme.bodySmall
+            Theme.of(context).textTheme.bodySmall
                 ?.copyWith(color: subtitleColor),
           ),
         ],

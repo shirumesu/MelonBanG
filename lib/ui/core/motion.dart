@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 
 Duration motionDuration(BuildContext context, [int milliseconds = 180]) =>
     MediaQuery.disableAnimationsOf(context)
@@ -50,27 +52,51 @@ class MotionReveal extends StatelessWidget {
   );
 }
 
-class PageEntrance extends StatelessWidget {
+/// A page arriving: it brightens from 40% and rises 4 pixels, on the
+/// compositor alone.
+class PageEntrance extends StatefulWidget {
   const PageEntrance({super.key, required this.child});
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    if (MediaQuery.disableAnimationsOf(context)) return child;
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: motionDuration(context),
-      curve: Curves.easeOut,
-      child: child,
-      builder: (context, value, child) => Opacity(
-        opacity: .4 + .6 * value,
-        child: Transform.translate(
-          offset: Offset(0, 4 * (1 - value)),
-          child: child,
-        ),
-      ),
-    );
+  State<PageEntrance> createState() => _PageEntranceState();
+}
+
+class _PageEntranceState extends State<PageEntrance>
+    with SingleTickerProviderStateMixin {
+  late final _controller = AnimationController(vsync: this);
+  late final _curve = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOut,
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_controller.isAnimating || _controller.isCompleted) return;
+    _controller.duration = motionDuration(context);
+    _controller.forward();
   }
+
+  @override
+  void dispose() {
+    _curve.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+    opacity: _curve.drive(Tween(begin: .4, end: 1)),
+    child: AnimatedBuilder(
+      animation: _curve,
+      child: widget.child,
+      builder: (context, child) => Transform.translate(
+        offset: Offset(0, 4 * (1 - _curve.value)),
+        child: child,
+      ),
+    ),
+  );
 }
 
 /// Fades its child in once, rising [offset] pixels into place, when it is
@@ -143,6 +169,147 @@ class MotionSwap extends StatelessWidget {
         Stack(alignment: alignment, children: [...previous, ?current]),
     child: KeyedSubtree(key: ValueKey(value), child: child),
   );
+}
+
+/// Counts to each new [value] instead of jumping, alongside the bars that
+/// [MotionValue] glides; the first value shows at once.
+class MotionCount extends StatelessWidget {
+  const MotionCount({super.key, required this.value, required this.builder});
+  final int value;
+  final Widget Function(BuildContext context, int value) builder;
+
+  @override
+  Widget build(BuildContext context) => MotionValue(
+    value: value.toDouble(),
+    builder: (context, value) => builder(context, value.round()),
+  );
+}
+
+/// A list row that glides from where it was to its new place when the rows
+/// around it are added or reordered, instead of jumping, as when results
+/// arrive from several sites. [index] is its place in the list: only a
+/// change of it starts a glide, so rows pushed by a resize or a row
+/// unfolding above follow at once. [enter] fades in a row added after the
+/// list was first built.
+class MotionSlide extends StatefulWidget {
+  const MotionSlide({
+    super.key,
+    required this.index,
+    required this.child,
+    this.enter = false,
+  });
+  final int index;
+  final bool enter;
+  final Widget child;
+
+  @override
+  State<MotionSlide> createState() => _MotionSlideState();
+}
+
+class _MotionSlideState extends State<MotionSlide> {
+  late final bool _enter = widget.enter;
+
+  @override
+  void didUpdateWidget(MotionSlide oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.index == widget.index) return;
+    // Measured before this frame's layout moves it.
+    final box = context.findRenderObject();
+    if (box is _RenderSlide && box.attached && box.hasSize) {
+      box.reorderFrom(box.contentY);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final child = _SlideBox(
+      duration: motionDuration(context, 260),
+      position: Scrollable.maybeOf(context)?.position,
+      child: widget.child,
+    );
+    return _enter ? MotionAppear(offset: 8, child: child) : child;
+  }
+}
+
+class _SlideBox extends SingleChildRenderObjectWidget {
+  const _SlideBox({
+    required this.duration,
+    required this.position,
+    required super.child,
+  });
+  final Duration duration;
+  final ScrollPosition? position;
+
+  @override
+  _RenderSlide createRenderObject(BuildContext context) =>
+      _RenderSlide(duration, position);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderSlide renderObject) =>
+      renderObject
+        ..duration = duration
+        ..position = position;
+}
+
+/// Paints its child shifted from where layout put it back toward there,
+/// driven by frame callbacks: an animation started during paint cannot ask
+/// for a repaint, and the first shifted frame must not show the new place.
+class _RenderSlide extends RenderProxyBox {
+  _RenderSlide(this.duration, this.position);
+  Duration duration;
+  ScrollPosition? position;
+
+  double? _before;
+  double _from = 0, _t = 1;
+  Duration? _start;
+  int? _frame;
+
+  /// Where it sits in the scrolled content, so scrolling is not a move.
+  double get contentY =>
+      localToGlobal(Offset.zero).dy + (position?.pixels ?? 0);
+
+  double get _offset => _from * (1 - Curves.easeOutCubic.transform(_t));
+
+  void reorderFrom(double y) {
+    _before = y;
+    markNeedsPaint();
+  }
+
+  void _tick(Duration stamp) {
+    _frame = null;
+    _start ??= stamp;
+    _t = math.min(
+      1,
+      (stamp - _start!).inMicroseconds / duration.inMicroseconds,
+    );
+    markNeedsPaint();
+    if (_t < 1) _frame = SchedulerBinding.instance.scheduleFrameCallback(_tick);
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    if (_before case final before?) {
+      _before = null;
+      final moved = before - contentY;
+      if (moved.abs() > .5 && duration > Duration.zero) {
+        _from = _offset + moved;
+        _t = 0;
+        _start = null;
+        _frame ??= SchedulerBinding.instance.scheduleFrameCallback(_tick);
+      }
+    }
+    super.paint(context, offset.translate(0, _offset));
+  }
+
+  @override
+  void detach() {
+    if (_frame case final frame?) {
+      SchedulerBinding.instance.cancelFrameCallbackWithId(frame);
+    }
+    _frame = null;
+    _t = 1;
+    super.detach();
+  }
 }
 
 /// Glides to each new [value] instead of jumping, e.g. a progress bar.

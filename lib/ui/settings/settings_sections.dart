@@ -93,7 +93,9 @@ SettingsSection accountSection({
                 subtitle: personal.sync.error == null
                     ? '联网时自动同步'
                     : '上次同步失败：${personal.sync.error}',
-                subtitleColor: personal.sync.error == null ? null : coral,
+                subtitleColor: personal.sync.error == null
+                    ? null
+                    : Theme.of(context).colorScheme.error,
                 trailing: OutlinedButton.icon(
                   onPressed: syncBusy ? null : onSync,
                   icon: const Icon(Icons.sync, size: 18),

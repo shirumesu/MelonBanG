@@ -210,7 +210,7 @@ class DownloadStatusBadge extends StatelessWidget {
     return MelonBadge(
       downloadStatus(task),
       color: task.status == DownloadStatus.failed
-          ? coral
+          ? Theme.of(context).colorScheme.error
           : task.complete
           ? sky
           : mint,

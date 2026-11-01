@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../features/playback/playback_preferences.dart';
+import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
 
@@ -170,24 +171,27 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
             ),
             SizedBox(
               height: math.min(rows.length * _rowHeight + 8, 380),
-              child: ReorderableListView.builder(
-                buildDefaultDragHandles: false,
-                itemCount: rows.length,
-                onReorderItem: (from, to) {
-                  final order = [...rows];
-                  order.insert(to, order.removeAt(from));
-                  prefer(order.takeWhile((name) => name != _line).toList());
-                },
-                itemBuilder: (context, index) => rows[index] == _line
-                    ? Column(
-                        key: const ValueKey(_line),
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Divider(height: 9, indent: 8, endIndent: 8),
-                          caption(others.isEmpty ? '没有其他字幕组' : '其他字幕组'),
-                        ],
-                      )
-                    : row(index, rows[index]),
+              child: ScrollEdgeFade(
+                color: menuSurface(context),
+                child: ReorderableListView.builder(
+                  buildDefaultDragHandles: false,
+                  itemCount: rows.length,
+                  onReorderItem: (from, to) {
+                    final order = [...rows];
+                    order.insert(to, order.removeAt(from));
+                    prefer(order.takeWhile((name) => name != _line).toList());
+                  },
+                  itemBuilder: (context, index) => rows[index] == _line
+                      ? Column(
+                          key: const ValueKey(_line),
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Divider(height: 9, indent: 8, endIndent: 8),
+                            caption(others.isEmpty ? '没有其他字幕组' : '其他字幕组'),
+                          ],
+                        )
+                      : row(index, rows[index]),
+                ),
               ),
             ),
             const Divider(height: 9, indent: 8, endIndent: 8),

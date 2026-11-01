@@ -677,8 +677,8 @@ class _SubjectRelationsState extends State<SubjectRelations> {
                     SizedBox(
                       width: 40,
                       height: 54,
-                      child: ClipRRect(
-                        borderRadius: badgeBorderRadius,
+                      child: CoverFrame(
+                        radius: badgeBorderRadius,
                         child: SubjectCover(
                           url: row.coverUrl,
                           title: row.title,

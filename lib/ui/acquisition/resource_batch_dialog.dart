@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../domain/catalog.dart';
 import '../core/motion.dart';
+import '../core/page_widgets.dart';
 import '../core/theme.dart';
 
 /// Lets the user pick the episodes of one resource to download, by range
@@ -307,13 +308,15 @@ class _BatchDialogState extends State<_BatchDialog> {
             const SizedBox(height: Gap.md),
             ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 248),
-              child: SingleChildScrollView(
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final episode in widget.episodes) cell(episode),
-                  ],
+              child: ScrollEdgeFade(
+                child: SingleChildScrollView(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final episode in widget.episodes) cell(episode),
+                    ],
+                  ),
                 ),
               ),
             ),

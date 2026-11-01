@@ -18,6 +18,10 @@ import 'schedule_timelines.dart';
 
 const _showcaseHeight = 328.0;
 
+/// Set once the home page has first been shown in this run: only that first
+/// arrival brings its blocks in one after another.
+bool _homeArrived = false;
+
 class HomePage extends StatelessWidget {
   const HomePage({
     super.key,
@@ -68,19 +72,7 @@ class HomePage extends StatelessWidget {
     );
     final Widget showcase;
     if (trendingLoading && trending.isEmpty) {
-      showcase = const SizedBox(
-        height: _showcaseHeight,
-        child: MelonPanel(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('正在加载本季热度…'),
-              SizedBox(height: Gap.md),
-              SizedBox(width: 220, child: LinearProgressIndicator()),
-            ],
-          ),
-        ),
-      );
+      showcase = _ShowcaseSkeleton(wide: wide);
     } else if (trending.isEmpty) {
       showcase = EmptyState(
         text: error == null ? '暂时没有热门番剧' : '暂时无法加载番剧',
@@ -124,6 +116,12 @@ class HomePage extends StatelessWidget {
       onExplore: onExplore,
       onOpenTracking: onOpenTracking,
     );
+    final arriving = !_homeArrived;
+    if (arriving) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _homeArrived = true);
+    }
+    Widget arrive(int order, Widget child) =>
+        _Arrival(order: order, play: arriving, child: child);
     return ListView(
       key: const PageStorageKey('page-scroll'),
       padding: const EdgeInsets.fromLTRB(
@@ -142,29 +140,155 @@ class HomePage extends StatelessWidget {
             top: 0,
             trailing: refresh,
           ),
-        showcase,
+        arrive(0, showcase),
         const SizedBox(height: Gap.xxl),
         if (wide)
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: SizedBox(height: lowerHeight, child: continuation),
+                child: arrive(
+                  1,
+                  SizedBox(height: lowerHeight, child: continuation),
+                ),
               ),
               const SizedBox(width: Gap.lg),
-              SizedBox(
-                width: homeSideColumnWidth,
-                height: lowerHeight,
-                child: timeline,
+              arrive(
+                2,
+                SizedBox(
+                  width: homeSideColumnWidth,
+                  height: lowerHeight,
+                  child: timeline,
+                ),
               ),
             ],
           )
         else ...[
-          SizedBox(height: 420, child: continuation),
+          arrive(1, SizedBox(height: 420, child: continuation)),
           const SizedBox(height: Gap.xxl),
-          SizedBox(height: 460, child: timeline),
+          arrive(2, SizedBox(height: 460, child: timeline)),
         ],
       ],
+    );
+  }
+}
+
+/// One block of the home page, rising into place [order] beats after the
+/// first when [play]; decided once, so later rebuilds keep the subtree.
+class _Arrival extends StatefulWidget {
+  const _Arrival({
+    required this.order,
+    required this.play,
+    required this.child,
+  });
+  final int order;
+  final bool play;
+  final Widget child;
+
+  @override
+  State<_Arrival> createState() => _ArrivalState();
+}
+
+class _ArrivalState extends State<_Arrival> {
+  late final bool _play = widget.play;
+
+  @override
+  Widget build(BuildContext context) => _play
+      ? MotionAppear(
+          offset: 8,
+          milliseconds: 320,
+          delay: widget.order * 40,
+          child: widget.child,
+        )
+      : widget.child;
+}
+
+/// The spotlight and ranking in grey while 本季热度 loads.
+class _ShowcaseSkeleton extends StatelessWidget {
+  const _ShowcaseSkeleton({required this.wide});
+  final bool wide;
+
+  @override
+  Widget build(BuildContext context) {
+    final spotlight = MelonPanel(
+      padding: const EdgeInsets.all(28),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const AspectRatio(
+            aspectRatio: .72,
+            child: SkeletonBlock(radius: posterBorderRadius),
+          ),
+          const SizedBox(width: Gap.xl),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SkeletonBlock(width: 28, height: 14),
+                  const SizedBox(height: Gap.md),
+                  SkeletonBlock(width: constraints.maxWidth * .6, height: 28),
+                  const SizedBox(height: Gap.sm),
+                  SkeletonBlock(width: constraints.maxWidth * .35, height: 14),
+                  const SizedBox(height: Gap.lg),
+                  SkeletonBlock(width: constraints.maxWidth * .7, height: 24),
+                  const SizedBox(height: Gap.lg),
+                  for (final share in const [.95, .9, .6]) ...[
+                    SkeletonBlock(
+                      width: constraints.maxWidth * share,
+                      height: 13,
+                    ),
+                    const SizedBox(height: Gap.sm),
+                  ],
+                  const Spacer(),
+                  const SkeletonBlock(
+                    width: 92,
+                    height: 32,
+                    radius: controlBorderRadius,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return Semantics(
+      label: '正在加载本季热度',
+      child: ExcludeSemantics(
+        child: MotionPulse(
+          child: SizedBox(
+            height: _showcaseHeight,
+            child: !wide
+                ? spotlight
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: spotlight),
+                      const SizedBox(width: Gap.lg),
+                      SizedBox(
+                        width: homeSideColumnWidth,
+                        child: MelonPanel(
+                          padding: const EdgeInsets.all(Gap.lg),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const SkeletonBlock(width: 72, height: 16),
+                              for (var i = 0; i < 8; i++)
+                                FractionallySizedBox(
+                                  widthFactor: .92 - (i * 7 % 30) / 100,
+                                  child: const SkeletonBlock(height: 14),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -281,11 +405,34 @@ class _Spotlight extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           const ColoredBox(color: Color(0xff1d2a30)),
+          // A tiny decode stretched over the panel is already soft, so a
+          // light blur finishes it; the old and new backdrops cross-fade
+          // under one blur.
           ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+            imageFilter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
             child: Transform.scale(
               scale: 1.4,
-              child: SubjectCover(url: item.coverUrl, title: title, id: id),
+              child: AnimatedSwitcher(
+                duration: motionDuration(context, 400),
+                layoutBuilder: (current, previous) => Stack(
+                  fit: StackFit.expand,
+                  children: [...previous, ?current],
+                ),
+                child: FittedBox(
+                  key: ValueKey(id),
+                  fit: BoxFit.cover,
+                  clipBehavior: Clip.hardEdge,
+                  child: SizedBox(
+                    width: 36,
+                    height: 50,
+                    child: SubjectCover(
+                      url: item.coverUrl,
+                      title: title,
+                      id: id,
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
           const DecoratedBox(
@@ -334,14 +481,18 @@ class _Spotlight extends StatelessWidget {
                             borderRadius: posterBorderRadius,
                             boxShadow: [
                               BoxShadow(
+                                color: Color(0x66000000),
+                                blurRadius: 2,
+                                offset: Offset(0, 1),
+                              ),
+                              BoxShadow(
                                 color: Color(0x59000000),
-                                blurRadius: 18,
-                                offset: Offset(0, 6),
+                                blurRadius: 24,
+                                offset: Offset(0, 10),
                               ),
                             ],
                           ),
-                          child: ClipRRect(
-                            borderRadius: posterBorderRadius,
+                          child: CoverFrame(
                             child: SubjectCover(
                               url: item.coverUrl,
                               title: title,
@@ -556,7 +707,11 @@ class _RankList extends StatelessWidget {
                                     FontFeature.tabularFigures(),
                                   ],
                                   color: i < 3
-                                      ? coral
+                                      ? badgeInk(
+                                          gold,
+                                          Theme.of(context).brightness ==
+                                              Brightness.dark,
+                                        )
                                       : scheme.onSurfaceVariant,
                                 ),
                               ),
@@ -657,11 +812,22 @@ class _Watch {
 
   String get remaining =>
       '剩余 ${((resume!.duration - resume!.position) / 60).ceil()} 分钟';
+}
 
-  String get progress => switch ((item.watchedEpisodes, item.episodeTotal)) {
-    (final watched, null) => '已看 ${watched ?? 0} 话',
-    (final watched, final total?) => '已看 ${watched ?? 0}/$total',
-  };
+/// 已看 N/总话数, counting up as episodes are marked.
+class _Progress extends StatelessWidget {
+  const _Progress(this.watch, {required this.style});
+  final _Watch watch;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) => MotionCount(
+    value: watch.item.watchedEpisodes ?? 0,
+    builder: (context, watched) => Text(switch (watch.item.episodeTotal) {
+      null => '已看 $watched 话',
+      final total => '已看 $watched/$total',
+    }, style: style),
+  );
 }
 
 /// How long ago [at] was: minutes and hours today, then 昨天, days within a
@@ -732,6 +898,9 @@ class _ContinueSection extends StatefulWidget {
 class _ContinueSectionState extends State<_ContinueSection> {
   late final Timer clock;
 
+  /// Subjects the queue has shown; later ones fade in as they join.
+  final _shown = <int>{};
+
   @override
   void initState() {
     super.initState();
@@ -775,13 +944,24 @@ class _ContinueSectionState extends State<_ContinueSection> {
     final hero = ready.firstOrNull ?? ([...waiting]..sort(_bySeen)).firstOrNull;
     final readyRest = ready.where((e) => e != hero).toList();
     final waitingRest = waiting.where((e) => e != hero).toList();
-    Widget row(_Watch watch) => _QueueRow(
-      key: ValueKey(watch.item.id),
-      watch: watch,
-      today: widget.airingToday.contains(watch.item.id),
-      onOpen: widget.onOpenSubject,
-      onPlay: widget.onPlayEpisode,
-    );
+    final known = _shown.isNotEmpty;
+    var place = 0;
+    Widget row(_Watch watch) {
+      final id = watch.item.id;
+      return MotionSlide(
+        key: ValueKey(id),
+        index: place++,
+        enter: known && !_shown.contains(id),
+        child: _QueueRow(
+          watch: watch,
+          today: widget.airingToday.contains(id),
+          onOpen: widget.onOpenSubject,
+          onPlay: widget.onPlayEpisode,
+        ),
+      );
+    }
+
+    _shown.addAll([for (final watch in all) watch.item.id]);
     return HeadedPanel(
       icon: Icons.play_circle_outline,
       title: '继续观看',
@@ -831,47 +1011,49 @@ class _ContinueSectionState extends State<_ContinueSection> {
                     // Ends on the hero's bottom edge.
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: Gap.lg),
-                      child: ListView(
-                        key: const PageStorageKey('continue-queue'),
-                        padding: const EdgeInsets.fromLTRB(
-                          Gap.sm,
-                          Gap.sm,
-                          Gap.sm,
-                          0,
-                        ),
-                        children: [
-                          ...readyRest.map(row),
-                          if (waitingRest.isNotEmpty) ...[
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(
-                                Gap.sm,
-                                Gap.sm,
-                                Gap.sm,
-                                Gap.xs,
-                              ),
-                              child: Row(
-                                children: [
-                                  Text(
-                                    '等待更新',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall,
-                                  ),
-                                  const SizedBox(width: Gap.sm),
-                                  Expanded(
-                                    child: Divider(
-                                      height: 1,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .outlineVariant,
+                      child: ScrollEdgeFade(
+                        child: ListView(
+                          key: const PageStorageKey('continue-queue'),
+                          padding: const EdgeInsets.fromLTRB(
+                            Gap.sm,
+                            Gap.sm,
+                            Gap.sm,
+                            0,
+                          ),
+                          children: [
+                            ...readyRest.map(row),
+                            if (waitingRest.isNotEmpty) ...[
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  Gap.sm,
+                                  Gap.sm,
+                                  Gap.sm,
+                                  Gap.xs,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      '等待更新',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall,
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(width: Gap.sm),
+                                    Expanded(
+                                      child: Divider(
+                                        height: 1,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .outlineVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            ...waitingRest.map(row),
+                              ...waitingRest.map(row),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -920,7 +1102,7 @@ class _Hero extends StatelessWidget {
         icon: const Icon(Icons.schedule_rounded, size: 18),
         label: Text('${releaseWhen(release)}更新'),
       ),
-      null => FilledButton.icon(
+      null => ProminentButton(
         onPressed: () => onPlay(detail, next),
         icon: const Icon(Icons.play_arrow_rounded, size: 19),
         label: Text(
@@ -930,7 +1112,7 @@ class _Hero extends StatelessWidget {
     };
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
+        color: insetSurface(context),
         borderRadius: controlBorderRadius,
       ),
       child: Padding(
@@ -946,20 +1128,14 @@ class _Hero extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        borderRadius: posterBorderRadius,
-                        boxShadow: posterShadows(context),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: posterBorderRadius,
-                        child: SizedBox(
-                          width: 96,
-                          child: SubjectCover(
-                            url: item.coverUrl,
-                            title: item.title,
-                            id: item.id,
-                          ),
+                    CoverFrame(
+                      shadow: true,
+                      child: SizedBox(
+                        width: 96,
+                        child: SubjectCover(
+                          url: item.coverUrl,
+                          title: item.title,
+                          id: item.id,
                         ),
                       ),
                     ),
@@ -987,8 +1163,8 @@ class _Hero extends StatelessWidget {
                             ),
                           ),
                           const Spacer(),
-                          Text(
-                            watch.progress,
+                          _Progress(
+                            watch,
                             style: text.bodySmall!.copyWith(
                               fontFeatures: tabular,
                             ),
@@ -1139,7 +1315,6 @@ class _HeroEpisode extends StatelessWidget {
 /// marks and when it last played; a play button shows under the pointer.
 class _QueueRow extends StatefulWidget {
   const _QueueRow({
-    super.key,
     required this.watch,
     required this.today,
     required this.onOpen,
@@ -1201,8 +1376,8 @@ class _QueueRowState extends State<_QueueRow> {
             padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
             child: Row(
               children: [
-                ClipRRect(
-                  borderRadius: badgeBorderRadius,
+                CoverFrame(
+                  radius: badgeBorderRadius,
                   child: SizedBox(
                     width: 40,
                     height: 56,
@@ -1245,8 +1420,8 @@ class _QueueRowState extends State<_QueueRow> {
                             SizedBox(width: 112, child: _EpisodeStrip(watch)),
                             const SizedBox(width: Gap.sm),
                           ],
-                          Text(
-                            watch.progress,
+                          _Progress(
+                            watch,
                             style: small.copyWith(
                               fontFeatures: const [
                                 FontFeature.tabularFigures(),
@@ -1318,7 +1493,8 @@ class _EpisodeStrip extends StatelessWidget {
             if (i > 0) SizedBox(width: gap),
             Expanded(
               child: watch.watched[i]
-                  ? DecoratedBox(
+                  ? AnimatedContainer(
+                      duration: motionDuration(context, 320),
                       decoration: BoxDecoration(
                         color: accent,
                         borderRadius: radius,

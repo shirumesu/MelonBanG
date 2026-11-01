@@ -276,7 +276,7 @@ class MelonChoiceMenu<T> extends StatelessWidget {
   final String? label, tooltip;
 
   @override
-  Widget build(BuildContext context) => MenuAnchor(
+  Widget build(BuildContext context) => MelonMenuAnchor(
     crossAxisUnconstrained: false,
     menuChildren: [
       for (final entry in options.entries)
@@ -550,14 +550,10 @@ class MelonFilterMenu<T> extends StatelessWidget {
         child: Text(option.label, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
     );
-    return MenuAnchor(
+    return MelonMenuAnchor(
       controller: menu,
       crossAxisUnconstrained: false,
-      style: MenuStyle(
-        maximumSize: WidgetStatePropertyAll(
-          Size(columns > 1 ? columns * width + 10 : 360, 440),
-        ),
-      ),
+      maxWidth: columns > 1 ? columns * width + 10 : 360,
       menuChildren: [
         ?panel,
         if (panel == null)
@@ -695,3 +691,142 @@ class FilterCheck extends StatelessWidget {
 /// The fill of popup menus.
 Color menuSurface(BuildContext context) =>
     Theme.of(context).popupMenuTheme.color!;
+
+/// A [MenuAnchor] whose panel settles in from just above as it fades in,
+/// instead of appearing at once. It draws the panel itself: MenuAnchor's own
+/// can only open with Material's 500 ms unfolding. Closing is immediate.
+class MelonMenuAnchor extends StatelessWidget {
+  const MelonMenuAnchor({
+    super.key,
+    required this.menuChildren,
+    required this.builder,
+    this.controller,
+    this.crossAxisUnconstrained = true,
+    this.alignmentOffset = Offset.zero,
+    this.maxWidth,
+    this.maxHeight = 440,
+    this.onOpen,
+    this.onClose,
+  });
+  final List<Widget> menuChildren;
+  final MenuAnchorChildBuilder builder;
+  final MenuController? controller;
+  final bool crossAxisUnconstrained;
+  final Offset alignmentOffset;
+  final double? maxWidth;
+
+  /// Taller content scrolls inside the panel.
+  final double maxHeight;
+  final VoidCallback? onOpen, onClose;
+
+  /// Room around the panel for its shadow, which MenuAnchor's own scroll
+  /// view would clip; the anchor offset takes it back out.
+  static const _margin = EdgeInsets.fromLTRB(8, 2, 8, 10);
+
+  @override
+  Widget build(BuildContext context) => MenuAnchor(
+    controller: controller,
+    crossAxisUnconstrained: crossAxisUnconstrained,
+    clipBehavior: Clip.none,
+    alignmentOffset: alignmentOffset - Offset(_margin.left, _margin.top),
+    onOpen: onOpen,
+    onClose: onClose,
+    style: MenuStyle(
+      backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
+      shadowColor: const WidgetStatePropertyAll(Colors.transparent),
+      surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+      elevation: const WidgetStatePropertyAll(0),
+      padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+      maximumSize: WidgetStatePropertyAll(
+        Size(
+          maxWidth == null ? double.infinity : maxWidth! + _margin.horizontal,
+          double.infinity,
+        ),
+      ),
+    ),
+    menuChildren: [
+      _MenuPanel(margin: _margin, maxHeight: maxHeight, children: menuChildren),
+    ],
+    builder: builder,
+  );
+}
+
+class _MenuPanel extends StatefulWidget {
+  const _MenuPanel({
+    required this.margin,
+    required this.maxHeight,
+    required this.children,
+  });
+  final EdgeInsets margin;
+  final double maxHeight;
+  final List<Widget> children;
+
+  @override
+  State<_MenuPanel> createState() => _MenuPanelState();
+}
+
+class _MenuPanelState extends State<_MenuPanel>
+    with SingleTickerProviderStateMixin {
+  late final _controller = AnimationController(vsync: this);
+  late final _curve = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOutCubic,
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_controller.isAnimating || _controller.isCompleted) return;
+    _controller.duration = motionDuration(context, 150);
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _curve.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final style = MenuTheme.of(context).style!;
+    final none = <WidgetState>{};
+    return Padding(
+      padding: widget.margin,
+      child: FadeTransition(
+        opacity: _curve,
+        child: AnimatedBuilder(
+          animation: _curve,
+          builder: (context, child) => Transform.translate(
+            offset: Offset(0, -4 * (1 - _curve.value)),
+            child: Transform.scale(
+              scale: .98 + .02 * _curve.value,
+              alignment: Alignment.topCenter,
+              child: child,
+            ),
+          ),
+          child: Material(
+            color: style.backgroundColor!.resolve(none),
+            shadowColor: style.shadowColor!.resolve(none),
+            surfaceTintColor: Colors.transparent,
+            elevation: style.elevation!.resolve(none)!,
+            shape: style.shape!.resolve(none),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: widget.maxHeight),
+              child: SingleChildScrollView(
+                padding: style.padding!.resolve(none),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: widget.children,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

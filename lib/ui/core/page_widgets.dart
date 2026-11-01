@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'motion.dart';
@@ -56,16 +58,26 @@ class MelonPanel extends StatelessWidget {
   final VoidCallback? onTap;
   @override
   Widget build(BuildContext context) {
-    final content = Padding(padding: padding, child: child);
-    return Card(
-      child: onTap == null
-          ? content
-          : InkWell(
-              onTap: onTap,
-              customBorder: CardTheme.of(context).shape,
-              child: content,
-            ),
-    );
+    Widget content = Padding(padding: padding, child: child);
+    if (onTap != null) {
+      content = InkWell(
+        onTap: onTap,
+        customBorder: CardTheme.of(context).shape,
+        child: content,
+      );
+    }
+    // Dark panels sit close to the page; light along the top edge gives
+    // them thickness.
+    if (Theme.of(context).brightness == Brightness.dark) {
+      content = CustomPaint(
+        foregroundPainter: EdgeLight(
+          color: Colors.white.withValues(alpha: .055),
+          radius: panelBorderRadius,
+        ),
+        child: content,
+      );
+    }
+    return Card(child: content);
   }
 }
 
@@ -125,7 +137,7 @@ class SectionTitle extends StatelessWidget {
     this.trailing,
     this.subtitle,
     this.icon,
-    this.color = coral,
+    this.color,
     this.top = Gap.xl,
   });
   final String title;
@@ -133,14 +145,20 @@ class SectionTitle extends StatelessWidget {
   final String? subtitle;
   final Widget? trailing;
   final IconData? icon;
-  final Color color;
+
+  /// The secondary text colour by default; section icons stay neutral.
+  final Color? color;
   @override
   Widget build(BuildContext context) => Padding(
     padding: EdgeInsets.only(top: top, bottom: Gap.md),
     child: Row(
       children: [
         if (icon != null) ...[
-          Icon(icon, size: 20, color: color),
+          Icon(
+            icon,
+            size: 20,
+            color: color ?? Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
           const SizedBox(width: 8),
         ],
         Expanded(
@@ -293,11 +311,7 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.movie_outlined,
-              size: 32,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+            const _MarkHop(),
             const SizedBox(height: Gap.md),
             Text(
               text,
@@ -320,4 +334,211 @@ class EmptyState extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// The melon mark of an empty state, hopping once as it appears.
+class _MarkHop extends StatelessWidget {
+  const _MarkHop();
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    tween: Tween(begin: 0, end: 1),
+    duration: motionDuration(context, 520),
+    // Waits for the panel to settle first.
+    curve: const Interval(.27, 1),
+    builder: (context, t, child) {
+      final bump = math.sin(math.pi * Curves.easeOutCubic.transform(t));
+      return Transform.translate(
+        offset: Offset(0, -7 * bump),
+        child: Transform.rotate(angle: -.07 * bump, child: child),
+      );
+    },
+    child: Image.asset(
+      'assets/images/mark.png',
+      width: 56,
+      height: 56,
+      excludeFromSemantics: true,
+    ),
+  );
+}
+
+/// The page's one leading action, such as playing the next episode: solid
+/// primary with light along its top edge, giving a little under a press.
+/// Disabled, it looks like any disabled [FilledButton].
+class ProminentButton extends StatefulWidget {
+  const ProminentButton({
+    super.key,
+    required this.onPressed,
+    required this.icon,
+    required this.label,
+  });
+  final VoidCallback? onPressed;
+  final Widget icon, label;
+
+  @override
+  State<ProminentButton> createState() => _ProminentButtonState();
+}
+
+class _ProminentButtonState extends State<ProminentButton> {
+  final _states = WidgetStatesController();
+
+  @override
+  void initState() {
+    super.initState();
+    _states.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _states.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final pressed = _states.value.contains(WidgetState.pressed);
+    return AnimatedScale(
+      scale: pressed && widget.onPressed != null ? .98 : 1,
+      duration: motionDuration(context, 80),
+      curve: Curves.easeOut,
+      child: FilledButton.icon(
+        statesController: _states,
+        onPressed: widget.onPressed,
+        style:
+            FilledButton.styleFrom(
+              backgroundColor: scheme.primary,
+              foregroundColor: scheme.onPrimary,
+              shadowColor: Theme.of(context).shadowColor.withValues(alpha: 1),
+            ).copyWith(
+              elevation: WidgetStateProperty.resolveWith(
+                (states) =>
+                    states.contains(WidgetState.disabled) ||
+                        states.contains(WidgetState.pressed)
+                    ? 0
+                    : states.contains(WidgetState.hovered)
+                    ? 2
+                    : 1,
+              ),
+              foregroundBuilder: widget.onPressed == null
+                  ? null
+                  : (context, states, child) => CustomPaint(
+                      foregroundPainter: EdgeLight(
+                        color: Colors.white.withValues(alpha: .22),
+                        radius: controlBorderRadius,
+                        depth: 10,
+                      ),
+                      child: child,
+                    ),
+            ),
+        icon: widget.icon,
+        label: widget.label,
+      ),
+    );
+  }
+}
+
+/// A grey block standing in for content that is loading, in its layout;
+/// wrap a group of them in one [MotionPulse].
+class SkeletonBlock extends StatelessWidget {
+  const SkeletonBlock({
+    super.key,
+    this.width,
+    this.height,
+    this.radius = badgeBorderRadius,
+    this.color,
+  });
+  final double? width, height;
+  final BorderRadius radius;
+
+  /// [ColorScheme.surfaceContainerHigh] by default.
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: width,
+    height: height,
+    decoration: BoxDecoration(
+      color: color ?? Theme.of(context).colorScheme.surfaceContainerHigh,
+      borderRadius: radius,
+    ),
+  );
+}
+
+/// Fades the edges of a scrolling [child] into [color] wherever more
+/// content lies beyond, so a list cut off by its panel reads as one that
+/// scrolls. Drawn over the list rather than masking it, which would need an
+/// offscreen layer.
+class ScrollEdgeFade extends StatefulWidget {
+  const ScrollEdgeFade({super.key, required this.child, this.color});
+  final Widget child;
+
+  /// The panel behind the list; [ColorScheme.surface] by default.
+  final Color? color;
+
+  @override
+  State<ScrollEdgeFade> createState() => _ScrollEdgeFadeState();
+}
+
+class _ScrollEdgeFadeState extends State<ScrollEdgeFade> {
+  final _before = ValueNotifier(false), _after = ValueNotifier(false);
+
+  bool _update(ScrollMetrics metrics) {
+    if (metrics.axis == Axis.vertical) {
+      _before.value = metrics.extentBefore > 1;
+      _after.value = metrics.extentAfter > 1;
+    }
+    return false;
+  }
+
+  @override
+  void dispose() {
+    _before.dispose();
+    _after.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.color ?? Theme.of(context).colorScheme.surface;
+    Widget edge(ValueNotifier<bool> shown, bool top) => Positioned(
+      left: 0,
+      right: 0,
+      top: top ? 0 : null,
+      bottom: top ? null : 0,
+      height: 18,
+      child: IgnorePointer(
+        child: ValueListenableBuilder(
+          valueListenable: shown,
+          builder: (context, value, child) => AnimatedOpacity(
+            opacity: value ? 1 : 0,
+            duration: motionDuration(context, 150),
+            child: child,
+          ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: top ? Alignment.topCenter : Alignment.bottomCenter,
+                end: top ? Alignment.bottomCenter : Alignment.topCenter,
+                colors: [color, color.withValues(alpha: 0)],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return Stack(
+      children: [
+        NotificationListener<ScrollMetricsNotification>(
+          onNotification: (notification) => _update(notification.metrics),
+          child: NotificationListener<ScrollUpdateNotification>(
+            onNotification: (notification) => _update(notification.metrics),
+            child: widget.child,
+          ),
+        ),
+        edge(_before, true),
+        edge(_after, false),
+      ],
+    );
+  }
 }
