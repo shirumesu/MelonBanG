@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/error_message.dart';
@@ -11,17 +10,11 @@ import '../core/theme.dart';
 import 'danmaku_filter_editor.dart';
 
 /// The side panel's 弹幕 tab: each source with its match, a place to change
-/// that match, local import, and blocking rules. Display options are in the
+/// that match, and blocking rules. Display options are in the
 /// transport's popover.
 class PlayerDanmakuPane extends StatefulWidget {
-  const PlayerDanmakuPane({
-    super.key,
-    required this.playback,
-    required this.onError,
-    this.title,
-  });
+  const PlayerDanmakuPane({super.key, required this.playback, this.title});
   final Playback playback;
-  final ValueChanged<Object> onError;
 
   /// The subject's title, searched when a source's matching opens.
   final String? title;
@@ -41,7 +34,7 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
   /// Search results, then each opened group, as (group title, rows).
   List<(String, List<DanmakuCandidate>)> levels = [];
   String? _sessionId;
-  int _searchRequest = 0, _loadRequest = 0, _importRequest = 0;
+  int _searchRequest = 0, _loadRequest = 0;
   Playback get playback => widget.playback;
   DanmakuController get danmaku => playback.danmaku;
   bool get busy => loading || searching;
@@ -60,7 +53,6 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
       _sessionId = sessionId;
       _searchRequest++;
       _loadRequest++;
-      _importRequest++;
       editing = null;
       levels = [];
       loading = searching = false;
@@ -161,28 +153,6 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
     }
   }
 
-  Future<void> importLocal() async {
-    final sessionId = playback.session?.id;
-    if (sessionId == null) return;
-    final ticket = ++_importRequest;
-    final file = await openFile(
-      acceptedTypeGroups: [
-        const XTypeGroup(label: 'Danmaku JSON', extensions: ['json']),
-      ],
-    );
-    if (file == null ||
-        !mounted ||
-        ticket != _importRequest ||
-        sessionId != playback.session?.id) {
-      return;
-    }
-    try {
-      await danmaku.importLocal(file.path);
-    } catch (e) {
-      widget.onError(e);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -226,13 +196,6 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
             ),
           ),
         for (final source in sources) sourceRow(source),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton(
-            onPressed: playback.session == null ? null : importLocal,
-            child: const Text('导入弹幕 JSON'),
-          ),
-        ),
         const SizedBox(height: Gap.md),
         DanmakuFilterEditor(preferences: danmaku.preferences),
       ],
@@ -243,7 +206,6 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final open = editing == source.id;
-    final local = source.id == danmaku.repository.local.id;
     final status = switch (source.status) {
       DanmakuStatus.idle => '等待匹配',
       DanmakuStatus.loading => '匹配中',
@@ -290,19 +252,18 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
                     ],
                   ),
                 ),
-                if (!local)
-                  TextButton(
-                    onPressed: busy ? null : () => edit(source.id),
-                    child: Text(
-                      open
-                          ? '收起'
-                          : !danmaku.searchable(source.id)
-                          ? '详情'
-                          : source.status == DanmakuStatus.ready
-                          ? '更换'
-                          : '匹配',
-                    ),
+                TextButton(
+                  onPressed: busy ? null : () => edit(source.id),
+                  child: Text(
+                    open
+                        ? '收起'
+                        : !danmaku.searchable(source.id)
+                        ? '详情'
+                        : source.status == DanmakuStatus.ready
+                        ? '更换'
+                        : '匹配',
                   ),
+                ),
                 Switch(
                   value: source.enabled,
                   onChanged: busy

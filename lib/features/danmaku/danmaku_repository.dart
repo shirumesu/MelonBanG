@@ -32,15 +32,13 @@ class DanmakuTarget {
 
 /// Danmaku providers plus their persisted manual matches.
 class DanmakuRepository {
-  DanmakuRepository(this.store, this.catalog, this.matchers, this.local);
+  DanmakuRepository(this.store, this.catalog, this.matchers);
   final AppStore store;
   final Catalog catalog;
 
-  /// Automatic sources in display order.
+  /// Sources in display order.
   final List<DanmakuMatcher> matchers;
-  final DanmakuProvider local;
 
-  DanmakuProvider provider(String id) => id == local.id ? local : matcher(id);
   DanmakuMatcher matcher(String id) =>
       matchers.firstWhere((provider) => provider.id == id);
 
