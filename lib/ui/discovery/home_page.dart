@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../domain/catalog.dart';
@@ -1170,8 +1171,8 @@ class _Hero extends StatelessWidget {
                             ),
                           ),
                           if (detail != null) ...[
-                            const SizedBox(height: 6),
-                            _EpisodeStrip(watch),
+                            const SizedBox(height: Gap.sm),
+                            _EpisodeStrip(watch, height: 6),
                           ],
                         ],
                       ),
@@ -1461,77 +1462,122 @@ class _QueueRowState extends State<_QueueRow> {
   }
 }
 
-/// One mark per main episode: watched, partly watched, aired, or yet to
-/// air. A long run reads better as one bar.
+/// One segment per main episode in a single bar: watched ones filled, the
+/// one under way filled to its saved place, aired ones tinted, the rest
+/// grey. Segments part with a hairline while they are wide enough to tell
+/// apart.
 class _EpisodeStrip extends StatelessWidget {
-  const _EpisodeStrip(this.watch);
+  const _EpisodeStrip(this.watch, {this.height = 4});
   final _Watch watch;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
     final accent = accentOf(context).accent;
-    final scheme = Theme.of(context).colorScheme;
-    final episodes = watch.episodes;
-    const radius = BorderRadius.all(Radius.circular(2));
-    if (episodes.length > 52) {
-      return LinearProgressIndicator(
-        value: watch.watched.where((value) => value).length / episodes.length,
-        minHeight: 6,
-        borderRadius: radius,
-        color: accent,
-        backgroundColor: scheme.outlineVariant,
-      );
-    }
-    final gap = episodes.length > 26 ? 1.0 : 2.0;
     final resumed = watch.resumed;
-    return SizedBox(
-      height: 6,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final (i, _) in episodes.indexed) ...[
-            if (i > 0) SizedBox(width: gap),
-            Expanded(
-              child: watch.watched[i]
-                  ? AnimatedContainer(
-                      duration: motionDuration(context, 320),
-                      decoration: BoxDecoration(
-                        color: accent,
-                        borderRadius: radius,
-                      ),
-                    )
-                  : i == watch.nextIndex && resumed != null
-                  ? ClipRRect(
-                      borderRadius: radius,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          border: Border.all(color: accent),
-                          borderRadius: radius,
-                        ),
-                        child: FractionallySizedBox(
-                          alignment: Alignment.centerLeft,
-                          widthFactor: resumed,
-                          child: ColoredBox(color: accent),
-                        ),
-                      ),
-                    )
-                  : DecoratedBox(
-                      decoration: watch.aired[i]
-                          ? BoxDecoration(
-                              border: Border.all(
-                                color: accent.withValues(alpha: .6),
-                              ),
-                              borderRadius: radius,
-                            )
-                          : BoxDecoration(
-                              color: scheme.outlineVariant,
-                              borderRadius: radius,
-                            ),
-                    ),
-            ),
-          ],
-        ],
+    final fills = _Fills([
+      for (final (i, watched) in watch.watched.indexed)
+        watched
+            ? 1
+            : i == watch.nextIndex && resumed != null
+            ? resumed
+            : 0,
+    ]);
+    return TweenAnimationBuilder<_Fills>(
+      tween: _FillsTween(end: fills),
+      duration: motionDuration(context, 320),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, _) => CustomPaint(
+        size: Size.fromHeight(height),
+        painter: _StripPainter(
+          fills: value.values,
+          aired: watch.aired,
+          watchedColor: accent,
+          airedColor: accent.withValues(alpha: .28),
+          pendingColor: Theme.of(context).colorScheme.outlineVariant,
+        ),
       ),
     );
   }
+}
+
+/// How much of each episode is watched, from 0 to 1.
+class _Fills {
+  const _Fills(this.values);
+  final List<double> values;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _Fills && listEquals(other.values, values);
+
+  @override
+  int get hashCode => Object.hashAll(values);
+}
+
+class _FillsTween extends Tween<_Fills> {
+  _FillsTween({required super.end});
+
+  @override
+  _Fills lerp(double t) {
+    final from = begin!.values, to = end!.values;
+    // A changed episode list has nothing to move from.
+    if (from.length != to.length) return end!;
+    return _Fills([
+      for (final (i, value) in to.indexed) from[i] + (value - from[i]) * t,
+    ]);
+  }
+}
+
+class _StripPainter extends CustomPainter {
+  const _StripPainter({
+    required this.fills,
+    required this.aired,
+    required this.watchedColor,
+    required this.airedColor,
+    required this.pendingColor,
+  });
+  final List<double> fills;
+  final List<bool> aired;
+  final Color watchedColor, airedColor, pendingColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final count = fills.length;
+    if (count == 0) return;
+    final slot = size.width / count;
+    final gap = slot >= 8
+        ? 2.0
+        : slot >= 4
+        ? 1.0
+        : 0.0;
+    canvas.clipRRect(
+      RRect.fromRectAndRadius(
+        Offset.zero & size,
+        Radius.circular(size.height / 2),
+      ),
+    );
+    // Without gaps, smoothed edges of touching segments show as seams.
+    final paint = Paint()..isAntiAlias = gap > 0;
+    for (var i = 0; i < count; i++) {
+      final width = slot - (i < count - 1 ? gap : 0);
+      final left = i * slot;
+      paint.color = aired[i] ? airedColor : pendingColor;
+      canvas.drawRect(Rect.fromLTWH(left, 0, width, size.height), paint);
+      if (fills[i] > 0) {
+        paint.color = watchedColor;
+        canvas.drawRect(
+          Rect.fromLTWH(left, 0, width * fills[i], size.height),
+          paint,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_StripPainter old) =>
+      !listEquals(old.fills, fills) ||
+      !listEquals(old.aired, aired) ||
+      old.watchedColor != watchedColor ||
+      old.airedColor != airedColor ||
+      old.pendingColor != pendingColor;
 }
