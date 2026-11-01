@@ -1105,6 +1105,7 @@ class _MelonAppState extends State<MelonApp>
       case 'subject':
         return SubjectPage(
           subjects: subjects,
+          coverTint: themeCover != null && coverSeed != null,
           personal: personal,
           resume: resume,
           airings: [

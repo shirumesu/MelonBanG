@@ -806,7 +806,7 @@ class ResourceEpisodePanel extends StatelessWidget {
     builder: (context, constraints) => Padding(
       padding: const EdgeInsets.fromLTRB(26, 0, 8, 10),
       child: Material(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        color: insetSurface(context),
         borderRadius: controlBorderRadius,
         clipBehavior: Clip.antiAlias,
         child: Padding(

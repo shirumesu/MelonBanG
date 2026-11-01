@@ -133,6 +133,11 @@ class _EpisodeGridState extends State<EpisodeGrid> {
     final action = await showMenu<String>(
       context: context,
       color: menuSurface(context),
+      popUpAnimationStyle: AnimationStyle(
+        duration: motionDuration(context, 150),
+        reverseDuration: motionDuration(context, 100),
+        curve: Curves.easeOutCubic,
+      ),
       position: RelativeRect.fromLTRB(
         position.dx,
         position.dy,

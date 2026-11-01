@@ -45,9 +45,11 @@ const overlayInk = Color(0xff15181d);
 const _glassTint = Color(0x9e121315);
 
 /// The surface of popovers over the video: a blurred, dark glass through
-/// which the picture still shows, with a hairline edge instead of a shadow.
-/// [visibility] fades it in; an [Opacity] around a backdrop blur would blur
-/// nothing on some renderers, so the fade happens inside.
+/// which the picture still shows, with a hairline edge instead of a shadow,
+/// lit at the top and faint below the middle. [visibility] fades it in; an
+/// [Opacity] around a backdrop blur would blur nothing on some renderers, so
+/// the fade happens inside. Glass under one [BackdropGroup] shares a single
+/// read of the picture.
 class OverlayGlass extends StatelessWidget {
   const OverlayGlass({
     super.key,
@@ -62,24 +64,56 @@ class OverlayGlass extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ClipRRect(
     borderRadius: borderRadius,
-    child: BackdropFilter(
+    child: BackdropFilter.grouped(
       filter: ImageFilter.blur(
         sigmaX: 20 * visibility,
         sigmaY: 20 * visibility,
       ),
       child: Opacity(
         opacity: visibility,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: _glassTint,
-            borderRadius: borderRadius,
-            border: Border.all(color: Colors.white.withValues(alpha: .1)),
+        child: CustomPaint(
+          foregroundPainter: _GlassEdge(borderRadius),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: _glassTint,
+              borderRadius: borderRadius,
+            ),
+            child: Material(type: MaterialType.transparency, child: child),
           ),
-          child: Material(type: MaterialType.transparency, child: child),
         ),
       ),
     ),
   );
+}
+
+/// The glass's hairline: white at the top, fading to a trace by a little
+/// below the middle.
+class _GlassEdge extends CustomPainter {
+  const _GlassEdge(this.radius);
+  final BorderRadius radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawRRect(
+      radius.toRRect(rect.deflate(.5)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.white.withValues(alpha: .26),
+            Colors.white.withValues(alpha: .05),
+          ],
+          stops: const [0, .6],
+        ).createShader(rect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_GlassEdge old) => old.radius != radius;
 }
 
 /// The theme of menus and panels over the video.

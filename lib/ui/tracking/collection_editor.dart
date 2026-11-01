@@ -229,8 +229,8 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                   SizedBox(
                     width: 40,
                     height: 54,
-                    child: ClipRRect(
-                      borderRadius: badgeBorderRadius,
+                    child: CoverFrame(
+                      radius: badgeBorderRadius,
                       child: SubjectCover(
                         url: widget.subject.coverUrl,
                         title: widget.subject.title,

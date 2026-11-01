@@ -170,7 +170,7 @@ class _AboutCard extends StatelessWidget {
                                 text: '   ${_status()}',
                                 style: small?.copyWith(
                                   color: update.phase == UpdatePhase.failed
-                                      ? coral
+                                      ? Theme.of(context).colorScheme.error
                                       : null,
                                 ),
                               ),
@@ -321,11 +321,13 @@ void _showChangelog(BuildContext context) => showMelonDialog<void>(
           Flexible(
             child: FutureBuilder(
               future: rootBundle.loadString('CHANGELOG.md'),
-              builder: (context, notes) => SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                child: _ReleaseNotes(
-                  // Its heading names the version, which the title shows.
-                  (notes.data ?? '').split('\n').skip(1).join('\n'),
+              builder: (context, notes) => ScrollEdgeFade(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                  child: _ReleaseNotes(
+                    // Its heading names the version, which the title shows.
+                    (notes.data ?? '').split('\n').skip(1).join('\n'),
+                  ),
                 ),
               ),
             ),

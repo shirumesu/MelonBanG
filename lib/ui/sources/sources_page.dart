@@ -160,7 +160,7 @@ class _SourcesPageState extends State<SourcesPage> {
 
   /// Only a problem has a colour; a source simply on or off has none.
   Color? color(SourceHealth status) => switch (status) {
-    SourceHealth.error => coral,
+    SourceHealth.error => Theme.of(context).colorScheme.error,
     SourceHealth.verification || SourceHealth.update => gold,
     SourceHealth.enabled || SourceHealth.disabled => null,
   };
@@ -396,7 +396,7 @@ class _SourcesPageState extends State<SourcesPage> {
               ? Text(
                   '$issues 个异常',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: badgeInk(coral, theme.brightness == Brightness.dark),
+                    color: theme.colorScheme.error,
                   ),
                 )
               : null,

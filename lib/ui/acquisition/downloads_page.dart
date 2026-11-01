@@ -54,6 +54,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
   final played = <int>{};
   final _requested = <int>{};
 
+  /// The entries each group of the list showed last, by id.
+  final shown = <String, Set<String>>{};
+
   /// While on, tasks and the videos of finished batches can be ticked and
   /// deleted together.
   bool selecting = false;
@@ -208,6 +211,18 @@ class _DownloadsPageState extends State<DownloadsPage> {
     bool complete(List<DownloadTask> entry) => entry.every((t) => t.complete);
     final active = entries.where((e) => !complete(e)).toList();
     final cached = entries.where(complete).toList();
+    // Entries joining a group once the page shows some fade in, such as a
+    // task that finished moving to 已缓存.
+    final hadEntries = shown.values.any((ids) => ids.isNotEmpty);
+    final arriving = <String>{};
+    for (final (name, group) in [('进行中', active), ('已缓存', cached)]) {
+      final ids = shown.putIfAbsent(name, () => {});
+      final current = group.map(_entryId).toSet();
+      if (hadEntries) arriving.addAll(current.difference(ids));
+      ids
+        ..clear()
+        ..addAll(current);
+    }
     return PageScroll(
       children: [
         SectionTitle(
@@ -284,10 +299,25 @@ class _DownloadsPageState extends State<DownloadsPage> {
             PageSliver(
               child: SliverList.builder(
                 itemCount: group.$2.length,
-                itemBuilder: (context, index) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _entry(context, group.$2[index]),
-                ),
+                // Entries keep their state when others join or leave.
+                findChildIndexCallback: (key) {
+                  final index = group.$2.indexWhere(
+                    (entry) => key == ValueKey(_entryId(entry)),
+                  );
+                  return index < 0 ? null : index;
+                },
+                itemBuilder: (context, index) {
+                  final id = _entryId(group.$2[index]);
+                  return MotionSlide(
+                    key: ValueKey(id),
+                    index: index,
+                    enter: arriving.contains(id),
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _entry(context, group.$2[index]),
+                    ),
+                  );
+                },
               ),
             ),
           ],
@@ -306,6 +336,13 @@ class _DownloadsPageState extends State<DownloadsPage> {
       ],
     );
   }
+
+  /// A subject's entry keeps its subject's key as tasks join it.
+  static String _entryId(List<DownloadTask> tasks) =>
+      switch (tasks.first.subjectId) {
+        final id? => 'subject:$id',
+        null => tasks.first.id,
+      };
 
   Widget _entry(BuildContext context, List<DownloadTask> tasks) {
     final subjectId = tasks.first.subjectId;
@@ -441,7 +478,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                               MelonBadge('已缓存 $done', color: sky),
                             if (ongoing > 0) MelonBadge('进行中 $ongoing'),
                             if (failed > 0)
-                              MelonBadge('需要重试 $failed', color: coral),
+                              MelonBadge('需要重试 $failed', color: scheme.error),
                             if (speed > 0)
                               Text(
                                 '↓ ${ByteUnitsScope.of(context).rate(speed)}',
@@ -902,8 +939,7 @@ class _SubjectCoverLinkState extends State<_SubjectCoverLink> {
     final cover = SizedBox(
       width: 58,
       height: 78,
-      child: ClipRRect(
-        borderRadius: posterBorderRadius,
+      child: CoverFrame(
         child: Stack(
           fit: StackFit.expand,
           children: [

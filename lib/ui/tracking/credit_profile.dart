@@ -9,6 +9,7 @@ import '../core/bbcode.dart';
 import '../core/cached_image.dart';
 import '../core/external_link.dart';
 import '../core/motion.dart';
+import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'subject_people.dart';
@@ -271,7 +272,7 @@ class _CreditBrowserState extends State<_CreditBrowser> {
   /// The [count] oldest pages as one spine, listed on a click.
   Widget _foldedSpine(BuildContext context, int count) {
     final scheme = Theme.of(context).colorScheme;
-    return MenuAnchor(
+    return MelonMenuAnchor(
       menuChildren: [
         for (var index = 0; index < count; index++)
           MenuItemButton(
@@ -606,8 +607,8 @@ class _ProfileView extends StatelessWidget {
         padding: const EdgeInsets.all(6),
         child: Row(
           children: [
-            ClipRRect(
-              borderRadius: badgeBorderRadius,
+            CoverFrame(
+              radius: badgeBorderRadius,
               child: SizedBox(
                 width: 40,
                 height: 56,

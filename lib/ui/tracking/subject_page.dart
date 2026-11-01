@@ -43,6 +43,7 @@ class SubjectPage extends StatelessWidget {
     required this.onOpenSubject,
     required this.onSearch,
     required this.onError,
+    required this.coverTint,
   });
   final SubjectController subjects;
   final TrackingController personal;
@@ -65,6 +66,10 @@ class SubjectPage extends StatelessWidget {
   final ValueChanged<SubjectQuery> onSearch;
   final ValueChanged<Object> onError;
 
+  /// The theme colour is the cover's: the main panel's top takes a wash of
+  /// it.
+  final bool coverTint;
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: Listenable.merge([subjects, personal, resume]),
@@ -74,6 +79,7 @@ class SubjectPage extends StatelessWidget {
         subject: subject,
         loading: subjects.loading,
         signedIn: personal.signedIn,
+        coverTint: coverTint,
         community: community,
         catalog: catalog,
         collectionSyncError: personal.lastSyncError,
@@ -120,11 +126,13 @@ class _SubjectDetail extends StatefulWidget {
     required this.signedIn,
     required this.collectionSyncError,
     required this.onRetryCollectionSync,
+    required this.coverTint,
   });
   final Subject? subject;
   final List<DateTime> airings;
   final bool loading;
   final bool signedIn;
+  final bool coverTint;
   final SubjectCommunitySource community;
   final Catalog catalog;
   final String? collectionSyncError;
@@ -769,10 +777,16 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    _episodesLoading ? '正在加载剧集…' : '已看 $watched / 全 $total 话',
-                    style: text.bodySmall,
-                  ),
+                  if (_episodesLoading)
+                    Text('正在加载剧集…', style: text.bodySmall)
+                  else
+                    MotionCount(
+                      value: watched,
+                      builder: (context, watched) => Text(
+                        '已看 $watched / 全 $total 话',
+                        style: text.bodySmall,
+                      ),
+                    ),
                   const SizedBox(height: Gap.sm),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(99),
@@ -800,7 +814,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           runSpacing: Gap.sm,
           children: [
             if (upcoming != null && !_episodesLoading)
-              FilledButton.icon(
+              ProminentButton(
                 onPressed: null,
                 icon: const Icon(Icons.schedule_rounded, size: 18),
                 label: _ReleaseCountdown(release: upcoming, episode: next!),
@@ -812,7 +826,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                 label: Text(playLabel),
               )
             else
-              FilledButton.icon(
+              ProminentButton(
                 onPressed: next == null || _episodesLoading
                     ? null
                     : () => widget.onPlayEpisode(next),
@@ -859,54 +873,75 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           ),
       ],
     );
-    return MelonPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final narrow = constraints.maxWidth < 580;
-              final cover = SizedBox(
-                width: narrow ? 112 : 158,
-                child: AspectRatio(
-                  aspectRatio: .75,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      borderRadius: posterBorderRadius,
-                      boxShadow: posterShadows(context),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: posterBorderRadius,
-                      child: SubjectCover(
-                        url: item.coverUrl,
-                        title: item.title,
-                        id: item.id,
-                      ),
-                    ),
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final narrow = constraints.maxWidth < 580;
+            final cover = SizedBox(
+              width: narrow ? 112 : 158,
+              child: AspectRatio(
+                aspectRatio: .75,
+                child: CoverFrame(
+                  shadow: true,
+                  child: SubjectCover(
+                    url: item.coverUrl,
+                    title: item.title,
+                    id: item.id,
                   ),
                 ),
-              );
-              return narrow
-                  ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        cover,
-                        const SizedBox(height: Gap.lg),
-                        info,
-                      ],
-                    )
-                  : Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        cover,
-                        const SizedBox(width: Gap.xl),
-                        Expanded(child: info),
-                      ],
-                    );
-            },
-          ),
-          const Divider(height: 28),
-          _episodeSection(episodes, next),
+              ),
+            );
+            return narrow
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      cover,
+                      const SizedBox(height: Gap.lg),
+                      info,
+                    ],
+                  )
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      cover,
+                      const SizedBox(width: Gap.xl),
+                      Expanded(child: info),
+                    ],
+                  );
+          },
+        ),
+        const Divider(height: 28),
+        _episodeSection(episodes, next),
+      ],
+    );
+    final wash = accentOf(context).accent;
+    return MelonPanel(
+      padding: EdgeInsets.zero,
+      child: Stack(
+        children: [
+          // A wash of the cover's colour over the panel's top, gone by 170px.
+          if (widget.coverTint)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 170,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      wash.withValues(alpha: .1),
+                      wash.withValues(alpha: 0),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          Padding(padding: const EdgeInsets.all(20), child: content),
         ],
       ),
     );
@@ -1472,55 +1507,56 @@ class _TagAdderState extends State<_TagAdder> {
   @override
   Widget build(BuildContext context) {
     final small = Theme.of(context).textTheme.bodySmall;
-    return MenuAnchor(
-      style: const MenuStyle(
-        padding: WidgetStatePropertyAll(EdgeInsets.all(12)),
-      ),
+    return MelonMenuAnchor(
       onClose: () => setState(() => error = null),
       menuChildren: [
-        SizedBox(
-          width: 300,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: input,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: '输入标签，回车或逗号添加',
-                  errorText: error,
+        // With the panel's own 5px, 12px around the field.
+        Padding(
+          padding: const EdgeInsets.all(7),
+          child: SizedBox(
+            width: 300,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: input,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: '输入标签，回车或逗号添加',
+                    errorText: error,
+                  ),
+                  onSubmitted: (value) => unawaited(
+                    _save([...widget.tags, ...splitCollectionTags(value)]),
+                  ),
+                  onChanged: (value) {
+                    if (endsWithTagSeparator(value)) {
+                      unawaited(
+                        _save([...widget.tags, ...splitCollectionTags(value)]),
+                      );
+                    }
+                  },
                 ),
-                onSubmitted: (value) => unawaited(
-                  _save([...widget.tags, ...splitCollectionTags(value)]),
-                ),
-                onChanged: (value) {
-                  if (endsWithTagSeparator(value)) {
-                    unawaited(
-                      _save([...widget.tags, ...splitCollectionTags(value)]),
-                    );
-                  }
-                },
-              ),
-              if (widget.popular.isNotEmpty) ...[
-                const SizedBox(height: Gap.md),
-                Text('大家常用', style: small),
-                const SizedBox(height: 6),
-                TagToggles(
-                  tags: widget.popular,
-                  selected: widget.tags.toSet(),
-                  onToggle: (tag) => unawaited(
-                    _save(
-                      widget.tags.contains(tag)
-                          ? ([...widget.tags]..remove(tag))
-                          : [...widget.tags, tag],
+                if (widget.popular.isNotEmpty) ...[
+                  const SizedBox(height: Gap.md),
+                  Text('大家常用', style: small),
+                  const SizedBox(height: 6),
+                  TagToggles(
+                    tags: widget.popular,
+                    selected: widget.tags.toSet(),
+                    onToggle: (tag) => unawaited(
+                      _save(
+                        widget.tags.contains(tag)
+                            ? ([...widget.tags]..remove(tag))
+                            : [...widget.tags, tag],
+                      ),
                     ),
                   ),
-                ),
+                ],
+                const SizedBox(height: Gap.sm),
+                Text('${widget.tags.length}/$collectionTagLimit', style: small),
               ],
-              const SizedBox(height: Gap.sm),
-              Text('${widget.tags.length}/$collectionTagLimit', style: small),
-            ],
+            ),
           ),
         ),
       ],

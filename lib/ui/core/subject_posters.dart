@@ -400,9 +400,46 @@ class PosterLift extends StatelessWidget {
         borderRadius: posterBorderRadius,
         boxShadow: posterShadows(context, raised: raised && !pressed),
       ),
-      child: ClipRRect(borderRadius: posterBorderRadius, child: child),
+      child: CoverFrame(child: child),
     ),
   );
+}
+
+/// A cover's rounded clip with a hairline just inside its edge, so a pale
+/// cover keeps its outline on a pale page. [shadow] casts [posterShadows].
+class CoverFrame extends StatelessWidget {
+  const CoverFrame({
+    super.key,
+    required this.child,
+    this.radius = posterBorderRadius,
+    this.shadow = false,
+  });
+  final Widget child;
+  final BorderRadius radius;
+  final bool shadow;
+
+  @override
+  Widget build(BuildContext context) {
+    final framed = ClipRRect(
+      borderRadius: radius,
+      child: DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(
+          borderRadius: radius,
+          border: Border.all(color: coverEdgeColor(context)),
+        ),
+        child: child,
+      ),
+    );
+    if (!shadow) return framed;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        boxShadow: posterShadows(context),
+      ),
+      child: framed,
+    );
+  }
 }
 
 /// The line under a poster: the score, then the watch progress when

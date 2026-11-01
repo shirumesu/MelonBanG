@@ -95,6 +95,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   final annotations = <String, ResourceTitleInfo>{};
   // Entries of online subjects, by candidate id.
   final parts = <String, Future<List<SourceEpisode>>>{};
+  // Result rows the list has shown, by entry id.
+  final shownEntries = <String>{};
 
   ResourceFamily kind = ResourceFamily.all;
   bool searching = false;
@@ -503,6 +505,18 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           : const [],
     );
     final entries = results.entries;
+    // Rows arriving once the list already shows some fade in; the first
+    // results appear at once.
+    final arriving = {
+      if (shownEntries.isNotEmpty)
+        for (final entry in entries)
+          if (!shownEntries.contains(entry.id)) entry.id,
+    };
+    if (entries.isEmpty) {
+      shownEntries.clear();
+    } else {
+      shownEntries.addAll(entries.map((entry) => entry.id));
+    }
     final scheme = Theme.of(context).colorScheme;
     return CustomScrollView(
       key: const PageStorageKey('page-scroll'),
@@ -545,39 +559,43 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
               }
               final i = index - 1;
               final entry = entries[i];
-              return LayoutBuilder(
+              return MotionSlide(
                 key: ValueKey(entry.id),
-                builder: (context, constraints) => Material(
-                  color: scheme.surface,
-                  borderRadius: BorderRadius.vertical(
-                    top: i == 0 && constraints.maxWidth < resourceTableWidth
-                        ? panelBorderRadius.topLeft
-                        : Radius.zero,
-                    bottom: i == entries.length - 1
-                        ? panelBorderRadius.bottomLeft
-                        : Radius.zero,
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (i > 0)
-                        const Divider(height: 1, indent: 16, endIndent: 16),
-                      entry.series
-                          ? _seriesRow(results, entry)
-                          : switch (entry.members.single) {
-                              final member &&
-                                  (
-                                    PlayCandidate(
-                                      target: OnlineTarget(chooseFrom: _?),
-                                    ),
-                                    _,
-                                    _,
-                                  ) =>
-                                _onlineRow(results, member),
-                              final member => _resultRow(results, member),
-                            },
-                    ],
+                index: i,
+                enter: arriving.contains(entry.id),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Material(
+                    color: scheme.surface,
+                    borderRadius: BorderRadius.vertical(
+                      top: i == 0 && constraints.maxWidth < resourceTableWidth
+                          ? panelBorderRadius.topLeft
+                          : Radius.zero,
+                      bottom: i == entries.length - 1
+                          ? panelBorderRadius.bottomLeft
+                          : Radius.zero,
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (i > 0)
+                          const Divider(height: 1, indent: 16, endIndent: 16),
+                        entry.series
+                            ? _seriesRow(results, entry)
+                            : switch (entry.members.single) {
+                                final member &&
+                                    (
+                                      PlayCandidate(
+                                        target: OnlineTarget(chooseFrom: _?),
+                                      ),
+                                      _,
+                                      _,
+                                    ) =>
+                                  _onlineRow(results, member),
+                                final member => _resultRow(results, member),
+                              },
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -633,8 +651,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       children: [
         Row(
           children: [
-            ClipRRect(
-              borderRadius: const BorderRadius.all(Radius.circular(7)),
+            CoverFrame(
+              radius: const BorderRadius.all(Radius.circular(7)),
               child: SizedBox(
                 width: 34,
                 height: 46,
@@ -1485,9 +1503,40 @@ class _PinnedBar extends SliverPersistentHeaderDelegate {
   @override
   double get maxExtent => height;
 
+  /// Results scrolled under the bar draw a line and a soft shadow under it.
+  /// A pinned header only reports [overlaps] under another pinned header, so
+  /// its own scrolled-past offset tells too.
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlaps) =>
-      SizedBox.expand(child: child);
+  Widget build(BuildContext context, double shrinkOffset, bool overlaps) {
+    final under = overlaps || shrinkOffset > 0;
+    final scheme = Theme.of(context).colorScheme;
+    final shadow = Theme.of(context).shadowColor;
+    return AnimatedContainer(
+      duration: motionDuration(context, 150),
+      curve: Curves.easeOut,
+      // Behind the bar's own background, so only the part below it shows.
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: shadow.withValues(alpha: under ? shadow.a * 2 : 0),
+            blurRadius: 10,
+            offset: const Offset(0, 6),
+            spreadRadius: -8,
+          ),
+        ],
+      ),
+      foregroundDecoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: under
+                ? scheme.outlineVariant
+                : scheme.outlineVariant.withValues(alpha: 0),
+          ),
+        ),
+      ),
+      child: SizedBox.expand(child: child),
+    );
+  }
 
   @override
   bool shouldRebuild(_PinnedBar oldDelegate) => true;

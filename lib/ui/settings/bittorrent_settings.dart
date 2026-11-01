@@ -347,7 +347,9 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
         SettingRow(
           title: '恢复推荐值',
           subtitle: error,
-          subtitleColor: error == null ? null : coral,
+          subtitleColor: error == null
+              ? null
+              : Theme.of(context).colorScheme.error,
           trailing: TextButton(
             onPressed: () {
               setState(() => load(const BitTorrentSettings()));
@@ -373,7 +375,7 @@ class DownloadsUnavailable extends StatelessWidget {
             dimension: 18,
             child: CircularProgressIndicator(strokeWidth: 2),
           )
-        : const Icon(Icons.error_outline, color: coral),
+        : Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error),
     title: issue == null ? '正在恢复缓存任务…' : '缓存任务恢复失败',
     subtitle: issue,
   );

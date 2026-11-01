@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../features/playback/playback_preferences.dart';
+import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
 import 'settings_page.dart';
@@ -237,68 +238,76 @@ class _AddGroupState extends State<_AddGroup> {
             borderRadius: controlBorderRadius,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 300, maxHeight: 340),
-              child: ListView(
-                shrinkWrap: true,
-                padding: const EdgeInsets.all(6),
-                children: [
-                  if (options.any((e) => e.$2 >= 0))
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
-                      child: Text(
-                        '搜到过的字幕组',
-                        style: small?.copyWith(fontSize: 11),
+              child: ScrollEdgeFade(
+                color: menuSurface(context),
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.all(6),
+                  children: [
+                    if (options.any((e) => e.$2 >= 0))
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
+                        child: Text(
+                          '搜到过的字幕组',
+                          style: small?.copyWith(fontSize: 11),
+                        ),
                       ),
-                    ),
-                  for (final (index, option) in options.indexed)
-                    Builder(
-                      builder: (context) {
-                        final highlighted =
-                            AutocompleteHighlightedOption.of(context) == index;
-                        final (name, count, cached) = option;
-                        return InkWell(
-                          borderRadius: badgeBorderRadius,
-                          onTap: () => select(option),
-                          child: Container(
-                            height: 34,
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                            decoration: BoxDecoration(
-                              color: highlighted
-                                  ? scheme.primary.withValues(alpha: .08)
-                                  : null,
-                              borderRadius: badgeBorderRadius,
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    count < 0 ? '添加“$name”' : name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: count < 0 ? scheme.primary : null,
+                    for (final (index, option) in options.indexed)
+                      Builder(
+                        builder: (context) {
+                          final highlighted =
+                              AutocompleteHighlightedOption.of(context) ==
+                              index;
+                          final (name, count, cached) = option;
+                          return InkWell(
+                            borderRadius: badgeBorderRadius,
+                            onTap: () => select(option),
+                            child: Container(
+                              height: 34,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: highlighted
+                                    ? scheme.primary.withValues(alpha: .08)
+                                    : null,
+                                borderRadius: badgeBorderRadius,
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      count < 0 ? '添加“$name”' : name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: count < 0
+                                            ? scheme.primary
+                                            : null,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                if (count >= 0)
-                                  Text(
-                                    [
-                                      if (count > 0) '$count 条',
-                                      if (cached) '缓存过',
-                                    ].join(' · '),
-                                    style: small?.copyWith(
-                                      fontFeatures: const [
-                                        FontFeature.tabularFigures(),
-                                      ],
+                                  if (count >= 0)
+                                    Text(
+                                      [
+                                        if (count > 0) '$count 条',
+                                        if (cached) '缓存过',
+                                      ].join(' · '),
+                                      style: small?.copyWith(
+                                        fontFeatures: const [
+                                          FontFeature.tabularFigures(),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
-                ],
+                          );
+                        },
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
