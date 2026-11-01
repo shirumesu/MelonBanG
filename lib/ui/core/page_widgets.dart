@@ -382,10 +382,23 @@ class ProminentButton extends StatefulWidget {
 class _ProminentButtonState extends State<ProminentButton> {
   final _states = WidgetStatesController();
 
+  /// Whether it is held down, the one state it rebuilds for. The button
+  /// sets its other states, and drops this one when disabled, while it
+  /// builds, when this cannot rebuild.
+  bool _pressed = false;
+
   @override
   void initState() {
     super.initState();
-    _states.addListener(() => setState(() {}));
+    _states.addListener(() {
+      final pressed = _states.value.contains(WidgetState.pressed);
+      if (pressed == _pressed) return;
+      if (widget.onPressed == null) {
+        _pressed = pressed;
+      } else {
+        setState(() => _pressed = pressed);
+      }
+    });
   }
 
   @override
@@ -397,7 +410,6 @@ class _ProminentButtonState extends State<ProminentButton> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final pressed = _states.value.contains(WidgetState.pressed);
     final button = FilledButton.icon(
       statesController: _states,
       onPressed: widget.onPressed,
@@ -421,7 +433,7 @@ class _ProminentButtonState extends State<ProminentButton> {
       label: widget.label,
     );
     return AnimatedScale(
-      scale: pressed && widget.onPressed != null ? .98 : 1,
+      scale: _pressed && widget.onPressed != null ? .98 : 1,
       duration: motionDuration(context, 80),
       curve: Curves.easeOut,
       // Along the button's own edge: a foregroundBuilder only wraps the
