@@ -248,162 +248,6 @@ class _PosterMotionState extends State<_PosterMotion>
   );
 }
 
-class HorizontalPosters extends StatefulWidget {
-  const HorizontalPosters({
-    super.key,
-    required this.itemCount,
-    required this.itemBuilder,
-    required this.storageId,
-  });
-  final int itemCount;
-  final Widget Function(int) itemBuilder;
-  final Object storageId;
-
-  @override
-  State<HorizontalPosters> createState() => _HorizontalPostersState();
-}
-
-class _HorizontalPostersState extends State<HorizontalPosters> {
-  final _scroll = ScrollController();
-  bool _back = false, _forward = false;
-  int _hoveredEdge = 0, _focusedEdge = 0;
-
-  void _hover(int direction) {
-    if (_hoveredEdge != direction) setState(() => _hoveredEdge = direction);
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _scroll.addListener(_updateButtons);
-  }
-
-  void _updateButtons() {
-    if (!_scroll.position.hasContentDimensions) return;
-    final back = _scroll.position.extentBefore > .5;
-    final forward = _scroll.position.extentAfter > .5;
-    if (back != _back || forward != _forward) {
-      setState(() {
-        _back = back;
-        _forward = forward;
-      });
-    }
-  }
-
-  void _page(int direction) {
-    final position = _scroll.position;
-    const stride = 188.0 + 16;
-    final count = (position.viewportDimension / stride).floor().clamp(
-      1,
-      widget.itemCount,
-    );
-    final target = (position.pixels + direction * count * stride).clamp(
-      position.minScrollExtent,
-      position.maxScrollExtent,
-    );
-    final duration = motionDuration(context, 220);
-    if (duration == Duration.zero) {
-      _scroll.jumpTo(target);
-    } else {
-      _scroll.animateTo(target, duration: duration, curve: Curves.easeOutCubic);
-    }
-  }
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 292,
-    child: NotificationListener<ScrollMetricsNotification>(
-      onNotification: (_) {
-        _updateButtons();
-        return false;
-      },
-      child: LayoutBuilder(
-        builder: (context, constraints) => MouseRegion(
-          onExit: (_) => _hover(0),
-          onHover: (event) {
-            final point = event.localPosition;
-            final nearButton = (point.dy - 134).abs() <= 56;
-            _hover(
-              !nearButton
-                  ? 0
-                  : point.dx <= 76
-                  ? -1
-                  : point.dx >= constraints.maxWidth - 76
-                  ? 1
-                  : 0,
-            );
-          },
-          child: Stack(
-            children: [
-              ListView.separated(
-                key: PageStorageKey(widget.storageId),
-                controller: _scroll,
-                padding: const EdgeInsets.fromLTRB(2, 3, 2, 10),
-                scrollDirection: Axis.horizontal,
-                itemCount: widget.itemCount,
-                separatorBuilder: (_, _) => const SizedBox(width: 16),
-                itemBuilder: (_, i) =>
-                    SizedBox(width: 188, child: widget.itemBuilder(i)),
-              ),
-              for (final direction in [-1, 1])
-                if (direction < 0 ? _back : _forward)
-                  Positioned(
-                    left: direction < 0 ? 6 : null,
-                    right: direction > 0 ? 6 : null,
-                    top: 114,
-                    child: Focus(
-                      canRequestFocus: false,
-                      onFocusChange: (focused) => setState(() {
-                        _focusedEdge = focused
-                            ? direction
-                            : _focusedEdge == direction
-                            ? 0
-                            : _focusedEdge;
-                      }),
-                      child: IgnorePointer(
-                        ignoring:
-                            _hoveredEdge != direction &&
-                            _focusedEdge != direction,
-                        child: AnimatedOpacity(
-                          opacity:
-                              _hoveredEdge == direction ||
-                                  _focusedEdge == direction
-                              ? .85
-                              : 0,
-                          duration: motionDuration(context, 150),
-                          child: Material(
-                            color: Theme.of(context).colorScheme.surface,
-                            shape: const CircleBorder(),
-                            elevation: 2,
-                            shadowColor: Theme.of(context).shadowColor,
-                            child: IconButton(
-                              tooltip: direction < 0 ? '向左翻页' : '向右翻页',
-                              onPressed: () => _page(direction),
-                              icon: Icon(
-                                direction < 0
-                                    ? Icons.chevron_left
-                                    : Icons.chevron_right,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
 class SubjectPoster extends StatefulWidget {
   const SubjectPoster({
     super.key,
@@ -411,28 +255,11 @@ class SubjectPoster extends StatefulWidget {
     required this.onOpen,
     required this.tracking,
     this.statusBadge = true,
-    this.badge,
-    this.note,
-    this.progress,
-    this.meta,
     this.personalScore = false,
   });
   final Subject item;
   final ValueChanged<Subject> onOpen;
   final bool tracking, statusBadge, personalScore;
-
-  /// Replaces the collection status badge.
-  final PosterBadge? badge;
-
-  /// A dim label at the top right.
-  final String? note;
-
-  /// Watch progress along the bottom of the cover, from 0 to 1.
-  final double? progress;
-
-  /// The subject whose score and progress are shown under the poster;
-  /// [item] by default.
-  final Subject? meta;
 
   @override
   State<SubjectPoster> createState() => _SubjectPosterState();
@@ -483,7 +310,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
                   Positioned(
                     left: Gap.md,
                     right: Gap.md,
-                    bottom: widget.progress == null ? Gap.md : Gap.lg,
+                    bottom: Gap.md,
                     child: Text(
                       item.title,
                       maxLines: 2,
@@ -496,9 +323,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
                       ),
                     ),
                   ),
-                  if (widget.badge case final badge?)
-                    Positioned(top: Gap.sm, left: Gap.sm, child: badge)
-                  else if (tracking && widget.statusBadge && status != null)
+                  if (tracking && widget.statusBadge && status != null)
                     Positioned(
                       top: Gap.sm,
                       left: Gap.sm,
@@ -508,34 +333,6 @@ class _SubjectPosterState extends State<SubjectPoster> {
                         child: MelonBadge(
                           collectionLabels[status]!,
                           color: collectionColor(status),
-                        ),
-                      ),
-                    ),
-                  if (widget.note case final note?)
-                    Positioned(
-                      top: Gap.sm,
-                      right: Gap.sm,
-                      child: PosterBadge(note, color: Colors.black38),
-                    ),
-                  if (widget.progress case final progress?)
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: MotionValue(
-                        key: PageStorageKey((
-                          'poster-progress',
-                          widget.item.id,
-                        )),
-                        value: progress,
-                        from: 0,
-                        milliseconds: 700,
-                        builder: (context, value) => LinearProgressIndicator(
-                          value: value,
-                          minHeight: 4,
-                          color: accentOf(context).accent,
-                          backgroundColor: Colors.white24,
-                          semanticsLabel: '观看进度',
                         ),
                       ),
                     ),
@@ -565,7 +362,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
           ),
           const SizedBox(height: Gap.sm),
           PosterMeta(
-            item: widget.meta ?? item,
+            item: item,
             tracking: tracking,
             personalScore: widget.personalScore,
           ),
@@ -573,28 +370,6 @@ class _SubjectPosterState extends State<SubjectPoster> {
       ),
     );
   }
-}
-
-/// A label over a poster's cover.
-class PosterBadge extends StatelessWidget {
-  const PosterBadge(this.text, {super.key, required this.color});
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    constraints: const BoxConstraints(minHeight: 24),
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-    decoration: BoxDecoration(color: color, borderRadius: badgeBorderRadius),
-    child: Text(
-      text,
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-      ),
-    ),
-  );
 }
 
 /// A poster's cover that rises a little toward the pointer, its shadow

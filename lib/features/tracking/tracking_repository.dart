@@ -93,6 +93,10 @@ class TrackingRepository {
     return _withProgress(detail, user, id);
   }
 
+  /// [detail] with the saved collection entry and episode progress.
+  Future<Subject> withProgress(Subject detail) =>
+      _withProgress(detail, account.userId, detail.id);
+
   Future<Subject> _withProgress(Subject detail, String user, int id) async {
     if (user != account.userId) throw StateError('账号已经切换');
     final item = await store.get(_collection(user), '$id');

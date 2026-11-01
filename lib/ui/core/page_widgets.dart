@@ -69,6 +69,55 @@ class MelonPanel extends StatelessWidget {
   }
 }
 
+/// A panel that fills its height under a heading row: [icon], [title],
+/// [detail], then [action] at the end, ruled off from [child].
+class HeadedPanel extends StatelessWidget {
+  const HeadedPanel({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.child,
+    this.detail,
+    this.action,
+  });
+  final IconData icon;
+  final String title;
+  final String? detail;
+  final Widget? action;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    return MelonPanel(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.sm, Gap.xs, 0),
+            child: Row(
+              children: [
+                Icon(icon, size: 18, color: scheme.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Text(title, style: text.titleSmall),
+                const SizedBox(width: Gap.sm),
+                if (detail case final detail?)
+                  Text(detail, style: text.bodySmall),
+                const Spacer(),
+                ?action,
+              ],
+            ),
+          ),
+          Divider(height: 1, color: scheme.outlineVariant),
+          Expanded(child: child),
+        ],
+      ),
+    );
+  }
+}
+
 class SectionTitle extends StatelessWidget {
   const SectionTitle({
     super.key,

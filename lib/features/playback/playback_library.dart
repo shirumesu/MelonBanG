@@ -231,11 +231,18 @@ class PlaybackLibrary {
     };
   }
 
-  /// Subjects by when an episode of theirs last played, most recent first.
-  Future<List<int>> playedSubjects() async => {
-    for (final key in (await store.entries('playback_progress')).keys)
-      ?int.tryParse(key.split(':').first),
-  }.toList();
+  /// When an episode of each subject last played, most recent first.
+  Future<Map<int, DateTime>> playedSubjects() async {
+    final played = <int, DateTime>{};
+    for (final MapEntry(:key, :value) in (await store.updatedAt(
+      'playback_progress',
+    )).entries) {
+      if (int.tryParse(key.split(':').first) case final id?) {
+        played.putIfAbsent(id, () => value);
+      }
+    }
+    return played;
+  }
 
   /// The latest unfinished episode of each recently played subject; with
   /// [accept], a subject whose latest one it rejects is left out.

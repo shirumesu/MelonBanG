@@ -121,7 +121,9 @@ class _TrackingPageState extends State<TrackingPage> {
         .toList();
     // Ties fall back to the newest collected, then the stored order.
     final position = {for (final (i, item) in items.indexed) item.id: i};
-    final played = {for (final (i, id) in widget.resume.played.indexed) id: i};
+    final played = {
+      for (final (i, id) in widget.resume.played.keys.indexed) id: i,
+    };
     num publicScore(Subject item) => item.score ?? 0;
     final keys = <num Function(Subject)>[
       ...switch (order) {
