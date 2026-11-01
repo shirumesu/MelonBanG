@@ -132,6 +132,20 @@ class AppStore {
     };
   }
 
+  /// When each document of [scope] last changed, most recent first.
+  Future<Map<String, DateTime>> updatedAt(String scope) async => {
+    for (final row in await database.query(
+      'documents',
+      columns: ['id', 'updated'],
+      where: 'scope=?',
+      whereArgs: [scope],
+      orderBy: 'updated DESC, id ASC',
+    ))
+      row['id'] as String: DateTime.fromMillisecondsSinceEpoch(
+        row['updated'] as int,
+      ),
+  };
+
   Future<int> pendingCount(String account) async =>
       (await database.rawQuery(
             'SELECT COUNT(*) AS count FROM mutations WHERE account=?',

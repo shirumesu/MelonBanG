@@ -245,27 +245,9 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     });
   }
 
-  /// When [episode] airs. Bangumi's air date decides the day, so a skipped
-  /// week stays right; the schedule, a weekly rule, only adds the time when
-  /// one of its broadcasts falls within a day of that date.
-  _Release? _release(Episode episode) {
-    final date = episode.aired;
-    if (date == null) return null;
-    final day = DateTime.utc(date.year, date.month, date.day);
-    DateTime? timed;
-    var nearest = 2;
-    for (final at in widget.airings) {
-      final gap = shanghaiDay(at).difference(day).inDays.abs();
-      if (gap < nearest) {
-        nearest = gap;
-        timed = at;
-      }
-    }
-    return timed == null ? (at: date, timed: false) : (at: timed, timed: true);
-  }
+  Release? _release(Episode episode) => episodeRelease(episode, widget.airings);
 
-  bool _aired(Episode episode) =>
-      !(_release(episode)?.at.isAfter(DateTime.now()) ?? false);
+  bool _aired(Episode episode) => episodeAired(episode, widget.airings);
 
   Future<bool> _saveFields(
     CollectionChange fields, {
@@ -1561,18 +1543,13 @@ class _TagAdderState extends State<_TagAdder> {
   }
 }
 
-/// When an episode airs; [timed] when the schedule gives the hour, otherwise
-/// [at] is the start of its air date.
-typedef _Release = ({DateTime at, bool timed});
-
 final _timeTag = RegExp(r'^(\d{4}(年(\d{1,2}月)?)?|\d{1,2}月)$');
 
-/// The play button's label while the next episode has not aired: minutes
-/// within the last hour, then 今天 / 明天 / 周X with the hour within a week,
-/// else the date.
+/// The play button's label while the next episode has not aired, kept
+/// current as the time nears.
 class _ReleaseCountdown extends StatefulWidget {
   const _ReleaseCountdown({required this.release, required this.episode});
-  final _Release release;
+  final Release release;
   final Episode episode;
 
   @override
@@ -1595,26 +1572,6 @@ class _ReleaseCountdownState extends State<_ReleaseCountdown> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final (:at, :timed) = widget.release;
-    final now = DateTime.now();
-    final left = at.difference(now);
-    final day = timed
-        ? shanghaiDay(at)
-        : DateTime.utc(at.year, at.month, at.day);
-    final today = shanghaiDay(now);
-    final clock = timed ? ' ${shanghaiClock(at)} ' : '';
-    final when = timed && left < const Duration(hours: 1)
-        ? left.inMinutes < 1
-              ? '即将'
-              : '${left.inMinutes} 分钟后'
-        : switch (day.difference(today).inDays) {
-            <= 0 => '今天$clock',
-            1 => '明天$clock',
-            < 7 => '${weekdayLabels[day.weekday - 1]}$clock',
-            _ when day.year == today.year => '${day.month}月${day.day}日',
-            _ => '${day.year}年${day.month}月${day.day}日',
-          };
-    return Text('$when更新');
-  }
+  Widget build(BuildContext context) =>
+      Text('${releaseWhen(widget.release)}更新');
 }

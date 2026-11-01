@@ -190,6 +190,7 @@ class _MelonAppState extends State<MelonApp>
         personal.refresh(),
         refreshPlaybackAvailability(),
       ]);
+      unawaited(perform(discovery.loadCalendar));
     } catch (e) {
       // Once the window works, a failed first load is an ordinary error.
       if (ready) {
@@ -572,6 +573,10 @@ class _MelonAppState extends State<MelonApp>
         unawaited(discovery.loadHome());
         unawaited(perform(refreshPlaybackAvailability));
         unawaited(perform(pullProgress));
+        // Continue watching times the next episodes by the schedule.
+        if (discovery.calendar.isEmpty) {
+          unawaited(perform(discovery.loadCalendar));
+        }
       case 'tracking':
         unawaited(perform(personal.pull));
         unawaited(perform(discovery.loadCalendar));
@@ -1061,6 +1066,13 @@ class _MelonAppState extends State<MelonApp>
           onCalendar: () => navigate('calendar'),
           onRefresh: refreshHome,
           onOpenSubject: openSubject,
+          onPlayEpisode: (subject, episode) => unawaited(
+            coordinator.prepare(
+              subject,
+              episode,
+              () => coordinator.selectEpisode(subject, episode),
+            ),
+          ),
         );
       case 'search':
         return SearchPage(

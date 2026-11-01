@@ -22,6 +22,55 @@ DateTime shanghaiDay(DateTime instant) {
   return DateTime.utc(time.year, time.month, time.day);
 }
 
+/// When an episode airs; [timed] when the schedule gives the hour, otherwise
+/// [at] is the start of its air date.
+typedef Release = ({DateTime at, bool timed});
+
+/// When [episode] airs. Bangumi's air date decides the day, so a skipped
+/// week stays right; the schedule's [airings] of its subject, a weekly rule,
+/// only add the time when one falls within a day of that date.
+Release? episodeRelease(Episode episode, List<DateTime> airings) {
+  final date = episode.aired;
+  if (date == null) return null;
+  final day = DateTime.utc(date.year, date.month, date.day);
+  DateTime? timed;
+  var nearest = 2;
+  for (final at in airings) {
+    final gap = shanghaiDay(at).difference(day).inDays.abs();
+    if (gap < nearest) {
+      nearest = gap;
+      timed = at;
+    }
+  }
+  return timed == null ? (at: date, timed: false) : (at: timed, timed: true);
+}
+
+bool episodeAired(Episode episode, List<DateTime> airings) =>
+    !(episodeRelease(episode, airings)?.at.isAfter(DateTime.now()) ?? false);
+
+/// When [release] comes: minutes within the last hour, then 今天 / 明天 /
+/// 周X with the hour within a week, else the date. A time ends in a space,
+/// ready for 更新 to follow.
+String releaseWhen(Release release) {
+  final (:at, :timed) = release;
+  final now = DateTime.now();
+  final left = at.difference(now);
+  final day = timed ? shanghaiDay(at) : DateTime.utc(at.year, at.month, at.day);
+  final today = shanghaiDay(now);
+  final clock = timed ? ' ${shanghaiClock(at)} ' : '';
+  return timed && left < const Duration(hours: 1)
+      ? left.inMinutes < 1
+            ? '即将'
+            : '${left.inMinutes} 分钟后'
+      : switch (day.difference(today).inDays) {
+          <= 0 => '今天$clock',
+          1 => '明天$clock',
+          < 7 => '${weekdayLabels[day.weekday - 1]}$clock',
+          _ when day.year == today.year => '${day.month}月${day.day}日',
+          _ => '${day.year}年${day.month}月${day.day}日',
+        };
+}
+
 class TodayTimeline extends StatefulWidget {
   const TodayTimeline({
     super.key,
@@ -66,7 +115,6 @@ class _TodayTimelineState extends State<TodayTimeline> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final now = DateTime.now();
     final items = widget.items;
     final aired = [
@@ -135,40 +183,15 @@ class _TodayTimelineState extends State<TodayTimeline> {
       );
     }
     final airedCount = aired.where((value) => value).length;
-    return MelonPanel(
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.sm, Gap.xs, 0),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.calendar_today_outlined,
-                  size: 18,
-                  color: scheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 6),
-                Text('今日更新', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(width: Gap.sm),
-                if (items.isNotEmpty)
-                  Text(
-                    '已更新 $airedCount/${items.length}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                const Spacer(),
-                TextButton(
-                  onPressed: widget.onCalendar,
-                  child: const Text('时间表'),
-                ),
-              ],
-            ),
-          ),
-          Divider(height: 1, color: scheme.outlineVariant),
-          Expanded(child: body),
-        ],
+    return HeadedPanel(
+      icon: Icons.calendar_today_outlined,
+      title: '今日更新',
+      detail: items.isEmpty ? null : '已更新 $airedCount/${items.length}',
+      action: TextButton(
+        onPressed: widget.onCalendar,
+        child: const Text('时间表'),
       ),
+      child: body,
     );
   }
 }
