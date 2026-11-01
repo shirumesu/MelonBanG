@@ -71,6 +71,10 @@ class _MelonAppState extends State<MelonApp>
   final search = TextEditingController();
   final searchFocus = FocusNode(debugLabel: 'Catalogue search');
   final pageStorage = PageStorageBucket();
+
+  /// Sidebar pages shown so far, kept so coming back to one does not build
+  /// it again.
+  final kept = <String>{};
   final List<_PageLocation> history = [];
   final subscriptions = <StreamSubscription<dynamic>>[];
   final homeFeedback = ActionFeedback();
@@ -544,6 +548,8 @@ class _MelonAppState extends State<MelonApp>
 
   void openSettings(String section) {
     settingsSection = section;
+    // Settings scroll to the section when they open.
+    if (route != 'settings') kept.remove('settings');
     navigate('settings');
   }
 
@@ -555,13 +561,7 @@ class _MelonAppState extends State<MelonApp>
     nextNavigation();
     setState(() {
       route = target;
-      if ([
-        'home',
-        'tracking',
-        'downloads',
-        'sources',
-        'settings',
-      ].contains(target)) {
+      if (_sections.contains(target)) {
         selectedSection = target;
       } else if (target == 'calendar') {
         selectedSection = 'home';
@@ -852,12 +852,7 @@ class _MelonAppState extends State<MelonApp>
                                 Expanded(
                                   child: PageStorage(
                                     bucket: pageStorage,
-                                    child: route == 'player'
-                                        ? player()
-                                        : PageEntrance(
-                                            key: PageStorageKey(pageIdentity),
-                                            child: page(),
-                                          ),
+                                    child: pages(),
                                   ),
                                 ),
                               ],
@@ -1028,7 +1023,27 @@ class _MelonAppState extends State<MelonApp>
     },
   );
 
-  Widget page() {
+  /// The kept sidebar pages, the current one shown, over any other page.
+  Widget pages() {
+    if (_sections.contains(route)) kept.add(route);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        for (final section in kept)
+          _KeptPage(
+            key: PageStorageKey(section),
+            shown: route == section,
+            builder: () => page(section),
+          ),
+        if (route == 'player')
+          player()
+        else if (!_sections.contains(route))
+          PageEntrance(key: PageStorageKey(pageIdentity), child: page(route)),
+      ],
+    );
+  }
+
+  Widget page(String target) {
     if (storageSetup case final setup?) {
       return StorageSetup(storage: service.storage!, onDone: setup.complete);
     }
@@ -1054,7 +1069,7 @@ class _MelonAppState extends State<MelonApp>
               actionLabel: '重新启动',
             );
     }
-    switch (route) {
+    switch (target) {
       case 'home':
         return HomePage(
           discovery: discovery,
@@ -1210,6 +1225,41 @@ class _MelonAppState extends State<MelonApp>
       default:
         return const EmptyState(text: '打开一部喜欢的作品');
     }
+  }
+}
+
+/// The pages the sidebar leads to.
+const _sections = ['home', 'tracking', 'downloads', 'sources', 'settings'];
+
+/// A sidebar page kept once shown. Hidden, it keeps what it last built,
+/// stops its animations and takes no focus; shown again, it rises in.
+class _KeptPage extends StatefulWidget {
+  const _KeptPage({
+    required super.key,
+    required this.shown,
+    required this.builder,
+  });
+  final bool shown;
+  final Widget Function() builder;
+
+  @override
+  State<_KeptPage> createState() => _KeptPageState();
+}
+
+class _KeptPageState extends State<_KeptPage> {
+  Widget? page;
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.shown || page == null) page = widget.builder();
+    return Visibility(
+      visible: widget.shown,
+      maintainState: true,
+      child: ExcludeFocus(
+        excluding: !widget.shown,
+        child: PageEntrance(shown: widget.shown, child: page!),
+      ),
+    );
   }
 }
 

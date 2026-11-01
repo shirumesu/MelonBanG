@@ -55,7 +55,10 @@ class MotionReveal extends StatelessWidget {
 /// A page arriving: it brightens from 40% and rises 4 pixels, on the
 /// compositor alone.
 class PageEntrance extends StatefulWidget {
-  const PageEntrance({super.key, required this.child});
+  const PageEntrance({super.key, this.shown = true, required this.child});
+
+  /// A kept page rises in again each time it is shown.
+  final bool shown;
   final Widget child;
 
   @override
@@ -76,6 +79,15 @@ class _PageEntranceState extends State<PageEntrance>
     if (_controller.isAnimating || _controller.isCompleted) return;
     _controller.duration = motionDuration(context);
     _controller.forward();
+  }
+
+  @override
+  void didUpdateWidget(PageEntrance oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.shown && !oldWidget.shown) {
+      _controller.duration = motionDuration(context);
+      _controller.forward(from: 0);
+    }
   }
 
   @override
