@@ -41,7 +41,6 @@ import '../integrations/danmaku/bahamut.dart';
 import '../integrations/danmaku/bilibili.dart';
 import '../integrations/danmaku/dandanplay.dart';
 import '../integrations/danmaku/melon.dart';
-import '../integrations/danmaku/local.dart';
 import '../integrations/melon_api/source_rules.dart';
 import '../integrations/sources/engines.dart';
 import '../integrations/transfer/libtorrent.dart';
@@ -187,7 +186,7 @@ class AppServices {
         DandanplayDanmaku(api, configuration),
         BilibiliDanmaku(api),
         BahamutDanmaku(api),
-      ], const LocalDanmaku()),
+      ]),
       DanmakuPreferences(preferences),
     );
     sources = SourceRegistry(

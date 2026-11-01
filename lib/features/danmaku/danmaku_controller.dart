@@ -102,7 +102,7 @@ class DanmakuController extends ChangeNotifier {
     );
     await Future.wait([
       for (final source in sources)
-        if (source.enabled && source.id != repository.local.id)
+        if (source.enabled)
           _load(source.id, () async {
             final provider = repository.matcher(source.id);
             Future<_Loaded> load(String locator, {String? followed}) async =>
@@ -149,18 +149,18 @@ class DanmakuController extends ChangeNotifier {
   Future<void> load(String provider, String locator) => _load(
     provider,
     () async =>
-        (locator, await repository.provider(provider).load(locator), null),
+        (locator, await repository.matcher(provider).load(locator), null),
     save: true,
   );
 
   bool searchable(String provider) =>
-      repository.provider(provider) is DanmakuSearch;
+      repository.matcher(provider) is DanmakuSearch;
 
   /// Search rows for [title]; rows standing for a resource search entry
   /// keep only those resource search would offer for the playing subject.
   Future<List<DanmakuCandidate>> search(String provider, String title) async {
     final target = _target;
-    final rows = await (repository.provider(provider) as DanmakuSearch).search(
+    final rows = await (repository.matcher(provider) as DanmakuSearch).search(
       title,
     );
     final subjectId = target?.subjectId;
@@ -198,28 +198,6 @@ class DanmakuController extends ChangeNotifier {
       ...kept.where((row) => !(row.site?.choosePart ?? false)),
       ...uploads,
     ];
-  }
-
-  /// Imports a local JSON file into this session only, replacing an earlier
-  /// import; failure leaves the existing local comments intact.
-  Future<void> importLocal(String path) async {
-    final target = _target;
-    if (target == null) return;
-    final local = repository.local;
-    final ticket = Object();
-    _loads[local.id] = ticket;
-    final comments = await local.load(path);
-    if (!identical(_target, target) || _loads[local.id] != ticket) return;
-    _comments[local.id] = comments;
-    final source =
-        sources.where((source) => source.id == local.id).firstOrNull ??
-        DanmakuSourceState(local.id, local.label, enabled: true);
-    if (!sources.contains(source)) sources = [...sources, source];
-    source
-      ..enabled = true
-      ..status = DanmakuStatus.ready
-      ..count = comments.length;
-    _merge();
   }
 
   Future<void> _load(
@@ -260,7 +238,7 @@ class DanmakuController extends ChangeNotifier {
         ..count = comments.length
         ..locator = locator
         ..followed = followed;
-      if (repository.provider(provider) case final DanmakuSender sender) {
+      if (repository.matcher(provider) case final DanmakuSender sender) {
         unawaited(_refreshQuota(sender));
       }
     } on _NoMatch catch (e) {
@@ -289,8 +267,7 @@ class DanmakuController extends ChangeNotifier {
     String locator,
   ) async {
     final subjectId = target.subjectId;
-    if (subjectId == null ||
-        repository.provider(provider) is! DanmakuFollower) {
+    if (subjectId == null || repository.matcher(provider) is! DanmakuFollower) {
       return;
     }
     final DanmakuEpisode episode;
@@ -320,7 +297,7 @@ class DanmakuController extends ChangeNotifier {
             source.enabled &&
             source.locator != null &&
             source.status == DanmakuStatus.ready &&
-            switch (repository.provider(source.id)) {
+            switch (repository.matcher(source.id)) {
               DanmakuSender(:final unavailable) => unavailable == null,
               _ => false,
             },
@@ -333,11 +310,11 @@ class DanmakuController extends ChangeNotifier {
     if (_target == null) return '播放视频后发送弹幕';
     final senders = [
       for (final source in sources)
-        if (repository.provider(source.id) is DanmakuSender) source,
+        if (repository.matcher(source.id) is DanmakuSender) source,
     ];
     if (senders.isEmpty) return '暂不能发送弹幕';
     final sender = senders.first;
-    if ((repository.provider(sender.id) as DanmakuSender).unavailable
+    if ((repository.matcher(sender.id) as DanmakuSender).unavailable
         case final reason?) {
       return reason;
     }
@@ -384,7 +361,7 @@ class DanmakuController extends ChangeNotifier {
       color: preferences.sendStyle.value.color,
       own: true,
     );
-    final sender = repository.provider(source.id) as DanmakuSender;
+    final sender = repository.matcher(source.id) as DanmakuSender;
     try {
       _applyQuota(await sender.send(source.locator!, comment));
     } on DanmakuSendRejected catch (e) {

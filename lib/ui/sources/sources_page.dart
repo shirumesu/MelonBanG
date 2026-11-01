@@ -59,8 +59,9 @@ class _SourcesPageState extends State<SourcesPage> {
   _Kind? _kind;
   bool _problemsOnly = false;
 
-  /// Groups folded by hand.
-  final _folded = <_Kind>{};
+  /// Folded groups: the drive and danmaku start folded, as most viewers
+  /// only need online sources and BT indexes.
+  final _folded = <_Kind>{_Kind.drive, _Kind.danmaku};
   SourceRegistry get registry => widget.registry;
   DanmakuController get danmaku => widget.danmaku;
 
