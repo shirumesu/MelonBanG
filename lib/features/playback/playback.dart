@@ -58,7 +58,8 @@ class Playback extends ChangeNotifier {
       }),
     );
     _subscriptions.add(
-      player.stream.playing.listen((_) {
+      player.stream.playing.listen((playing) {
+        playing ? _watched.start() : _watched.stop();
         unawaited(saveProgress());
       }),
     );
@@ -292,6 +293,9 @@ class Playback extends ChangeNotifier {
   Future<void> _open(PlaybackSession next) async {
     if (_closed) return;
     await saveProgress();
+    _watched
+      ..stop()
+      ..reset();
     cancelAutoplay();
     _completedSession = null;
     autoplayEndEpisode = null;
@@ -410,11 +414,18 @@ class Playback extends ChangeNotifier {
 
   (Object, Object?, double, double, bool)? _lastProgress;
 
+  /// How long the open episode has played. One opened only for a look keeps
+  /// the saved place, and which episode and subject played last, as they
+  /// were.
+  final _watched = Stopwatch();
+  static const _recordAfter = Duration(seconds: 10);
+
   Future<void> saveProgress({bool ended = false}) {
     if (uri == null || session == null || opening) return _progressWrites;
     final savedUri = session!.progressKey;
     final savedSession = session!;
     ended = error == null && (ended || player.state.completed);
+    if (!ended && _watched.elapsed < _recordAfter) return _progressWrites;
     final position = player.state.position.inMilliseconds / 1000;
     final duration = player.state.duration.inMilliseconds / 1000;
     final completed = ended;

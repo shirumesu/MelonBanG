@@ -213,11 +213,8 @@ class _MotionSlideState extends State<MotionSlide> {
   void didUpdateWidget(MotionSlide oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.index == widget.index) return;
-    // Measured before this frame's layout moves it.
     final box = context.findRenderObject();
-    if (box is _RenderSlide && box.attached && box.hasSize) {
-      box.reorderFrom(box.contentY);
-    }
+    if (box is _RenderSlide) box.reorder();
   }
 
   @override
@@ -264,15 +261,51 @@ class _RenderSlide extends RenderProxyBox {
   Duration? _start;
   int? _frame;
 
+  /// [contentY] at the end of the last frame. A reorder cannot measure it:
+  /// the list forgets the place of each row it moves before rebuilding it.
+  double? _settled;
+  bool _settling = false;
+
   /// Where it sits in the scrolled content, so scrolling is not a move.
   double get contentY =>
       localToGlobal(Offset.zero).dy + (position?.pixels ?? 0);
 
+  /// Whether every list holding it knows its place: a row kept alive out of
+  /// view and moved has none until it is laid out again.
+  bool get _placed {
+    for (RenderObject? node = this; node != null; node = node.parent) {
+      if (node.parentData case SliverMultiBoxAdaptorParentData(
+        layoutOffset: null,
+      )) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   double get _offset => _from * (1 - Curves.easeOutCubic.transform(_t));
 
-  void reorderFrom(double y) {
-    _before = y;
+  void reorder() {
+    _before = _settled;
     markNeedsPaint();
+  }
+
+  /// Runs after every frame while attached, without asking for frames.
+  void _settle(Duration _) {
+    if (!attached) {
+      _settling = false;
+      return;
+    }
+    if (hasSize && _placed) _settled = contentY;
+    SchedulerBinding.instance.addPostFrameCallback(_settle);
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    if (_settling) return;
+    _settling = true;
+    SchedulerBinding.instance.addPostFrameCallback(_settle);
   }
 
   void _tick(Duration stamp) {

@@ -398,41 +398,43 @@ class _ProminentButtonState extends State<ProminentButton> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final pressed = _states.value.contains(WidgetState.pressed);
+    final button = FilledButton.icon(
+      statesController: _states,
+      onPressed: widget.onPressed,
+      style:
+          FilledButton.styleFrom(
+            backgroundColor: scheme.primary,
+            foregroundColor: scheme.onPrimary,
+            shadowColor: Theme.of(context).shadowColor.withValues(alpha: 1),
+          ).copyWith(
+            elevation: WidgetStateProperty.resolveWith(
+              (states) =>
+                  states.contains(WidgetState.disabled) ||
+                      states.contains(WidgetState.pressed)
+                  ? 0
+                  : states.contains(WidgetState.hovered)
+                  ? 2
+                  : 1,
+            ),
+          ),
+      icon: widget.icon,
+      label: widget.label,
+    );
     return AnimatedScale(
       scale: pressed && widget.onPressed != null ? .98 : 1,
       duration: motionDuration(context, 80),
       curve: Curves.easeOut,
-      child: FilledButton.icon(
-        statesController: _states,
-        onPressed: widget.onPressed,
-        style:
-            FilledButton.styleFrom(
-              backgroundColor: scheme.primary,
-              foregroundColor: scheme.onPrimary,
-              shadowColor: Theme.of(context).shadowColor.withValues(alpha: 1),
-            ).copyWith(
-              elevation: WidgetStateProperty.resolveWith(
-                (states) =>
-                    states.contains(WidgetState.disabled) ||
-                        states.contains(WidgetState.pressed)
-                    ? 0
-                    : states.contains(WidgetState.hovered)
-                    ? 2
-                    : 1,
-              ),
-              foregroundBuilder: widget.onPressed == null
-                  ? null
-                  : (context, states, child) => CustomPaint(
-                      foregroundPainter: EdgeLight(
-                        color: Colors.white.withValues(alpha: .22),
-                        radius: controlBorderRadius,
-                        depth: 10,
-                      ),
-                      child: child,
-                    ),
-            ),
-        icon: widget.icon,
-        label: widget.label,
+      // Along the button's own edge: a foregroundBuilder only wraps the
+      // label, which drew a second outline inside.
+      child: CustomPaint(
+        foregroundPainter: EdgeLight(
+          color: Colors.white.withValues(
+            alpha: widget.onPressed == null ? 0 : .22,
+          ),
+          radius: controlBorderRadius,
+          depth: 10,
+        ),
+        child: button,
       ),
     );
   }
