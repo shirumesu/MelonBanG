@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../domain/catalog.dart';
+import '../../features/discovery/continue_range.dart';
 import '../../features/discovery/discovery_controller.dart';
 import '../../features/playback/playback_library.dart';
 import '../../features/playback/resume_controller.dart';
@@ -18,6 +19,10 @@ import '../core/theme.dart';
 import 'schedule_timelines.dart';
 
 const _showcaseHeight = 328.0;
+
+/// A subscribed show on the home page: the episode it waited too long
+/// for, and how long, as 等字幕组 26 小时.
+typedef SubscriptionMark = ({int? lateEpisode, String? late});
 
 /// Set once the home page has first been shown in this run: only that first
 /// arrival brings its blocks in one after another.
@@ -36,6 +41,8 @@ class HomePage extends StatelessWidget {
     required this.onOpenSubject,
     required this.onPlayEpisode,
     required this.onOpenTracking,
+    this.range = ContinueRange.all,
+    this.subscriptions = const {},
   });
   final DiscoveryController discovery;
   final TrackingController personal;
@@ -44,6 +51,12 @@ class HomePage extends StatelessWidget {
   final ActionFeedback feedback;
   final ValueChanged<Subject> onOpenSubject;
   final void Function(Subject subject, Episode episode) onPlayEpisode;
+
+  /// Which shows 继续观看 lists.
+  final ContinueRange range;
+
+  /// Subscribed shows, by subject id.
+  final Map<int, SubscriptionMark> subscriptions;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -94,8 +107,24 @@ class HomePage extends StatelessWidget {
         if (item.airingAt case final at?) (airings[item.id] ??= []).add(at);
       }
     }
+    // A show airs within the range while the schedule lists it or an episode
+    // of it airs on or after the range's first day; one not known yet stays.
+    final from = range.from(DateTime.now());
+    bool inRange(Subject item) {
+      if (from == null || airings[item.id] != null) return true;
+      final dates = [
+        for (final episode in resume.watching[item.id]?.episodes ?? const [])
+          if (episode.main) ?episode.aired,
+      ];
+      final latest = dates.isEmpty
+          ? DateTime.tryParse(item.airDate ?? '')
+          : dates.reduce((a, b) => a.isAfter(b) ? a : b);
+      return latest == null || !latest.isBefore(from);
+    }
+
     final continuation = _ContinueSection(
-      watching: watching,
+      watching: watching.where(inRange).toList(),
+      subscriptions: subscriptions,
       details: resume.watching,
       playable: resume.watchingPlayable,
       resumable: resume.resumable,
@@ -740,6 +769,7 @@ class _Watch {
     required this.resume,
     required this.seen,
     required this.airings,
+    this.subscription,
   }) {
     // Recorded episodes decide; without any, the watched count does.
     final marked = episodes.any((e) => e.watched);
@@ -765,6 +795,9 @@ class _Watch {
   /// When an episode of it last played.
   final DateTime? seen;
   final List<DateTime> airings;
+
+  /// Set while the show is subscribed.
+  final SubscriptionMark? subscription;
   late final List<Episode> episodes = [
     ...?detail?.episodes.where((e) => e.main),
   ];
@@ -862,8 +895,10 @@ class _ContinueSection extends StatefulWidget {
     required this.onPlayEpisode,
     required this.onExplore,
     required this.onOpenTracking,
+    required this.subscriptions,
   });
   final List<Subject> watching;
+  final Map<int, SubscriptionMark> subscriptions;
   final Map<int, Subject> details;
   final Map<int, Set<int>> playable;
   final List<PlaybackResume> resumable;
@@ -910,6 +945,7 @@ class _ContinueSectionState extends State<_ContinueSection> {
           resume: resumes[item.id],
           seen: widget.played[item.id],
           airings: widget.airings[item.id] ?? const [],
+          subscription: widget.subscriptions[item.id],
         ),
     ];
     // Watchable ones by when they last played; the rest below by when
@@ -1164,17 +1200,38 @@ class _Hero extends StatelessWidget {
               ),
             ),
             const SizedBox(height: Gap.md),
-            if (next != null)
-              for (final index in [
-                for (var i = watch.nextIndex; i < watch.episodes.length; i++) i,
-              ].take(3))
-                _HeroEpisode(
-                  watch: watch,
-                  index: index,
-                  cached: playable.contains(watch.episodes[index].id),
-                  onPlay: onPlay,
+            // Up to three episodes, as many as the window's height leaves room
+            // for above the buttons.
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (next != null)
+                      for (final index
+                          in [
+                            for (
+                              var i = watch.nextIndex;
+                              i < watch.episodes.length;
+                              i++
+                            )
+                              i,
+                          ].take(
+                            math.min(
+                              3,
+                              constraints.maxHeight ~/ _HeroEpisode.height,
+                            ),
+                          ))
+                        _HeroEpisode(
+                          watch: watch,
+                          index: index,
+                          cached: playable.contains(watch.episodes[index].id),
+                          onPlay: onPlay,
+                        ),
+                  ],
                 ),
-            const Spacer(),
+              ),
+            ),
             Row(
               children: [
                 Expanded(child: play),
@@ -1206,6 +1263,8 @@ class _HeroEpisode extends StatelessWidget {
   final bool cached;
   final void Function(Subject subject, Episode episode) onPlay;
 
+  static const height = 36.0;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -1214,17 +1273,28 @@ class _HeroEpisode extends StatelessWidget {
     final aired = watch.aired[index];
     final resumed = current ? watch.resumed : null;
     final muted = aired ? null : scheme.onSurfaceVariant;
+    final subscription = watch.subscription;
+    // The first episode yet to air says the show is subscribed.
+    final subscribed =
+        subscription != null && (index == 0 || watch.aired[index - 1]);
     final (note, noteColor) = switch (episode) {
       _ when resumed != null => (watch.remaining, scheme.primary),
+      _ when subscription?.lateEpisode == episode.id => (
+        subscription!.late,
+        scheme.error,
+      ),
       _ when !aired => (
-        releaseWhen(episodeRelease(episode, watch.airings)!).trim(),
+        [
+          releaseWhen(episodeRelease(episode, watch.airings)!).trim(),
+          if (subscribed) '已订阅',
+        ].join(' · '),
         scheme.onSurfaceVariant,
       ),
       _ when cached => ('已缓存', scheme.primary),
       _ => (null, null),
     };
     return SizedBox(
-      height: 36,
+      height: height,
       child: Material(
         color: current
             ? scheme.primaryContainer.withValues(alpha: .35)
@@ -1327,6 +1397,13 @@ class _QueueRowState extends State<_QueueRow> {
     final small = Theme.of(context).textTheme.bodySmall!;
     final status = switch (watch) {
       _ when detail == null => null,
+      _Watch(subscription: (lateEpisode: final id?, late: final late?)) => Text(
+        [
+          ?watch.episodes.where((e) => e.id == id).firstOrNull?.label,
+          late,
+        ].join(' '),
+        style: small.copyWith(color: scheme.error),
+      ),
       _ when watch.ready && watch.resumed != null => Text(
         watch.remaining,
         style: small.copyWith(color: scheme.primary),
@@ -1340,7 +1417,9 @@ class _QueueRowState extends State<_QueueRow> {
         style: small.copyWith(color: scheme.primary),
       ),
       _Watch(:final release?) => Text(
-        '${releaseWhen(release)}更新',
+        watch.subscription == null
+            ? '${releaseWhen(release)}更新'
+            : '${releaseWhen(release).trim()} · 已订阅',
         style: small.copyWith(
           fontFeatures: const [FontFeature.tabularFigures()],
         ),

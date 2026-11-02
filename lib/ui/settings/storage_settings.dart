@@ -407,7 +407,7 @@ class _StorageSettingsState extends State<StorageSettings> {
           title: '图片与资料缓存',
           subtitle:
               '${usageLabel(cacheBytes)}，超过 120 天自动清理，图片最多 100 MiB；'
-              '清理不影响已下载的视频、追番和观看进度',
+              '清理不影响已下载的视频、追番、订阅和观看进度',
           trailing: FeedbackButton(
             feedback: cleanup,
             label: '清理缓存',

@@ -254,10 +254,17 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
   String? episodeLabel;
   double? episode, absoluteEpisode;
   var episodeConflict = false;
-  final range = RegExp(
-    r'(?:[\[【〖|]\s*第?)(\d{1,3})\s*[-–~～]\s*(\d{1,3})(?:话|集)?(?:\s*\+\s*SP[x×]?(\d+))?',
-    caseSensitive: false,
-  ).firstMatch(normalized);
+  // Long-running shows reach four digits, which only count written as
+  // 第1218集 so a year such as [2026] is not taken for an episode.
+  final range =
+      RegExp(
+        r'(?:[\[【〖|]\s*第?)(\d{1,3})\s*[-–~～]\s*(\d{1,3})(?:话|集)?(?:\s*\+\s*SP[x×]?(\d+))?',
+        caseSensitive: false,
+      ).firstMatch(normalized) ??
+      RegExp(
+        r'[\[【〖|]\s*第(\d{4})\s*[-–~～]\s*(\d{4})\s*[话集](?:\s*\+\s*SP[x×]?(\d+))?',
+        caseSensitive: false,
+      ).firstMatch(normalized);
   final special = _token(r'SP(?:v\d+)?').firstMatch(normalized);
   if (range != null) {
     final start = int.parse(range.group(1)!);
@@ -283,6 +290,10 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
             .allMatches(normalized)
             .where((match) => match.start != first?.start)
             .firstOrNull;
+    final long = RegExp(r'[\[【〖]\s*第(\d{4})[话集]')
+        .allMatches(normalized)
+        .where((match) => match.start != first?.start)
+        .firstOrNull;
     if (seasonEpisode != null) {
       episodeLabel = 'S${seasonEpisode.group(1)} 第 ${seasonEpisode.group(2)} 话';
       episode = double.parse(seasonEpisode.group(2)!);
@@ -292,6 +303,9 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
       episode = double.parse(number);
       absoluteEpisode = across == null ? null : double.parse(across);
       episodeLabel = across == null ? '第 $number 话' : '$number($across)';
+    } else if (long != null) {
+      episode = double.parse(long.group(1)!);
+      episodeLabel = '第 ${long.group(1)} 话';
     } else if (_token('MOVIE').hasMatch(normalized) ||
         normalized.contains('剧场版')) {
       episodeLabel = '剧场版';

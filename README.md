@@ -155,7 +155,7 @@ Windows 和 macOS 在 **设置 → 更新与关于** 里卸载，可以选择是
 需要 Flutter 稳定版。Windows 需要 Visual Studio C++ 桌面开发组件，macOS 需要 Xcode 和 Homebrew，Linux 需要 CMake 3.24 以上和以下开发包（以 Ubuntu 为例）：
 
 ```sh
-sudo apt install clang ninja-build pkg-config libgtk-3-dev libmpv-dev libsecret-1-dev
+sudo apt install clang ninja-build pkg-config libgtk-3-dev libmpv-dev libsecret-1-dev libayatana-appindicator3-dev
 ```
 
 ```sh

@@ -33,6 +33,7 @@ import '../features/playback/playback_coordinator.dart';
 import '../features/playback/playback_library.dart';
 import '../features/playback/resource_search.dart';
 import '../features/playback/resume_controller.dart';
+import '../features/subscriptions/subscription_controller.dart';
 import '../features/tracking/subject_controller.dart';
 import '../features/tracking/tracking_controller.dart';
 import '../features/update/app_update.dart';
@@ -83,6 +84,7 @@ class AppServices {
   late final LibtorrentTransfer bt;
   late final PikPakTransfer pikpakTransfer;
   late final ReleaseSearch releases;
+  late final SubscriptionController subscriptions;
   late final DanmakuController danmaku;
   late final PlaybackLibrary library;
   late final SourceRegistry sources;
@@ -216,6 +218,18 @@ class AppServices {
           : null,
     );
     releases = ReleaseSearch(api, sources, downloads);
+    // Closed before the downloads it adds to.
+    subscriptions = SubscriptionController(
+      store: store,
+      catalog: catalog,
+      releases: releases,
+      downloads: downloads,
+      tracking: tracking,
+      library: library,
+      preferences: SubscriptionPreferences(preferences),
+      preferredGroups: () => playback.settings.preferredGroups,
+    );
+    _dispose.add(subscriptions.close);
     selection = PlaySelectionRepository(
       store,
       library,
@@ -244,6 +258,7 @@ class AppServices {
     resume = ResumeController(library, tracking);
     await account.initialize();
     tracking.start();
+    await subscriptions.start();
     _restoringDownloads = downloads.initialize();
     unawaited(
       _restoringDownloads!.then(

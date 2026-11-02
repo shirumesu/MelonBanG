@@ -1,8 +1,20 @@
 import Cocoa
 import FlutterMacOS
 import Security
+import UserNotifications
 
 class MainFlutterWindow: NSWindow {
+  /// Carries the runner's requests to Dart: quitting and opening a
+  /// notification.
+  static var systemChannel: FlutterMethodChannel?
+
+  /// Set once Dart has shut its services down, so quitting proceeds.
+  static var quitAllowed = false
+
+  /// Keeps App Nap from stretching the subscription timers while the
+  /// window is hidden.
+  private static var activity: NSObjectProtocol?
+
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
@@ -16,12 +28,16 @@ class MainFlutterWindow: NSWindow {
     ).setMethodCallHandler { call, result in
       Self.handleCredentials(call, result: result)
     }
-    FlutterMethodChannel(
+    let system = FlutterMethodChannel(
       name: "org.melonbang/system",
       binaryMessenger: flutterViewController.engine.binaryMessenger
-    ).setMethodCallHandler { call, result in
+    )
+    system.setMethodCallHandler { call, result in
       Self.handleSystem(call, result: result)
     }
+    Self.systemChannel = system
+    UNUserNotificationCenter.current().delegate =
+      NSApp.delegate as? UNUserNotificationCenterDelegate
 
     super.awakeFromNib()
 
@@ -98,6 +114,41 @@ class MainFlutterWindow: NSWindow {
       if let http = server("HTTP") { proxy["http"] = http }
       if let https = server("HTTPS") { proxy["https"] = https }
       result(proxy)
+    case "notify":
+      guard let arguments = call.arguments as? [String: Any],
+        let title = arguments["title"] as? String
+      else {
+        result(nil)
+        return
+      }
+      let content = UNMutableNotificationContent()
+      content.title = title
+      content.body = arguments["body"] as? String ?? ""
+      if let subject = arguments["subjectId"] as? Int {
+        content.userInfo = ["subjectId": subject]
+      }
+      let center = UNUserNotificationCenter.current()
+      // Asks once; later calls return the saved answer.
+      center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+        guard granted else { return }
+        center.add(UNNotificationRequest(
+          identifier: UUID().uuidString, content: content, trigger: nil))
+      }
+      result(nil)
+    case "keepAwake":
+      let on = call.arguments as? Bool ?? false
+      if on, activity == nil {
+        activity = ProcessInfo.processInfo.beginActivity(
+          options: .userInitiatedAllowingIdleSystemSleep,
+          reason: "Checking subscribed shows for new episodes")
+      } else if !on, let current = activity {
+        ProcessInfo.processInfo.endActivity(current)
+        activity = nil
+      }
+      result(nil)
+    case "allowQuit":
+      quitAllowed = true
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }

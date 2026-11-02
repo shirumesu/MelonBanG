@@ -411,6 +411,7 @@ class AppSidebar extends StatelessWidget {
     required this.onNavigate,
     this.watchingCount = 0,
     this.downloadCount = 0,
+    this.attentionCount = 0,
     this.username,
     this.avatarUrl,
     this.selectedRoute,
@@ -424,11 +425,14 @@ class AppSidebar extends StatelessWidget {
   final String? accountIssue;
   final String? selectedRoute;
   final int watchingCount, downloadCount;
+
+  /// Subscriptions waiting on the user, marked on 缓存 where they show.
+  final int attentionCount;
   final bool sourcesWarning;
   final ValueChanged<String> onNavigate;
 
   /// The entry standing for the current page; detail pages reached from
-  /// 探索 keep it selected.
+  /// 首页 keep it selected.
   String? get _selected {
     final active = selectedRoute ?? route;
     if (const ['subject', 'calendar', 'search', 'resources'].contains(active)) {
@@ -474,7 +478,7 @@ class AppSidebar extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(bottom: Gap.lg),
                   child: Tooltip(
-                    message: '返回探索首页',
+                    message: '返回首页',
                     child: Material(
                       color: Colors.transparent,
                       borderRadius: controlBorderRadius,
@@ -484,7 +488,7 @@ class AppSidebar extends StatelessWidget {
                         onTap: () => onNavigate('home'),
                         child: Semantics(
                           button: true,
-                          label: 'MelonBanG，返回探索首页',
+                          label: 'MelonBanG，返回首页',
                           excludeSemantics: true,
                           child: Padding(
                             padding: const EdgeInsets.all(Gap.sm),
@@ -498,7 +502,7 @@ class AppSidebar extends StatelessWidget {
                     ),
                   ),
                 ),
-                _nav(context, keyOf, 'home', '探索', Icons.explore_outlined),
+                _nav(context, keyOf, 'home', '首页', Icons.explore_outlined),
                 _nav(
                   context,
                   keyOf,
@@ -514,6 +518,7 @@ class AppSidebar extends StatelessWidget {
                   '缓存',
                   Icons.download_outlined,
                   downloadCount > 0 ? '$downloadCount' : null,
+                  attentionCount > 0,
                 ),
                 const Spacer(),
                 _nav(
@@ -594,9 +599,18 @@ class AppSidebar extends StatelessWidget {
     String label,
     IconData icon, [
     String? count,
+    bool alert = false,
   ]) {
     final selected = _selected == target;
     final accent = accentOf(context);
+    final dot = Container(
+      width: 7,
+      height: 7,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.error,
+        shape: BoxShape.circle,
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: Gap.xs),
       child: SidebarTile(
@@ -605,22 +619,32 @@ class AppSidebar extends StatelessWidget {
         icon: icon,
         selected: selected,
         onTap: () => onNavigate(target),
-        trailing: count == null
+        trailing: count == null && !alert
             ? null
-            : MotionSwap(
-                value: count,
-                scale: .6,
-                child: AnimatedDefaultTextStyle(
-                  duration: motionDuration(context, 200),
-                  style: appFont.copyWith(
-                    fontSize: 11,
-                    color: selected
-                        ? accent.onNavigation
-                        : Theme.of(context).colorScheme.primary,
-                    fontWeight: FontWeight.w800,
-                  ),
-                  child: Text(count),
-                ),
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (count != null)
+                    MotionSwap(
+                      value: count,
+                      scale: .6,
+                      child: AnimatedDefaultTextStyle(
+                        duration: motionDuration(context, 200),
+                        style: appFont.copyWith(
+                          fontSize: 11,
+                          color: selected
+                              ? accent.onNavigation
+                              : Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        child: Text(count),
+                      ),
+                    ),
+                  if (alert) ...[
+                    if (count != null) const SizedBox(width: 6),
+                    Semantics(label: '有订阅需要处理', child: dot),
+                  ],
+                ],
               ),
       ),
     );

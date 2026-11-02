@@ -350,12 +350,17 @@ class MelonFilterOption<T> {
     this.label, {
     this.detail,
     this.detailColor,
+    this.subtitle,
     this.enabled = true,
     this.more = const [],
   });
   final T value;
   final String label;
   final String? detail;
+
+  /// A second line under [label], such as what a group's files are like;
+  /// a menu with one is wider.
+  final String? subtitle;
   final Color? detailColor;
   final bool enabled;
 
@@ -439,6 +444,9 @@ class MelonFilterMenu<T> extends StatelessWidget {
       (section) => section.options.any((option) => option.more.isNotEmpty),
     );
     final width = cells ? 120.0 : 112.0;
+    final described = sections.any(
+      (section) => section.options.any((option) => option.subtitle != null),
+    );
     void pick(T value) {
       onToggle(value, !selected.contains(value));
       if (!multiple) menu.close();
@@ -546,14 +554,39 @@ class MelonFilterMenu<T> extends StatelessWidget {
               ),
             ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 220),
-        child: Text(option.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        constraints: BoxConstraints(maxWidth: described ? 320 : 220),
+        child: option.subtitle == null
+            ? Text(option.label, maxLines: 1, overflow: TextOverflow.ellipsis)
+            : Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      option.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      option.subtitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: small?.copyWith(fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
       ),
     );
     return MelonMenuAnchor(
       controller: menu,
       crossAxisUnconstrained: false,
-      maxWidth: columns > 1 ? columns * width + 10 : 360,
+      maxWidth: columns > 1
+          ? columns * width + 10
+          : described
+          ? 460
+          : 360,
       menuChildren: [
         ?panel,
         if (panel == null)

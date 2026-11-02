@@ -61,7 +61,7 @@ class _PreferredGroupsSettingState extends State<PreferredGroupsSetting> {
       children: [
         const SettingRow(
           title: '字幕组偏好',
-          subtitle: '越靠前越优先；BT 和 PikPak 资源里这些字幕组的发布排在前面并优先推荐。拖动调整顺序',
+          subtitle: '越靠前越优先；BT 和 PikPak 资源里这些字幕组的发布排在前面并优先推荐，订阅选“偏好字幕组”时也按这个顺序挑。拖动调整顺序',
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),

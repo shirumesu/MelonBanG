@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import '../../features/appearance/appearance.dart';
 import '../../features/danmaku/danmaku_preferences.dart';
 import '../../features/playback/playback_preferences.dart';
+import '../../domain/transfer.dart';
+import '../../features/discovery/continue_range.dart';
+import '../../features/subscriptions/subscription_preferences.dart';
 import '../../features/tracking/tracking_controller.dart';
 import '../core/account_avatar.dart';
 import '../core/action_feedback.dart';
@@ -81,7 +84,13 @@ SettingsSection accountSection({
                     OutlinedButton.icon(
                       onPressed: personal.accountBusy ? null : onAccountAction,
                       icon: const Icon(Icons.logout, size: 18),
-                      label: Text(personal.accountBusy ? '退出中…' : '退出登录'),
+                      label: Text(
+                        !personal.accountBusy
+                            ? '退出登录'
+                            : personal.signingIn
+                            ? '登录中…'
+                            : '退出中…',
+                      ),
                     )
                   else
                     FilledButton.icon(
@@ -112,7 +121,10 @@ SettingsSection accountSection({
   );
 }
 
-SettingsSection appearanceSection(Appearance appearance) => SettingsSection(
+SettingsSection appearanceSection(
+  Appearance appearance,
+  ContinuePreference range,
+) => SettingsSection(
   id: 'appearance',
   title: '外观',
   icon: Icons.palette_outlined,
@@ -163,6 +175,28 @@ SettingsSection appearanceSection(Appearance appearance) => SettingsSection(
           ),
         ),
       ),
+    ], title: '主题'),
+    SettingsGroup([
+      SettingsItem(
+        '继续观看 首页 显示范围 当季 近两季 全部 在看',
+        _watch(
+          range,
+          (context) => SettingRow(
+            title: '首页继续观看',
+            subtitle: '列出哪些在看的番：正在播出或这段时间播出过的',
+            trailing: SizedBox(
+              width: 252,
+              child: MelonSegmentedControl<ContinueRange>(
+                options: {
+                  for (final value in ContinueRange.values) value: value.label,
+                },
+                value: range.value,
+                onChanged: range.set,
+              ),
+            ),
+          ),
+        ),
+      ),
       SettingsItem(
         '容量单位 大小 速度 字节 KiB MiB KB MB',
         _watch(
@@ -183,7 +217,7 @@ SettingsSection appearanceSection(Appearance appearance) => SettingsSection(
           ),
         ),
       ),
-    ]),
+    ], title: '显示'),
   ],
 );
 
@@ -396,24 +430,6 @@ SettingsSection sourcesSection(
             ),
           ),
         SettingsItem(
-          '字幕组 偏好 优先 喜欢 bt 发布组',
-          PreferredGroupsSetting(prefs: prefs, cachedGroups: cachedGroups),
-        ),
-        SettingsItem(
-          '只显示 偏好 字幕组 隐藏 其他',
-          _watch(
-            prefs,
-            (context) => SettingSwitch(
-              title: '只显示偏好字幕组',
-              subtitle: '资源列表里 BT 和 PikPak 只列出偏好字幕组的发布；没写明字幕组的和在线资源照常显示',
-              value: prefs.onlyPreferredGroups,
-              onChanged: prefs.setOnlyPreferredGroups,
-            ),
-          ),
-        ),
-      ], title: '来源优先级'),
-      SettingsGroup([
-        SettingsItem(
           '记住 记忆 上次 来源 线路 字幕组 偏好',
           _watch(
             prefs,
@@ -432,19 +448,25 @@ SettingsSection sourcesSection(
             trailing: _ForgetSources(onForget: onForgetSources),
           ),
         ),
+      ], title: '来源优先级'),
+      SettingsGroup([
         SettingsItem(
-          '自动 缓存 下一集 下一话 预下载',
+          '字幕组 偏好 优先 喜欢 bt 发布组 订阅',
+          PreferredGroupsSetting(prefs: prefs, cachedGroups: cachedGroups),
+        ),
+        SettingsItem(
+          '只显示 偏好 字幕组 隐藏 其他',
           _watch(
             prefs,
             (context) => SettingSwitch(
-              title: '播放时缓存下一话',
-              subtitle: '一话看了两分钟后，用同一字幕组或线路缓存已播出的下一话',
-              value: prefs.cacheNext,
-              onChanged: prefs.setCacheNext,
+              title: '只显示偏好字幕组',
+              subtitle: '资源列表里 BT 和 PikPak 只列出偏好字幕组的发布；没写明字幕组的和在线资源照常显示',
+              value: prefs.onlyPreferredGroups,
+              onChanged: prefs.setOnlyPreferredGroups,
             ),
           ),
         ),
-      ], title: '记忆与缓存'),
+      ], title: '字幕组'),
     ],
   );
 }
@@ -478,6 +500,122 @@ class _ForgetSourcesState extends State<_ForgetSources> {
     }),
   );
 }
+
+SettingsSection subscriptionSection(
+  SubscriptionPreferences prefs,
+  PlaybackPreferences playback,
+) => SettingsSection(
+  id: 'subscriptions',
+  title: '订阅与缓存',
+  icon: Icons.notifications_none_rounded,
+  groups: [
+    SettingsGroup([
+      SettingsItem(
+        '缓存到 订阅 BT PikPak 自动缓存',
+        _watch(
+          prefs,
+          (context) => SettingRow(
+            title: '缓存到',
+            subtitle: '订阅的番剧新一话播出后缓存到哪里',
+            trailing: SizedBox(
+              width: 180,
+              child: MelonSegmentedControl<CacheMethod>(
+                options: {
+                  for (final method in const [
+                    CacheMethod.bt,
+                    CacheMethod.pikpak,
+                  ])
+                    method: method.label,
+                },
+                value: prefs.method,
+                onChanged: prefs.setMethod,
+              ),
+            ),
+          ),
+        ),
+      ),
+      SettingsItem(
+        '修正版 v2 订阅 替换',
+        _watch(
+          prefs,
+          (context) => SettingRow(
+            title: '修正版',
+            subtitle: '已缓存的集又出了 v2 时',
+            trailing: SizedBox(
+              width: 200,
+              child: MelonSegmentedControl<RevisionPolicy>(
+                options: {
+                  for (final policy in RevisionPolicy.values)
+                    policy: policy.label,
+                },
+                value: prefs.revisions,
+                onChanged: prefs.setRevisions,
+              ),
+            ),
+          ),
+        ),
+      ),
+      SettingsItem(
+        '自动取消订阅 订阅自动删除 完结 没看',
+        _watch(
+          prefs,
+          (context) => SettingRow(
+            title: '自动取消订阅',
+            subtitle: '取消订阅不会删除已缓存的文件',
+            trailing: SizedBox(
+              width: 300,
+              child: MelonSegmentedControl<AutoUnsubscribe>(
+                options: {
+                  for (final value in AutoUnsubscribe.values)
+                    value: value.label,
+                },
+                value: prefs.autoUnsubscribe,
+                onChanged: prefs.setAutoUnsubscribe,
+              ),
+            ),
+          ),
+        ),
+      ),
+      SettingsItem(
+        '关闭窗口时 后台运行 留在后台 退出 托盘 菜单栏 订阅 自动缓存',
+        _watch(
+          prefs,
+          (context) => SettingRow(
+            title: '关闭窗口时',
+            subtitle: prefs.closeAction == null
+                ? '有订阅时，第一次关闭窗口会问一次'
+                : '留在后台时，新一话播出后会检查并缓存；从托盘（Mac 的菜单栏或程序坞）回到窗口或退出。'
+                      '没有订阅时关闭窗口就退出',
+            trailing: SizedBox(
+              width: 200,
+              child: MelonSegmentedControl<CloseAction>(
+                options: {
+                  for (final action in CloseAction.values) action: action.label,
+                },
+                value: prefs.closeAction,
+                onChanged: prefs.setCloseAction,
+              ),
+            ),
+          ),
+        ),
+      ),
+    ], title: '订阅'),
+    SettingsGroup([
+      SettingsItem(
+        '自动 缓存 下一集 下一话 预下载 播放时',
+        _watch(
+          playback,
+          (context) => SettingSwitch(
+            title: '播放时缓存下一话',
+            subtitle: '一话看了两分钟后，用同一字幕组或线路缓存已播出的下一话',
+            value: playback.cacheNext,
+            onChanged: playback.setCacheNext,
+          ),
+        ),
+      ),
+    ], title: '看番时'),
+  ],
+);
 
 SettingsSection danmakuSection(DanmakuPreferences prefs) {
   SettingsItem slider(
