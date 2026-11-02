@@ -131,11 +131,22 @@ class ApiClient {
 
   void _checkResponse(http.Response response, Uri uri) {
     if (response.statusCode >= 200 && response.statusCode < 300) return;
+    String? fromBody() {
+      final body = object(jsonDecode(response.body));
+      final error = body['error'];
+      // OAuth endpoints answer {error: code, error_description: text}.
+      if (error is String) {
+        return body['error_description'] is String
+            ? '${body['error_description']}（$error）'
+            : error;
+      }
+      return object(error)['message'] as String?;
+    }
+
     final reason =
         response.headers['x-error-message']?.trim() ??
         (response.headers['content-type']?.contains('application/json') == true
-            ? object(object(jsonDecode(response.body))['error'])['message']
-                  as String?
+            ? fromBody()
             : null);
     throw ApiException(response.statusCode, uri.host, reason: reason);
   }

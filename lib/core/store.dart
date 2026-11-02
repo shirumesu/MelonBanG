@@ -5,6 +5,9 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../domain/collection_edit.dart';
 import 'json.dart';
 
+/// Stored rows keyed by scope and id, null where a row was absent.
+typedef DocumentSnapshot = Map<(String, String), Map<String, Object?>?>;
+
 /// The Dart application owns a fresh database, separate from earlier runtimes.
 class AppStore {
   AppStore._(this.database);
@@ -145,13 +148,6 @@ class AppStore {
         row['updated'] as int,
       ),
   };
-
-  Future<int> pendingCount(String account) async =>
-      (await database.rawQuery(
-            'SELECT COUNT(*) AS count FROM mutations WHERE account=?',
-            [account],
-          )).single['count']
-          as int;
 
   Future<Map<int, int>> watchedEpisodeCounts(String scope) async => {
     for (final row in await database.rawQuery(
@@ -373,7 +369,9 @@ class AppStore {
           )).single['count']
           as int;
 
-  Future<void> mutate(
+  /// Writes [value] and, for a signed-in [account], queues [mutation];
+  /// returns the queued sequence.
+  Future<int?> mutate(
     String scope,
     String id,
     Json value,
@@ -383,149 +381,114 @@ class AppStore {
     Json? defaults,
     Json? initialMutation,
     String? episodeCollectionScope,
-    int? excludePendingSequence,
-  }) async {
-    await database.transaction((tx) async {
-      final rows = defaults != null || episodeCollectionScope != null
-          ? await tx.query(
-              'documents',
-              where: 'scope=? AND id=?',
-              whereArgs: [scope, id],
-            )
-          : <Map<String, Object?>>[];
-      if (defaults != null) {
-        if (rows.isEmpty && initialMutation != null) {
-          mutation = {
-            ...mutation,
-            'fields': {
-              ...collectionMutationFields(initialMutation),
-              ...collectionMutationFields(mutation),
-            },
-          };
-        }
-        value = {
-          ...defaults,
-          if (rows.isNotEmpty)
-            ...object(jsonDecode(rows.single['body'] as String)),
-          ...value,
-        };
-      }
-      if (mutation['kind'] == 'subject') {
-        value['_collectionFieldUpdated'] = {
-          ...object(value['_collectionFieldUpdated']),
-          for (final field in collectionMutationFields(mutation).keys)
-            field: DateTime.now().millisecondsSinceEpoch,
-        };
-      }
-      await tx.insert('documents', {
-        'scope': scope,
-        'id': id,
-        'body': jsonEncode(value),
-        'updated': DateTime.now().millisecondsSinceEpoch,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-      if (episodeCollectionScope != null) {
-        final previous = rows.isEmpty
-            ? null
-            : object(jsonDecode(rows.single['body'] as String));
-        await _updateWatchedCount(
-          tx,
-          episodeCollectionScope,
-          value['subjectId'],
-          (body) async {
-            // Retain the remote total when only some episode records are
-            // cached.
-            if (body['watchedEpisodes'] == null) {
-              return _watchedCount(tx, scope, value['subjectId']);
-            }
-            final watched =
-                number(body['watchedEpisodes']).toInt() +
-                (value['status'] == 'watched' ? 1 : 0) -
-                (previous?['status'] == 'watched' ? 1 : 0);
-            return watched < 0 ? 0 : watched;
+  }) => database.transaction((tx) async {
+    final rows = defaults != null || episodeCollectionScope != null
+        ? await tx.query(
+            'documents',
+            where: 'scope=? AND id=?',
+            whereArgs: [scope, id],
+          )
+        : <Map<String, Object?>>[];
+    if (defaults != null) {
+      if (rows.isEmpty && initialMutation != null) {
+        mutation = {
+          ...mutation,
+          'fields': {
+            ...collectionMutationFields(initialMutation),
+            ...collectionMutationFields(mutation),
           },
-        );
+        };
       }
-      if (account != 'local') {
-        if (mutation['kind'] == 'subject') {
-          final pending = await tx.query(
-            'mutations',
-            where: 'account=? AND entity=?',
-            whereArgs: [account, entity],
-            orderBy: 'sequence',
-          );
-          final editable = pending
-              .where((row) => row['sequence'] != excludePendingSequence)
-              .toList();
-          if (editable.isNotEmpty) {
-            final fields = <String, dynamic>{};
-            for (final row in editable) {
-              fields.addAll(
-                collectionMutationFields(
-                  object(jsonDecode(row['body'] as String)),
-                ),
-              );
-              await tx.delete(
-                'mutations',
-                where: 'sequence=?',
-                whereArgs: [row['sequence']],
-              );
-            }
-            mutation = {
-              ...mutation,
-              'fields': {...fields, ...collectionMutationFields(mutation)},
-            };
+      value = {
+        ...defaults,
+        if (rows.isNotEmpty)
+          ...object(jsonDecode(rows.single['body'] as String)),
+        ...value,
+      };
+    }
+    if (mutation['kind'] == 'subject') {
+      value['_collectionFieldUpdated'] = {
+        ...object(value['_collectionFieldUpdated']),
+        for (final field in collectionMutationFields(mutation).keys)
+          field: DateTime.now().millisecondsSinceEpoch,
+      };
+    }
+    await tx.insert('documents', {
+      'scope': scope,
+      'id': id,
+      'body': jsonEncode(value),
+      'updated': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    if (episodeCollectionScope != null) {
+      final previous = rows.isEmpty
+          ? null
+          : object(jsonDecode(rows.single['body'] as String));
+      await _updateWatchedCount(
+        tx,
+        episodeCollectionScope,
+        value['subjectId'],
+        (body) async {
+          // Retain the remote total when only some episode records are
+          // cached.
+          if (body['watchedEpisodes'] == null) {
+            return _watchedCount(tx, scope, value['subjectId']);
           }
-        }
-        await tx.insert('mutations', {
-          'account': account,
-          'entity': entity,
-          'body': jsonEncode(mutation),
-        });
-      }
+          final watched =
+              number(body['watchedEpisodes']).toInt() +
+              (value['status'] == 'watched' ? 1 : 0) -
+              (previous?['status'] == 'watched' ? 1 : 0);
+          return watched < 0 ? 0 : watched;
+        },
+      );
+    }
+    if (account == 'local') return null;
+    return tx.insert('mutations', {
+      'account': account,
+      'entity': entity,
+      'body': jsonEncode(mutation),
     });
-  }
+  });
 
-  Future<void> markEpisodes(
+  /// Marks [episodeIds] watched and, for a signed-in [account], queues the
+  /// batch; returns the queued sequence.
+  Future<int?> markEpisodes(
     String scope,
     String collectionScope,
     String account,
     int subjectId,
     List<int> episodeIds,
-  ) async {
-    await database.transaction((tx) async {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      for (final id in episodeIds) {
-        await tx.insert('documents', {
-          'scope': scope,
-          'id': '$id',
-          'body': jsonEncode({
-            'subjectId': subjectId,
-            'episodeId': id,
-            'status': 'watched',
-          }),
-          'updated': now,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-      await _updateWatchedCount(
-        tx,
-        collectionScope,
-        subjectId,
-        (_) => _watchedCount(tx, scope, subjectId),
-      );
-      if (account != 'local') {
-        await tx.insert('mutations', {
-          'account': account,
-          'entity': 'episodes:$subjectId',
-          'body': jsonEncode({
-            'kind': 'episodes',
-            'subjectId': subjectId,
-            'episodeIds': episodeIds,
-            'status': 'watched',
-          }),
-        });
-      }
+  ) => database.transaction((tx) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final id in episodeIds) {
+      await tx.insert('documents', {
+        'scope': scope,
+        'id': '$id',
+        'body': jsonEncode({
+          'subjectId': subjectId,
+          'episodeId': id,
+          'status': 'watched',
+        }),
+        'updated': now,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await _updateWatchedCount(
+      tx,
+      collectionScope,
+      subjectId,
+      (_) => _watchedCount(tx, scope, subjectId),
+    );
+    if (account == 'local') return null;
+    return tx.insert('mutations', {
+      'account': account,
+      'entity': 'episodes:$subjectId',
+      'body': jsonEncode({
+        'kind': 'episodes',
+        'subjectId': subjectId,
+        'episodeIds': episodeIds,
+        'status': 'watched',
+      }),
     });
-  }
+  });
 
   Future<List<Json>> pending(String account) async =>
       (await database.query(
@@ -543,6 +506,68 @@ class AppStore {
       whereArgs: [sequence],
     );
   }
+
+  /// The stored rows of [ids], each `scope` and `id`, null where absent.
+  Future<DocumentSnapshot> snapshot(List<(String, String)> ids) async => {
+    for (final (scope, id) in ids)
+      (scope, id): (await database.query(
+        'documents',
+        columns: ['body', 'updated'],
+        where: 'scope=? AND id=?',
+        whereArgs: [scope, id],
+      )).firstOrNull,
+  };
+
+  /// Puts back the rows of [snapshot] as they were and drops the queued
+  /// [sequences] that changed them.
+  Future<void> restore(DocumentSnapshot snapshot, Iterable<int> sequences) =>
+      database.transaction((tx) async {
+        for (final MapEntry(key: (scope, id), value: row) in snapshot.entries) {
+          if (row == null) {
+            await tx.delete(
+              'documents',
+              where: 'scope=? AND id=?',
+              whereArgs: [scope, id],
+            );
+          } else {
+            await tx.insert('documents', {
+              'scope': scope,
+              'id': id,
+              ...row,
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+          }
+        }
+        for (final sequence in sequences) {
+          await tx.delete(
+            'mutations',
+            where: 'sequence=?',
+            whereArgs: [sequence],
+          );
+        }
+      });
+
+  /// Removes [id] from [scope] unless it changed since [requestedAt] or
+  /// [entity] has queued edits.
+  Future<void> removeUnchanged(
+    String scope,
+    String id, {
+    required String account,
+    required String entity,
+    required int requestedAt,
+  }) => database.transaction((tx) async {
+    final queued = await tx.query(
+      'mutations',
+      where: 'account=? AND entity=?',
+      whereArgs: [account, entity],
+      limit: 1,
+    );
+    if (queued.isNotEmpty) return;
+    await tx.delete(
+      'documents',
+      where: 'scope=? AND id=? AND updated<?',
+      whereArgs: [scope, id, requestedAt],
+    );
+  });
 
   Future<void> close() => database.close();
 }

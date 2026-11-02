@@ -16,9 +16,8 @@ class TrackingPage extends StatefulWidget {
     required this.personal,
     required this.resume,
     required this.airing,
-    required this.onSync,
-    required this.feedback,
-    required this.onSignIn,
+    required this.onAccountAction,
+    required this.onUnlock,
     required this.onOpenSubject,
     this.onExplore,
   });
@@ -27,8 +26,12 @@ class TrackingPage extends StatefulWidget {
 
   /// Subjects with an episode in the schedule's coming seven days.
   final Set<int> airing;
-  final VoidCallback onSync, onSignIn;
-  final ActionFeedback feedback;
+
+  /// Signs in again once Bangumi refused to renew the login.
+  final VoidCallback onAccountAction;
+
+  /// Asks the keychain again for the saved login.
+  final VoidCallback onUnlock;
   final ValueChanged<Subject> onOpenSubject;
   final VoidCallback? onExplore;
   @override
@@ -90,6 +93,31 @@ class _TrackingPageState extends State<TrackingPage> {
   @override
   Widget build(BuildContext context) =>
       ListenableBuilder(listenable: listenable, builder: _page);
+
+  /// Why the collection may be behind Bangumi, with the step that fixes it.
+  Widget _accountIssue(TrackingController personal) {
+    if (!personal.signedIn) return const IssueBanner(issue: null);
+    if (personal.sessionExpired) {
+      return IssueBanner(
+        issue: 'Bangumi 登录已过期，重新登录后继续同步',
+        actionLabel: '重新登录',
+        onAction: widget.onAccountAction,
+      );
+    }
+    if (personal.needsAuthorization) {
+      return IssueBanner(
+        issue: '没有获得钥匙串授权，收藏暂时无法与 Bangumi 同步',
+        actionLabel: '授权',
+        onAction: widget.onUnlock,
+      );
+    }
+    return IssueBanner(
+      issue: personal.pullError == null
+          ? null
+          : '未能获取 Bangumi 上的最新收藏，先显示本地记录：${personal.pullError}',
+      onAction: () => personal.pull(force: true),
+    );
+  }
 
   Widget _page(BuildContext context, Widget? _) {
     final personal = widget.personal;
@@ -235,33 +263,10 @@ class _TrackingPageState extends State<TrackingPage> {
               icon: Icons.sort,
               tooltip: '追番排序',
             ),
-            FeedbackButton(
-              feedback: widget.feedback,
-              label: '同步收藏',
-              runningLabel: '同步中…',
-              successLabel: '同步完成',
-              icon: Icons.sync,
-              onPressed: widget.onSync,
-            ),
           ],
         ),
-        FeedbackIssue(
-          feedback: widget.feedback,
-          onRetry: personal.signedIn ? widget.onSync : widget.onSignIn,
-          actionLabel: personal.signedIn ? '重试' : '去登录',
-        ),
-        if (personal.sync.pending > 0)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Text(
-              '${personal.sync.pending} 项修改等待同步',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.tertiary,
-                fontSize: 12,
-              ),
-            ),
-          ),
         const SizedBox(height: Gap.lg),
+        _accountIssue(personal),
         if (items.isEmpty)
           EmptyState(
             text: collection.isEmpty ? '还没有收藏的番剧' : '没有符合条件的番剧',

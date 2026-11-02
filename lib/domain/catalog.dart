@@ -750,12 +750,6 @@ class AccountProfile {
   final String? username, nickname, avatarUrl;
 }
 
-class SyncState {
-  const SyncState({this.pending = 0, this.error, this.syncedAt});
-  final int pending;
-  final String? error, syncedAt;
-}
-
 /// A post on a subject's community tab.
 class CommunityEntry {
   const CommunityEntry({
@@ -898,6 +892,12 @@ abstract interface class Account {
 
   /// Saved credentials must be unlocked before requests are authorized.
   bool get needsAuthorization;
+
+  /// Bangumi refused to renew the login; only signing in again recovers.
+  bool get sessionExpired;
+
+  /// Reads the saved credentials, letting the keychain ask for access.
+  Future<void> unlock();
 
   /// An authorized API request; throws once the account changes.
   Future<dynamic> request(

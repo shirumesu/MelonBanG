@@ -22,7 +22,7 @@ Credentials platformCredentials(String directory) {
 class CredentialInteractionRequired implements Exception {
   const CredentialInteractionRequired();
   @override
-  String toString() => '登录凭据需要授权，请在账户设置中点击「解锁同步」后重试。';
+  String toString() => '没有获得钥匙串授权，无法同步到 Bangumi';
 }
 
 /// Cache successful reads only, and serialize reads/writes for each credential.

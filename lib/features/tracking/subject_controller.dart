@@ -90,7 +90,7 @@ class SubjectController extends ChangeNotifier {
     ),
   );
 
-  /// Writes locally, then reflects the committed change at once.
+  /// Saves the edit to Bangumi, then reflects it in the shown detail.
   Future<void> _save(
     Future<void> Function(int subjectId) write,
     Subject Function(Subject) update,

@@ -508,12 +508,18 @@ class PosterMeta extends StatelessWidget {
         ),
         const Spacer(),
         if (tracking)
-          Text(switch ((item.watchedEpisodes, item.episodeTotal)) {
-            (null, null) => '',
-            (null, final total?) => '全 $total 话',
-            (final watched?, null) => '已看 $watched 话',
-            (final watched?, final total?) => '已看 $watched/$total',
-          }, style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant))
+          // Progress pulled from Bangumi cross-fades in rather than jumping.
+          MotionSwap(
+            value: item.watchedEpisodes,
+            scale: 1,
+            alignment: Alignment.centerRight,
+            child: Text(switch ((item.watchedEpisodes, item.episodeTotal)) {
+              (null, null) => '',
+              (null, final total?) => '全 $total 话',
+              (final watched?, null) => '已看 $watched 话',
+              (final watched?, final total?) => '已看 $watched/$total',
+            }, style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+          )
         else
           Text(
             [

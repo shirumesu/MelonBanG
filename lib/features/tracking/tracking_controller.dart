@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'tracking_repository.dart';
+import '../../core/error_message.dart';
 import '../../domain/catalog.dart';
 
 /// The Bangumi account, its collection and sync state.
@@ -11,18 +12,18 @@ class TrackingController extends ChangeNotifier {
 
   AccountProfile? profile;
   List<Subject> collection = [];
-  SyncState sync = const SyncState();
+
+  /// Why the last pull from Bangumi failed; the saved collection stays.
+  String? pullError;
+  DateTime? _pulledAt;
   CollectionStatus filter = CollectionStatus.watching;
   bool accountBusy = false;
   int _ticket = 0;
 
   bool get signedIn => profile != null;
   bool get needsAuthorization => account.needsAuthorization;
+  bool get sessionExpired => account.sessionExpired;
   String get userId => account.userId;
-
-  /// Why the last upload of local edits failed.
-  String? get lastSyncError => tracking.lastSyncError;
-  Future<void> flush() => tracking.flush();
   List<Subject> get watching => collection
       .where((item) => item.status == CollectionStatus.watching)
       .toList();
@@ -36,39 +37,41 @@ class TrackingController extends ChangeNotifier {
   Future<void> refresh() async {
     final ticket = ++_ticket;
     final user = account.userId;
-    final values = await Future.wait<dynamic>([
-      tracking.collection(),
-      tracking.syncState(),
-    ]);
+    final items = await tracking.collection();
     if (ticket != _ticket || user != account.userId) return;
     profile = account.profile;
-    collection = values[0] as List<Subject>;
-    sync = values[1] as SyncState;
+    collection = items;
     notifyListeners();
   }
 
-  /// Pulls the remote collection; returns what still needs attention.
-  Future<String?> synchronize() async {
+  /// Pulls the remote collection when signed in, unless the last pull is
+  /// under half a minute old; a failure is kept in [pullError].
+  Future<void> pull({bool force = false}) async {
+    if (account.profile == null || account.sessionExpired) return;
+    final pulledAt = _pulledAt;
+    if (!force &&
+        pulledAt != null &&
+        DateTime.now().difference(pulledAt) < const Duration(seconds: 30)) {
+      return;
+    }
     final user = account.userId;
-    if (account.profile == null) return '登录 Bangumi 后可同步收藏。';
+    String? error;
     try {
       await tracking.refresh();
-      await refresh();
-      if (user != account.userId) return '账号已切换，请重新同步。';
-      final status = await tracking.syncState();
-      if (status.pending > 0) return '已拉取收藏，仍有 ${status.pending} 项修改待上传。';
-      if (status.error != null) return '部分修改未能同步，请重试。';
-      return null;
-    } catch (_) {
-      return '同步失败，本地收藏已保留。';
+      _pulledAt = DateTime.now();
+    } catch (e) {
+      error = errorMessage(e);
     }
+    if (user != account.userId) return;
+    pullError = error;
+    notifyListeners();
   }
 
-  /// Refreshes the remote collection when signed in.
-  Future<void> pull() async {
-    if (account.profile != null && !account.needsAuthorization) {
-      await tracking.refresh();
-    }
+  /// Asks the keychain for the saved login, then pulls.
+  Future<void> unlock() async {
+    await account.unlock();
+    await refresh();
+    await pull(force: true);
   }
 
   /// Signs in (or unlocks stored credentials), or signs out.
@@ -77,12 +80,16 @@ class TrackingController extends ChangeNotifier {
     accountBusy = true;
     notifyListeners();
     try {
-      if (account.profile == null || account.needsAuthorization) {
+      if (account.profile == null ||
+          account.needsAuthorization ||
+          account.sessionExpired) {
         await account.signIn();
         await refresh();
-        await tracking.refresh();
+        await pull(force: true);
       } else {
         await account.signOut();
+        pullError = null;
+        _pulledAt = null;
       }
     } finally {
       // A network failure must not hide a successfully restored login.

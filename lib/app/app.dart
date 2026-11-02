@@ -78,7 +78,6 @@ class _MelonAppState extends State<MelonApp>
   final List<_PageLocation> history = [];
   final subscriptions = <StreamSubscription<dynamic>>[];
   final homeFeedback = ActionFeedback();
-  final syncFeedback = ActionFeedback();
   String route = 'home', selectedSection = 'home';
   bool ready = false, fullScreen = false;
   bool closing = false, sidebarVisible = true, windowFullScreen = false;
@@ -221,13 +220,12 @@ class _MelonAppState extends State<MelonApp>
   }
 
   /// Pulls the Bangumi collection and the episode progress of recently
-  /// played subjects; the tracking changes refresh the pages.
+  /// played subjects; the tracking changes refresh the pages. A failure
+  /// keeps the saved progress and shows on the tracking page.
   Future<void> pullProgress() async {
     await personal.pull();
-    await resume.pull();
+    await resume.pull().catchError((Object _) {});
   }
-
-  Future<void> syncCollection() => syncFeedback.run(personal.synchronize);
 
   Future<void> refreshPlaybackAvailability() => resume.refresh(subjects.id);
 
@@ -578,7 +576,7 @@ class _MelonAppState extends State<MelonApp>
           unawaited(perform(discovery.loadCalendar));
         }
       case 'tracking':
-        unawaited(perform(personal.pull));
+        unawaited(personal.pull());
         unawaited(perform(discovery.loadCalendar));
       case 'calendar':
         unawaited(perform(discovery.loadCalendar));
@@ -741,7 +739,6 @@ class _MelonAppState extends State<MelonApp>
       unawaited(subscription.cancel());
     }
     homeFeedback.dispose();
-    syncFeedback.dispose();
     playerPanel.dispose();
     search.dispose();
     searchFocus.dispose();
@@ -881,6 +878,13 @@ class _MelonAppState extends State<MelonApp>
         nickname: account?.nickname ?? '未登录',
         username: account?.username,
         avatarUrl: account?.avatarUrl,
+        accountIssue: account == null
+            ? null
+            : personal.sessionExpired
+            ? '登录已过期'
+            : personal.needsAuthorization
+            ? '钥匙串未授权，暂停同步'
+            : null,
         watchingCount: ready ? personal.watching.length : 0,
         downloadCount: count,
         onNavigate: navigate,
@@ -946,16 +950,7 @@ class _MelonAppState extends State<MelonApp>
       personal: personal,
       onAccountAction: () => perform(personal.toggleAccount),
       onCancelSignIn: () => perform(personal.cancelSignIn),
-      syncBusy: syncFeedback.busy,
-      onSync: () => perform(() async {
-        final syncing = syncCollection();
-        setState(() {});
-        await syncing;
-        if (mounted) setState(() {});
-        if (syncFeedback.issue != null) {
-          throw StateError(syncFeedback.issue!);
-        }
-      }),
+      onUnlock: () => perform(personal.unlock),
     ),
     appearanceSection(appearance),
     playbackSection(playback.settings),
@@ -1112,9 +1107,8 @@ class _MelonAppState extends State<MelonApp>
               for (final item in day.items) item.id,
           },
           onOpenSubject: openSubject,
-          feedback: syncFeedback,
-          onSignIn: () => openSettings('account'),
-          onSync: syncCollection,
+          onAccountAction: () => perform(personal.toggleAccount),
+          onUnlock: () => perform(personal.unlock),
           onExplore: focusSearch,
         );
       case 'subject':

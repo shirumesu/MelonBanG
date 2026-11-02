@@ -10,7 +10,6 @@ import '../../features/playback/playback_library.dart';
 import '../../features/playback/resume_controller.dart';
 import '../../features/tracking/subject_controller.dart';
 import '../../features/tracking/tracking_controller.dart';
-import '../core/action_feedback.dart';
 import '../core/external_link.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
@@ -82,8 +81,6 @@ class SubjectPage extends StatelessWidget {
         coverTint: coverTint,
         community: community,
         catalog: catalog,
-        collectionSyncError: personal.lastSyncError,
-        onRetryCollectionSync: personal.flush,
         resume: resume.resumeOf(subject?.id),
         airings: airings,
         cachedEpisodeIds: resume.playableOf(subject?.id),
@@ -124,8 +121,6 @@ class _SubjectDetail extends StatefulWidget {
     required this.cachedEpisodeIds,
     required this.loading,
     required this.signedIn,
-    required this.collectionSyncError,
-    required this.onRetryCollectionSync,
     required this.coverTint,
   });
   final Subject? subject;
@@ -135,8 +130,6 @@ class _SubjectDetail extends StatefulWidget {
   final bool coverTint;
   final SubjectCommunitySource community;
   final Catalog catalog;
-  final String? collectionSyncError;
-  final Future<void> Function() onRetryCollectionSync;
   final PlaybackResume? resume;
   final Set<int>? cachedEpisodeIds;
   final Future<void> Function(CollectionChange) onSaveCollection;
@@ -170,13 +163,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
 
   /// The episode under the pointer; only the summary beside 剧集 follows it.
   final _hoverEpisode = ValueNotifier<Episode?>(null);
-  final _collectionIssue = ActionFeedback();
-
-  @override
-  void initState() {
-    super.initState();
-    _collectionIssue.issue = widget.collectionSyncError;
-  }
 
   bool _loadingPart(String part) {
     if (!widget.loading) return false;
@@ -210,9 +196,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   @override
   void didUpdateWidget(covariant _SubjectDetail oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.collectionSyncError != oldWidget.collectionSyncError) {
-      _collectionIssue.issue = widget.collectionSyncError;
-    }
     if (oldWidget.subject?.id != widget.subject?.id) {
       _feedbackTimer?.cancel();
       _selectedStatus = _feedback = _collectionError = _nudge = null;
@@ -231,7 +214,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   void dispose() {
     _feedbackTimer?.cancel();
     _releaseTimer?.cancel();
-    _collectionIssue.dispose();
     _hoverEpisode.dispose();
     super.dispose();
   }
@@ -451,11 +433,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       }
     }
   }
-
-  Future<void> _retryCollection() => _collectionIssue.run(() async {
-    await widget.onRetryCollectionSync();
-    return widget.collectionSyncError;
-  });
 
   EpisodeStatus _episodeStatus(Episode episode) =>
       _episodeOverrides[episode.id] ?? episode.status;
@@ -1172,10 +1149,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             ),
           const SizedBox(height: Gap.sm),
           _collectionFeedback(),
-          FeedbackIssue(
-            feedback: _collectionIssue,
-            onRetry: () => unawaited(_retryCollection()),
-          ),
         ],
       ),
     );
