@@ -62,15 +62,6 @@ class HomePage extends StatelessWidget {
       380.0,
       constraints.maxHeight - Gap.lg - _showcaseHeight - Gap.xxl - Gap.xl,
     );
-    final refresh = FeedbackButton(
-      feedback: feedback,
-      label: '刷新',
-      runningLabel: '刷新中…',
-      successLabel: '已更新',
-      icon: Icons.refresh,
-      onPressed: onRefresh,
-      iconOnly: true,
-    );
     final Widget showcase;
     if (trendingLoading && trending.isEmpty) {
       showcase = _ShowcaseSkeleton(wide: wide);
@@ -85,7 +76,6 @@ class HomePage extends StatelessWidget {
         key: const PageStorageKey('trending-showcase'),
         items: trending,
         wide: wide,
-        refresh: refresh,
         onOpen: onOpenSubject,
       );
     }
@@ -139,7 +129,6 @@ class HomePage extends StatelessWidget {
             icon: Icons.local_fire_department_outlined,
             color: Theme.of(context).colorScheme.onSurfaceVariant,
             top: 0,
-            trailing: refresh,
           ),
         arrive(0, showcase),
         const SizedBox(height: Gap.xxl),
@@ -299,12 +288,10 @@ class _TrendingShowcase extends StatefulWidget {
     super.key,
     required this.items,
     required this.wide,
-    required this.refresh,
     required this.onOpen,
   });
   final List<Subject> items;
   final bool wide;
-  final Widget refresh;
   final ValueChanged<Subject> onOpen;
 
   @override
@@ -359,7 +346,6 @@ class _TrendingShowcaseState extends State<_TrendingShowcase> {
             child: _RankList(
               items: widget.items,
               selected: current,
-              refresh: widget.refresh,
               onSelect: select,
             ),
           ),
@@ -643,12 +629,10 @@ class _RankList extends StatelessWidget {
   const _RankList({
     required this.items,
     required this.selected,
-    required this.refresh,
     required this.onSelect,
   });
   final List<Subject> items;
   final int selected;
-  final Widget refresh;
   final ValueChanged<int> onSelect;
 
   @override
@@ -667,7 +651,7 @@ class _RankList extends StatelessWidget {
         builder: (context, keyOf) => Column(
           children: [
             Padding(
-              padding: const EdgeInsets.only(left: Gap.sm, bottom: Gap.xs),
+              padding: const EdgeInsets.fromLTRB(Gap.sm, Gap.xs, 0, Gap.sm),
               child: Row(
                 children: [
                   Icon(
@@ -677,8 +661,6 @@ class _RankList extends StatelessWidget {
                   ),
                   const SizedBox(width: 6),
                   Text('本季热度', style: Theme.of(context).textTheme.titleSmall),
-                  const Spacer(),
-                  refresh,
                 ],
               ),
             ),

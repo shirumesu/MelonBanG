@@ -415,9 +415,13 @@ class AppSidebar extends StatelessWidget {
     this.avatarUrl,
     this.selectedRoute,
     this.sourcesWarning = false,
+    this.accountIssue,
   });
   final String route, nickname;
   final String? username, avatarUrl;
+
+  /// Why the signed-in account cannot sync, shown in place of its handle.
+  final String? accountIssue;
   final String? selectedRoute;
   final int watchingCount, downloadCount;
   final bool sourcesWarning;
@@ -552,16 +556,19 @@ class AppSidebar extends StatelessWidget {
                                   ),
                                 ),
                                 Text(
-                                  username == null
-                                      ? '登录 Bangumi'
-                                      : '@$username',
+                                  accountIssue ??
+                                      (username == null
+                                          ? '登录 Bangumi'
+                                          : '@$username'),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     fontSize: 10,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
+                                    color: accountIssue == null
+                                        ? Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant
+                                        : Theme.of(context).colorScheme.error,
                                   ),
                                 ),
                               ],

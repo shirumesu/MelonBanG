@@ -173,7 +173,7 @@ LinearGradient sidebarTopFade(BuildContext context) => LinearGradient(
   ],
 );
 
-/// A 2px ring on a button reached from the keyboard; pointer focus shows
+/// A ring on a button reached from the keyboard; pointer focus shows
 /// nothing extra. [rest] is the button's own outline.
 WidgetStateBorderSide focusRing(ColorScheme scheme, [BorderSide? rest]) =>
     WidgetStateBorderSide.resolveWith(
@@ -181,7 +181,11 @@ WidgetStateBorderSide focusRing(ColorScheme scheme, [BorderSide? rest]) =>
           states.contains(WidgetState.focused) &&
               FocusManager.instance.highlightMode ==
                   FocusHighlightMode.traditional
-          ? BorderSide(color: scheme.primary, width: 2)
+          ? BorderSide(
+              color: scheme.primary.withValues(alpha: .7),
+              width: 1.5,
+              strokeAlign: BorderSide.strokeAlignInside,
+            )
           : rest,
     );
 
@@ -381,8 +385,15 @@ ThemeData _appTheme(bool dark, Color accent) {
         textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w400),
       ).copyWith(side: focusRing(scheme)),
     ),
+    // Icon buttons take the rounded square of the other controls, so their
+    // hover and keyboard focus fit the title bar and toolbars.
     iconButtonTheme: IconButtonThemeData(
-      style: ButtonStyle(side: focusRing(scheme)),
+      style: ButtonStyle(
+        side: focusRing(scheme),
+        shape: const WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: controlBorderRadius),
+        ),
+      ),
     ),
     scrollbarTheme: ScrollbarThemeData(
       thickness: const WidgetStatePropertyAll(6),

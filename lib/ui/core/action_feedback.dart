@@ -162,7 +162,7 @@ class _FeedbackLabel extends StatelessWidget {
   }
 }
 
-class FeedbackIssue extends StatefulWidget {
+class FeedbackIssue extends StatelessWidget {
   const FeedbackIssue({
     super.key,
     required this.feedback,
@@ -176,53 +176,82 @@ class FeedbackIssue extends StatefulWidget {
   final String actionLabel;
 
   @override
-  State<FeedbackIssue> createState() => _FeedbackIssueState();
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: feedback,
+    builder: (context, _) => IssueBanner(
+      issue: feedback.issue,
+      onAction: onRetry,
+      actionLabel: actionLabel,
+    ),
+  );
 }
 
-class _FeedbackIssueState extends State<FeedbackIssue> {
-  String? _lastIssue;
+/// A tinted line naming what went wrong, unfolding while [issue] is set.
+class IssueBanner extends StatefulWidget {
+  const IssueBanner({
+    super.key,
+    required this.issue,
+    this.onAction,
+    this.actionLabel = '重试',
+  });
+  final String? issue;
+
+  /// Null when the issue offers no action.
+  final VoidCallback? onAction;
+  final String actionLabel;
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: widget.feedback,
-    builder: (context, _) {
-      _lastIssue = widget.feedback.issue ?? _lastIssue;
-      final scheme = Theme.of(context).colorScheme;
-      return MotionReveal(
-        visible: widget.feedback.issue != null,
-        child: _lastIssue == null
-            ? const SizedBox.shrink()
-            : Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Semantics(
-                  liveRegion: true,
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 6, 4),
-                    decoration: BoxDecoration(
-                      color: scheme.errorContainer.withValues(alpha: .45),
-                      borderRadius: controlBorderRadius,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.info_outline, size: 18, color: scheme.error),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _lastIssue!,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
+  State<IssueBanner> createState() => _IssueBannerState();
+}
+
+class _IssueBannerState extends State<IssueBanner> {
+  /// The last issue, and its action, kept while the banner folds away.
+  String? _issue;
+  VoidCallback? _action;
+  String _actionLabel = '';
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.issue != null) {
+      _issue = widget.issue;
+      _action = widget.onAction;
+      _actionLabel = widget.actionLabel;
+    }
+    final scheme = Theme.of(context).colorScheme;
+    return MotionReveal(
+      visible: widget.issue != null,
+      child: _issue == null
+          ? const SizedBox.shrink()
+          : Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Semantics(
+                liveRegion: true,
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 6, 4),
+                  decoration: BoxDecoration(
+                    color: scheme.errorContainer.withValues(alpha: .45),
+                    borderRadius: controlBorderRadius,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, size: 18, color: scheme.error),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _issue!,
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
-                        if (widget.onRetry != null)
-                          TextButton(
-                            onPressed: widget.onRetry,
-                            child: Text(widget.actionLabel),
-                          ),
-                      ],
-                    ),
+                      ),
+                      if (_action != null)
+                        TextButton(
+                          onPressed: widget.issue == null ? null : _action,
+                          child: Text(_actionLabel),
+                        ),
+                    ],
                   ),
                 ),
               ),
-      );
-    },
-  );
+            ),
+    );
+  }
 }

@@ -26,10 +26,12 @@ SettingsSection accountSection({
   required TrackingController personal,
   required VoidCallback onAccountAction,
   required VoidCallback onCancelSignIn,
-  required VoidCallback? onSync,
-  required bool syncBusy,
+  required VoidCallback onUnlock,
 }) {
-  bool signedIn() => personal.profile != null && !personal.needsAuthorization;
+  bool signedIn() =>
+      personal.profile != null &&
+      !personal.needsAuthorization &&
+      !personal.sessionExpired;
   return SettingsSection(
     id: 'account',
     title: '账户与同步',
@@ -49,9 +51,14 @@ SettingsSection accountSection({
               title: account?.nickname ?? '未登录',
               subtitle: account == null
                   ? '在浏览器中授权登录 Bangumi，之后同步收藏和观看进度'
+                  : personal.sessionExpired
+                  ? '登录已过期，重新登录后继续同步'
                   : personal.needsAuthorization
-                  ? '登录凭据待解锁'
+                  ? '没有获得钥匙串授权，暂时无法同步'
                   : '@${account.username ?? ''}',
+              subtitleColor: account != null && !signedIn()
+                  ? Theme.of(context).colorScheme.error
+                  : null,
               trailing: Wrap(
                 spacing: Gap.sm,
                 children: [
@@ -68,13 +75,20 @@ SettingsSection accountSection({
                     )
                   else
                     FilledButton.icon(
-                      onPressed: personal.accountBusy ? null : onAccountAction,
+                      onPressed: personal.accountBusy
+                          ? null
+                          : personal.needsAuthorization &&
+                                !personal.sessionExpired
+                          ? onUnlock
+                          : onAccountAction,
                       icon: const Icon(Icons.account_circle_outlined, size: 18),
                       label: Text(
                         personal.accountBusy
                             ? '等待浏览器授权…'
+                            : personal.sessionExpired
+                            ? '重新登录'
                             : personal.needsAuthorization
-                            ? '解锁同步'
+                            ? '授权钥匙串'
                             : '登录 Bangumi',
                       ),
                     ),
@@ -83,27 +97,6 @@ SettingsSection accountSection({
             );
           }),
         ),
-        if (signedIn())
-          SettingsItem(
-            '同步 上传 收藏 进度',
-            _watch(personal, (context) {
-              final pending = personal.sync.pending;
-              return SettingRow(
-                title: pending > 0 ? '$pending 项修改待上传' : '已全部同步',
-                subtitle: personal.sync.error == null
-                    ? '联网时自动同步'
-                    : '上次同步失败：${personal.sync.error}',
-                subtitleColor: personal.sync.error == null
-                    ? null
-                    : Theme.of(context).colorScheme.error,
-                trailing: OutlinedButton.icon(
-                  onPressed: syncBusy ? null : onSync,
-                  icon: const Icon(Icons.sync, size: 18),
-                  label: Text(syncBusy ? '同步中…' : '立即同步'),
-                ),
-              );
-            }),
-          ),
       ]),
     ],
   );

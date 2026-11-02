@@ -47,6 +47,14 @@ class AccountRepository implements Account {
   int _signInGeneration = 0;
   bool _closed = false;
   bool _restoreNeedsAuthorization = false;
+
+  /// The keychain was asked this session and access was refused: requests
+  /// stop asking until the user acts.
+  bool _unlockDeclined = false;
+  bool _expired = false;
+  Future<void>? _unlocking;
+  @override
+  bool get sessionExpired => _expired;
   Future<void> initialize() async {
     _profile = await store.get('account', 'profile');
     try {
@@ -101,23 +109,9 @@ class AccountRepository implements Account {
     }
 
     await _cancelPendingSignIn();
-    if (_restoreNeedsAuthorization) {
-      final saved = _bundle == null ? await credentials.read('account') : null;
-      checkCurrent();
-      if (saved != null) {
-        _bundle = object(jsonDecode(saved));
-        await _rememberProfile();
-      } else if (_bundle == null) {
-        _profile = null;
-        await store.remove('account', 'profile');
-      }
-    }
+    if (_restoreNeedsAuthorization) await unlock();
     checkCurrent();
-    if (_bundle != null) {
-      _restoreNeedsAuthorization = false;
-      return session!;
-    }
-    _restoreNeedsAuthorization = false;
+    if (_bundle != null && !_expired) return session!;
     final config = _oauthConfiguration();
     final redirect = Uri.parse('${config['redirectUri']}');
     final state = newId();
@@ -217,11 +211,40 @@ class AccountRepository implements Account {
     };
   }
 
+  @override
+  Future<void> unlock() {
+    if (!_restoreNeedsAuthorization) return Future.value();
+    return _unlocking ??= _unlock().whenComplete(() => _unlocking = null);
+  }
+
+  /// Reads the saved credentials, letting the keychain ask for access.
+  Future<void> _unlock() async {
+    final generation = _signInGeneration;
+    final String? saved;
+    try {
+      saved = await credentials.read('account');
+    } catch (_) {
+      _unlockDeclined = true;
+      throw StateError('没有获得钥匙串授权，无法同步到 Bangumi');
+    }
+    if (_closed || generation != _signInGeneration) throw StateError('登录已取消');
+    _restoreNeedsAuthorization = _unlockDeclined = false;
+    if (saved != null) {
+      _bundle = object(jsonDecode(saved));
+      await _rememberProfile();
+    } else if (_bundle == null) {
+      _profile = null;
+      await store.remove('account', 'profile');
+    }
+  }
+
   Future<String> accessToken() async {
     if (!_closed && _bundle == null && needsAuthorization) {
-      throw const CredentialInteractionRequired();
+      if (_unlockDeclined) throw const CredentialInteractionRequired();
+      await unlock();
     }
     if (_closed || _bundle == null) throw StateError('请先登录 Bangumi');
+    if (_expired) throw StateError('Bangumi 登录已过期，请重新登录');
     if (number(_bundle!['expiresAt']) >
         DateTime.now().millisecondsSinceEpoch + 60000) {
       return '${_bundle!['access_token']}';
@@ -240,6 +263,7 @@ class AccountRepository implements Account {
       await credentials.write('account', jsonEncode(bundle));
       if (!valid()) throw StateError('账号已经切换');
       _bundle = bundle;
+      _expired = false;
       await _rememberProfile();
     });
     _credentialWrites = writing.catchError((Object _) {});
@@ -250,12 +274,30 @@ class AccountRepository implements Account {
     final old = _bundle!;
     final config = _oauthConfiguration();
     if (_closed || !identical(_bundle, old)) throw StateError('账号已经切换');
-    final token = await _token(config, {
-      'grant_type': 'refresh_token',
-      'refresh_token': '${old['refresh_token']}',
-    });
+    final Json token;
+    try {
+      token = await _token(config, {
+        'grant_type': 'refresh_token',
+        'refresh_token': '${old['refresh_token']}',
+      });
+    } on ApiException catch (e) {
+      // Bangumi refuses an expired or already used refresh token; only a new
+      // sign-in recovers.
+      if (e.status != 400 && e.status != 401) rethrow;
+      if (identical(_bundle, old)) _expired = true;
+      throw StateError('Bangumi 登录已过期，请重新登录');
+    }
+    if (_closed || !identical(_bundle, old)) throw StateError('账号已经切换');
     final bundle = <String, dynamic>{...old, ...token, 'user': old['user']};
-    await _saveBundle(bundle, () => !_closed && identical(_bundle, old));
+    // Bangumi has retired the old refresh token: keep the new one for this
+    // session even when the keychain refuses to save it.
+    _bundle = bundle;
+    unawaited(
+      _saveBundle(
+        bundle,
+        () => !_closed && identical(_bundle, bundle),
+      ).catchError((Object _) {}),
+    );
     return '${token['access_token']}';
   }
 
@@ -321,7 +363,7 @@ class AccountRepository implements Account {
     _bundle = null;
     _profile = null;
     _refresh = null;
-    _restoreNeedsAuthorization = false;
+    _restoreNeedsAuthorization = _unlockDeclined = _expired = false;
     final deleting = _credentialWrites.then((_) async {
       await credentials.write('account', null);
       await store.remove('account', 'profile');

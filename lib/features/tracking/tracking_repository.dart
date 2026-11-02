@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import '../../core/error_message.dart';
 import '../../domain/catalog.dart';
@@ -7,41 +8,26 @@ import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../core/store.dart';
 
-class _SyncStatus {
-  String? error;
-  String? syncedAt;
-}
-
 class TrackingRepository {
   TrackingRepository(this.store, this.account, this.catalog);
   final AppStore store;
   final Account account;
   final Catalog catalog;
-  int? _sendingSequence;
-  Future<void>? _flushing;
-  Timer? _retry;
   bool _closed = false;
-  final _syncStatus = <String, _SyncStatus>{};
+
+  /// The running edit or upload of each `user:subject`; the next one waits.
+  final _subjectQueues = <String, Future<void>>{};
   final _collectionRefreshes = <String, Future<void>>{};
-  final _episodeRefreshes = <String, Future<void>>{};
-  final _episodeRefreshedAt = <String, DateTime>{};
+  final _entryRefreshes = <String, Future<void>>{};
+  final _entryRefreshedAt = <String, DateTime>{};
 
   /// Scores cleared on entering wish, keyed `user:subject`, restored on leaving it.
   final _heldScores = <String, int>{};
-  _SyncStatus get _currentSync =>
-      _syncStatus.putIfAbsent(account.userId, _SyncStatus.new);
-  String? get lastSyncError => _currentSync.error;
-  set lastSyncError(String? value) => _currentSync.error = value;
-  String? get lastSyncedAt => _currentSync.syncedAt;
-  set lastSyncedAt(String? value) => _currentSync.syncedAt = value;
   final changes = StreamController<void>.broadcast();
+
+  /// Uploads the edits a previous run left queued.
   void start() {
-    if (_closed || _retry != null) return;
-    unawaited(flush());
-    _retry = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) => unawaited(flush()),
-    );
+    if (!_closed) unawaited(_uploadQueued().catchError((Object _) {}));
   }
 
   String _collection(String user) => 'collection:$user';
@@ -58,11 +44,6 @@ class TrackingRepository {
     }).toList();
   }
 
-  Future<SyncState> syncState() async => SyncState(
-    pending: await store.pendingCount(account.userId),
-    error: lastSyncError,
-    syncedAt: lastSyncedAt,
-  );
   Future<Subject> subject(
     int id, {
     void Function(Subject)? onAvailable,
@@ -77,8 +58,8 @@ class TrackingRepository {
 
     // Public detail and personal progress are independent network requests.
     // A failed progress read keeps the saved progress and is retried on the
-    // next visit; it is not an upload failure, so it leaves lastSyncError.
-    final personal = refreshEpisodes(id, useCache: true).catchError((_) {});
+    // next visit.
+    final personal = refreshEntry(id, useCache: true).catchError((_) {});
     if (forPlayback) {
       unawaited(personal);
       return _withProgress(
@@ -169,43 +150,43 @@ class TrackingRepository {
       if (_closed || user != account.userId) throw StateError('账号已经切换');
     }
     if (fields.isEmpty && !completeEpisodes) return;
-    final mutation = {
-      'kind': 'subject',
-      'subjectId': subjectId,
-      'fields': fields,
-    };
-    if (fields.isNotEmpty) {
-      await store.mutate(
-        _collection(user),
-        '$subjectId',
-        {
-          'subjectId': subjectId,
-          'status': ?status?.key,
-          'userScore': ?score,
-          'collectionTags': ?tags,
-          'comment': ?comment,
-        },
-        user,
-        'subject:$subjectId',
-        mutation,
-        defaults: {...current, 'status': current['status'] ?? 'wish'},
-        initialMutation: const {
-          'fields': {'type': 1},
-        },
-        excludePendingSequence: _sendingSequence,
-      );
-    }
-    if (episodeIds.isNotEmpty) {
-      await store.markEpisodes(
-        _episodes(user),
-        _collection(user),
-        user,
-        subjectId,
-        episodeIds,
-      );
-    }
-    _changed();
-    unawaited(flush());
+    await _commit(
+      user,
+      subjectId,
+      [
+        (_collection(user), '$subjectId'),
+        for (final id in episodeIds) (_episodes(user), '$id'),
+      ],
+      () async => [
+        if (fields.isNotEmpty)
+          await store.mutate(
+            _collection(user),
+            '$subjectId',
+            {
+              'subjectId': subjectId,
+              'status': ?status?.key,
+              'userScore': ?score,
+              'collectionTags': ?tags,
+              'comment': ?comment,
+            },
+            user,
+            'subject:$subjectId',
+            {'kind': 'subject', 'subjectId': subjectId, 'fields': fields},
+            defaults: {...current, 'status': current['status'] ?? 'wish'},
+            initialMutation: const {
+              'fields': {'type': 1},
+            },
+          ),
+        if (episodeIds.isNotEmpty)
+          await store.markEpisodes(
+            _episodes(user),
+            _collection(user),
+            user,
+            subjectId,
+            episodeIds,
+          ),
+      ],
+    );
   }
 
   Future<void> setEpisode(
@@ -215,22 +196,31 @@ class TrackingRepository {
   ) async {
     if (_closed) throw StateError('收藏服务已关闭');
     final user = account.userId;
-    await store.mutate(
-      _episodes(user),
-      '$episodeId',
-      {'subjectId': subjectId, 'episodeId': episodeId, 'status': status.key},
+    await _commit(
       user,
-      'episode:$episodeId',
-      {
-        'kind': 'episode',
-        'subjectId': subjectId,
-        'episodeId': episodeId,
-        'status': status.key,
-      },
-      episodeCollectionScope: _collection(user),
+      subjectId,
+      [(_episodes(user), '$episodeId'), (_collection(user), '$subjectId')],
+      () async => [
+        await store.mutate(
+          _episodes(user),
+          '$episodeId',
+          {
+            'subjectId': subjectId,
+            'episodeId': episodeId,
+            'status': status.key,
+          },
+          user,
+          'episode:$episodeId',
+          {
+            'kind': 'episode',
+            'subjectId': subjectId,
+            'episodeId': episodeId,
+            'status': status.key,
+          },
+          episodeCollectionScope: _collection(user),
+        ),
+      ],
     );
-    _changed();
-    unawaited(flush());
   }
 
   /// Marks several episodes at once; watched uses Bangumi's batch endpoint.
@@ -247,15 +237,155 @@ class TrackingRepository {
     }
     if (_closed) throw StateError('收藏服务已关闭');
     final user = account.userId;
-    await store.markEpisodes(
-      _episodes(user),
-      _collection(user),
+    await _commit(
       user,
       subjectId,
-      episodeIds,
+      [
+        for (final id in episodeIds) (_episodes(user), '$id'),
+        (_collection(user), '$subjectId'),
+      ],
+      () async => [
+        await store.markEpisodes(
+          _episodes(user),
+          _collection(user),
+          user,
+          subjectId,
+          episodeIds,
+        ),
+      ],
     );
-    _changed();
-    unawaited(flush());
+  }
+
+  /// Runs [task] after the earlier edits and uploads of [subjectId].
+  Future<T> _inOrder<T>(String user, int subjectId, Future<T> Function() task) {
+    final key = '$user:$subjectId';
+    final result = (_subjectQueues[key] ?? Future.value()).then((_) => task());
+    final settled = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _subjectQueues[key] = settled;
+    settled.then((_) {
+      if (identical(_subjectQueues[key], settled)) _subjectQueues.remove(key);
+    });
+    return result;
+  }
+
+  /// Writes an edit locally so it shows at once, then sends it to Bangumi.
+  /// When sending fails the [touched] rows go back to how they were and the
+  /// error names why. [write] returns the queued sequences.
+  Future<void> _commit(
+    String user,
+    int subjectId,
+    List<(String, String)> touched,
+    Future<List<int?>> Function() write,
+  ) => _inOrder(user, subjectId, () async {
+    if (_closed || user != account.userId) throw StateError('账号已经切换');
+    if (user == 'local') {
+      await write();
+      _changed();
+      return;
+    }
+    DocumentSnapshot? before;
+    var sequences = <int>[];
+    try {
+      // The edit is the user's own: ask the keychain even if it was refused.
+      if (account.needsAuthorization) await account.unlock();
+      // Older edits of this subject go first, or they would undo this one.
+      await _upload(user, subjectId);
+      before = await store.snapshot(touched);
+      sequences = (await write()).nonNulls.toList();
+      _changed();
+      for (final row in await store.pending(user)) {
+        final sequence = row['sequence'] as int;
+        if (!sequences.contains(sequence)) continue;
+        await _send(object(row['body']));
+        await store.acknowledge(sequence);
+      }
+    } catch (e) {
+      if (before != null) {
+        await store.restore(before, sequences);
+        // A partly sent edit leaves Bangumi ahead of the restored rows.
+        unawaited(refreshEntry(subjectId).catchError((Object _) {}));
+      }
+      // The account may have just turned out locked or expired.
+      _changed();
+      throw StateError(
+        before == null ? _failure(e) : '同步到 Bangumi 失败，修改已撤销：${_failure(e)}',
+      );
+    }
+  });
+
+  String _failure(Object error) => error is ApiException && error.status == 400
+      ? 'Bangumi 拒绝了这次修改（${error.reason ?? 'HTTP 400'}）'
+      : errorMessage(error);
+
+  /// Sends one queued edit to Bangumi.
+  Future<void> _send(Json input) async {
+    if (input['kind'] == 'subject') {
+      await account.request(
+        '/v0/users/-/collections/${input['subjectId']}',
+        method: 'POST',
+        body: collectionMutationFields(input),
+      );
+    } else if (input['kind'] == 'episodes') {
+      await account.request(
+        '/v0/users/-/collections/${input['subjectId']}/episodes',
+        method: 'PATCH',
+        body: {'episode_id': input['episodeIds'], 'type': 2},
+      );
+    } else {
+      await account.request(
+        '/v0/users/-/collections/-/episodes/${input['episodeId']}',
+        method: 'PUT',
+        body: {'type': EpisodeStatus.parse('${input['status']}').remoteValue},
+      );
+    }
+  }
+
+  /// Sends the queued edits of [subjectId], left by a run that closed or
+  /// lost its connection mid-send. Bangumi rejecting one drops it and pulls
+  /// the subject back; other failures keep them queued.
+  Future<void> _upload(String user, int subjectId) async {
+    final rows = [
+      for (final row in await store.pending(user))
+        if (object(row['body'])['subjectId'] == subjectId) row,
+    ];
+    if (rows.isEmpty) return;
+    // Bangumi requires a subject collection before accepting episode edits.
+    rows.sort((a, b) {
+      final aEpisode = object(a['body'])['kind'] == 'subject' ? 0 : 1;
+      final bEpisode = object(b['body'])['kind'] == 'subject' ? 0 : 1;
+      final kind = aEpisode.compareTo(bEpisode);
+      return kind != 0
+          ? kind
+          : (a['sequence'] as int).compareTo(b['sequence'] as int);
+    });
+    var rejected = false;
+    for (final row in rows) {
+      if (_closed || user != account.userId) throw StateError('账号已经切换');
+      try {
+        await _send(object(row['body']));
+      } on ApiException catch (e) {
+        if (e.status != 400 && e.status != 404) rethrow;
+        rejected = true;
+      }
+      await store.acknowledge(row['sequence'] as int);
+    }
+    if (rejected) await refreshEntry(subjectId);
+  }
+
+  /// Uploads every queued edit of the current account, subject by subject.
+  Future<void> _uploadQueued() async {
+    final user = account.userId;
+    if (user == 'local' || _closed) return;
+    final subjects = {
+      for (final row in await store.pending(user))
+        number(object(row['body'])['subjectId']).toInt(),
+    };
+    for (final id in subjects) {
+      await _inOrder(user, id, () => _upload(user, id));
+    }
   }
 
   Future<void> refresh() {
@@ -269,123 +399,124 @@ class TrackingRepository {
     });
   }
 
+  /// A Bangumi collection entry in the shape the collection is stored.
+  static Json _remoteRow(Json row) {
+    final s = object(row['subject']);
+    return {
+      'subjectId': row['subject_id'],
+      'name': s['name'],
+      'nameCn': s['name_cn'],
+      'summary': s['short_summary'],
+      'coverUrl': [
+        for (final size in ['common', 'large', 'medium', 'small'])
+          coverAddress(object(s['images'])[size]),
+      ].whereType<String>().firstOrNull,
+      'episodeTotal': s['eps'] ?? s['total_episodes'],
+      'score': s['score'],
+      'airDate': s['date'],
+      'collectionTotal': s['collection_total'],
+      'collectedAt': row['updated_at'],
+      'status': CollectionStatus.fromRemote(number(row['type']).toInt()).key,
+      'userScore': row['rate'],
+      'collectionTags': row['tags'] is List ? row['tags'] : [],
+      'comment': row['comment'] ?? '',
+      'watchedEpisodes': row['ep_status'],
+    };
+  }
+
   Future<void> _refreshCollection() async {
     if (account.profile == null) return;
     final requestedAt = DateTime.now().millisecondsSinceEpoch;
     final user = account.userId;
     final username = Uri.encodeComponent('${account.profile!.username}');
     final remote = <String, Json>{};
-    try {
-      // Keep pending episode counts even if the outbox finishes during the pull.
-      final requestMutations = await store.pending(user);
-      final pendingFields = <String, Set<String>>{};
-      for (final row in requestMutations) {
-        final body = object(row['body']);
-        if (body['kind'] == 'subject') {
-          pendingFields
-              .putIfAbsent('${body['subjectId']}', () => {})
-              .addAll(collectionMutationFields(body).keys);
-        }
+    // Keep pending episode counts even if the outbox finishes during the pull.
+    final requestMutations = await store.pending(user);
+    final pendingFields = <String, Set<String>>{};
+    for (final row in requestMutations) {
+      final body = object(row['body']);
+      if (body['kind'] == 'subject') {
+        pendingFields
+            .putIfAbsent('${body['subjectId']}', () => {})
+            .addAll(collectionMutationFields(body).keys);
       }
-      final pendingEpisodeSubjects = requestMutations
-          .map((row) => object(row['body']))
-          .where(
-            (body) => body['kind'] == 'episode' || body['kind'] == 'episodes',
-          )
-          .map((body) => '${body['subjectId']}')
-          .toSet();
-      for (var offset = 0; ; offset += 50) {
-        if (user != account.userId || _closed) return;
-        final response = object(
-          await account.request(
-            '/v0/users/$username/collections?subject_type=2&limit=50&offset=$offset',
-          ),
-        );
-        final rows = objects(response['data']);
-        for (final row in rows) {
-          if (number(row['type']) == 0) continue;
-          final s = object(row['subject']);
-          final id = row['subject_id'];
-          remote['$id'] = {
-            'subjectId': id,
-            'name': s['name'],
-            'nameCn': s['name_cn'],
-            'summary': s['short_summary'],
-            'coverUrl': [
-              for (final size in ['common', 'large', 'medium', 'small'])
-                coverAddress(object(s['images'])[size]),
-            ].whereType<String>().firstOrNull,
-            'episodeTotal': s['eps'] ?? s['total_episodes'],
-            'score': s['score'],
-            'airDate': s['date'],
-            'collectionTotal': s['collection_total'],
-            'collectedAt': row['updated_at'],
-            'status': CollectionStatus.fromRemote(number(row['type']).toInt())
-                .key,
-            'userScore': row['rate'],
-            'collectionTags': row['tags'] is List ? row['tags'] : [],
-            'comment': row['comment'] ?? '',
-            'watchedEpisodes': row['ep_status'],
-          };
-        }
-        if (rows.isEmpty || offset + rows.length >= number(response['total'])) {
-          break;
-        }
-      }
-      if (user != account.userId || _closed) return;
-      await store.mergeRemote(
-        _collection(user),
-        remote,
-        account: user,
-        entityKind: 'subject',
-        requestedAt: requestedAt,
-        replace: true,
-        preserveEpisodeCounts: pendingEpisodeSubjects,
-        preserveFields: pendingFields,
-      );
-      lastSyncedAt = DateTime.now().toIso8601String();
-      lastSyncError = null;
-      _changed();
-      await flush();
-    } catch (e) {
-      if (user == account.userId) lastSyncError = errorMessage(e);
-      _changed();
-      rethrow;
     }
+    final pendingEpisodeSubjects = requestMutations
+        .map((row) => object(row['body']))
+        .where(
+          (body) => body['kind'] == 'episode' || body['kind'] == 'episodes',
+        )
+        .map((body) => '${body['subjectId']}')
+        .toSet();
+    for (var offset = 0; ; offset += 50) {
+      if (user != account.userId || _closed) return;
+      final response = object(
+        await account.request(
+          '/v0/users/$username/collections?subject_type=2&limit=50&offset=$offset',
+        ),
+      );
+      final rows = objects(response['data']);
+      for (final row in rows) {
+        if (number(row['type']) == 0) continue;
+        remote['${row['subject_id']}'] = _remoteRow(row);
+      }
+      if (rows.isEmpty || offset + rows.length >= number(response['total'])) {
+        break;
+      }
+    }
+    if (user != account.userId || _closed) return;
+    await store.mergeRemote(
+      _collection(user),
+      remote,
+      account: user,
+      entityKind: 'subject',
+      requestedAt: requestedAt,
+      replace: true,
+      preserveEpisodeCounts: pendingEpisodeSubjects,
+      preserveFields: pendingFields,
+    );
+    _changed();
+    // Edits left queued by an earlier run go up once Bangumi answers again.
+    await _uploadQueued().catchError((Object _) {});
   }
 
-  Future<void> refreshEpisodes(int subjectId, {bool useCache = false}) async {
-    if (account.profile == null || account.needsAuthorization) return;
+  /// Pulls the collection entry and episode progress of [subjectId]; with
+  /// [useCache], not again within a minute.
+  Future<void> refreshEntry(int subjectId, {bool useCache = false}) async {
+    if (account.profile == null) return;
     final user = account.userId;
     final key = '$user:$subjectId';
-    final active = _episodeRefreshes[key];
+    final active = _entryRefreshes[key];
     if (active != null) return active;
-    final refreshedAt = _episodeRefreshedAt[key];
+    final refreshedAt = _entryRefreshedAt[key];
     if (useCache &&
         refreshedAt != null &&
         DateTime.now().difference(refreshedAt) < const Duration(minutes: 1)) {
       return;
     }
-    final request = _refreshEpisodes(subjectId, user);
-    _episodeRefreshes[key] = request;
+    final request = Future.wait([
+      _refreshEpisodes(subjectId, user),
+      _refreshCollected(subjectId, user),
+    ]);
+    _entryRefreshes[key] = request;
     try {
       await request;
       if (!_closed && user == account.userId) {
-        _episodeRefreshedAt[key] = DateTime.now();
+        _entryRefreshedAt[key] = DateTime.now();
       }
     } finally {
-      _episodeRefreshes.remove(key);
+      _entryRefreshes.remove(key);
     }
   }
 
-  /// Pulls the episode progress of those [subjectIds] in the collection.
+  /// Pulls the progress of those [subjectIds] in the collection.
   Future<void> refreshProgress(Iterable<int> subjectIds) async {
     final user = account.userId;
     await Future.wait([
       for (final id in subjectIds)
         () async {
           if (await store.get(_collection(user), '$id') != null) {
-            await refreshEpisodes(id, useCache: true);
+            await refreshEntry(id, useCache: true);
           }
         }(),
     ]);
@@ -414,6 +545,49 @@ class TrackingRepository {
     return !episodes.skip(index).any((e) => watched.contains(e.id));
   }
 
+  /// Pulls whether and how [subjectId] is collected; an unchanged entry
+  /// writes nothing.
+  Future<void> _refreshCollected(int subjectId, String user) async {
+    final requestedAt = DateTime.now().millisecondsSinceEpoch;
+    final username = Uri.encodeComponent('${account.profile!.username}');
+    Json? row;
+    try {
+      row = object(
+        await account.request('/v0/users/$username/collections/$subjectId'),
+      );
+    } on ApiException catch (e) {
+      if (e.status != 404) rethrow;
+    }
+    if (user != account.userId || _closed) return;
+    final local = await store.get(_collection(user), '$subjectId');
+    if (row == null || number(row['type']) == 0) {
+      if (local == null) return;
+      await store.removeUnchanged(
+        _collection(user),
+        '$subjectId',
+        account: user,
+        entity: 'subject:$subjectId',
+        requestedAt: requestedAt,
+      );
+    } else {
+      final remote = _remoteRow(row);
+      if (local != null &&
+          remote.entries.every(
+            (e) => jsonEncode(e.value) == jsonEncode(local[e.key]),
+          )) {
+        return;
+      }
+      await store.mergeRemote(
+        _collection(user),
+        {'$subjectId': remote},
+        account: user,
+        entityKind: 'subject',
+        requestedAt: requestedAt,
+      );
+    }
+    _changed();
+  }
+
   Future<void> _refreshEpisodes(int subjectId, String user) async {
     final requestedAt = DateTime.now().millisecondsSinceEpoch;
     final preserveEntities = <String>{};
@@ -440,7 +614,7 @@ class TrackingRepository {
       if (user != account.userId || _closed) return;
       final count = response['total'];
       if (count is! int || count < 0 || (total != null && total != count)) {
-        throw const FormatException('章节列表未完整接收，请重新同步');
+        throw const FormatException('章节列表未完整接收，请稍后再试');
       }
       total = count;
       for (final row in rows) {
@@ -460,7 +634,7 @@ class TrackingRepository {
       offset += rows.length;
       if (offset == total && remote.length == total) break;
       if (rows.isEmpty || offset >= total) {
-        throw const FormatException('章节列表未完整接收，请重新同步');
+        throw const FormatException('章节列表未完整接收，请稍后再试');
       }
     }
     await store.mergeRemote(
@@ -476,104 +650,22 @@ class TrackingRepository {
     _changed();
   }
 
-  Future<void> flush() =>
-      _flushing ??= _flush().whenComplete(() => _flushing = null);
-  Future<void> _flush() async {
-    final user = account.userId;
-    if (user == 'local' || _closed || account.needsAuthorization) return;
-    final attempted = <int>{};
-    final blocked = <String>{};
-    String? error;
-    final previousError = lastSyncError;
-    var changed = false;
-    try {
-      while (!_closed && user == account.userId) {
-        final rows = (await store.pending(user))
-            .where((row) => !attempted.contains(row['sequence']))
-            .toList();
-        if (rows.isEmpty) break;
-        // Bangumi requires a subject collection before accepting episode edits.
-        // Preserve order within each entity, but send collection edits first.
-        rows.sort((a, b) {
-          final aEpisode = object(a['body'])['kind'] == 'subject' ? 0 : 1;
-          final bEpisode = object(b['body'])['kind'] == 'subject' ? 0 : 1;
-          final kind = aEpisode.compareTo(bEpisode);
-          return kind != 0
-              ? kind
-              : (a['sequence'] as int).compareTo(b['sequence'] as int);
-        });
-        for (final row in rows) {
-          if (user != account.userId || _closed) return;
-          final sequence = row['sequence'] as int;
-          attempted.add(sequence);
-          final entity = '${row['entity']}';
-          final input = object(row['body']);
-          if (blocked.contains(entity) ||
-              (input['kind'] != 'subject' &&
-                  blocked.contains('subject:${input['subjectId']}'))) {
-            continue;
-          }
-          try {
-            _sendingSequence = sequence;
-            if (input['kind'] == 'subject') {
-              await account.request(
-                '/v0/users/-/collections/${input['subjectId']}',
-                method: 'POST',
-                body: collectionMutationFields(input),
-              );
-            } else if (input['kind'] == 'episodes') {
-              await account.request(
-                '/v0/users/-/collections/${input['subjectId']}/episodes',
-                method: 'PATCH',
-                body: {'episode_id': input['episodeIds'], 'type': 2},
-              );
-            } else {
-              await account.request(
-                '/v0/users/-/collections/-/episodes/${input['episodeId']}',
-                method: 'PUT',
-                body: {
-                  'type': EpisodeStatus.parse('${input['status']}').remoteValue,
-                },
-              );
-            }
-            await store.acknowledge(sequence);
-            changed = true;
-          } on ApiException catch (e) {
-            // A rejected item must not prevent unrelated valid edits syncing.
-            // Stop on connection/server/account failures until the next retry.
-            if (e.status != 400 && e.status != 404) rethrow;
-            blocked.add(entity);
-            error ??= input['kind'] == 'episode' && e.status == 400
-                ? '章节 ${input['episodeId']} 同步失败，请先收藏对应番剧后重试。'
-                : errorMessage(e);
-          } finally {
-            _sendingSequence = null;
-          }
-        }
-      }
-      if (user == account.userId) lastSyncError = error;
-    } catch (e) {
-      if (user == account.userId) lastSyncError = errorMessage(e);
-    }
-    if (changed || previousError != lastSyncError) _changed();
-  }
-
   void _changed() {
     if (!_closed) changes.add(null);
   }
 
   Future<void> close() async {
     _closed = true;
-    _retry?.cancel();
-    await _flushing;
     await Future.wait(
-      [..._collectionRefreshes.values, ..._episodeRefreshes.values].map((
-        request,
-      ) async {
+      [
+        ..._subjectQueues.values,
+        ..._collectionRefreshes.values,
+        ..._entryRefreshes.values,
+      ].map((request) async {
         try {
           await request;
         } catch (_) {
-          // The refresh caller owns error reporting.
+          // The caller owns error reporting.
         }
       }),
     );
