@@ -52,9 +52,22 @@ class AccountRepository implements Account {
   /// stop asking until the user acts.
   bool _unlockDeclined = false;
   bool _expired = false;
+
+  /// The renewed login lives only in memory: saving it failed, and the
+  /// keychain still holds the refresh token Bangumi has retired.
+  bool _unsaved = false;
   Future<void>? _unlocking;
+  final _changes = StreamController<void>.broadcast();
   @override
   bool get sessionExpired => _expired;
+  @override
+  bool get credentialsUnsaved => _unsaved;
+  @override
+  Stream<void> get changes => _changes.stream;
+  void _notify() {
+    if (!_changes.isClosed) _changes.add(null);
+  }
+
   Future<void> initialize() async {
     _profile = await store.get('account', 'profile');
     try {
@@ -245,13 +258,25 @@ class AccountRepository implements Account {
     }
     if (_closed || _bundle == null) throw StateError('请先登录 Bangumi');
     if (_expired) throw StateError('Bangumi 登录已过期，请重新登录');
-    if (number(_bundle!['expiresAt']) >
-        DateTime.now().millisecondsSinceEpoch + 60000) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final expiresAt = number(_bundle!['expiresAt']);
+    if (expiresAt > now + 60000) {
+      // Bangumi does not publish how long a refresh token lasts. Renewing a
+      // day-old login keeps it as fresh as the last use, instead of the last
+      // expiry, so a fortnight away does not end it.
+      final lifetime = number(_bundle!['expires_in']) * 1000;
+      if (_refresh == null &&
+          expiresAt - now < lifetime - Duration.millisecondsPerDay) {
+        _startRenew(ahead: true).ignore();
+      }
       return '${_bundle!['access_token']}';
     }
-    if (_refresh case final pending?) return pending;
+    return _refresh ?? _startRenew(ahead: false);
+  }
+
+  Future<String> _startRenew({required bool ahead}) {
     late final Future<String> refreshing;
-    refreshing = _renew().whenComplete(() {
+    refreshing = _renew(ahead: ahead).whenComplete(() {
       if (identical(_refresh, refreshing)) _refresh = null;
     });
     return _refresh = refreshing;
@@ -260,17 +285,41 @@ class AccountRepository implements Account {
   Future<void> _saveBundle(Json bundle, bool Function() valid) {
     final writing = _credentialWrites.then((_) async {
       if (!valid()) throw StateError('账号已经切换');
-      await credentials.write('account', jsonEncode(bundle));
+      try {
+        await credentials.write('account', jsonEncode(bundle));
+      } catch (_) {
+        if (valid() && identical(_bundle, bundle)) {
+          _unsaved = true;
+          _notify();
+        }
+        rethrow;
+      }
       if (!valid()) throw StateError('账号已经切换');
       _bundle = bundle;
-      _expired = false;
+      _expired = _unsaved = false;
       await _rememberProfile();
+      _notify();
     });
     _credentialWrites = writing.catchError((Object _) {});
     return writing;
   }
 
-  Future<String> _renew() async {
+  /// Saves the renewed login again after the keychain refused it, letting the
+  /// keychain ask for access.
+  @override
+  Future<void> saveCredentials() async {
+    final bundle = _bundle;
+    if (!_unsaved || bundle == null) return;
+    try {
+      await _saveBundle(bundle, () => !_closed && identical(_bundle, bundle));
+    } catch (_) {
+      throw StateError('登录信息没能保存到钥匙串');
+    }
+  }
+
+  /// Exchanges the refresh token. Renewing [ahead] of expiry fails quietly:
+  /// the current token keeps working and the renewal on expiry reports.
+  Future<String> _renew({required bool ahead}) async {
     final old = _bundle!;
     final config = _oauthConfiguration();
     if (_closed || !identical(_bundle, old)) throw StateError('账号已经切换');
@@ -281,23 +330,24 @@ class AccountRepository implements Account {
         'refresh_token': '${old['refresh_token']}',
       });
     } on ApiException catch (e) {
-      // Bangumi refuses an expired or already used refresh token; only a new
-      // sign-in recovers.
-      if (e.status != 400 && e.status != 401) rethrow;
-      if (identical(_bundle, old)) _expired = true;
+      // invalid_grant: the refresh token expired or was already used, and only
+      // a new sign-in recovers. Other refusals, such as a misconfigured
+      // client, are not the user's login.
+      if (e.code != 'invalid_grant' || ahead) rethrow;
+      if (identical(_bundle, old)) {
+        _expired = true;
+        _notify();
+      }
       throw StateError('Bangumi 登录已过期，请重新登录');
     }
     if (_closed || !identical(_bundle, old)) throw StateError('账号已经切换');
     final bundle = <String, dynamic>{...old, ...token, 'user': old['user']};
     // Bangumi has retired the old refresh token: keep the new one for this
-    // session even when the keychain refuses to save it.
+    // session even when the keychain refuses it; [credentialsUnsaved] shows.
     _bundle = bundle;
-    unawaited(
-      _saveBundle(
-        bundle,
-        () => !_closed && identical(_bundle, bundle),
-      ).catchError((Object _) {}),
-    );
+    try {
+      await _saveBundle(bundle, () => !_closed && identical(_bundle, bundle));
+    } catch (_) {}
     return '${token['access_token']}';
   }
 
@@ -363,7 +413,7 @@ class AccountRepository implements Account {
     _bundle = null;
     _profile = null;
     _refresh = null;
-    _restoreNeedsAuthorization = _unlockDeclined = _expired = false;
+    _restoreNeedsAuthorization = _unlockDeclined = _expired = _unsaved = false;
     final deleting = _credentialWrites.then((_) async {
       await credentials.write('account', null);
       await store.remove('account', 'profile');
@@ -376,5 +426,6 @@ class AccountRepository implements Account {
     _closed = true;
     await cancelSignIn();
     await _credentialWrites;
+    await _changes.close();
   }
 }

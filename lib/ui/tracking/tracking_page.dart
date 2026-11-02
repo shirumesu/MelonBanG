@@ -18,6 +18,7 @@ class TrackingPage extends StatefulWidget {
     required this.airing,
     required this.onAccountAction,
     required this.onUnlock,
+    required this.onSaveCredentials,
     required this.onOpenSubject,
     this.onExplore,
   });
@@ -32,6 +33,9 @@ class TrackingPage extends StatefulWidget {
 
   /// Asks the keychain again for the saved login.
   final VoidCallback onUnlock;
+
+  /// Saves the renewed login the keychain refused.
+  final VoidCallback onSaveCredentials;
   final ValueChanged<Subject> onOpenSubject;
   final VoidCallback? onExplore;
   @override
@@ -109,6 +113,13 @@ class _TrackingPageState extends State<TrackingPage> {
         issue: '没有获得钥匙串授权，收藏暂时无法与 Bangumi 同步',
         actionLabel: '授权',
         onAction: widget.onUnlock,
+      );
+    }
+    if (personal.credentialsUnsaved) {
+      return IssueBanner(
+        issue: '续期后的 Bangumi 登录没能保存到钥匙串，不保存的话下次打开需要重新登录',
+        actionLabel: '保存',
+        onAction: widget.onSaveCredentials,
       );
     }
     return IssueBanner(

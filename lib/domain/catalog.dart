@@ -896,6 +896,14 @@ abstract interface class Account {
   /// Bangumi refused to renew the login; only signing in again recovers.
   bool get sessionExpired;
 
+  /// The renewed login could not be saved, so the next launch would need a
+  /// new sign-in; [saveCredentials] tries again.
+  bool get credentialsUnsaved;
+  Future<void> saveCredentials();
+
+  /// Fires when the login's state changes outside a request's result.
+  Stream<void> get changes;
+
   /// Reads the saved credentials, letting the keychain ask for access.
   Future<void> unlock();
 

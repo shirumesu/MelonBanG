@@ -884,6 +884,8 @@ class _MelonAppState extends State<MelonApp>
             ? '登录已过期'
             : personal.needsAuthorization
             ? '钥匙串未授权，暂停同步'
+            : personal.credentialsUnsaved
+            ? '登录没能保存到钥匙串'
             : null,
         watchingCount: ready ? personal.watching.length : 0,
         downloadCount: count,
@@ -951,6 +953,7 @@ class _MelonAppState extends State<MelonApp>
       onAccountAction: () => perform(personal.toggleAccount),
       onCancelSignIn: () => perform(personal.cancelSignIn),
       onUnlock: () => perform(personal.unlock),
+      onSaveCredentials: () => perform(personal.saveCredentials),
     ),
     appearanceSection(appearance),
     playbackSection(playback.settings),
@@ -1109,6 +1112,7 @@ class _MelonAppState extends State<MelonApp>
           onOpenSubject: openSubject,
           onAccountAction: () => perform(personal.toggleAccount),
           onUnlock: () => perform(personal.unlock),
+          onSaveCredentials: () => perform(personal.saveCredentials),
           onExplore: focusSearch,
         );
       case 'subject':
