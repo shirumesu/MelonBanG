@@ -37,9 +37,14 @@ class HoverPopoverState extends State<HoverPopover>
   bool open = false;
   bool _overAnchor = false, _overPopover = false, _held = false;
 
+  /// The popover up now; another control takes over from it at once rather
+  /// than both showing while one fades.
+  static HoverPopoverState? _shown;
+
   @override
   void dispose() {
     _timer?.cancel();
+    if (_shown == this) _shown = null;
     _fade.dispose();
     // A popover still open would keep the controls from ever hiding.
     if (open) {
@@ -52,6 +57,8 @@ class HoverPopoverState extends State<HoverPopover>
   void _show() {
     _timer?.cancel();
     if (open) return;
+    if (_shown != this) _shown?.close();
+    _shown = this;
     setState(() => open = true);
     _portal.show();
     _fade.duration = motionDuration(context, 140);
@@ -63,6 +70,7 @@ class HoverPopoverState extends State<HoverPopover>
     _timer?.cancel();
     // The popover's region disappears without an exit event.
     _overPopover = _held = false;
+    if (_shown == this) _shown = null;
     if (!open) return;
     setState(() => open = false);
     widget.onPopupChanged(false);
@@ -80,13 +88,18 @@ class HoverPopoverState extends State<HoverPopover>
   }
 
   /// Opens after a short rest so sweeping across the bar does not flash
-  /// every popover on the way.
+  /// every popover on the way; with another already up, the pointer is
+  /// browsing them, so it switches at once unless a slider there is held.
   void _update() {
     _timer?.cancel();
     final wanted = _overAnchor || _overPopover || _held;
     if (wanted == open) return;
+    if (_shown case final other? when wanted && other != this) {
+      if (!other._held) _show();
+      return;
+    }
     _timer = Timer(
-      Duration(milliseconds: wanted ? 90 : 180),
+      Duration(milliseconds: wanted ? 150 : 180),
       () => wanted ? _show() : close(),
     );
   }

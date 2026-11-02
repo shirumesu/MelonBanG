@@ -416,9 +416,9 @@ ThemeData _appTheme(bool dark, Color accent) {
       dividerColor: Colors.transparent,
     ),
     // Hints wait for the pointer to rest instead of flashing up while it
-    // passes over toolbars.
+    // passes over toolbars; once one shows, its neighbours show at once.
     tooltipTheme: TooltipThemeData(
-      waitDuration: const Duration(milliseconds: 400),
+      waitDuration: const Duration(milliseconds: 500),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: scheme.inverseSurface,
