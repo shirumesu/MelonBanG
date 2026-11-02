@@ -27,6 +27,7 @@ SettingsSection accountSection({
   required VoidCallback onAccountAction,
   required VoidCallback onCancelSignIn,
   required VoidCallback onUnlock,
+  required VoidCallback onSaveCredentials,
 }) {
   bool signedIn() =>
       personal.profile != null &&
@@ -55,8 +56,12 @@ SettingsSection accountSection({
                   ? '登录已过期，重新登录后继续同步'
                   : personal.needsAuthorization
                   ? '没有获得钥匙串授权，暂时无法同步'
+                  : personal.credentialsUnsaved
+                  ? '续期后的登录没能保存到钥匙串，不保存的话下次打开需要重新登录'
                   : '@${account.username ?? ''}',
-              subtitleColor: account != null && !signedIn()
+              subtitleColor:
+                  account != null &&
+                      (!signedIn() || personal.credentialsUnsaved)
                   ? Theme.of(context).colorScheme.error
                   : null,
               trailing: Wrap(
@@ -66,6 +71,11 @@ SettingsSection accountSection({
                     TextButton(
                       onPressed: onCancelSignIn,
                       child: const Text('取消登录'),
+                    ),
+                  if (signedIn() && personal.credentialsUnsaved)
+                    FilledButton(
+                      onPressed: onSaveCredentials,
+                      child: const Text('保存'),
                     ),
                   if (signedIn())
                     OutlinedButton.icon(

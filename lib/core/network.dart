@@ -70,10 +70,13 @@ class _HostRequests {
 }
 
 class ApiException implements Exception {
-  const ApiException(this.status, this.host, {this.reason});
+  const ApiException(this.status, this.host, {this.reason, this.code});
   final int status;
   final String host;
   final String? reason;
+
+  /// The machine-readable error, such as OAuth's `invalid_grant`.
+  final String? code;
   @override
   String toString() =>
       '$host 请求失败（HTTP $status）'
@@ -131,24 +134,29 @@ class ApiClient {
 
   void _checkResponse(http.Response response, Uri uri) {
     if (response.statusCode >= 200 && response.statusCode < 300) return;
-    String? fromBody() {
+    String? reason = response.headers['x-error-message']?.trim();
+    String? code;
+    if (response.headers['content-type']?.contains('application/json') ==
+        true) {
       final body = object(jsonDecode(response.body));
       final error = body['error'];
       // OAuth endpoints answer {error: code, error_description: text}.
       if (error is String) {
-        return body['error_description'] is String
+        code = error;
+        reason ??= body['error_description'] is String
             ? '${body['error_description']}（$error）'
             : error;
+      } else {
+        code = object(error)['code'] as String?;
+        reason ??= object(error)['message'] as String?;
       }
-      return object(error)['message'] as String?;
     }
-
-    final reason =
-        response.headers['x-error-message']?.trim() ??
-        (response.headers['content-type']?.contains('application/json') == true
-            ? fromBody()
-            : null);
-    throw ApiException(response.statusCode, uri.host, reason: reason);
+    throw ApiException(
+      response.statusCode,
+      uri.host,
+      reason: reason,
+      code: code,
+    );
   }
 
   Future<http.Response> send(

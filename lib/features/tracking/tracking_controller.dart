@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'tracking_repository.dart';
@@ -6,9 +8,12 @@ import '../../domain/catalog.dart';
 
 /// The Bangumi account, its collection and sync state.
 class TrackingController extends ChangeNotifier {
-  TrackingController(this.account, this.tracking);
+  TrackingController(this.account, this.tracking) {
+    _accountChanges = account.changes.listen((_) => notifyListeners());
+  }
   final Account account;
   final TrackingRepository tracking;
+  late final StreamSubscription<void> _accountChanges;
 
   AccountProfile? profile;
   List<Subject> collection = [];
@@ -23,6 +28,7 @@ class TrackingController extends ChangeNotifier {
   bool get signedIn => profile != null;
   bool get needsAuthorization => account.needsAuthorization;
   bool get sessionExpired => account.sessionExpired;
+  bool get credentialsUnsaved => account.credentialsUnsaved;
   String get userId => account.userId;
   List<Subject> get watching => collection
       .where((item) => item.status == CollectionStatus.watching)
@@ -100,4 +106,12 @@ class TrackingController extends ChangeNotifier {
   }
 
   Future<void> cancelSignIn() => account.cancelSignIn();
+
+  Future<void> saveCredentials() => account.saveCredentials();
+
+  @override
+  void dispose() {
+    _accountChanges.cancel();
+    super.dispose();
+  }
 }
