@@ -446,7 +446,7 @@ class _UninstallRow extends StatelessWidget {
         content: const SizedBox(
           width: 420,
           child: Text(
-            'MelonBanG 会先关闭，正在进行的播放和下载会停止。随后打开的卸载程序里可以选择保留或删除追番记录、设置和已下载的番剧。',
+            'MelonBanG 会先关闭，正在进行的播放和下载会停止。随后打开的卸载程序里可以选择保留或删除追番和订阅记录、设置和已下载的番剧。',
           ),
         ),
         actions: [
@@ -505,7 +505,7 @@ class _MacOSUninstallDialogState extends State<_MacOSUninstallDialog> {
               onChanged: (value) => setState(() => wipe = value ?? false),
               title: const Text('同时删除所有数据'),
               subtitle: const Text(
-                '追番记录、播放进度、设置、登录信息和已下载的番剧会被永久删除；已同步到 Bangumi 的收藏不受影响',
+                '追番和订阅记录、播放进度、设置、登录信息和已下载的番剧会被永久删除；已同步到 Bangumi 的收藏不受影响',
               ),
             ),
             if (wipe) ...[

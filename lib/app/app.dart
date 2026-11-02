@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app_services.dart';
+import 'app_tray.dart';
+import '../core/background.dart';
 import '../core/error_message.dart';
 import '../core/network.dart';
 import '../features/acquisition/resource_metadata.dart';
@@ -20,6 +22,8 @@ import '../features/playback/playback.dart';
 import '../features/playback/playback_coordinator.dart';
 import '../features/playback/resource_search.dart';
 import '../features/playback/resume_controller.dart';
+import '../features/discovery/continue_range.dart';
+import '../features/subscriptions/subscription_controller.dart';
 import '../features/tracking/subject_controller.dart';
 import '../features/tracking/tracking_controller.dart';
 import '../features/update/app_update.dart';
@@ -46,6 +50,7 @@ import '../ui/settings/storage_settings.dart';
 import '../ui/settings/update_settings.dart';
 import '../ui/sources/pikpak_account.dart';
 import '../ui/sources/sources_page.dart';
+import '../ui/subscriptions/subscription_dialogs.dart';
 import '../ui/tracking/subject_page.dart';
 import '../ui/tracking/tracking_page.dart';
 
@@ -84,6 +89,19 @@ class _MelonAppState extends State<MelonApp>
 
   /// Theme mode, theme colour and cover colouring.
   late final appearance = Appearance(widget.preferences);
+
+  /// Which shows the home page's 继续观看 lists.
+  late final continueRange = ContinuePreference(widget.preferences);
+
+  /// Set when the window's close quits rather than going to the background.
+  bool quitting = false;
+
+  /// While the first close asks whether to stay in the background.
+  bool askingClose = false;
+
+  /// The tray icon while there are subscriptions.
+  AppTray? tray;
+  bool? keptAwake;
   CoverColors? covers;
 
   /// The cover the theme colour is taken from, and that colour once read.
@@ -147,10 +165,18 @@ class _MelonAppState extends State<MelonApp>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     appearance.addListener(servicesChanged);
+    continueRange.addListener(servicesChanged);
     unawaited(appearance.refreshSystemAccent());
     recentSearches = widget.preferences.getStringList('recentSearches') ?? [];
     windowManager.addListener(this);
     unawaited(windowManager.setPreventClose(true));
+    Background.listen(
+      onQuit: quit,
+      onOpenSubject: (_) {
+        unawaited(showWindow());
+        navigate('downloads');
+      },
+    );
     unawaited(boot());
   }
 
@@ -174,8 +200,25 @@ class _MelonAppState extends State<MelonApp>
         personal,
         subjects,
         resources,
+        service.subscriptions,
       ])..addListener(servicesChanged);
       downloads.availability.addListener(availabilityChanged);
+      service.subscriptions.onCached = (subscription, episode) => unawaited(
+        Background.notify(
+          '${subscription.title} ${episode?.label ?? '新一话'}已缓存',
+          subscription.ledger[episode?.id]?.title ?? '',
+          subjectId: subscription.subjectId,
+        ),
+      );
+      service.subscriptions.onEnded = (subscription, reason) => unawaited(
+        Background.notify(
+          '${subscription.title} 已取消订阅',
+          '$reason；已缓存的文件都还在',
+          subjectId: subscription.subjectId,
+        ),
+      );
+      service.subscriptions.addListener(syncTray);
+      downloads.active.addListener(syncTray);
       subscriptions.add(
         service.tracking.changes.stream.listen((_) {
           if (!mounted) return;
@@ -184,6 +227,7 @@ class _MelonAppState extends State<MelonApp>
         }),
       );
       setState(() => ready = true);
+      syncTray();
       unawaited(perform(pullProgress));
       if (service.update.autoCheck) unawaited(perform(service.update.check));
       await Future.wait([
@@ -583,12 +627,84 @@ class _MelonAppState extends State<MelonApp>
     }
   }
 
+  /// Brings the window back from the background or the Dock.
+  Future<void> showWindow() async {
+    if (await windowManager.isMinimized()) await windowManager.restore();
+    await windowManager.show();
+    await windowManager.focus();
+  }
+
+  /// Keeps the tray icon, and macOS awake enough for the timers, while
+  /// there are subscriptions.
+  void syncTray() {
+    if (!ready || closing) return;
+    final subscriptions = service.subscriptions;
+    final active = subscriptions.active;
+    if (keptAwake != active) {
+      keptAwake = active;
+      unawaited(Background.keepAwake(active).catchError((Object _) {}));
+    }
+    if (subscriptions.subscriptions.isEmpty) {
+      unawaited(tray?.hide());
+      return;
+    }
+    final icon = tray ??= AppTray(
+      onOpen: () => unawaited(showWindow()),
+      onCheck: subscriptions.checkNow,
+      onQuit: quit,
+    );
+    unawaited(
+      icon.show(
+        subscribed: subscriptions.subscriptions.length,
+        caching: downloads.active.value,
+      ),
+    );
+  }
+
+  /// Quits for good: from the tray, Command-Q, settings, an update or
+  /// uninstalling, past staying in the background.
+  void quit() {
+    quitting = true;
+    onWindowClose();
+  }
+
+  /// Closing the window while subscriptions run keeps the app going in
+  /// the background, once asked; otherwise, or when [quitting], it quits.
   @override
   void onWindowClose() async {
-    if (closing) return;
+    if (closing || askingClose) return;
+    if (!quitting && ready && service.subscriptions.active) {
+      final preferences = service.subscriptions.preferences;
+      var action = preferences.closeAction;
+      if (action == null) {
+        final target = navigation.currentState?.overlay?.context;
+        if (target == null) return;
+        askingClose = true;
+        try {
+          action = await askCloseAction(
+            target,
+            shows: service.subscriptions.subscriptions.length,
+          );
+        } finally {
+          askingClose = false;
+        }
+        if (action == null) return;
+        await preferences.setCloseAction(action);
+      }
+      if (action == CloseAction.background) {
+        await toBackground();
+        return;
+      }
+    }
     setState(() => closing = true);
     // Detach the video texture before disposing its native rendering context.
-    await WidgetsBinding.instance.endOfFrame;
+    // A hidden window draws no frames, and has no texture on screen.
+    if (await windowManager.isVisible()) {
+      await WidgetsBinding.instance.endOfFrame.timeout(
+        const Duration(seconds: 1),
+        onTimeout: () {},
+      );
+    }
     try {
       if (ready) await coordinator.close();
     } finally {
@@ -599,24 +715,43 @@ class _MelonAppState extends State<MelonApp>
         }
       } finally {
         if (relaunching) await relaunchAfterExit();
+        await tray?.hide();
+        await Background.allowQuit().catchError((Object _) {});
         // Use WM_CLOSE so the runner destroys its view before leaving the message
         // loop. windowManager.destroy posts WM_QUIT directly on Windows.
         await windowManager.setPreventClose(false);
-        await windowManager.close();
+        // The macOS runner stays open without windows; quitting ends it.
+        if (Platform.isMacOS) {
+          await windowManager.destroy();
+        } else {
+          await windowManager.close();
+        }
       }
+    }
+  }
+
+  /// Hides the window, or minimizes it on Linux, whose desktops may have no
+  /// tray to come back from; the player stops and lets go of its video.
+  Future<void> toBackground() async {
+    if (route == 'player') goBack();
+    if (fullScreen) await setFullScreen(false);
+    if (Platform.isLinux) {
+      await windowManager.minimize();
+    } else {
+      await windowManager.hide();
     }
   }
 
   void restartToUpdate() {
     restartForUpdate = true;
-    unawaited(windowManager.close());
+    quit();
   }
 
   /// Quits and opens the app again, since partly started services cannot be
   /// started a second time in this process.
   void relaunch() {
     relaunching = true;
-    unawaited(windowManager.close());
+    quit();
   }
 
   @override
@@ -675,7 +810,7 @@ class _MelonAppState extends State<MelonApp>
       return;
     }
     uninstalling = true;
-    await windowManager.close();
+    quit();
   }
 
   @override
@@ -729,6 +864,8 @@ class _MelonAppState extends State<MelonApp>
     if (ready) {
       _controllers?.removeListener(servicesChanged);
       downloads.availability.removeListener(availabilityChanged);
+      service.subscriptions.removeListener(syncTray);
+      downloads.active.removeListener(syncTray);
     }
     unawaited(
       (ready ? coordinator.close() : Future<void>.value()).whenComplete(
@@ -740,9 +877,12 @@ class _MelonAppState extends State<MelonApp>
     }
     homeFeedback.dispose();
     playerPanel.dispose();
+    continueRange.dispose();
+    unawaited(tray?.hide());
     search.dispose();
     searchFocus.dispose();
     appearance.removeListener(servicesChanged);
+    continueRange.removeListener(servicesChanged);
     appearance.dispose();
     WidgetsBinding.instance.removeObserver(this);
     windowManager.removeListener(this);
@@ -888,6 +1028,7 @@ class _MelonAppState extends State<MelonApp>
             ? '登录没能保存到钥匙串'
             : null,
         watchingCount: ready ? personal.watching.length : 0,
+        attentionCount: ready ? service.subscriptions.attention : 0,
         downloadCount: count,
         onNavigate: navigate,
       );
@@ -955,7 +1096,7 @@ class _MelonAppState extends State<MelonApp>
       onUnlock: () => perform(personal.unlock),
       onSaveCredentials: () => perform(personal.saveCredentials),
     ),
-    appearanceSection(appearance),
+    appearanceSection(appearance, continueRange),
     playbackSection(playback.settings),
     danmakuSection(playback.danmaku.preferences),
     sourcesSection(
@@ -966,6 +1107,7 @@ class _MelonAppState extends State<MelonApp>
           ...task.releaseGroups,
       ],
     ),
+    subscriptionSection(service.subscriptions.preferences, playback.settings),
     downloadsSection(
       available: service.downloadsAvailable,
       issue: service.downloadIssue,
@@ -980,7 +1122,7 @@ class _MelonAppState extends State<MelonApp>
         PaintingBinding.instance.imageCache.clear();
         PaintingBinding.instance.imageCache.clearLiveImages();
       },
-      onExit: () => windowManager.close(),
+      onExit: quit,
       storage: service.storage,
       dataDirectory: service.dataDirectory!,
       mediaDirectory: service.bt.directory,
@@ -1079,6 +1221,20 @@ class _MelonAppState extends State<MelonApp>
           onCalendar: () => navigate('calendar'),
           onRefresh: refreshHome,
           onOpenSubject: openSubject,
+          range: continueRange.value,
+          subscriptions: {
+            for (final subscription
+                in service.subscriptions.subscriptions.values)
+              subscription.subjectId: switch (service.subscriptions.issueOf(
+                subscription,
+              )) {
+                final issue? => (
+                  lateEpisode: issue.episode?.id,
+                  late: issue.late,
+                ),
+                null => (lateEpisode: null, late: null),
+              },
+          },
           onPlayEpisode: (subject, episode) => unawaited(
             coordinator.prepare(
               subject,
@@ -1152,6 +1308,17 @@ class _MelonAppState extends State<MelonApp>
           onOpenSubject: openSubject,
           onSearch: searchCatalogue,
           onError: showError,
+          subscribeButton: (subject) => SubscribeButton(
+            controller: service.subscriptions,
+            subject: subject,
+            preferredGroups: () => playback.settings.preferredGroups,
+            onError: showError,
+            markWatching: personal.profile == null
+                ? MarkWatching.unavailable
+                : personal.needsAuthorization || personal.sessionExpired
+                ? MarkWatching.paused
+                : MarkWatching.available,
+          ),
         );
       case 'resources':
         final subject = resources.state.subject;
@@ -1180,6 +1347,8 @@ class _MelonAppState extends State<MelonApp>
             onPlaySubject: coordinator.continueCache,
             hasProgress: (id) async =>
                 await service.library.lastPlayed(id) != null,
+            subscriptions: service.subscriptions,
+            preferredGroups: () => playback.settings.preferredGroups,
             onOpenSubject: (id) => unawaited(
               perform(
                 () async => openSubject(

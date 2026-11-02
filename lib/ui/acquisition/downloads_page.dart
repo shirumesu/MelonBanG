@@ -6,12 +6,14 @@ import '../../domain/catalog.dart';
 import '../../domain/transfer.dart';
 import '../../features/acquisition/title_matching.dart';
 import '../../features/downloads/downloads_controller.dart';
+import '../../features/subscriptions/subscription_controller.dart';
 import '../core/motion.dart';
 import '../core/byte_units.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
+import '../subscriptions/subscription_dialogs.dart';
 import 'download_dialogs.dart';
 import 'download_labels.dart';
 import 'download_task_widgets.dart';
@@ -27,6 +29,8 @@ class DownloadsPage extends StatefulWidget {
     required this.onPlaySubject,
     required this.hasProgress,
     required this.onOpenSubject,
+    required this.subscriptions,
+    required this.preferredGroups,
   });
   final DownloadsController downloads;
   final VoidCallback onExplore;
@@ -42,6 +46,11 @@ class DownloadsPage extends StatefulWidget {
   /// Whether an episode of the subject was played before.
   final Future<bool> Function(int id) hasProgress;
   final ValueChanged<int> onOpenSubject;
+
+  /// Subscribed shows show their state on their entry, and a show waiting
+  /// for its first episode has an entry of its own.
+  final SubscriptionController subscriptions;
+  final List<String> Function() preferredGroups;
   @override
   State<DownloadsPage> createState() => _DownloadsPageState();
 }
@@ -174,10 +183,55 @@ class _DownloadsPageState extends State<DownloadsPage> {
   void _toggle(DownloadTask task) =>
       _perform(() => widget.downloads.toggle(task));
 
+  /// Opens the subscription of [id] to change it or end it.
+  Future<void> _openSubscription(int id) => _perform(() async {
+    final subject = subjects[id] ?? await widget.subscriptions.detail(id);
+    if (!mounted) return;
+    await showSubscription(
+      context,
+      controller: widget.subscriptions,
+      subject: subject,
+      preferredGroups: widget.preferredGroups(),
+      onError: widget.onError,
+    );
+  });
+
+  /// The subscription's state under the title, and its button beside the
+  /// watch button; nothing for a show without one.
+  (Widget, Widget)? _subscription(int id) {
+    final subscription = widget.subscriptions.subscriptions[id];
+    if (subscription == null) return null;
+    final (:text, :warn) = subscriptionStatus(
+      widget.subscriptions,
+      subscription,
+    );
+    final scheme = Theme.of(context).colorScheme;
+    return (
+      Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: warn ? scheme.error : null,
+          fontWeight: warn ? FontWeight.w600 : null,
+        ),
+      ),
+      IconButton(
+        tooltip: '订阅 · ${subscription.filter.label}',
+        onPressed: () => _openSubscription(id),
+        color: warn ? scheme.error : scheme.primary,
+        icon: const Icon(Icons.notifications_active_rounded, size: 20),
+      ),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder(
-    valueListenable: widget.downloads.snapshot,
-    builder: (context, snapshot, _) => _page(context, snapshot),
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([
+      widget.downloads.snapshot,
+      widget.subscriptions,
+    ]),
+    builder: (context, _) => _page(context, widget.downloads.snapshot.value),
   );
 
   Widget _page(BuildContext context, TransferSnapshot snapshot) {
@@ -209,8 +263,26 @@ class _DownloadsPageState extends State<DownloadsPage> {
       }
     }
     bool complete(List<DownloadTask> entry) => entry.every((t) => t.complete);
-    final active = entries.where((e) => !complete(e)).toList();
-    final cached = entries.where(complete).toList();
+    // Subscriptions needing the user lead their group.
+    final subscriptions = widget.subscriptions;
+    bool warns(List<DownloadTask> entry) =>
+        switch (subscriptions.subscriptions[entry.first.subjectId]) {
+          final subscription? => subscriptions.issueOf(subscription) != null,
+          null => false,
+        };
+    List<List<DownloadTask>> leading(Iterable<List<DownloadTask>> group) => [
+      ...group.where(warns),
+      ...group.where((entry) => !warns(entry)),
+    ];
+    final active = leading(entries.where((e) => !complete(e)));
+    final cached = leading(entries.where(complete));
+    // Subscribed shows yet to cache anything wait among the active ones.
+    final waiting = [
+      if (filter != '已缓存' && statusFilter == '全部状态')
+        for (final subscription in subscriptions.subscriptions.values)
+          if (!tasks.any((task) => task.subjectId == subscription.subjectId))
+            subscription,
+    ];
     // Entries joining a group once the page shows some fade in, such as a
     // task that finished moving to 已缓存.
     final hadEntries = shown.values.any((ids) => ids.isNotEmpty);
@@ -290,12 +362,24 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ),
           ],
         ),
-        for (final group in [('进行中', active), ('已缓存', cached)]) ...[
-          if (group.$2.isNotEmpty) ...[
+        for (final group in [
+          ('进行中', active, waiting),
+          ('已缓存', cached, const <Subscription>[]),
+        ]) ...[
+          if (group.$2.isNotEmpty || group.$3.isNotEmpty)
             if (filter == '全部')
-              SectionTitle(title: '${group.$1} ${group.$2.length}')
+              SectionTitle(
+                title: '${group.$1} ${group.$2.length + group.$3.length}',
+              )
             else
               const SizedBox(height: Gap.lg),
+          for (final subscription in group.$3)
+            Padding(
+              key: ValueKey('subscription:${subscription.subjectId}'),
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _waiting(context, subscription),
+            ),
+          if (group.$2.isNotEmpty) ...[
             PageSliver(
               child: SliverList.builder(
                 itemCount: group.$2.length,
@@ -322,7 +406,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
             ),
           ],
         ],
-        if (visible.isEmpty)
+        if (visible.isEmpty && waiting.isEmpty)
           EmptyState(
             text: tasks.isEmpty ? '还没有缓存' : '没有符合条件的任务',
             action: tasks.isEmpty
@@ -348,7 +432,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
     final subjectId = tasks.first.subjectId;
     if (subjectId != null) _loadSubject(subjectId);
     final subject = subjects[subjectId];
-    if (tasks.length == 1) return _task(context, tasks.single, subject);
+    if (tasks.length == 1 &&
+        !widget.subscriptions.subscriptions.containsKey(subjectId)) {
+      return _task(context, tasks.single, subject);
+    }
     return _group(context, subject, subjectId!, tasks);
   }
 
@@ -427,6 +514,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     final speed = tasks.fold<int>(0, (sum, t) => sum + t.downloadSpeed);
     final ticked = tasks.where((t) => selectedTasks.contains(t.id)).length;
     final title = subject?.title ?? ordered.first.title;
+    final subscription = _subscription(subjectId);
     return MelonPanel(
       padding: EdgeInsets.zero,
       child: Column(
@@ -486,6 +574,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
                               ),
                           ],
                         ),
+                        if (subscription case (final status, _)) ...[
+                          const SizedBox(height: Gap.xs),
+                          status,
+                        ],
                       ],
                     ),
                   ),
@@ -494,6 +586,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (subscription case (_, final button)) button,
                       _watchButton(subject, ordered),
                       IconButton(
                         tooltip: open ? '收起' : '展开剧集',
@@ -527,6 +620,41 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// A subscribed show with nothing cached yet: its state and the way to
+  /// its subscription.
+  Widget _waiting(BuildContext context, Subscription subscription) {
+    final id = subscription.subjectId;
+    final (status, button) = _subscription(id)!;
+    return MelonPanel(
+      child: Row(
+        children: [
+          _SubjectCoverLink(
+            url: subscription.coverUrl,
+            title: subscription.title,
+            id: id,
+            onOpen: () => widget.onOpenSubject(id),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SubjectTitleLink(
+                  title: subscription.title,
+                  onOpen: () => widget.onOpenSubject(id),
+                ),
+                const SizedBox(height: Gap.sm),
+                status,
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          button,
         ],
       ),
     );

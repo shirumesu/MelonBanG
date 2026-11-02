@@ -43,6 +43,7 @@ class SubjectPage extends StatelessWidget {
     required this.onSearch,
     required this.onError,
     required this.coverTint,
+    this.subscribeButton,
   });
   final SubjectController subjects;
   final TrackingController personal;
@@ -68,6 +69,9 @@ class SubjectPage extends StatelessWidget {
   /// The theme colour is the cover's: the main panel's top takes a wash of
   /// it.
   final bool coverTint;
+
+  /// The button subscribing to a show, or showing its subscription.
+  final Widget Function(Subject subject)? subscribeButton;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -97,6 +101,7 @@ class SubjectPage extends StatelessWidget {
         onOpenEpisode: onOpenEpisode,
         onOpenSubject: onOpenSubject,
         onSearch: onSearch,
+        subscribeButton: subscribeButton,
         onRetry: () => unawaited(subjects.open(subject!).catchError(onError)),
       );
     },
@@ -122,8 +127,10 @@ class _SubjectDetail extends StatefulWidget {
     required this.loading,
     required this.signedIn,
     required this.coverTint,
+    this.subscribeButton,
   });
   final Subject? subject;
+  final Widget Function(Subject subject)? subscribeButton;
   final List<DateTime> airings;
   final bool loading;
   final bool signedIn;
@@ -815,6 +822,9 @@ class _SubjectDetailState extends State<_SubjectDetail> {
               icon: const Icon(Icons.download_outlined, size: 18),
               label: const Text('查找资源'),
             ),
+            if (widget.subscribeButton case final button?
+                when !_episodesLoading)
+              button(item),
           ],
         ),
         const SizedBox(height: Gap.lg),

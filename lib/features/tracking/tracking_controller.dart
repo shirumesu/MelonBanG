@@ -23,6 +23,10 @@ class TrackingController extends ChangeNotifier {
   DateTime? _pulledAt;
   CollectionStatus filter = CollectionStatus.watching;
   bool accountBusy = false;
+
+  /// Whether the busy account action signs in; the login turns valid
+  /// before its first pull ends.
+  bool signingIn = false;
   int _ticket = 0;
 
   bool get signedIn => profile != null;
@@ -84,11 +88,13 @@ class TrackingController extends ChangeNotifier {
   Future<void> toggleAccount() async {
     if (accountBusy) return;
     accountBusy = true;
+    signingIn =
+        account.profile == null ||
+        account.needsAuthorization ||
+        account.sessionExpired;
     notifyListeners();
     try {
-      if (account.profile == null ||
-          account.needsAuthorization ||
-          account.sessionExpired) {
+      if (signingIn) {
         await account.signIn();
         await refresh();
         await pull(force: true);
@@ -100,6 +106,7 @@ class TrackingController extends ChangeNotifier {
     } finally {
       // A network failure must not hide a successfully restored login.
       accountBusy = false;
+      signingIn = false;
       notifyListeners();
       await refresh();
     }
