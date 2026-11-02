@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
@@ -34,6 +35,9 @@ class _BBCodeState extends State<BBCode> {
   /// Spoilers shown, by their order in the text.
   final _revealed = <int>{};
 
+  /// Hover changes waiting to apply to a spoiler, by its order in the text.
+  final _pending = <int, Timer>{};
+
   /// Tap handlers by the order of their links and spoilers; kept across
   /// rebuilds so revealing a spoiler does not drop a tap in progress.
   final _taps = <TapGestureRecognizer>[];
@@ -44,18 +48,40 @@ class _BBCodeState extends State<BBCode> {
     if (oldWidget.source == widget.source) return;
     _nodes = _Parser(_normalized(widget.source)).parse();
     _revealed.clear();
+    _cancelPending();
     _disposeTaps();
   }
 
   @override
   void dispose() {
+    _cancelPending();
     _disposeTaps();
     super.dispose();
   }
 
   void _reveal(int spoiler, bool value) {
+    _pending.remove(spoiler)?.cancel();
     if (value == _revealed.contains(spoiler)) return;
     setState(() => value ? _revealed.add(spoiler) : _revealed.remove(spoiler));
+  }
+
+  /// A spoiler shows once the pointer rests on it, so reading past one does
+  /// not give it away, and covers again shortly after it leaves, which also
+  /// carries the pointer across the gaps between the spoiler's spans.
+  void _hover(int spoiler, bool over) {
+    _pending.remove(spoiler)?.cancel();
+    if (over == _revealed.contains(spoiler)) return;
+    _pending[spoiler] = Timer(
+      Duration(milliseconds: over ? 300 : 100),
+      () => _reveal(spoiler, over),
+    );
+  }
+
+  void _cancelPending() {
+    for (final timer in _pending.values) {
+      timer.cancel();
+    }
+    _pending.clear();
   }
 
   void _disposeTaps() {
@@ -317,6 +343,7 @@ class _Renderer {
     final revealed = state._revealed.contains(id);
     final cover = scheme.onSurface;
     void reveal(bool value) => state._reveal(id, value);
+    void hover(bool over) => state._hover(id, over);
 
     final tap = _recognizer(() => reveal(!state._revealed.contains(id)));
     return [
@@ -335,14 +362,14 @@ class _Renderer {
             style: style,
             recognizer: tap,
             mouseCursor: SystemMouseCursors.click,
-            onEnter: (_) => reveal(true),
-            onExit: (_) => reveal(false),
+            onEnter: (_) => hover(true),
+            onExit: (_) => hover(false),
           ),
           WidgetSpan(:final child, :final alignment) => WidgetSpan(
             alignment: alignment,
             child: MouseRegion(
-              onEnter: (_) => reveal(true),
-              onExit: (_) => reveal(false),
+              onEnter: (_) => hover(true),
+              onExit: (_) => hover(false),
               child: GestureDetector(
                 onTap: () => reveal(!state._revealed.contains(id)),
                 child: child,
@@ -446,7 +473,6 @@ class _Renderer {
       alignment: PlaceholderAlignment.middle,
       child: Tooltip(
         message: sticker.name,
-        waitDuration: const Duration(milliseconds: 600),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 1),
           child: image,

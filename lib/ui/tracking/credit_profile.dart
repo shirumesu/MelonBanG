@@ -315,7 +315,6 @@ class _CreditBrowserState extends State<_CreditBrowser> {
     final scheme = Theme.of(context).colorScheme;
     return Tooltip(
       message: tooltip,
-      waitDuration: const Duration(milliseconds: 400),
       child: Material(
         color: scheme.surfaceContainerLow,
         child: InkWell(

@@ -47,7 +47,6 @@ class PlaybackMenu extends StatelessWidget {
       borderRadius: panelBorderRadius,
       anchor: (popover) => IconHover(
         child: IconButton(
-          tooltip: '播放设置',
           isSelected: popover.open,
           onPressed: popover.toggle,
           icon: const GestureIcon(
