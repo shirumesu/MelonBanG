@@ -146,6 +146,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang ninja-build pkg-config libgtk-3-dev \
             libmpv-dev libsecret-1-dev libayatana-appindicator3-dev patchelf jq
+      # cnativeapi passes G_CONNECT_DEFAULT, new in GLib 2.74, where this
+      # image has 2.72. It is the flag value 0, so a pkg-config in front of
+      # the system one defines it in the GLib compile flags while GLib does
+      # not.
+      - name: Define G_CONNECT_DEFAULT for GLib before 2.74
+        run: |
+          if pkg-config --atleast-version=2.74 glib-2.0; then exit 0; fi
+          mkdir -p "$RUNNER_TEMP/bin"
+          cat > "$RUNNER_TEMP/bin/pkg-config" <<'EOF'
+          #!/bin/sh
+          flags=$(/usr/bin/pkg-config "$@") || exit
+          case " $* " in
+            *" --cflags "*) flags="$flags -DG_CONNECT_DEFAULT=((GConnectFlags)0)" ;;
+          esac
+          printf '%s\n' "$flags"
+          EOF
+          chmod +x "$RUNNER_TEMP/bin/pkg-config"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Package
         env:
           MELONBANG_SERVICES_JSON: ${{ secrets.MELONBANG_SERVICES_JSON }}
