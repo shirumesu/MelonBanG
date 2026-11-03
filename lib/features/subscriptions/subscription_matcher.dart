@@ -52,24 +52,40 @@ class ReleaseJudgement {
 
 /// Judges [candidates] for a subscription with [filter]: at most one
 /// release per episode is cached, only of episodes [wanted] and not [held]
-/// (cached already, by the subscription or by hand). [replaceable] episodes
-/// take a corrected release when [revisions] allows. Releases are taken in
-/// publishing order, so the first of an episode's matching files is kept;
-/// with the preferred groups, a preferred group's file comes before them.
-/// A release stating nothing for a selection only counts while the filter
-/// names one group, whose releases word it their own way.
+/// (cached already, by the subscription or by hand). [replaceable] episodes,
+/// with the title of the file cached, take that group's corrected release
+/// when [revisions] allows. Releases are taken in publishing order, so the
+/// first of an episode's matching files is kept, whichever subscribed group
+/// it is by. A smart filter takes the groups [smartGroups] picks from
+/// [candidates], with episodes timed by [aired]. A release stating nothing
+/// for a selection only counts while the filter names one group, whose
+/// releases word it their own way.
 List<ReleaseJudgement> judgeReleases({
   required Subject subject,
   required SubscriptionFilter filter,
   required Iterable<ReleaseCandidate> candidates,
   required bool Function(Episode) wanted,
   List<String> preferredGroups = const [],
+  DateTime? Function(Episode)? aired,
   RevisionPolicy revisions = RevisionPolicy.skip,
   Set<int> held = const {},
-  Set<int> replaceable = const {},
+  Map<int, String> replaceable = const {},
   Set<String> known = const {},
 }) {
-  final names = filter.groupNames(preferredGroups);
+  final names = filter.smart
+      ? [
+          for (final record in smartGroups(
+            groupRecords(
+              subject: subject,
+              filter: filter,
+              candidates: candidates,
+              aired: aired ?? (_) => null,
+            ).values,
+            preferredGroups,
+          ))
+            record.name,
+        ]
+      : filter.groupNames(preferredGroups);
   final loosely = !filter.anyGroup && names.length == 1;
   final ordered = candidates.toList()
     ..sort((a, b) {
@@ -147,13 +163,23 @@ List<ReleaseJudgement> judgeReleases({
         judged.add(skip(Verdict.revision, '$label的修正版', episode: episode));
         continue;
       }
-      if (!replaceable.contains(episode.id)) {
+      final cached = replaceable[episode.id];
+      if (cached == null) {
         judged.add(
           skip(
             Verdict.revision,
             '$label的修正版；这一集已经看过或不是订阅缓存的',
             episode: episode,
           ),
+        );
+        continue;
+      }
+      // Another group's v2 corrects that group's file, not the one cached.
+      final cachedGroups = creditedGroups(describeResource(cached));
+      if (cachedGroups.isNotEmpty &&
+          !groupsMatch(creditedGroups(info), cachedGroups)) {
+        judged.add(
+          skip(Verdict.revision, '$label的修正版，但缓存的是别的字幕组的文件', episode: episode),
         );
         continue;
       }
@@ -169,20 +195,8 @@ List<ReleaseJudgement> judgeReleases({
         .putIfAbsent(episode.id, () => [])
         .add(skip(Verdict.download, '', episode: episode));
   }
-  int rank(ReleaseJudgement option) => filter.preferred
-      ? preferredGroupIndex(creditedGroups(option.info), preferredGroups) ??
-            preferredGroups.length
-      : 0;
   for (final episode in {...exact.keys, ...loose.keys}) {
-    final found = exact[episode] ?? loose[episode]!;
-    // Publishing order decides within a rank.
-    final options = [...found]
-      ..sort((a, b) {
-        final byRank = rank(a).compareTo(rank(b));
-        return byRank != 0
-            ? byRank
-            : found.indexOf(a).compareTo(found.indexOf(b));
-      });
+    final options = exact[episode] ?? loose[episode]!;
     final label = options.first.episode!.label;
     if (exact[episode] == null && options.length > 1) {
       for (final option in options) {
@@ -227,6 +241,134 @@ List<ReleaseJudgement> judgeReleases({
     }
   }
   return judged;
+}
+
+/// How one group releases a show: the episodes of its single-episode
+/// releases meeting a filter's quality and subtitles, and how long after
+/// airing each came out.
+class GroupRecord {
+  GroupRecord(this.name);
+
+  /// The group, as the first of its releases names it.
+  final String name;
+
+  /// Every group its releases credit, the title's leading bracket too.
+  final credits = <String>{};
+
+  /// Bangumi episode ids it released.
+  final episodes = <int>{};
+
+  /// How soon after airing each episode's first release came out, for
+  /// episodes whose airing hour and publishing time are known.
+  final delays = <int, Duration>{};
+
+  /// How soon after airing its releases usually come out.
+  Duration? get lag => _median(delays.values);
+}
+
+/// The groups releasing [candidates] of [subject] that meet [filter]'s
+/// quality and subtitles, by [groupKey] of their name; [aired] gives an
+/// episode's airing time when its hour is known. Batches and rebroadcasts
+/// say nothing of how a group follows the show.
+Map<String, GroupRecord> groupRecords({
+  required Subject subject,
+  required SubscriptionFilter filter,
+  required Iterable<ReleaseCandidate> candidates,
+  required DateTime? Function(Episode) aired,
+}) {
+  final records = <String, GroupRecord>{};
+  for (final candidate in candidates) {
+    final release = candidate.release;
+    final info = describeResource(
+      release.title,
+      releaseGroups: release.releaseGroups,
+    );
+    if (info.batch || releaseRebroadcast(release.title)) continue;
+    final episode = releaseEpisode(subject, info);
+    if (episode == null) continue;
+    final gaps = resourceSelectionGaps(
+      info,
+      qualities: filter.qualities,
+      languages: filter.languages,
+      subtitleForms: filter.forms,
+    );
+    if (gaps == null) continue;
+    // A bare date says nothing about the hour.
+    final raw = release.publishedAt ?? '';
+    final published = raw.length > 10 ? releasePublished(raw) : null;
+    final at = aired(episode);
+    final delay = published == null || at == null
+        ? null
+        : published.difference(at);
+    for (final name in info.groups) {
+      final record =
+          records.putIfAbsent(groupKey(name), () => GroupRecord(name))
+            ..credits.addAll(creditedGroups(info))
+            ..episodes.add(episode.id);
+      if (delay != null && !delay.isNegative) {
+        final earlier = record.delays[episode.id];
+        if (earlier == null || delay < earlier) {
+          record.delays[episode.id] = delay;
+        }
+      }
+    }
+  }
+  return records;
+}
+
+/// How soon after airing the first of [records]' releases of an episode
+/// usually comes out: what subscribing to all of them waits.
+Duration? fastestLag(Iterable<GroupRecord> records) {
+  final firsts = <int, Duration>{};
+  for (final record in records) {
+    for (final MapEntry(key: episode, value: delay) in record.delays.entries) {
+      final first = firsts[episode];
+      if (first == null || delay < first) firsts[episode] = delay;
+    }
+  }
+  return _median(firsts.values);
+}
+
+/// Groups whose releases usually come later than this are not worth
+/// following.
+const slowGroupLag = Duration(days: 7);
+
+/// The groups worth following of [records], the best first: those scoring
+/// close to the best on how many of the show's episodes they released, how
+/// soon after airing, and whether they are among [preferredGroups], at
+/// most three. Groups usually a week late are left out.
+List<GroupRecord> smartGroups(
+  Iterable<GroupRecord> records,
+  List<String> preferredGroups,
+) {
+  final released = {for (final record in records) ...record.episodes};
+  if (released.isEmpty) return const [];
+  double score(GroupRecord record) {
+    final lag = record.lag;
+    // Twelve hours late halves the speed score; an unknown lag counts so.
+    final speed = lag == null ? .5 : 1 / (1 + lag.inMinutes / (12 * 60));
+    final preferred = groupsMatch(record.credits, preferredGroups) ? 1 : 0;
+    return .45 * record.episodes.length / released.length +
+        .35 * speed +
+        .2 * preferred;
+  }
+
+  final scored = [
+    for (final record in records)
+      if (!((record.lag ?? Duration.zero) > slowGroupLag))
+        (record, score(record)),
+  ]..sort((a, b) => b.$2.compareTo(a.$2));
+  if (scored.isEmpty) return const [];
+  final best = scored.first.$2;
+  return [
+    for (final (record, value) in scored.take(3))
+      if (value >= best * .85) record,
+  ];
+}
+
+Duration? _median(Iterable<Duration> values) {
+  final sorted = values.toList()..sort();
+  return sorted.isEmpty ? null : sorted[sorted.length ~/ 2];
 }
 
 /// When a release was published, from the site's ISO or RSS date. A date

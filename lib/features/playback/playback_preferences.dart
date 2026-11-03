@@ -29,7 +29,7 @@ class PlaybackPreferences extends ChangeNotifier {
       if (name.trim().isNotEmpty) name.trim(),
   ];
 
-  /// Torrents credited only to other groups are left out of resource lists.
+  /// A resource search starts with the preferred groups selected.
   bool get onlyPreferredGroups =>
       storage.getBool('player-only-preferred-groups') ?? false;
 

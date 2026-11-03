@@ -11,6 +11,7 @@ import '../../domain/release_traits.dart';
 import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
 import '../acquisition/release_search.dart';
+import '../acquisition/resource_metadata.dart';
 import '../acquisition/title_matching.dart';
 import '../downloads/download_repository.dart';
 import '../playback/playback_library.dart';
@@ -146,6 +147,12 @@ class SubscriptionController extends ChangeNotifier {
     for (final at in airingsOf(episode.subjectId))
       for (var week = -13; week <= 4; week++) at.add(Duration(days: 7 * week)),
   ]);
+
+  /// When [episode] aired, where the schedule gives the hour.
+  DateTime? airedAt(Episode episode) => switch (releaseOf(episode)) {
+    (:final at, timed: true) => at,
+    _ => null,
+  };
 
   Future<void> _refreshSchedule() async {
     try {
@@ -399,11 +406,7 @@ class SubscriptionController extends ChangeNotifier {
       // Restored tasks tell which episodes are cached already.
       await downloads.ready;
       final subject = await detail(id);
-      final result = await releases.search(
-        id,
-        subscription.keyword,
-        coverUrl: subscription.coverUrl,
-      );
+      final result = await _search(subject);
       if (result.sources.isEmpty) {
         throw StateError('没有可用的 BT 资源站，去数据源页启用一个');
       }
@@ -436,7 +439,7 @@ class SubscriptionController extends ChangeNotifier {
   ) async {
     final revisions = preferences.revisions;
     final groups = preferredGroups();
-    var replaceable = <int>{};
+    var replaceable = <int, String>{};
     if (revisions == RevisionPolicy.replaceUnwatched) {
       try {
         final progress = await tracking.withProgress(subject);
@@ -445,7 +448,7 @@ class SubscriptionController extends ChangeNotifier {
             if (!episode.watched)
               if (subscription.ledger[episode.id] case final entry?
                   when !entry.revision && entry.taskId != null)
-                episode.id,
+                episode.id: entry.title,
         };
       } catch (_) {
         // Without watch progress, nothing counts as unwatched.
@@ -455,6 +458,7 @@ class SubscriptionController extends ChangeNotifier {
       subject: subject,
       filter: subscription.filter,
       preferredGroups: groups,
+      aired: airedAt,
       candidates: candidates,
       wanted: (episode) => _wanted(subscription, subject, episode),
       revisions: revisions,
@@ -645,7 +649,6 @@ class SubscriptionController extends ChangeNotifier {
         Subscription(
           subjectId: subject.id,
           title: subject.title,
-          keyword: subject.title,
           coverUrl: subject.coverUrl,
           filter: filter,
           createdAt: DateTime.now(),
@@ -710,9 +713,17 @@ class SubscriptionController extends ChangeNotifier {
     Subject subject, {
     void Function(ReleaseSearchResult)? onUpdate,
     RequestCancellation? cancel,
+  }) => _search(subject, onUpdate: onUpdate, cancel: cancel);
+
+  /// The BT sites' releases of [subject], searched by every catalogue name
+  /// as 查找资源 searches the whole show.
+  Future<ReleaseSearchResult> _search(
+    Subject subject, {
+    void Function(ReleaseSearchResult)? onUpdate,
+    RequestCancellation? cancel,
   }) => releases.search(
     subject.id,
-    subscriptions[subject.id]?.keyword ?? subject.title,
+    ResourceTerms.of(subject, null),
     coverUrl: subject.coverUrl,
     onUpdate: onUpdate,
     cancel: cancel,

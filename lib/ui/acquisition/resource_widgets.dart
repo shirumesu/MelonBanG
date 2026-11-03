@@ -748,6 +748,7 @@ class ResourceSeriesRow extends StatelessWidget {
     required this.group,
     required this.expanded,
     required this.onExpand,
+    this.labels,
     this.coverage,
     this.size = '—',
     this.date = '—',
@@ -765,6 +766,10 @@ class ResourceSeriesRow extends StatelessWidget {
 
   /// The episodes it covers, once known.
   final String? coverage;
+
+  /// The tags, when not [info]'s own: a series in several subtitle
+  /// versions names each.
+  final List<String>? labels;
   final bool expanded, recommended;
   final VoidCallback onExpand;
   final List<String> notes, warnings;
@@ -782,7 +787,7 @@ class ResourceSeriesRow extends StatelessWidget {
     recommended: recommended,
     kind: candidate.kind.label,
     span: coverage,
-    labels: info.labels,
+    labels: labels ?? info.labels,
     notes: notes,
     warnings: warnings,
     group: group,

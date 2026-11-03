@@ -11,7 +11,8 @@ import '../core/theme.dart';
 /// order, then the others by result count. Dragging a group above or below
 /// the line, or within the preferred ones, sets the preference and its
 /// order; a row drags from anywhere, and a click still toggles it. Hovering
-/// offers the same as text.
+/// offers the same as text. The last row selects just the preferred groups,
+/// or clears the selection.
 class GroupFilterPanel extends StatefulWidget {
   const GroupFilterPanel({
     super.key,
@@ -20,6 +21,7 @@ class GroupFilterPanel extends StatefulWidget {
     required this.counts,
     required this.selected,
     required this.onToggle,
+    required this.onSelect,
   });
   final PlaybackPreferences prefs;
 
@@ -29,6 +31,9 @@ class GroupFilterPanel extends StatefulWidget {
   final Set<String> selected;
   final void Function(String name, bool selected) onToggle;
 
+  /// Replaces the selection with [names].
+  final ValueChanged<Set<String>> onSelect;
+
   @override
   State<GroupFilterPanel> createState() => _GroupFilterPanelState();
 }
@@ -36,6 +41,10 @@ class GroupFilterPanel extends StatefulWidget {
 class _GroupFilterPanelState extends State<GroupFilterPanel> {
   static const _line = '\u0000line';
   static const _rowHeight = 38.0;
+
+  /// The tallest the group list grows, leaving room in the menu for the
+  /// caption, the last row and the menu's 清除.
+  static const _listHeight = 300.0;
   String? hovered;
 
   void prefer(List<String> preferred) =>
@@ -52,6 +61,11 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
           if (!wanted.contains(name.toLowerCase())) name,
       ];
       final rows = [...preferred, _line, ...others];
+      final chosen = {for (final name in widget.selected) name.toLowerCase()};
+      final onlyPreferred =
+          preferred.isNotEmpty &&
+          chosen.length == wanted.length &&
+          chosen.containsAll(wanted);
       final scheme = Theme.of(context).colorScheme;
       final small = Theme.of(context).textTheme.bodySmall;
       Widget caption(String text) => Padding(
@@ -75,6 +89,7 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
             child: Material(
               type: MaterialType.transparency,
               child: InkWell(
+                borderRadius: controlBorderRadius,
                 onTap: count > 0 || on
                     ? () => widget.onToggle(name, !on)
                     : null,
@@ -170,11 +185,20 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
               preferred.isEmpty ? '偏好：拖到这条线上方的字幕组优先推荐' : '偏好：优先推荐，拖动调整顺序',
             ),
             SizedBox(
-              height: math.min(rows.length * _rowHeight + 8, 380),
+              height: math.min(rows.length * _rowHeight + 8, _listHeight),
               child: ScrollEdgeFade(
                 color: menuSurface(context),
                 child: ReorderableListView.builder(
                   buildDefaultDragHandles: false,
+                  proxyDecorator: (child, index, animation) => Material(
+                    color: menuSurface(context),
+                    elevation: 3,
+                    shadowColor: Theme.of(context).popupMenuTheme.shadowColor,
+                    shape: const RoundedRectangleBorder(
+                      borderRadius: controlBorderRadius,
+                    ),
+                    child: child,
+                  ),
                   itemCount: rows.length,
                   onReorderItem: (from, to) {
                     final order = [...rows];
@@ -198,18 +222,24 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
             Material(
               type: MaterialType.transparency,
               child: InkWell(
-                onTap: () => widget.prefs.setOnlyPreferredGroups(
-                  !widget.prefs.onlyPreferredGroups,
-                ),
+                borderRadius: controlBorderRadius,
+                onTap: preferred.isEmpty
+                    ? null
+                    : () => widget.onSelect(
+                        onlyPreferred ? const {} : preferred.toSet(),
+                      ),
                 child: SizedBox(
                   height: _rowHeight,
-                  child: Row(
-                    children: [
-                      const SizedBox(width: 12),
-                      FilterCheck(widget.prefs.onlyPreferredGroups),
-                      const SizedBox(width: Gap.sm),
-                      const Text('只显示偏好字幕组', style: TextStyle(fontSize: 13)),
-                    ],
+                  child: Opacity(
+                    opacity: preferred.isEmpty ? .38 : 1,
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 12),
+                        FilterCheck(onlyPreferred),
+                        const SizedBox(width: Gap.sm),
+                        const Text('只显示偏好字幕组', style: TextStyle(fontSize: 13)),
+                      ],
+                    ),
                   ),
                 ),
               ),

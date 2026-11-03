@@ -7,6 +7,7 @@ import '../../domain/torrent_identity.dart';
 import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
 import '../downloads/download_repository.dart';
+import 'resource_metadata.dart';
 import 'source_registry.dart';
 
 /// Torrent search across the usable index sources, and enqueueing of its
@@ -17,27 +18,27 @@ class ReleaseSearch {
   final SourceRegistry registry;
   final DownloadRepository downloads;
 
-  /// Each keyword/source pair publishes through [onUpdate] as soon as its RSS
+  /// Searches every name of [terms], each with its episode term. Each
+  /// keyword/source pair publishes through [onUpdate] as soon as its RSS
   /// arrives; optional metadata pages enrich results later and never discard
   /// usable downloads. Releases they list beyond a search feed's limit join
   /// when their title holds every word of the keyword.
   Future<ReleaseSearchResult> search(
     int subjectId,
-    String keyword, {
+    ResourceTerms terms, {
     int? episodeId,
-    Iterable<String> alternativeNames = const [],
-    String episodeKeyword = '',
     String? coverUrl,
     void Function(ReleaseSearchResult)? onUpdate,
     RequestCancellation? cancel,
     bool includeMetadata = true,
   }) async {
     cancel?.throwIfCancelled();
-    final keywords = {keyword.trim(), ...alternativeNames.map((e) => e.trim())}
-        .where((e) => e.isNotEmpty)
+    final keywords = terms.searchNames
         .map(
-          (e) =>
-              [e, episodeKeyword.trim()].where((e) => e.isNotEmpty).join(' '),
+          (e) => [
+            e,
+            terms.episodeKeyword.trim(),
+          ].where((e) => e.isNotEmpty).join(' '),
         )
         .toList();
     if (keywords.isEmpty) return const ReleaseSearchResult();

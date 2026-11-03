@@ -353,10 +353,14 @@ class MelonFilterOption<T> {
     this.subtitle,
     this.enabled = true,
     this.more = const [],
+    this.mixed = false,
   });
   final T value;
   final String label;
   final String? detail;
+
+  /// Unselected with some of the choices it stands for selected.
+  final bool mixed;
 
   /// A second line under [label], such as what a group's files are like;
   /// a menu with one is wider.
@@ -430,8 +434,8 @@ class MelonFilterMenu<T> extends StatelessWidget {
     final small = Theme.of(context).textTheme.bodySmall;
     final on = active ?? selected.isNotEmpty;
     final menu = MenuController();
-    Widget mark(bool value) => multiple
-        ? FilterCheck(value)
+    Widget mark(bool value, {bool mixed = false}) => multiple
+        ? FilterCheck(value, mixed: mixed)
         : SizedBox.square(
             dimension: 16,
             child: value
@@ -540,7 +544,7 @@ class MelonFilterMenu<T> extends StatelessWidget {
       onPressed: option.enabled || selected.contains(option.value)
           ? () => onToggle(option.value, !selected.contains(option.value))
           : null,
-      leadingIcon: mark(selected.contains(option.value)),
+      leadingIcon: mark(selected.contains(option.value), mixed: option.mixed),
       trailingIcon: option.detail == null
           ? null
           : Padding(
@@ -691,14 +695,16 @@ class MelonFilterMenu<T> extends StatelessWidget {
   }
 }
 
-/// The check box of a multi-select filter option.
+/// The check box of a multi-select filter option; [mixed] marks one whose
+/// choices are partly selected.
 class FilterCheck extends StatelessWidget {
-  const FilterCheck(this.value, {super.key});
-  final bool value;
+  const FilterCheck(this.value, {super.key, this.mixed = false});
+  final bool value, mixed;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final value = this.value || mixed;
     return AnimatedContainer(
       duration: motionDuration(context, 120),
       width: 16,
@@ -715,7 +721,11 @@ class FilterCheck extends StatelessWidget {
         scale: value ? 1 : 0,
         duration: motionDuration(context, 160),
         curve: value ? Curves.easeOutBack : Curves.easeIn,
-        child: Icon(Icons.check_rounded, size: 12, color: scheme.onPrimary),
+        child: Icon(
+          mixed && !this.value ? Icons.remove_rounded : Icons.check_rounded,
+          size: 12,
+          color: scheme.onPrimary,
+        ),
       ),
     );
   }

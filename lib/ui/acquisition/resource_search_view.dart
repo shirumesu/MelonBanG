@@ -97,6 +97,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   final parts = <String, Future<List<SourceEpisode>>>{};
   // Result rows the list has shown, by entry id.
   final shownEntries = <String>{};
+  // The version a series in several shows, by entry key.
+  final versionOf = <String, String>{};
 
   ResourceFamily kind = ResourceFamily.all;
   bool searching = false;
@@ -162,7 +164,12 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     kind =
         ResourceFamily.values.asNameMap()[form['kind']] ?? ResourceFamily.all;
     qualities.addAll(strings(form['qualities']));
-    groups.addAll(strings(form['sourceGroups']));
+    final settings = controller.playback.settings;
+    groups.addAll(
+      form['sourceGroups'] == null && settings.onlyPreferredGroups
+          ? settings.preferredGroups
+          : strings(form['sourceGroups']),
+    );
     languages.addAll(strings(form['languages']));
     subtitleForms.addAll(strings(form['subtitleForms']));
     excluded.addAll(strings(form['excluded']));
@@ -349,12 +356,16 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     }
   }
 
-  /// Lets the user choose a range of [options], episode ids of the subject
-  /// with the result that holds each, and downloads them in order.
+  /// Lets the user choose one of [versions], each the episode ids of the
+  /// subject with the result that holds each, starting at [version], and a
+  /// range of it, and downloads them in order; [onVersion] learns the
+  /// version chosen.
   Future<void> downloadRange(
-    Map<int, PlayCandidate> options, {
+    Map<String, Map<int, PlayCandidate>> versions, {
     required String title,
     required String source,
+    String? version,
+    ValueChanged<String>? onVersion,
   }) async {
     final subject = this.subject!;
     final chosen = await showResourceBatchDialog(
@@ -362,11 +373,18 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       title: title,
       source: source,
       episodes: subject.episodes,
-      available: options.keys.toSet(),
-      added: {
-        for (final MapEntry(key: id, value: candidate) in options.entries)
-          if (adding.contains(candidate.id) || taskOf(candidate) != null) id,
+      versions: {
+        for (final MapEntry(key: name, value: options) in versions.entries)
+          name: (
+            available: options.keys.toSet(),
+            added: {
+              for (final MapEntry(key: id, value: candidate) in options.entries)
+                if (adding.contains(candidate.id) || taskOf(candidate) != null)
+                  id,
+            },
+          ),
       },
+      version: version,
       cached: {
         for (final task in controller.downloads.snapshot().forSubject(
           subject.id,
@@ -374,8 +392,11 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       },
     );
     if (chosen == null || !mounted) return;
+    final (name, episodes) = chosen;
+    onVersion?.call(name);
+    final options = versions[name]!;
     var added = 0;
-    for (final episode in chosen) {
+    for (final episode in episodes) {
       if (await download(options[episode.id]!, episode: episode)) added++;
       if (!mounted) return;
     }
@@ -467,7 +488,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       return;
     }
     await downloadRange(
-      options,
+      {'': options},
       title: parent.title,
       source: [
         parent.sourceLabel,
@@ -500,9 +521,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       kind: kind,
       subject: subject,
       grouping: state.terms != null && searched == null,
-      onlyGroups: controller.playback.settings.onlyPreferredGroups
-          ? controller.playback.settings.preferredGroups
-          : const [],
     );
     final entries = results.entries;
     // Rows arriving once the list already shows some fade in; the first
@@ -957,6 +975,11 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                         counts: results.groupCounts,
                         selected: groups,
                         onToggle: (value, on) => toggle(groups, value, on),
+                        onSelect: (names) => changeForm(
+                          () => groups
+                            ..clear()
+                            ..addAll(names),
+                        ),
                       ),
                       selected: groups,
                       onToggle: (value, on) => toggle(groups, value, on),
@@ -1206,20 +1229,28 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   }
 
   Widget _seriesRow(ResourceResults results, ResourceEntry entry) {
-    final (best, info, _) = entry.members.first;
-    final members = [...entry.members]
+    // A series in several versions shows one at a time, the best-ranked
+    // first.
+    final versions = entry.versions;
+    final version = versions.containsKey(versionOf[entry.key])
+        ? versionOf[entry.key]!
+        : versions.keys.first;
+    final shown = versions[version]!;
+    final (best, info, _) = shown.first;
+    final members = [...shown]
       ..sort(
         (a, b) => (a.$3?.sort ?? a.$2.episode!).compareTo(
           b.$3?.sort ?? b.$2.episode!,
         ),
       );
     // The best-ranked release of each episode.
-    final options = <int, PlayCandidate>{
-      for (final (candidate, _, target) in entry.members.reversed)
+    Map<int, PlayCandidate> optionsOf(List<ResourceMember> members) => {
+      for (final (candidate, _, target) in members.reversed)
         if (target != null) target.id: candidate,
     };
+    final options = optionsOf(shown);
     final each = <double, PlayCandidate>{
-      for (final (candidate, info, target) in entry.members.reversed)
+      for (final (candidate, info, target) in shown.reversed)
         target?.sort ?? info.episode!: candidate,
     };
     final bytes = [
@@ -1230,13 +1261,16 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           releaseBytes(release),
     ].nonNulls;
     final dates = [
-      for (final (candidate, _, _) in entry.members)
+      for (final (candidate, _, _) in shown)
         if (candidate.target case ReleaseTarget(
           candidate: ReleaseCandidate(:final release),
         ))
           resourceDateLabel(release),
     ].where((date) => date != '—').toList()..sort();
     final expanded = expandedTitles.contains(entry.key);
+    final several = versions.length > 1;
+    final stated = info.subtitles.split('|').toSet();
+    void choose(String name) => changeForm(() => versionOf[entry.key] = name);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1245,6 +1279,12 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           child: ResourceSeriesRow(
             candidate: best,
             info: info,
+            labels: several
+                ? [
+                    ...info.labels.where((label) => !stated.contains(label)),
+                    ...versions.keys,
+                  ]
+                : null,
             title: _seriesTitle(info),
             group: resourceGroupLabel(info),
             coverage: '第 ${episodeSpans(each.keys)} 话',
@@ -1261,9 +1301,10 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 expandedTitles.add(entry.key);
               }
             }),
-            recommended: best.id == results.recommendedId,
+            recommended: entry.members.first.$1.id == results.recommendedId,
             notes: [
               if (controller.state.remembered?.affinity(best) == 2) '上次选择',
+              if (several) '${versions.length} 个版本',
               ...results.unstated(best),
             ],
             warnings: [if (options.isEmpty) '未对应本作剧集'],
@@ -1277,7 +1318,15 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
               onPressed: options.isEmpty
                   ? null
                   : () => downloadRange(
-                      options,
+                      {
+                        for (final MapEntry(key: name, value: members)
+                            in versions.entries)
+                          if (optionsOf(members) case final options
+                              when options.isNotEmpty)
+                            name: options,
+                      },
+                      version: version,
+                      onVersion: choose,
                       title: [
                         resourceGroupLabel(info),
                         _seriesTitle(info),
@@ -1285,8 +1334,10 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       source: [
                         best.providerLabel ?? best.provider,
                         ?info.quality,
-                        ...info.languages,
-                        ...info.subtitleForms,
+                        if (!several) ...[
+                          ...info.languages,
+                          ...info.subtitleForms,
+                        ],
                       ].join('  '),
                     ),
             ),
@@ -1296,6 +1347,28 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           visible: expanded,
           child: ResourceEpisodePanel(
             rows: (wide) => [
+              if (several)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(26, 6, 8, 4),
+                  child: Row(
+                    children: [
+                      Text('版本', style: Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(width: Gap.md),
+                      Flexible(
+                        child: SizedBox(
+                          width: 116.0 * versions.length,
+                          child: MelonSegmentedControl<String>(
+                            options: {
+                              for (final name in versions.keys) name: name,
+                            },
+                            value: version,
+                            onChanged: choose,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               for (final member in members) _memberRow(member, wide),
             ],
           ),
@@ -1351,7 +1424,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       visualDensity: VisualDensity.compact,
                     ),
                     onPressed: () => downloadRange(
-                      options,
+                      {'': options},
                       title: candidate.title,
                       source: [candidate.sourceLabel, name].join('  '),
                     ),

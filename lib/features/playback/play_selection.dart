@@ -297,10 +297,8 @@ class PlaySelectionRepository {
         : releases
               .search(
                 subjectId,
-                search.keyword,
-                alternativeNames: search.names,
+                search,
                 episodeId: episodeId,
-                episodeKeyword: search.episodeKeyword,
                 coverUrl: subject.coverUrl,
                 cancel: cancel,
                 includeMetadata: !forPlayback,

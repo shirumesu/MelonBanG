@@ -455,12 +455,12 @@ SettingsSection sourcesSection(
           PreferredGroupsSetting(prefs: prefs, cachedGroups: cachedGroups),
         ),
         SettingsItem(
-          '只显示 偏好 字幕组 隐藏 其他',
+          '只显示 偏好 字幕组 隐藏 其他 默认 勾选',
           _watch(
             prefs,
             (context) => SettingSwitch(
-              title: '只显示偏好字幕组',
-              subtitle: '资源列表里 BT 和 PikPak 只列出偏好字幕组的发布；没写明字幕组的和在线资源照常显示',
+              title: '查找资源时只显示偏好字幕组',
+              subtitle: '打开查找资源时先勾选偏好字幕组，可以在字幕组菜单里取消',
               value: prefs.onlyPreferredGroups,
               onChanged: prefs.setOnlyPreferredGroups,
             ),

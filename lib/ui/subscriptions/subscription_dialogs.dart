@@ -158,8 +158,11 @@ class _SubscriptionDialog extends StatefulWidget {
 
 enum _Part { groups, qualities, languages, forms }
 
-/// Menu values standing for every group and for the preferred ones.
-const _anyGroup = '\u0000any', _preferred = '\u0000preferred';
+/// Menu values standing for every group, the preferred ones and the ones
+/// [smartGroups] picks.
+const _anyGroup = '\u0000any',
+    _preferred = '\u0000preferred',
+    _smart = '\u0000smart';
 
 /// A single-episode release of the show, as the search found it.
 typedef _File = ({
@@ -190,15 +193,21 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
   final cancel = RequestCancellation();
 
   /// What the show's releases offer, as one search finds them.
-  /// Groups by their most common spelling; the traditional and simplified
-  /// spellings of one group count together.
+  /// Groups as the resource search names them, by their most common
+  /// spelling; the traditional and simplified spellings of one group count
+  /// together.
   final groupCounts = <String, int>{},
       qualityCounts = <String, int>{},
       languageCounts = <String, int>{},
       formCounts = <String, int>{};
 
-  /// The single-episode releases, the earliest published first.
+  /// Every release found, and the single-episode ones, the earliest
+  /// published first.
+  var releases = <ReleaseCandidate>[];
   var files = <_File>[];
+
+  /// Why the search found nothing, when no site answered.
+  String? searchError;
   bool searching = true;
   bool saving = false;
 
@@ -239,7 +248,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
             }
           }
 
-          add(spellings, creditedGroups(info));
+          add(spellings, info.groups);
           add(qualityCounts, [?info.quality]);
           add(languageCounts, info.languages);
           add(formCounts, info.subtitleForms);
@@ -268,6 +277,16 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
           (a, b) => (a.$2 ?? DateTime(0)).compareTo(b.$2 ?? DateTime(0)),
         );
         files = [for (final (file, _) in found) file];
+        releases = result.candidates;
+        searchError = switch (result.sources) {
+          [] => '没有可用的 BT 资源站',
+          final sources
+              when sources.every(
+                (source) => source.status == SearchStatus.error,
+              ) =>
+            '资源站都没有响应',
+          _ => null,
+        };
       });
     }
 
@@ -279,8 +298,11 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
           cancel: cancel,
         ),
       );
+    } on RequestCancelled {
+      // The dialog closed.
     } catch (_) {
       // The menus still offer every choice, without counts.
+      if (mounted) setState(() => searchError = '查找失败');
     } finally {
       if (mounted) setState(() => searching = false);
     }
@@ -302,11 +324,37 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
     Set<String> toggled(Set<String> values) =>
         on ? {...values, value} : ({...values}..remove(value));
     filter = switch (part) {
-      _Part.groups => filter.copyWith(groups: toggled(filter.groups)),
+      _Part.groups => filter.copyWith(
+        groups: toggled(filter.groups),
+        smart: false,
+      ),
       _Part.qualities => filter.copyWith(qualities: toggled(filter.qualities)),
       _Part.languages => filter.copyWith(languages: toggled(filter.languages)),
       _Part.forms => filter.copyWith(forms: toggled(filter.forms)),
     };
+  });
+
+  /// Whether group [name] counts: chosen by name, or among the preferred
+  /// groups while they count.
+  bool _on(String name) =>
+      groupsMatch(filter.groups, [name]) ||
+      (filter.preferred && groupsMatch([name], widget.preferredGroups));
+
+  /// Turns group [name], one of the preferred ones, on or off. Turning one
+  /// off while all of them count keeps the others by name; naming every
+  /// preferred group counts them as the preferred groups again.
+  void _togglePreferred(String name, bool on) => setState(() {
+    final preferred = widget.preferredGroups;
+    final groups = {...filter.groups};
+    if (on) {
+      groups.add(name);
+    } else {
+      if (filter.preferred) groups.addAll(preferred);
+      groups.removeWhere((group) => groupsMatch([group], [name]));
+    }
+    final all = preferred.every((group) => groupsMatch(groups, [group]));
+    if (all) groups.removeWhere((group) => groupsMatch([group], preferred));
+    filter = filter.copyWith(groups: groups, preferred: all, smart: false);
   });
 
   /// Whether [info] meets the filter's quality and subtitles, or states
@@ -326,28 +374,24 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
     final raw = file.candidate.release.publishedAt ?? '';
     // A bare date says nothing about the hour.
     final published = raw.length > 10 ? releasePublished(raw) : null;
-    final aired = widget.controller.releaseOf(file.episode);
-    if (published == null || aired == null || !aired.timed) return null;
-    final delay = published.difference(aired.at);
+    final aired = widget.controller.airedAt(file.episode);
+    if (published == null || aired == null) return null;
+    final delay = published.difference(aired);
     return delay.isNegative ? null : delay;
   }
 
-  /// What [group]'s files meeting the quality and subtitles are like: the
+  /// What [record]'s files meeting the quality and subtitles are like: the
   /// latest one's tags and size, and how soon after airing they come out.
-  String? _groupSummary(String group, ByteUnits units) {
-    final own = [
-      for (final file in files)
-        if (groupsMatch(creditedGroups(file.info), [group]) &&
-            _meets(file.info))
-          file,
-    ];
-    if (own.isEmpty) {
-      return files.isEmpty ? null : '没有符合画质和字幕的单集文件';
-    }
-    final delays = [for (final file in own) ?_delay(file)]..sort();
+  String _groupSummary(GroupRecord record, ByteUnits units) {
+    final latest = files
+        .where(
+          (file) =>
+              groupsMatch(file.info.groups, [record.name]) && _meets(file.info),
+        )
+        .lastOrNull;
     return [
-      _fileSummary(own.last, units),
-      if (delays.isNotEmpty) '播出后约 ${_span(delays[delays.length ~/ 2])}',
+      if (latest != null) _fileSummary(latest, units),
+      if (record.lag case final lag?) '播出后约 ${_span(lag)}',
     ].join(' · ');
   }
 
@@ -363,9 +407,10 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
       judgeReleases(
           subject: widget.subject,
           filter: filter,
-          candidates: [for (final file in files) file.candidate],
+          candidates: releases,
           wanted: (_) => true,
           preferredGroups: widget.preferredGroups,
+          aired: widget.controller.airedAt,
         ).where((judgement) => judgement.download).toList()
         ..sort((a, b) => b.episode!.sort.compareTo(a.episode!.sort));
 
@@ -392,9 +437,45 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
           value,
           detail: searching && counts.isEmpty ? null : '${counts[value] ?? 0}',
         );
-    final groupNames = {...filter.groups, ...groupCounts.keys}.toList()
-      ..sort((a, b) => (groupCounts[b] ?? 0).compareTo(groupCounts[a] ?? 0));
     final preferred = widget.preferredGroups;
+    final records = groupRecords(
+      subject: widget.subject,
+      filter: filter,
+      candidates: releases,
+      aired: widget.controller.airedAt,
+    );
+    final judged = !searching && files.isNotEmpty;
+    // Groups without a single-episode file meeting the quality and
+    // subtitles, or usually a week late, leave the list unless chosen.
+    bool worth(String name) => switch (records[groupKey(name)]) {
+      null => !judged,
+      final record => !((record.lag ?? Duration.zero) > slowGroupLag),
+    };
+    final found = {...groupCounts.keys};
+    final groupNames = [
+      for (final name in {...filter.groups, ...found})
+        if (groupsMatch(filter.groups, [name]) || worth(name)) name,
+    ];
+    final hidden = found.length - groupNames.where(found.contains).length;
+    int byPreference(String name) => groupsMatch([name], preferred) ? 0 : 1;
+    groupNames.sort((a, b) {
+      final first = byPreference(a).compareTo(byPreference(b));
+      return first != 0
+          ? first
+          : (groupCounts[b] ?? 0).compareTo(groupCounts[a] ?? 0);
+    });
+    final ours = [
+      for (final record in records.values)
+        if (groupsMatch(record.credits, preferred)) record,
+    ];
+    final picked = smartGroups(records.values, preferred);
+    String lagOf(Iterable<GroupRecord> chosen) => [
+      if (fastestLag(chosen) case final lag?) '播出后约 ${_span(lag)}',
+      chosen.map((record) => record.name).join('、'),
+    ].join(' · ');
+    final partly =
+        !filter.preferred &&
+        preferred.any((name) => groupsMatch(filter.groups, [name]));
     final subtitles = [
       ...resourceLanguages.where(filter.languages.contains),
       ...resourceSubtitleForms.where(filter.forms.contains),
@@ -402,6 +483,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
     final menus = [
       MelonFilterMenu<String>(
         label: switch ((filter.groups.length, filter.preferred)) {
+          _ when filter.smart => '智能选择字幕组',
           (0, false) => '不限字幕组',
           (0, true) => '偏好字幕组',
           (1, false) => filter.groups.single,
@@ -410,16 +492,38 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
         },
         icon: Icons.groups_outlined,
         active: !filter.anyGroup,
-        tooltip: '勾几个字幕组时，谁先发布就缓存谁的',
+        tooltip:
+            '智能：每次检查时挑本作发布集数多、播出后发布快的字幕组，偏好的优先，最多三个。'
+            '选了几个字幕组时，谁先发布就缓存谁的',
         sections: [
           MelonFilterSection([
             const MelonFilterOption(_anyGroup, '不限'),
             MelonFilterOption(
+              _smart,
+              '智能',
+              subtitle: picked.isEmpty
+                  ? judged
+                        ? '本作还没有符合画质和字幕的发布'
+                        : '按发布集数、发布快慢和偏好挑选'
+                  : lagOf(picked),
+            ),
+            MelonFilterOption(
               _preferred,
               '偏好字幕组',
-              detail: preferred.isEmpty ? '未设置' : '${preferred.length} 个',
-              subtitle: preferred.isEmpty ? null : preferred.join('、'),
+              detail: preferred.isEmpty
+                  ? '未设置'
+                  : searching && groupCounts.isEmpty
+                  ? null
+                  : '${groupCounts.entries.where((entry) => groupsMatch([entry.key], preferred)).fold(0, (sum, entry) => sum + entry.value)}',
+              subtitle: preferred.isEmpty
+                  ? '在 设置 › 字幕组 里设置'
+                  : ours.isNotEmpty
+                  ? lagOf(ours)
+                  : judged
+                  ? '本作还没有偏好字幕组符合画质和字幕的发布'
+                  : null,
               enabled: preferred.isNotEmpty,
+              mixed: partly,
             ),
           ]),
           MelonFilterSection(
@@ -429,26 +533,60 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                   name,
                   name,
                   detail: counted(name, groupCounts).detail,
-                  subtitle: _groupSummary(name, units),
+                  subtitle: switch (records[groupKey(name)]) {
+                    final record? => _groupSummary(record, units),
+                    null when judged =>
+                      groupCounts.containsKey(name)
+                          ? '没有符合画质和字幕的单集文件'
+                          : '没有找到本作的发布',
+                    null => null,
+                  },
                 ),
             ],
             title: searching
                 ? '正在查找本作的字幕组…'
-                : groupNames.isEmpty
-                ? '没有找到本作的字幕组'
-                : '本作的字幕组',
+                : groupCounts.isEmpty
+                ? searchError ?? '没有找到本作的字幕组'
+                : [
+                    '本作的字幕组',
+                    if (hidden > 0) '另有 $hidden 个不符合画质和字幕或发布太慢',
+                  ].join(' · '),
           ),
         ],
         selected: {
           if (filter.anyGroup) _anyGroup,
+          if (filter.smart) _smart,
           if (filter.preferred) _preferred,
+          for (final name in groupNames)
+            if (_on(name)) name,
           ...filter.groups,
         },
         onToggle: (value, on) => switch (value) {
           _anyGroup => setState(
-            () => filter = filter.copyWith(groups: {}, preferred: false),
+            () => filter = filter.copyWith(
+              groups: {},
+              preferred: false,
+              smart: false,
+            ),
           ),
-          _preferred => setState(() => filter = filter.copyWith(preferred: on)),
+          _smart => setState(
+            () => filter = filter.copyWith(
+              groups: {},
+              preferred: false,
+              smart: on,
+            ),
+          ),
+          _preferred => setState(
+            () => filter = filter.copyWith(
+              groups: {
+                for (final group in filter.groups)
+                  if (!groupsMatch([group], preferred)) group,
+              },
+              preferred: on,
+              smart: false,
+            ),
+          ),
+          _ when groupsMatch([value], preferred) => _togglePreferred(value, on),
           _ => _toggle(_Part.groups, value, on),
         },
       ),
@@ -581,12 +719,23 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                 ),
                 child: picks.isEmpty
                     ? Text(
-                        searching ? '正在查找符合筛选的文件…' : '最近没有符合筛选的文件',
+                        searching
+                            ? '正在查找符合筛选的文件…'
+                            : searchError ?? '最近没有符合筛选的文件',
                         style: small,
                       )
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // A preview: what the filter takes for episodes
+                          // already out, as it would for the next.
+                          Text(
+                            '按现在的筛选，最近几话会选这些文件',
+                            style: small?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: Gap.xs),
                           for (final pick in picks.take(3))
                             _PickRow(
                               episode: pick.episode!.label,
@@ -601,7 +750,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                                 info: pick.info,
                                 episode: pick.episode!,
                               ))) {
-                                final delay? => '播出后 ${_span(delay)}',
+                                final delay? => '播出后 ${_span(delay)}发布',
                                 null => '',
                               },
                               title: pick.candidate.release.title,
