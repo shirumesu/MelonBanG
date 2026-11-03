@@ -401,7 +401,10 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     final options = versions[name]!;
     var added = 0;
     for (final episode in episodes) {
-      if (await download(options[episode.id]!, episode: episode)) added++;
+      // A batch holding several of them is added once, as a whole.
+      final candidate = options[episode.id]!;
+      final batch = annotate(candidate).batch;
+      if (await download(candidate, episode: batch ? null : episode)) added++;
       if (!mounted) return;
     }
     offerDownloads(added);
@@ -1209,7 +1212,9 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     final expanded = expandedTitles.contains(candidate.id);
     return ResourceEpisodeRow(
       label: target == null
-          ? info.episodeLabel!
+          ? info.batch
+                ? '合集 ${info.episodeLabel}'
+                : info.episodeLabel!
           : target.numberedApart
           ? target.label
           : '第 ${target.number.padLeft(2, '0')} 话',
@@ -1259,24 +1264,67 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         : versions.keys.first;
     final shown = versions[version]!;
     final (best, info, _) = shown.first;
+    // Releases in episode order, a batch of episodes released only in it
+    // where its range starts (1、2、合集 03–05、6); a batch holding any
+    // episode released singly too follows them all, as another way to get
+    // them.
+    final single = {
+      for (final member in shown)
+        if (!member.$2.batch) ...results.episodesOf(member).map((e) => e.id),
+    };
+    bool alternative(ResourceMember member) {
+      final held = results.episodesOf(member);
+      return member.$2.batch && held.any((e) => single.contains(e.id));
+    }
+
+    double startOf(ResourceMember member) =>
+        results.episodesOf(member).firstOrNull?.sort ??
+        member.$2.episode ??
+        double.tryParse(
+          RegExp(r'^\d+').stringMatch(member.$2.episodeLabel ?? '') ?? '',
+        ) ??
+        0;
     final members = [...shown]
-      ..sort(
-        (a, b) => (a.$3?.sort ?? a.$2.episode!).compareTo(
-          b.$3?.sort ?? b.$2.episode!,
-        ),
-      );
-    // The best-ranked release of each episode.
+      ..sort((a, b) {
+        for (final order in [
+          (alternative(a) ? 1 : 0).compareTo(alternative(b) ? 1 : 0),
+          startOf(a).compareTo(startOf(b)),
+          (a.$2.batch ? 1 : 0).compareTo(b.$2.batch ? 1 : 0),
+        ]) {
+          if (order != 0) return order;
+        }
+        return 0;
+      });
+    // Each episode number with the best-ranked single release holding it
+    // and the subject's episode, else the best-ranked batch holding it: a
+    // group's batches fill in what it released no single episode of.
+    Map<double, (PlayCandidate, Episode?)> eachOf(
+      List<ResourceMember> members,
+    ) {
+      final found = <double, (PlayCandidate, Episode?)>{};
+      for (final batch in [false, true]) {
+        for (final member in members) {
+          if (member.$2.batch != batch) continue;
+          final held = results.episodesOf(member);
+          if (member.$2.episode case final number? when held.isEmpty) {
+            found.putIfAbsent(number, () => (member.$1, null));
+          }
+          for (final episode in held) {
+            found.putIfAbsent(episode.sort, () => (member.$1, episode));
+          }
+        }
+      }
+      return found;
+    }
+
     Map<int, PlayCandidate> optionsOf(List<ResourceMember> members) => {
-      for (final (candidate, _, target) in members.reversed)
-        if (target != null) target.id: candidate,
+      for (final (candidate, episode) in eachOf(members).values)
+        if (episode != null) episode.id: candidate,
     };
     final options = optionsOf(shown);
-    final each = <double, PlayCandidate>{
-      for (final (candidate, info, target) in shown.reversed)
-        target?.sort ?? info.episode!: candidate,
-    };
+    final each = eachOf(shown);
     final bytes = [
-      for (final candidate in each.values)
+      for (final candidate in {for (final (c, _) in each.values) c})
         if (candidate.target case ReleaseTarget(
           candidate: ReleaseCandidate(:final release),
         ))
@@ -1292,6 +1340,10 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     final expanded = expandedTitles.contains(entry.key);
     final several = versions.length > 1;
     final stated = info.subtitles.split('|').toSet();
+    // What the version names already say, such as the quality of `CR 1080p`
+    // against `CR AI 4K`, is not repeated from the shown version's best.
+    final named = {for (final name in versions.keys) ...name.split(' ')};
+    final qualities = {for (final member in entry.members) member.$2.quality};
     void choose(String name) => changeForm(() => versionOf[entry.key] = name);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1301,7 +1353,11 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           info: info,
           labels: several
               ? [
-                  ...info.labels.where((label) => !stated.contains(label)),
+                  ...info.labels.where(
+                    (label) =>
+                        !stated.contains(label) &&
+                        !named.contains(label == 'AI 超分' ? 'AI' : label),
+                  ),
                   ...versions.keys,
                 ]
               : null,
@@ -1351,7 +1407,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                     ].where((e) => e.isNotEmpty).join('  '),
                     source: [
                       best.providerLabel ?? best.provider,
-                      ?info.quality,
+                      if (qualities.length == 1) ?info.quality,
                       if (!several) ...[
                         ...info.languages,
                         ...info.subtitleForms,

@@ -134,6 +134,33 @@ Episode? releaseEpisode(Subject subject, ResourceTitleInfo info) {
   return episodes.where((e) => e.sort == number).firstOrNull;
 }
 
+/// The main episodes of [subject] a batch holds, numbered within the season
+/// or across seasons (`[25-48]`). Like [releaseEpisode], a batch of a
+/// sequel naming no season counts across seasons, as `[01-24]` is more
+/// likely the first season's; one naming another season holds none.
+List<Episode> batchEpisodes(Subject subject, ResourceTitleInfo info) {
+  if (!info.batch || info.episodeConflict) return const [];
+  final episodes = subject.episodes.where((e) => !e.numberedApart);
+  final sequel = episodes.any(
+    (e) => e.absolute != null && e.absolute != e.sort,
+  );
+  final season = _subjectSeason(subject) ?? (sequel ? null : 1);
+  if (info.season != null && season != null && info.season != season) {
+    return const [];
+  }
+  final range = RegExp(r'^(\d+)–(\d+)').firstMatch(info.episodeLabel!)!;
+  bool within(double? number) =>
+      number != null &&
+      number >= int.parse(range[1]!) &&
+      number <= int.parse(range[2]!);
+  return [
+    for (final episode in episodes)
+      if (within(episode.absolute) ||
+          (!(sequel && info.season == null) && within(episode.sort)))
+        episode,
+  ];
+}
+
 /// The videos of [task], a download of [subject], by the episode each
 /// holds: its own episode for a single video cached for one, otherwise the
 /// number a video's name gives (`S02E03`, `[03]`, ` - 03(51)`), within the
