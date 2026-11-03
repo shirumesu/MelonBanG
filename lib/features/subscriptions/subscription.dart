@@ -19,6 +19,7 @@ class SubscriptionFilter {
   const SubscriptionFilter({
     this.groups = const {},
     this.preferred = false,
+    this.smart = false,
     this.qualities = const {},
     this.languages = const {},
     this.forms = const {},
@@ -27,6 +28,7 @@ class SubscriptionFilter {
   factory SubscriptionFilter.fromJson(Json value) => SubscriptionFilter(
     groups: _strings(value['groups']),
     preferred: value['preferred'] == true,
+    smart: value['smart'] == true,
     qualities: _strings(value['qualities']),
     languages: _strings(value['languages']),
     forms: _strings(value['forms']),
@@ -38,12 +40,16 @@ class SubscriptionFilter {
   /// Also the preferred groups of the settings, as they stand at each check.
   final bool preferred;
 
+  /// The groups [smartGroups] picks from the show's releases at each check,
+  /// instead of named or preferred ones.
+  final bool smart;
+
   /// Of [resourceQualities], [resourceLanguages] and [resourceSubtitleForms];
   /// 简体 also takes 简繁 and 简日 releases, which state 简体 among others.
   final Set<String> qualities, languages, forms;
 
   /// Releases of every group count.
-  bool get anyGroup => groups.isEmpty && !preferred;
+  bool get anyGroup => groups.isEmpty && !preferred && !smart;
 
   /// The groups whose releases count, with [preferredGroups] for [preferred].
   List<String> groupNames(List<String> preferredGroups) => [
@@ -54,12 +60,14 @@ class SubscriptionFilter {
   SubscriptionFilter copyWith({
     Set<String>? groups,
     bool? preferred,
+    bool? smart,
     Set<String>? qualities,
     Set<String>? languages,
     Set<String>? forms,
   }) => SubscriptionFilter(
     groups: groups ?? this.groups,
     preferred: preferred ?? this.preferred,
+    smart: smart ?? this.smart,
     qualities: qualities ?? this.qualities,
     languages: languages ?? this.languages,
     forms: forms ?? this.forms,
@@ -68,6 +76,7 @@ class SubscriptionFilter {
   Json toJson() => {
     'groups': groups.toList(),
     'preferred': preferred,
+    'smart': smart,
     'qualities': _ordered(qualities, resourceQualities),
     'languages': _ordered(languages, resourceLanguages),
     'forms': _ordered(forms, resourceSubtitleForms),
@@ -76,6 +85,7 @@ class SubscriptionFilter {
   /// `偏好字幕组 · 1080p · 简体`.
   String get label => [
     switch ((groups.length, preferred)) {
+      _ when smart => '智能选择字幕组',
       (0, false) => '不限字幕组',
       (0, true) => '偏好字幕组',
       (1, false) => groups.single,
@@ -105,7 +115,6 @@ class Subscription {
   Subscription({
     required this.subjectId,
     required this.title,
-    required this.keyword,
     required this.filter,
     required this.createdAt,
     this.coverUrl,
@@ -127,7 +136,6 @@ class Subscription {
   factory Subscription.fromJson(Json value) => Subscription(
     subjectId: (value['subjectId'] as num).toInt(),
     title: value['title'] as String? ?? '',
-    keyword: value['keyword'] as String? ?? '',
     coverUrl: value['coverUrl'] as String?,
     filter: SubscriptionFilter.fromJson(object(value['filter'])),
     createdAt: _time(value['createdAt']) ?? DateTime.now(),
@@ -159,7 +167,7 @@ class Subscription {
   );
 
   final int subjectId;
-  String title, keyword;
+  String title;
   String? coverUrl;
   SubscriptionFilter filter;
   final DateTime createdAt;
@@ -194,7 +202,6 @@ class Subscription {
   Json toJson() => {
     'subjectId': subjectId,
     'title': title,
-    'keyword': keyword,
     'coverUrl': coverUrl,
     'filter': filter.toJson(),
     'createdAt': createdAt.toUtc().toIso8601String(),

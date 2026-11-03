@@ -1523,10 +1523,8 @@ class _QueueRowState extends State<_QueueRow> {
   }
 }
 
-/// One segment per main episode in a single bar: watched ones filled, the
-/// one under way filled to its saved place, aired ones tinted, the rest
-/// grey. Segments part with a hairline while they are wide enough to tell
-/// apart.
+/// A continuous bar over the main episodes: watched ones filled, the one
+/// under way filled to its saved place, aired ones tinted, the rest grey.
 class _EpisodeStrip extends StatelessWidget {
   const _EpisodeStrip(this.watch, {this.height = 4});
   final _Watch watch;
@@ -1606,32 +1604,36 @@ class _StripPainter extends CustomPainter {
     final count = fills.length;
     if (count == 0) return;
     final slot = size.width / count;
-    final gap = slot >= 8
-        ? 2.0
-        : slot >= 4
-        ? 1.0
-        : 0.0;
     canvas.clipRRect(
       RRect.fromRectAndRadius(
         Offset.zero & size,
         Radius.circular(size.height / 2),
       ),
     );
-    // Without gaps, smoothed edges of touching segments show as seams.
-    final paint = Paint()..isAntiAlias = gap > 0;
-    for (var i = 0; i < count; i++) {
-      final width = slot - (i < count - 1 ? gap : 0);
-      final left = i * slot;
-      paint.color = aired[i] ? airedColor : pendingColor;
-      canvas.drawRect(Rect.fromLTWH(left, 0, width, size.height), paint);
-      if (fills[i] > 0) {
-        paint.color = watchedColor;
-        canvas.drawRect(
-          Rect.fromLTWH(left, 0, width * fills[i], size.height),
-          paint,
-        );
+    final paint = Paint()..color = pendingColor;
+    canvas.drawRect(Offset.zero & size, paint);
+    // Neighbouring episodes of a colour join into one run, so the bar shows
+    // no seams between them.
+    void runs(double Function(int i) extent) {
+      double? start;
+      var end = 0.0;
+      for (var i = 0; i <= count; i++) {
+        final left = i * slot;
+        if (start != null &&
+            (i == count || end < left - .01 || extent(i) == 0)) {
+          canvas.drawRect(Rect.fromLTRB(start, 0, end, size.height), paint);
+          start = null;
+        }
+        if (i == count || extent(i) == 0) continue;
+        start ??= left;
+        end = left + slot * extent(i);
       }
     }
+
+    paint.color = airedColor;
+    runs((i) => aired[i] ? 1 : 0);
+    paint.color = watchedColor;
+    runs((i) => fills[i]);
   }
 
   @override

@@ -22,6 +22,7 @@ class ResourceTitleInfo {
     this.season,
     this.credit,
     this.series,
+    this.platforms = const [],
     this.subtitles = '',
   });
 
@@ -62,9 +63,13 @@ class ResourceTitleInfo {
       : [?credit];
 
   /// What releases of one series by one group share across episodes: the
-  /// credited group, season, quality, encoding and platform. Null for
-  /// batches and titles without a credited group or episode.
+  /// credited group, season, quality and encoding. Null for batches and
+  /// titles without a credited group or episode.
   final String? series;
+
+  /// The streaming platforms the title names as ripped from, such as `Baha`;
+  /// one group's rips of a series from several differ by them.
+  final List<String> platforms;
 
   /// The subtitle languages, forms and wording the title states, empty when
   /// it states none; a series' releases share it where stated.
@@ -133,9 +138,28 @@ int? resourceSeason(String text) {
 
 // Streaming platforms releases are ripped from; two rips of one episode by
 // one group differ by them.
-final _platform = _token(
-  r'ABEMA|Baha|B-Global|Bilibili|CR|Crunchyroll|NF|Netflix|AMZN|CATCHPLAY|Disney\+?|U-NEXT|iQIYI|Viu|KKTV|MUSE|Hulu|YouTube',
-);
+const _platforms = [
+  'ABEMA',
+  'Baha',
+  'B-Global',
+  'Bilibili',
+  'CR',
+  'Crunchyroll',
+  'NF',
+  'Netflix',
+  'AMZN',
+  'CATCHPLAY',
+  'Disney+',
+  'Disney',
+  'U-NEXT',
+  'iQIYI',
+  'Viu',
+  'KKTV',
+  'MUSE',
+  'Hulu',
+  'YouTube',
+];
+final _platform = _token(_platforms.map(RegExp.escape).join('|'));
 
 final _brackets = RegExp(r'\[([^\]]+)\]|【([^】]+)】|〖([^〗]+)〗');
 final _sourceQuality = RegExp(
@@ -238,6 +262,17 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
       for (final language in ['CHS', 'CHT', 'GB', 'BIG5', 'VOSTFR'])
         if (_token(language).hasMatch(normalized)) language,
   ];
+  // Bahamut streams carry burned-in traditional subtitles, which rips of
+  // them seldom state in full.
+  if (_token('Baha').hasMatch(normalized)) {
+    final stated = [
+      if (languages.isEmpty) '繁体',
+      if (subtitleForms.isEmpty) '内嵌',
+    ];
+    if (languages.isEmpty) languages.add('繁体');
+    if (subtitleForms.isEmpty) subtitleForms.add('内嵌');
+    if (stated.isNotEmpty) subtitleLabels.add(stated.join());
+  }
   labels.addAll(subtitleLabels);
   final blocks = _brackets.allMatches(title).toList();
   final first = blocks.firstOrNull;
@@ -351,6 +386,12 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
       prefix == null || _technical.hasMatch(simplifiedChinese(prefix))
       ? null
       : prefix.trim();
+  final platforms = {
+    for (final match in _platform.allMatches(normalized))
+      _platforms.firstWhere(
+        (name) => name.toLowerCase() == match.group(0)!.toLowerCase(),
+      ),
+  }.toList()..sort();
   final series = episode == null || credit == null || credit.isEmpty
       ? null
       : [
@@ -359,10 +400,6 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
           quality ?? '',
           labels.where((e) => !subtitleLabels.contains(e)).toSet().toList()
             ..sort(),
-          {
-            for (final match in _platform.allMatches(normalized))
-              match.group(0)!.toUpperCase(),
-          }.toList()..sort(),
         ].join('|');
   return ResourceTitleInfo(
     title: title,
@@ -382,6 +419,7 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
     season: season,
     credit: credit,
     series: series,
+    platforms: platforms,
     subtitles: ([
       ...languages,
       ...subtitleForms,

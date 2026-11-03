@@ -6,27 +6,34 @@ import 'package:flutter/services.dart';
 import '../../domain/catalog.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
+import '../core/selection_controls.dart';
 import '../core/theme.dart';
 
+/// One version of a resource, such as its 简日 subtitles or Baha rip: the episodes it
+/// holds and those already added from it.
+typedef BatchVersion = ({Set<int> available, Set<int> added});
+
 /// Lets the user pick the episodes of one resource to download, by range
-/// text (`1-3, 5, 8-12`) or by cells; Shift-click selects a run. Returns the
-/// chosen episodes in order, or null when cancelled.
-Future<List<Episode>?> showResourceBatchDialog(
+/// text (`1-3, 5, 8-12`) or by cells; Shift-click selects a run. A resource
+/// in several [versions] offers them by name, starting at [version].
+/// Returns the chosen version and episodes in order, or null when
+/// cancelled.
+Future<(String, List<Episode>)?> showResourceBatchDialog(
   BuildContext context, {
   required String title,
   required String source,
   required List<Episode> episodes,
-  required Set<int> available,
-  Set<int> added = const {},
+  required Map<String, BatchVersion> versions,
+  String? version,
   Set<int> cached = const {},
-}) => showMelonDialog<List<Episode>>(
+}) => showMelonDialog<(String, List<Episode>)>(
   context: context,
   builder: (_) => _BatchDialog(
     title: title,
     source: source,
     episodes: episodes,
-    available: available,
-    added: added,
+    versions: versions,
+    version: version ?? versions.keys.first,
     cached: cached,
   ),
 );
@@ -54,16 +61,16 @@ class _BatchDialog extends StatefulWidget {
     required this.title,
     required this.source,
     required this.episodes,
-    required this.available,
-    required this.added,
+    required this.versions,
+    required this.version,
     required this.cached,
   });
-  final String title, source;
+  final String title, source, version;
   final List<Episode> episodes;
+  final Map<String, BatchVersion> versions;
 
-  /// Episodes the resource holds; [added] ones were already added from it,
-  /// and [cached] ones have a cache task from elsewhere.
-  final Set<int> available, added, cached;
+  /// Episodes with a cache task from elsewhere.
+  final Set<int> cached;
 
   @override
   State<_BatchDialog> createState() => _BatchDialogState();
@@ -71,14 +78,17 @@ class _BatchDialog extends StatefulWidget {
 
 class _BatchDialogState extends State<_BatchDialog> {
   final range = TextEditingController();
+  late String version = widget.version;
   late final Set<int> selected;
   int? anchor;
 
+  BatchVersion get current => widget.versions[version]!;
+
   /// Episodes that can be chosen, in order.
-  late final List<Episode> choices = [
+  List<Episode> get choices => [
     for (final episode in widget.episodes)
-      if (widget.available.contains(episode.id) &&
-          !widget.added.contains(episode.id))
+      if (current.available.contains(episode.id) &&
+          !current.added.contains(episode.id))
         episode,
   ];
 
@@ -92,6 +102,21 @@ class _BatchDialogState extends State<_BatchDialog> {
     writeRange();
   }
 
+  /// Switches to [value], keeping the selected episodes it holds and
+  /// selecting those only it holds as a fresh dialog would.
+  void choose(String value) => setState(() {
+    final before = {for (final episode in choices) episode.id};
+    version = value;
+    final now = {for (final episode in choices) episode.id};
+    selected
+      ..retainWhere(now.contains)
+      ..addAll(
+        now.where((id) => !before.contains(id) && !widget.cached.contains(id)),
+      );
+    anchor = null;
+    writeRange();
+  });
+
   @override
   void dispose() {
     range.dispose();
@@ -101,6 +126,7 @@ class _BatchDialogState extends State<_BatchDialog> {
   /// Shows the selection as spans over the choosable episodes, so a gap the
   /// resource does not hold stays inside one span.
   void writeRange() {
+    final choices = this.choices;
     final spans = <String>[];
     for (var i = 0; i < choices.length; i++) {
       if (!selected.contains(choices[i].id)) continue;
@@ -123,6 +149,7 @@ class _BatchDialogState extends State<_BatchDialog> {
   static final _range = RegExp(r'^(\d+(?:\.\d+)?)(?:-(\d+(?:\.\d+)?))?$');
 
   void readRange(String text) {
+    final choices = this.choices;
     final ids = <int>{};
     final parts = text.replaceAll(_dash, '-').split(_separators);
     for (final part in parts) {
@@ -144,6 +171,7 @@ class _BatchDialogState extends State<_BatchDialog> {
   }
 
   void toggle(Episode episode) {
+    final choices = this.choices;
     final on = !selected.contains(episode.id);
     final from = anchor == null || !HardwareKeyboard.instance.isShiftPressed
         ? null
@@ -171,10 +199,11 @@ class _BatchDialogState extends State<_BatchDialog> {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final count = selected.length;
+    final choices = this.choices;
     Widget cell(Episode episode) {
       final id = episode.id;
-      final held = widget.available.contains(id);
-      final added = widget.added.contains(id);
+      final held = current.available.contains(id);
+      final added = current.added.contains(id);
       final on = selected.contains(id);
       final cached = widget.cached.contains(id);
       final (background, foreground, border) = on
@@ -279,6 +308,27 @@ class _BatchDialogState extends State<_BatchDialog> {
             ),
             const SizedBox(height: 2),
             Text(widget.source, style: small),
+            if (widget.versions.length > 1) ...[
+              const SizedBox(height: Gap.md),
+              Row(
+                children: [
+                  Text('版本', style: small),
+                  const SizedBox(width: Gap.md),
+                  Flexible(
+                    child: SizedBox(
+                      width: 116.0 * widget.versions.length,
+                      child: MelonSegmentedControl<String>(
+                        options: {
+                          for (final name in widget.versions.keys) name: name,
+                        },
+                        value: version,
+                        onChanged: choose,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: Gap.lg),
             TextField(
               controller: range,
@@ -331,10 +381,13 @@ class _BatchDialogState extends State<_BatchDialog> {
         FilledButton(
           onPressed: count == 0
               ? null
-              : () => Navigator.pop(context, [
-                  for (final episode in choices)
-                    if (selected.contains(episode.id)) episode,
-                ]),
+              : () => Navigator.pop(context, (
+                  version,
+                  [
+                    for (final episode in choices)
+                      if (selected.contains(episode.id)) episode,
+                  ],
+                )),
           child: Text(count == 0 ? '下载' : '下载 $count 集'),
         ),
       ],

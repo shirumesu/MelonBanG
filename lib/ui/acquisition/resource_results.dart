@@ -34,8 +34,24 @@ class ResourceEntry {
   ResourceEntry(this.key, this.members);
   final String key;
   final List<ResourceMember> members;
+
+  /// A series' releases by the subtitles they carry, as [subtitleName]
+  /// words them, and the platform they were ripped from where those differ,
+  /// the best-ranked first; one group often releases a series in several,
+  /// such as 简日 and 简繁, or rips of Baha and CR.
+  final versions = <String, List<ResourceMember>>{};
   bool get series => members.length > 1;
   String get id => series ? key : members.single.$1.id;
+}
+
+/// `简繁内封`, as [info]'s title words its subtitles; `未标明字幕` when it
+/// states none.
+String subtitleName(ResourceTitleInfo info) {
+  final stated = info.subtitles.split('|').toSet();
+  final words = info.labels.where(stated.contains);
+  if (words.isNotEmpty) return words.join(' ');
+  final named = [...info.languages, ...info.subtitleForms];
+  return named.isEmpty ? '未标明字幕' : named.join();
 }
 
 /// The results as the filters show them, the counts the filter menus offer
@@ -43,8 +59,10 @@ class ResourceEntry {
 class ResourceResults {
   /// [annotated] are the ranked results with their parsed titles. With
   /// [grouping], one group's single-episode releases of a series on one site
-  /// form an entry; releases holding none of [subject]'s episodes, such as
-  /// an earlier season's, follow the rest.
+  /// form an entry, in each subtitle version and platform rip the group
+  /// made; releases
+  /// holding none of [subject]'s episodes, such as an earlier season's,
+  /// follow the rest.
   ResourceResults(
     List<(PlayCandidate, ResourceTitleInfo)> annotated, {
     required Set<String> excludedProviders,
@@ -55,21 +73,11 @@ class ResourceResults {
     required ResourceFamily kind,
     required Subject? subject,
     required this.grouping,
-    List<String> onlyGroups = const [],
   }) {
     bool kindShown(PlayCandidate candidate) =>
         kind == ResourceFamily.all || ResourceFamily.of(candidate) == kind;
     final fromShownProviders = annotated
         .where((entry) => !entry.$1.providers.every(excludedProviders.contains))
-        // With [onlyGroups], torrents credited only to other groups leave;
-        // ones crediting none stay.
-        .where(
-          (entry) =>
-              onlyGroups.isEmpty ||
-              entry.$1.target is! ReleaseTarget ||
-              entry.$2.groups.isEmpty ||
-              preferredGroupIndex(entry.$2.groups, onlyGroups) != null,
-        )
         .toList();
     // Results stating nothing for a selection stay, after confirmed ones.
     _gaps = {
@@ -138,15 +146,18 @@ class ResourceResults {
           _ => null,
         };
     // Groups word subtitles differently across episodes (`ASSx2` against
-    // `[简繁内封字幕]`), so a release stating none joins the series' only
-    // stated subtitles.
+    // `[简繁内封字幕]`), so a release stating none joins the only version
+    // stated for the series on its platform.
+    String platformOf(ResourceTitleInfo info) => info.platforms.join(' ');
     final stated = <String, Set<String>>{};
     for (final (candidate, info) in visible) {
       if (seriesOf(candidate, info) case final series?
           when info.subtitles.isNotEmpty) {
-        (stated[series] ??= {}).add(info.subtitles);
+        (stated['$series|${platformOf(info)}'] ??= {}).add(subtitleName(info));
       }
     }
+    final split =
+        <ResourceEntry, Map<(String, String), List<ResourceMember>>>{};
     for (final (candidate, info) in visible) {
       final release = targets.containsKey(candidate.id);
       final target = targets[candidate.id];
@@ -154,21 +165,31 @@ class ResourceResults {
       final rest = release && info.episode != null && target == null
           ? unmatched
           : entries;
-      final key = switch (seriesOf(candidate, info)) {
-        final series? => switch (stated[series]) {
-          final subtitles?
-              when info.subtitles.isEmpty && subtitles.length == 1 =>
-            '$series:${subtitles.single}',
-          _ => '$series:${info.subtitles}',
-        },
-        null => null,
+      final key = seriesOf(candidate, info);
+      final version = switch (stated['$key|${platformOf(info)}']) {
+        final names? when info.subtitles.isEmpty && names.length == 1 =>
+          names.single,
+        _ => subtitleName(info),
       };
-      if (bySeries[key] case final entry?) {
-        entry.members.add(member);
-      } else {
-        final entry = ResourceEntry(key ?? candidate.id, [member]);
+      final entry = bySeries[key] ?? ResourceEntry(key ?? candidate.id, []);
+      if (entry.members.isEmpty) {
         rest.add(entry);
         if (key != null) bySeries[key] = entry;
+      }
+      entry.members.add(member);
+      ((split[entry] ??= {})[(platformOf(info), version)] ??= []).add(member);
+    }
+    for (final MapEntry(key: entry, value: parts) in split.entries) {
+      final platforms = {for (final (platform, _) in parts.keys) platform};
+      for (final MapEntry(key: (platform, name), value: members)
+          in parts.entries) {
+        entry.versions[platforms.length < 2
+                ? name
+                : [
+                    if (platform.isNotEmpty) platform,
+                    if (platform.isEmpty || name != '未标明字幕') name,
+                  ].join(' ')] =
+            members;
       }
     }
     entries.addAll(unmatched);

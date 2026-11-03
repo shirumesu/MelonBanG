@@ -56,13 +56,22 @@ class SubscriptionPreferences extends ChangeNotifier {
   /// as the last one offered did.
   bool get cacheEarlier => _preferences.getBool('subscriptionEarlier') ?? false;
 
-  /// The filter last subscribed with; 1080p 简体 by the preferred groups,
-  /// or by any group while none are set, before the first.
+  /// The filter last subscribed with, without the groups it named: those
+  /// were that show's, and another show's groups differ. Naming groups
+  /// carries over as the preferred ones while any are set. 1080p 简体 by the
+  /// preferred groups, or by any group while none are set, before the first.
   SubscriptionFilter defaultFilter(List<String> preferredGroups) {
     final saved = _preferences.getString('subscriptionFilter');
     if (saved != null) {
       try {
-        return SubscriptionFilter.fromJson(object(jsonDecode(saved)));
+        final filter = SubscriptionFilter.fromJson(object(jsonDecode(saved)));
+        return filter.copyWith(
+          groups: const {},
+          preferred:
+              !filter.smart &&
+              (filter.preferred ||
+                  (filter.groups.isNotEmpty && preferredGroups.isNotEmpty)),
+        );
       } on FormatException {
         // A damaged value falls back to the first default.
       }
