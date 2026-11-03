@@ -113,18 +113,27 @@ The C status struct and Dart FFI layout must be rebuilt together.
 
 ## Persistent playback streaming
 
-HTTP readers retain default priority outside the playback window for persistent
-downloads, including after seeks and trailing-cache eviction. Ephemeral streams
-retain on-demand selection. This prevents streaming from changing the wanted size
-or stopping a normal cache task before every file is complete.
+HTTP readers keep the pieces outside the playback window wanted for persistent
+downloads, including after seeks and trailing-cache eviction, at low priority
+while the stream is open (default again once it stops): at default priority a
+rare background piece outranked a common window piece in libtorrent's picker.
+Ephemeral streams retain on-demand selection. This prevents streaming from
+changing the wanted size or stopping a normal cache task before every file is
+complete.
 
-The playback window is a sliding set of deadline pieces from the reader's
-position (about 24 MiB, 8–48 pieces), moved each time the reader enters a piece.
+The playback window is a sliding set of pieces from the reader's position
+(about 24 MiB, 2–48 pieces), moved each time the reader enters a piece.
 Upstream set deadlines only after the reader blocked on a missing piece, so
 the swarm idled at every window boundary. Tail probes do not move the window.
-A new stream gives the first two pieces and the last piece deadlines and
-leaves the rest of the file to the window, instead of reserving 8 MiB at each
-end and guessing a startup piece count from the file size.
+Only the window's first 8 MiB (at least one piece) are top priority with
+deadlines; the rest rank just below. The swarm spreads its requests over every
+top-priority piece and a piece is readable only once complete, so with 16 MiB
+pieces an 8-piece top window finished all of them together: a
+16 MiB-piece episode measured 96 s to the first frame, 51 s with this split at a lower rate. Pieces
+a seek leaves behind drop back to the background instead of keeping top
+priority. A new stream gives the first 8 MiB of pieces and the last piece
+deadlines and leaves the rest of the file to the window, instead of reserving
+8 MiB at each end and guessing a startup piece count from the file size.
 
 Cache hits consume the duplicate disk-read result so sequential prefetch does not
 retain every played piece after the trailing cache evicts it. Concurrent HTTP

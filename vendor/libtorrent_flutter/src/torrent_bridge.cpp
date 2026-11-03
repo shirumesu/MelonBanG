@@ -885,11 +885,25 @@ struct StreamEngine {
 
     // Pieces ahead of the read head carry deadlines, so the swarm keeps the
     // playback window full instead of starting a piece when the reader
-    // blocks on it.
+    // blocks on it. Only the first CRITICAL_BYTES are top priority: a piece
+    // completes only when all of it has arrived, and the swarm spreads its
+    // requests over every top-priority piece, so with large pieces (16 MB in
+    // season batches) a wider top window finishes all of them at once, long
+    // after the one under the reader could have.
     static constexpr int64_t WINDOW_BYTES = 24 * 1024 * 1024;
+    static constexpr int64_t CRITICAL_BYTES = 8 * 1024 * 1024;
     int window_pieces = 8;
+    int critical_pieces = 1;
     int window_head = -1;
+    std::set<int> window_set;
     std::mutex window_mu;
+
+    // The rest of a cached torrent keeps downloading behind the stream, below
+    // everything the reader needs; it returns to normal priority when the
+    // stream stops.
+    lt::download_priority_t background_priority() const {
+        return background_download ? lt::low_priority : lt::dont_download;
+    }
 
     // HTTP server
     std::thread       server_thread;
@@ -1266,21 +1280,38 @@ static bool wait_for_piece(StreamEngine* s, int piece, int timeout_ms,
 }
 
 // Moves the deadline window to start at [head]. The time-critical picker
-// orders by deadline, so the piece under the reader comes first and the rest
-// keep peer request queues full while it is read.
+// orders by deadline, so the piece under the reader comes first; the pieces
+// after the critical ones rank just below, keeping peer request queues full
+// without taking bandwidth from it. Pieces of the previous window that the
+// new one leaves (after a seek) drop back to the background.
 static void refresh_window(StreamEngine* s, int head) {
     std::lock_guard<std::mutex> wlk(s->window_mu);
     if (head == s->window_head) return;
     s->window_head = head;
     std::lock_guard<std::mutex> lk(s->piece_mu);
+    std::set<int> window;
     for (int i = 0; i < s->window_pieces && head + i <= s->end_piece; ++i) {
         int p = head + i;
         if (s->pieces_have.count(p)) continue;
+        window.insert(p);
         try {
-            s->handle.piece_priority(lt::piece_index_t(p), lt::top_priority);
-            s->handle.set_piece_deadline(lt::piece_index_t(p), i * 100);
+            if (i < s->critical_pieces) {
+                s->handle.piece_priority(lt::piece_index_t(p), lt::top_priority);
+                s->handle.set_piece_deadline(lt::piece_index_t(p), i * 100);
+            } else {
+                s->handle.piece_priority(
+                    lt::piece_index_t(p), lt::download_priority_t{6});
+            }
         } catch (...) {}
     }
+    for (int p : s->window_set) {
+        if (window.count(p) || s->pieces_have.count(p)) continue;
+        try {
+            s->handle.reset_piece_deadline(lt::piece_index_t(p));
+            s->handle.piece_priority(lt::piece_index_t(p), s->background_priority());
+        } catch (...) {}
+    }
+    s->window_set = std::move(window);
 }
 
 // Read piece data directly from libtorrent disk storage.
@@ -1541,7 +1572,7 @@ static bool serve_range(StreamEngine* s, TorrReader* reader, socket_t cli,
                 int old_p = s->trailing_pieces.front();
                 s->trailing_pieces.pop_front();
                 try {
-                    s->handle.piece_priority(lt::piece_index_t(old_p), s->background_download ? lt::default_priority : lt::dont_download);
+                    s->handle.piece_priority(lt::piece_index_t(old_p), s->background_priority());
                 } catch (...) {}
                 // Release cache memory for evicted piece
                 if (s->cache) {
@@ -1703,7 +1734,7 @@ static void handle_connection(StreamEngine* s, socket_t cli, int reader_id) {
                     for (int old_p : s->trailing_pieces) {
                         try {
                             s->handle.piece_priority(
-                                lt::piece_index_t(old_p), s->background_download ? lt::default_priority : lt::dont_download);
+                                lt::piece_index_t(old_p), s->background_priority());
                         } catch (...) {}
                     }
                     s->trailing_pieces.clear();
@@ -2510,7 +2541,10 @@ TORRENT_API lt_stream_id lt_start_stream(lt_session_t session,
     s->total_pieces = s->end_piece - s->start_piece + 1;
 
     s->window_pieces = std::clamp(
-        (int)(StreamEngine::WINDOW_BYTES / s->piece_length), 8, 48);
+        (int)(StreamEngine::WINDOW_BYTES / s->piece_length), 2, 48);
+    s->critical_pieces = std::clamp(
+        (int)(StreamEngine::CRITICAL_BYTES / s->piece_length), 1,
+        s->window_pieces);
 
     // Media bitrate guessed from file size, for buffer_seconds only.
     {
@@ -2559,12 +2593,13 @@ TORRENT_API lt_stream_id lt_start_stream(lt_session_t session,
         // Persistent downloads keep fetching the complete torrent while readers
         // prioritize their current range. Ephemeral streams fetch on demand.
         std::vector<lt::download_priority_t> prios(
-            (size_t)ti->num_pieces(), s->background_download ? lt::default_priority : lt::dont_download);
+            (size_t)ti->num_pieces(), s->background_priority());
 
         // Container headers come first, then the last piece that holds an
         // MP4 index or MKV cues. The reader's window follows its position;
         // a resumed episode seeks away from the head right after probing.
-        const int head_last = std::min(s->start_piece + 1, s->end_piece);
+        const int head_last = std::min(
+            s->start_piece + s->critical_pieces - 1, s->end_piece);
         for (int p = s->start_piece; p <= head_last; ++p)
             prios[p] = lt::top_priority;
         prios[s->end_piece] = lt::top_priority;

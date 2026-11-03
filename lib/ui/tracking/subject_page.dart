@@ -444,21 +444,31 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   EpisodeStatus _episodeStatus(Episode episode) =>
       _episodeOverrides[episode.id] ?? episode.status;
 
-  /// The episode to resume, else the first unwatched main episode or
-  /// special aired after the run (an OVA or 番外), else the last main
-  /// episode. Specials within the run are left to autoplay.
+  /// The first unwatched main episode or special aired after the run (an
+  /// OVA or 番外) past the furthest watched one, since a gap before it is
+  /// more often watched elsewhere than skipped; else the first unwatched,
+  /// else the last main episode. Specials within the run are left to
+  /// autoplay. The episode to resume takes over when it is that one or was
+  /// played for a while, not just looked at.
   Episode? _nextEpisode(List<Episode> episodes) {
     final last = episodes.lastIndexWhere((e) => e.main);
-    return episodes.where(_isResume).firstOrNull ??
-        episodes.indexed
-            .where(
-              (e) =>
-                  (e.$2.main || e.$1 > last) &&
-                  _episodeStatus(e.$2) != EpisodeStatus.watched,
-            )
-            .firstOrNull
+    final furthest = episodes.lastIndexWhere(
+      (e) => _episodeStatus(e) == EpisodeStatus.watched,
+    );
+    final unwatched = episodes.indexed.where(
+      (e) =>
+          (e.$2.main || e.$1 > last) &&
+          _episodeStatus(e.$2) != EpisodeStatus.watched,
+    );
+    final next =
+        (unwatched.where((e) => e.$1 > furthest).firstOrNull ??
+                unwatched.firstOrNull)
             ?.$2 ??
         (last < 0 ? episodes.firstOrNull : episodes[last]);
+    final resumed = episodes.where(_isResume).firstOrNull;
+    return resumed != null && (resumed == next || widget.resume!.engaged)
+        ? resumed
+        : next;
   }
 
   bool _isResume(Episode episode) =>

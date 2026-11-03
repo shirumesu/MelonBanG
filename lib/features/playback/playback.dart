@@ -44,6 +44,11 @@ class Playback extends ChangeNotifier {
     );
     _subscriptions.add(player.stream.position.listen(_skipSongs));
     _subscriptions.add(
+      player.stream.buffering.listen((buffering) {
+        if (buffering) unawaited(_stalled());
+      }),
+    );
+    _subscriptions.add(
       errors.listen((value) {
         error ??= value;
         notifyListeners();
@@ -229,6 +234,38 @@ class Playback extends ChangeNotifier {
 
   bool opening = false;
   bool _closed = false;
+
+  /// Seconds mpv buffers before it resumes from a stall. Each stall in
+  /// steady playback moves one step up, so a connection slower than the
+  /// video stops less often for longer instead of every second; a minute
+  /// without one moves a step back. Transfer streams arrive a piece at a
+  /// time and start one step up.
+  static const _cacheWaits = [1, 2, 4, 8];
+  int _cacheWait = 0, _cacheWaitFloor = 0;
+  Timer? _cacheWaitDecay;
+
+  Future<void> _setCacheWait(int step) async {
+    final platform = player.platform;
+    if (platform is! NativePlayer) return;
+    _cacheWait = step;
+    await platform.setProperty('cache-pause-wait', '${_cacheWaits[step]}');
+  }
+
+  Future<void> _stalled() async {
+    final platform = player.platform;
+    if (opening || session == null || platform is! NativePlayer) return;
+    // A seek waits for its own data; that says nothing about the connection.
+    if (await platform.getProperty('seeking') == 'yes') return;
+    if (_cacheWait < _cacheWaits.length - 1) {
+      await _setCacheWait(_cacheWait + 1);
+    }
+    _cacheWaitDecay?.cancel();
+    _cacheWaitDecay = Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (_cacheWait <= _cacheWaitFloor) return timer.cancel();
+      unawaited(_setCacheWait(_cacheWait - 1));
+    });
+  }
+
   bool get danmakuEnabled => danmaku.preferences.enabled;
 
   /// The open file's OP and ED, found in its embedded chapters.
@@ -333,6 +370,9 @@ class Playback extends ChangeNotifier {
           'network-timeout',
           next.streamId != null ? '0' : '5',
         );
+        _cacheWaitDecay?.cancel();
+        _cacheWaitFloor = next.streamId != null ? 1 : 0;
+        await _setCacheWait(_cacheWaitFloor);
         _lavfFormat = playlist != null ? 'hls' : null;
         final address = Uri.tryParse(next.url);
         _httpProxy =
@@ -941,6 +981,7 @@ class Playback extends ChangeNotifier {
     _timer?.cancel();
     _volumeWrite?.cancel();
     _rateWrite?.cancel();
+    _cacheWaitDecay?.cancel();
     _outputTimer?.cancel();
     cancelAutoplay();
     await preferences.setDouble('player-rate', _savedRate);
