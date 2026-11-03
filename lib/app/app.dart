@@ -1438,7 +1438,10 @@ class _KeptPageState extends State<_KeptPage> {
       maintainState: true,
       child: ExcludeFocus(
         excluding: !widget.shown,
-        child: PageEntrance(shown: widget.shown, child: page!),
+        // Shown again, a kept page is already laid out and appears at once,
+        // as a sidebar switch does in native apps; fading it in from dim
+        // read as a stall.
+        child: PageEntrance(child: page!),
       ),
     );
   }

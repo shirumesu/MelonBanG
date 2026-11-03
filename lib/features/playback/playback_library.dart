@@ -27,6 +27,11 @@ class PlaybackResume {
   final int episodeId;
   final double position, duration;
   final String? episodeSort;
+
+  /// Whether it played long enough to be watching, not a look: such a
+  /// place is resumed even away from the episode the watched marks lead to.
+  bool get engaged =>
+      position >= 180 || (duration > 0 && position >= duration * .15);
 }
 
 class PlaybackLibrary {

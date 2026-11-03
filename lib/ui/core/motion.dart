@@ -55,10 +55,7 @@ class MotionReveal extends StatelessWidget {
 /// A page arriving: it brightens from 40% and rises 4 pixels, on the
 /// compositor alone.
 class PageEntrance extends StatefulWidget {
-  const PageEntrance({super.key, this.shown = true, required this.child});
-
-  /// A kept page rises in again each time it is shown.
-  final bool shown;
+  const PageEntrance({super.key, required this.child});
   final Widget child;
 
   @override
@@ -79,15 +76,6 @@ class _PageEntranceState extends State<PageEntrance>
     if (_controller.isAnimating || _controller.isCompleted) return;
     _controller.duration = motionDuration(context);
     _controller.forward();
-  }
-
-  @override
-  void didUpdateWidget(PageEntrance oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.shown && !oldWidget.shown) {
-      _controller.duration = motionDuration(context);
-      _controller.forward(from: 0);
-    }
   }
 
   @override
@@ -209,9 +197,14 @@ class MotionSlide extends StatefulWidget {
     required this.index,
     required this.child,
     this.enter = false,
+    this.delay = 0,
   });
   final int index;
   final bool enter;
+
+  /// Milliseconds an entering row waits, so rows joining together arrive
+  /// one after another.
+  final int delay;
   final Widget child;
 
   @override
@@ -220,6 +213,7 @@ class MotionSlide extends StatefulWidget {
 
 class _MotionSlideState extends State<MotionSlide> {
   late final bool _enter = widget.enter;
+  late final int _delay = widget.delay;
 
   @override
   void didUpdateWidget(MotionSlide oldWidget) {
@@ -236,7 +230,9 @@ class _MotionSlideState extends State<MotionSlide> {
       position: Scrollable.maybeOf(context)?.position,
       child: widget.child,
     );
-    return _enter ? MotionAppear(offset: 8, child: child) : child;
+    return _enter
+        ? MotionAppear(offset: 8, delay: _delay, child: child)
+        : child;
   }
 }
 

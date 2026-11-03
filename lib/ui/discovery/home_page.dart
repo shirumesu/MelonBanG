@@ -778,8 +778,16 @@ class _Watch {
       for (final (i, e) in episodes.indexed) marked ? e.watched : i < counted,
     ];
     aired = [for (final e in episodes) episodeAired(e, airings)];
+    // The one after the furthest watched: a gap before it is more often
+    // watched elsewhere than skipped. Past the last, the first unwatched.
+    final furthest = watched.lastIndexOf(true);
+    final following = furthest + 1 < episodes.length
+        ? furthest + 1
+        : watched.indexOf(false);
     final resumed = episodes.indexWhere((e) => e.id == resume?.episodeId);
-    nextIndex = resumed >= 0 ? resumed : watched.indexOf(false);
+    nextIndex = resumed >= 0 && (resumed == following || resume!.engaged)
+        ? resumed
+        : following;
     release = nextIndex < 0 || aired[nextIndex]
         ? null
         : episodeRelease(episodes[nextIndex], airings);
@@ -1200,38 +1208,16 @@ class _Hero extends StatelessWidget {
               ),
             ),
             const SizedBox(height: Gap.md),
-            // Up to three episodes, as many as the window's height leaves room
-            // for above the buttons.
             Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) => Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (next != null)
-                      for (final index
-                          in [
-                            for (
-                              var i = watch.nextIndex;
-                              i < watch.episodes.length;
-                              i++
-                            )
-                              i,
-                          ].take(
-                            math.min(
-                              3,
-                              constraints.maxHeight ~/ _HeroEpisode.height,
-                            ),
-                          ))
-                        _HeroEpisode(
-                          watch: watch,
-                          index: index,
-                          cached: playable.contains(watch.episodes[index].id),
-                          onPlay: onPlay,
-                        ),
-                  ],
-                ),
+              child: _HeroEpisodes(
+                // Opens at the next episode again when that changes.
+                key: ValueKey((item.id, watch.nextIndex)),
+                watch: watch,
+                playable: playable,
+                onPlay: onPlay,
               ),
             ),
+            const SizedBox(height: Gap.sm),
             Row(
               children: [
                 Expanded(child: play),
@@ -1249,8 +1235,79 @@ class _Hero extends StatelessWidget {
   }
 }
 
-/// One of the next episodes in [_Hero]: the next one highlighted with its
-/// saved position, aired ones playable, the rest showing when they air.
+/// Every episode in [_Hero], filling the room above its buttons: opened at
+/// the next one with the one before above it, and scrolled for any other.
+class _HeroEpisodes extends StatefulWidget {
+  const _HeroEpisodes({
+    super.key,
+    required this.watch,
+    required this.playable,
+    required this.onPlay,
+  });
+  final _Watch watch;
+  final Set<int> playable;
+  final void Function(Subject subject, Episode episode) onPlay;
+
+  @override
+  State<_HeroEpisodes> createState() => _HeroEpisodesState();
+}
+
+class _HeroEpisodesState extends State<_HeroEpisodes> {
+  ScrollController? scroll;
+
+  @override
+  void dispose() {
+    scroll?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final watch = widget.watch;
+    final count = watch.episodes.length;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Once all are watched, the last ones show. The one before shows
+        // when three rows fit.
+        final anchor = watch.nextIndex < 0 ? count : watch.nextIndex;
+        final before = constraints.maxHeight >= 3 * _HeroEpisode.height ? 1 : 0;
+        final room = count * _HeroEpisode.height - constraints.maxHeight;
+        scroll ??= ScrollController(
+          initialScrollOffset: ((anchor - before) * _HeroEpisode.height).clamp(
+            0,
+            math.max(0, room),
+          ),
+          // A place kept from another next episode would not show this one.
+          keepScrollOffset: false,
+        );
+        return ScrollEdgeFade(
+          color: insetSurface(context),
+          // The fades say it scrolls; a bar would crowd the notes.
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context)
+                .copyWith(scrollbars: false),
+            child: ListView.builder(
+              controller: scroll,
+              padding: EdgeInsets.zero,
+              itemExtent: _HeroEpisode.height,
+              itemCount: count,
+              itemBuilder: (context, index) => _HeroEpisode(
+                watch: watch,
+                index: index,
+                cached: widget.playable.contains(watch.episodes[index].id),
+                onPlay: widget.onPlay,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// An episode in [_HeroEpisodes]: the next one highlighted with its saved
+/// position, aired ones playable, watched ones dimmed, the rest showing
+/// when they air.
 class _HeroEpisode extends StatelessWidget {
   const _HeroEpisode({
     required this.watch,
@@ -1271,8 +1328,9 @@ class _HeroEpisode extends StatelessWidget {
     final episode = watch.episodes[index];
     final current = index == watch.nextIndex;
     final aired = watch.aired[index];
+    final watched = watch.watched[index] && !current;
     final resumed = current ? watch.resumed : null;
-    final muted = aired ? null : scheme.onSurfaceVariant;
+    final muted = aired && !watched ? null : scheme.onSurfaceVariant;
     final subscription = watch.subscription;
     // The first episode yet to air says the show is subscribed.
     final subscribed =
@@ -1290,6 +1348,7 @@ class _HeroEpisode extends StatelessWidget {
         ].join(' · '),
         scheme.onSurfaceVariant,
       ),
+      _ when watched => ('已看', scheme.onSurfaceVariant),
       _ when cached => ('已缓存', scheme.primary),
       _ => (null, null),
     };
@@ -1533,14 +1592,10 @@ class _EpisodeStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = accentOf(context).accent;
-    final resumed = watch.resumed;
+    // Watched episodes only: a part played of one further on stood alone
+    // as a stray mark; the episode list shows it.
     final fills = _Fills([
-      for (final (i, watched) in watch.watched.indexed)
-        watched
-            ? 1
-            : i == watch.nextIndex && resumed != null
-            ? resumed
-            : 0,
+      for (final watched in watch.watched) watched ? 1 : 0,
     ]);
     return TweenAnimationBuilder<_Fills>(
       tween: _FillsTween(end: fills),
