@@ -23,6 +23,7 @@ import '../features/playback/playback_coordinator.dart';
 import '../features/playback/resource_search.dart';
 import '../features/playback/resume_controller.dart';
 import '../features/discovery/continue_range.dart';
+import '../features/discovery/schedule_filter.dart';
 import '../features/subscriptions/subscription_controller.dart';
 import '../features/tracking/subject_controller.dart';
 import '../features/tracking/tracking_controller.dart';
@@ -98,6 +99,7 @@ class _MelonAppState extends State<MelonApp>
 
   /// Which shows the home page's 继续观看 lists.
   late final continueRange = ContinuePreference(widget.preferences);
+  late final scheduleFilter = SchedulePreference(widget.preferences);
 
   /// Set when the window's close quits rather than going to the background.
   bool quitting = false;
@@ -891,6 +893,7 @@ class _MelonAppState extends State<MelonApp>
     homeFeedback.dispose();
     playerPanel.dispose();
     continueRange.dispose();
+    scheduleFilter.dispose();
     tray?.hide();
     search.dispose();
     searchFocus.dispose();
@@ -1115,7 +1118,6 @@ class _MelonAppState extends State<MelonApp>
     danmakuSection(playback.danmaku.preferences),
     sourcesSection(
       playback.settings,
-      onForgetSources: service.selection.forgetAll,
       cachedGroups: () => [
         for (final task in service.downloads.snapshot().tasks)
           ...task.releaseGroups,
@@ -1270,6 +1272,7 @@ class _MelonAppState extends State<MelonApp>
           error: discovery.calendarError,
           onOpenSubject: openSubject,
           onRetry: () => perform(discovery.loadCalendar),
+          filter: scheduleFilter,
         );
       case 'tracking':
         return TrackingPage(

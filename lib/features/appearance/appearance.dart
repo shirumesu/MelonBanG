@@ -64,7 +64,7 @@ class Appearance extends ChangeNotifier {
 
   ThemeChoice get mode =>
       ThemeChoice.values.asNameMap()[preferences.getString('theme-mode')] ??
-      ThemeChoice.system;
+      ThemeChoice.light;
 
   /// A preset id, or `system` for the system accent colour.
   String get accent => preferences.getString('theme-accent') ?? 'mint';
@@ -74,7 +74,7 @@ class Appearance extends ChangeNotifier {
 
   ByteUnits get byteUnits =>
       ByteUnits.values.asNameMap()[preferences.getString('byte-units')] ??
-      ByteUnits.binary;
+      ByteUnits.decimal;
 
   /// The system accent colour, once read; null where there is none.
   Color? systemAccent;

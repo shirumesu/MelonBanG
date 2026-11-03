@@ -243,29 +243,20 @@ class DanmakuQuickSettings extends StatelessWidget {
                     toggle('合并重复', prefs.merge, (v) => prefs.merge = v),
                   ],
                 ),
-                const SizedBox(height: Gap.sm),
-                Row(
-                  children: [
-                    TextButton(
+                if (onOpenSources != null) ...[
+                  const SizedBox(height: Gap.sm),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
                       style: TextButton.styleFrom(
-                        foregroundColor: Colors.white60,
+                        foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                       ),
-                      onPressed: prefs.resetDisplay,
-                      child: const Text('恢复默认'),
+                      onPressed: onOpenSources,
+                      child: const Text('来源与屏蔽 ›'),
                     ),
-                    const Spacer(),
-                    if (onOpenSources != null)
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                        ),
-                        onPressed: onOpenSources,
-                        child: const Text('来源与屏蔽 ›'),
-                      ),
-                  ],
-                ),
+                  ),
+                ],
               ],
             ),
           ),

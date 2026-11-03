@@ -8,7 +8,6 @@ import '../../features/discovery/continue_range.dart';
 import '../../features/subscriptions/subscription_preferences.dart';
 import '../../features/tracking/tracking_controller.dart';
 import '../core/account_avatar.dart';
-import '../core/action_feedback.dart';
 import '../core/motion.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
@@ -405,7 +404,6 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
 
 SettingsSection sourcesSection(
   PlaybackPreferences prefs, {
-  required Future<void> Function() onForgetSources,
   required Iterable<String> Function() cachedGroups,
 }) {
   return SettingsSection(
@@ -441,13 +439,6 @@ SettingsSection sourcesSection(
             ),
           ),
         ),
-        SettingsItem(
-          '清除 来源 记忆 忘记',
-          SettingRow(
-            title: '清除所有番剧的来源记忆',
-            trailing: _ForgetSources(onForget: onForgetSources),
-          ),
-        ),
       ], title: '来源优先级'),
       SettingsGroup([
         SettingsItem(
@@ -468,36 +459,6 @@ SettingsSection sourcesSection(
         ),
       ], title: '字幕组'),
     ],
-  );
-}
-
-class _ForgetSources extends StatefulWidget {
-  const _ForgetSources({required this.onForget});
-  final Future<void> Function() onForget;
-  @override
-  State<_ForgetSources> createState() => _ForgetSourcesState();
-}
-
-class _ForgetSourcesState extends State<_ForgetSources> {
-  final feedback = ActionFeedback();
-
-  @override
-  void dispose() {
-    feedback.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => FeedbackButton(
-    feedback: feedback,
-    label: '清除',
-    runningLabel: '正在清除…',
-    successLabel: '已清除',
-    icon: Icons.delete_sweep_outlined,
-    onPressed: () => feedback.run(() async {
-      await widget.onForget();
-      return null;
-    }),
   );
 }
 
@@ -752,17 +713,6 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
                   chip('防挡字幕', prefs.shield, (v) => prefs.shield = v),
                 ],
               ),
-            ),
-          ),
-        ),
-        SettingsItem(
-          '弹幕 恢复默认',
-          SettingRow(
-            title: '恢复默认显示',
-            subtitle: '屏蔽规则和来源开关不受影响',
-            trailing: TextButton(
-              onPressed: prefs.resetDisplay,
-              child: const Text('恢复默认'),
             ),
           ),
         ),

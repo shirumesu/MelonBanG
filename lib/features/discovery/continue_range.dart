@@ -32,7 +32,7 @@ class ContinuePreference extends ChangeNotifier {
       ContinueRange.values
           .where((range) => range.name == _preferences.getString(_key))
           .firstOrNull ??
-      ContinueRange.all;
+      ContinueRange.twoSeasons;
 
   Future<void> set(ContinueRange value) async {
     await _preferences.setString(_key, value.name);
