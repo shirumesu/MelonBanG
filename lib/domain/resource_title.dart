@@ -63,8 +63,10 @@ class ResourceTitleInfo {
       : [?credit];
 
   /// What releases of one series by one group share across episodes: the
-  /// credited group, season, quality and encoding. Null for batches and
-  /// titles without a credited group or episode.
+  /// credited group, else the site's, and the season. Quality, platform and
+  /// encoding are left out, as groups release several of them side by side
+  /// and change encoding mid-season; a group's batches share it with its
+  /// single episodes. Null for titles without a group, episode or range.
   final String? series;
 
   /// The streaming platforms the title names as ripped from, such as `Baha`;
@@ -166,9 +168,10 @@ final _sourceQuality = RegExp(
   r'4k\s*(?:重扫(?:版)?|扫描(?:版)?|片源|母带|修复(?:版)?|重制(?:版)?)',
   caseSensitive: false,
 );
+final _repost = RegExp(r'^[\[【〖]\s*(?:搬运|转载)\s*[\]】〗]$');
 final _format = _token(r'BDRemux|BDRip|BD|WebRip|WEB[- ]DL');
 final _technical = RegExp(
-  r'^(?:(?:BDRemux|BDRip|BD|WEBRip|WEB(?:[- ]DL)?|HDTV|REMUX|HEVC|AVC|AV1|H[ ._-]?26[45]|x26[45]|AAC|FLAC|OPUS|TRUEHD|DTS|MP4|MKV|PGS|SRT|ASS|1080p|720p|2160p|(?:3840|1920|1280)\s*[x×*]\s*\d+|4K|10[- ]?BIT|8[- ]?BIT|GB|BIG5|CHS|CHT|JPN|FIN|END|V\d|RESEED|MOVIE|SP|OVA|ONA)(?=$|[\s_/+(.-])|(?:REMAKE重制版|国漫|合集)$|(?:简繁|简体|繁体|简中|繁中|简日|繁日|粤日|内封|外挂))',
+  r'^(?:(?:BDRemux|BDRip|BD|WEBRip|WEB(?:[- ]DL)?|HDTV|REMUX|HEVC|AVC|AV1|H[ ._-]?26[45]|x26[45]|AAC|FLAC|OPUS|TRUEHD|DTS|MP4|MKV|PGS|SRT|ASS|1080p|720p|2160p|(?:3840|1920|1280)\s*[x×*]\s*\d+|4K|10[- ]?BIT|8[- ]?BIT|GB|BIG5|CHS|CHT|JPN|FIN|END|V\d|RESEED|MOVIE|SP|OVA|ONA)(?=$|[\s_/+(.-])|(?:REMAKE重制版|国漫|合集|搬运|转载)$|(?:简繁|简体|繁体|简中|繁中|简日|繁日|粤日|内封|外挂))',
   caseSensitive: false,
 );
 
@@ -217,7 +220,8 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
   final qualities = <String>{
     if (_token(r'720p|1280\s*[x×*]\s*720').hasMatch(outputText)) '720p',
     if (_token(r'1080p|1920\s*[x×*]\s*1080').hasMatch(outputText)) '1080p',
-    if (_token(r'2160p|(?:3840|4096)\s*[x×*]\s*2160|4k').hasMatch(outputText))
+    if (_token(r'(?:AI)?(?:2160p|4k)|(?:3840|4096)\s*[x×*]\s*2160')
+        .hasMatch(outputText))
       '4K',
   };
   final quality = qualities.length == 1 ? qualities.single : null;
@@ -230,6 +234,8 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
       if (normalized.contains(form)) form,
   };
   labels.addAll(qualities);
+  // Upscaled rips: `[CR WebRip AI2160p]` beside the group's own 1080p.
+  if (_token(r'AI(?:2160p|4k)').hasMatch(outputText)) labels.add('AI 超分');
   if (_sourceQuality.hasMatch(normalized)) {
     labels.add('${_sourceQuality.firstMatch(normalized)!.group(0)}（片源）');
   }
@@ -275,8 +281,24 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
   }
   labels.addAll(subtitleLabels);
   final blocks = _brackets.allMatches(title).toList();
-  final first = blocks.firstOrNull;
-  final prefix = first != null && title.substring(0, first.start).trim().isEmpty
+  // Reposts lead with a marker before the group's own title: [搬運][ANi].
+  var lead = 0;
+  while (lead < blocks.length - 1 &&
+      _repost.hasMatch(simplifiedChinese(blocks[lead].group(0)!)) &&
+      title
+          .substring(blocks[lead].end, blocks[lead + 1].start)
+          .trim()
+          .isEmpty) {
+    lead++;
+  }
+  final first = blocks.elementAtOrNull(lead);
+  final prefix =
+      first != null &&
+          title
+              .substring(0, first.start)
+              .replaceAll(_brackets, '')
+              .trim()
+              .isEmpty
       ? (first.group(1) ?? first.group(2) ?? first.group(3))!
       : null;
   final titleCredits =
@@ -316,10 +338,11 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
       r'\bS(\d{1,2})E(\d{1,3})\b',
       caseSensitive: false,
     ).firstMatch(normalized);
-    // [12] [第12话] [03(51)] [12 END], " - 12", " - 03(51) " and EP12.
+    // [12] [第12话] [03(51)] [12 END], [07+ES07] with an extra short after
+    // the episode, " - 12", " - 03(51) " and EP12.
     final single =
         RegExp(
-              r'[\[【〖]\s*第?(\d{1,3}(?:\.5)?)(?:\((\d{1,4})\))?(?:话|集|(?:\s*(?:v\d|END|完))?(?:\s*[\]】〗]|\s*[-–]\s*[^\d]))|\s-\s?(\d{1,3}(?:\.5)?)(?:\((\d{1,4})\))?(?:\s*(?:v\d|END|完))?(?=[\s\[(【]|$)|(?<![a-z])EP\s?(\d{1,3})(?!\d)',
+              r'[\[【〖]\s*第?(\d{1,3}(?:\.5)?)(?:\((\d{1,4})\))?(?:话|集|(?:\s*(?:v\d|END|完))?(?:\s*\+\s*[a-z]{1,3}\d{0,3})?(?:\s*[\]】〗]|\s*[-–]\s*[^\d]))|\s-\s?(\d{1,3}(?:\.5)?)(?:\((\d{1,4})\))?(?:\s*(?:v\d|END|完))?(?=[\s\[(【]|$)|(?<![a-z])EP\s?(\d{1,3})(?!\d)',
               caseSensitive: false,
             )
             .allMatches(normalized)
@@ -392,15 +415,11 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
         (name) => name.toLowerCase() == match.group(0)!.toLowerCase(),
       ),
   }.toList()..sort();
-  final series = episode == null || credit == null || credit.isEmpty
+  final releaser = credit ?? sourceGroups.firstOrNull;
+  final series =
+      (episode == null && range == null) || releaser == null || releaser.isEmpty
       ? null
-      : [
-          simplifiedChinese(credit).toLowerCase(),
-          season ?? '',
-          quality ?? '',
-          labels.where((e) => !subtitleLabels.contains(e)).toSet().toList()
-            ..sort(),
-        ].join('|');
+      : [simplifiedChinese(releaser).toLowerCase(), season ?? ''].join('|');
   return ResourceTitleInfo(
     title: title,
     displayTitle: display,
