@@ -60,7 +60,8 @@ class ResourceResults {
   /// [annotated] are the ranked results with their parsed titles. With
   /// [grouping], one group's single-episode releases of a series on one site
   /// form an entry, in each subtitle version and platform rip the group
-  /// made; releases
+  /// made. Results not stating a selection show, after the rest, only with
+  /// [unstated]; releases
   /// holding none of [subject]'s episodes, such as an earlier season's,
   /// follow the rest.
   ResourceResults(
@@ -73,25 +74,52 @@ class ResourceResults {
     required ResourceFamily kind,
     required Subject? subject,
     required this.grouping,
+    bool unstated = false,
   }) {
     bool kindShown(PlayCandidate candidate) =>
         kind == ResourceFamily.all || ResourceFamily.of(candidate) == kind;
     final fromShownProviders = annotated
         .where((entry) => !entry.$1.providers.every(excludedProviders.contains))
         .toList();
-    // Results stating nothing for a selection stay, after confirmed ones.
+    String platformOf(ResourceTitleInfo info) => info.platforms.join(' ');
+    // A group leaves its subtitles out of some titles of a series, so a
+    // release stating none takes those its other releases of the series
+    // from the same platform state, where they agree.
+    final statedSubtitles = <String, Map<String, ResourceTitleInfo>>{};
+    for (final (_, info) in fromShownProviders) {
+      if (info.series case final series?
+          when info.languages.isNotEmpty || info.subtitleForms.isNotEmpty) {
+        final key = '$series|${platformOf(info)}';
+        (statedSubtitles[key] ??= {})[subtitleName(info)] ??= info;
+      }
+    }
+    ResourceTitleInfo subtitlesOf(ResourceTitleInfo info) =>
+        info.series != null &&
+            info.languages.isEmpty &&
+            info.subtitleForms.isEmpty
+        ? switch (statedSubtitles['${info.series}|${platformOf(info)}']) {
+            final stated? when stated.length == 1 => stated.values.single,
+            _ => info,
+          }
+        : info;
     _gaps = {
       for (final (candidate, info) in fromShownProviders)
-        candidate.id: ?resourceSelectionGaps(
-          info,
-          qualities: qualities,
-          groups: groups,
-          languages: languages,
-          subtitleForms: subtitleForms,
-        ),
+        if ((
+              resourceSelectionGaps(info, qualities: qualities, groups: groups),
+              resourceSelectionGaps(
+                subtitlesOf(info),
+                languages: languages,
+                subtitleForms: subtitleForms,
+              ),
+            )
+            case (final rest?, final subtitles?))
+          candidate.id: [...rest, ...subtitles],
     };
+    unstatedCount = fromShownProviders
+        .where((e) => kindShown(e.$1) && _gaps[e.$1.id]?.isNotEmpty == true)
+        .length;
     matching = [
-      for (final confirmed in [true, false])
+      for (final confirmed in [true, if (unstated) false])
         for (final entry in fromShownProviders)
           if (_gaps[entry.$1.id]?.isEmpty == confirmed) entry,
     ];
@@ -148,7 +176,6 @@ class ResourceResults {
     // Groups word subtitles differently across episodes (`ASSx2` against
     // `[简繁内封字幕]`), so a release stating none joins the only version
     // stated for the series on its platform.
-    String platformOf(ResourceTitleInfo info) => info.platforms.join(' ');
     final stated = <String, Set<String>>{};
     for (final (candidate, info) in visible) {
       if (seriesOf(candidate, info) case final series?
@@ -203,12 +230,16 @@ class ResourceResults {
 
   /// Results of the shown sites passing the filters, confirmed ones first;
   /// [visible] also passes the kind segment.
+  ///
+  /// [unstatedCount] are those of the shown kind not stating a selection,
+  /// shown or not.
   late final List<(PlayCandidate, ResourceTitleInfo)> matching, visible;
   late final Map<String, int> qualityCounts,
       groupCounts,
       languageCounts,
       formCounts;
   late final Map<ResourceFamily, int> kindCounts;
+  late final int unstatedCount;
 
   /// Release groups, the most common first.
   late final List<String> groupNames;

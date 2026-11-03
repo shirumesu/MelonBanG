@@ -101,6 +101,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   final versionOf = <String, String>{};
 
   ResourceFamily kind = ResourceFamily.all;
+  // Whether results not stating a selected filter show, after the rest.
+  bool showUnstated = false;
   bool searching = false;
   String? opening;
   PageStorageBucket? storage;
@@ -243,6 +245,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     }
     excludedProviders.clear();
     kind = ResourceFamily.all;
+    showUnstated = false;
   });
 
   void toggle(Set<String> set, String value, bool selected) =>
@@ -521,6 +524,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       kind: kind,
       subject: subject,
       grouping: state.terms != null && searched == null,
+      unstated: showUnstated,
     );
     final entries = results.entries;
     // Rows arriving once the list already shows some fade in; the first
@@ -1034,6 +1038,19 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       onPressed: clearFilters,
                       child: const Text('清除筛选'),
                     ),
+                    if (results.unstatedCount > 0)
+                      Tooltip(
+                        message: '标题里没写所选的画质、字幕组或字幕，不确定是否符合',
+                        child: TextButton(
+                          onPressed: () =>
+                              changeForm(() => showUnstated = !showUnstated),
+                          child: Text(
+                            showUnstated
+                                ? '隐藏未标明的'
+                                : '显示 ${results.unstatedCount} 个未标明的',
+                          ),
+                        ),
+                      ),
                   ],
                 ],
               ),
@@ -1106,6 +1123,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 ? '已隐藏全部资源站的结果'
                 : emptyKind
                 ? '此分类暂无资源'
+                : results.unstatedCount > 0
+                ? '没有标明符合筛选的资源'
                 : candidates.isNotEmpty
                 ? '没有符合筛选条件的资源'
                 : providersFailed
@@ -1115,6 +1134,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 ? () => changeForm(excludedProviders.clear)
                 : emptyKind
                 ? () => changeForm(() => kind = ResourceFamily.all)
+                : results.unstatedCount > 0
+                ? () => changeForm(() => showUnstated = true)
                 : candidates.isNotEmpty
                 ? clearFilters
                 : () {
@@ -1125,6 +1146,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 ? '显示全部资源站'
                 : emptyKind
                 ? '查看全部'
+                : results.unstatedCount > 0
+                ? '显示 ${results.unstatedCount} 个未标明的'
                 : candidates.isNotEmpty
                 ? '清除筛选'
                 : !providersFailed && episodeQuery.text.isNotEmpty
