@@ -38,23 +38,22 @@ Future<void> main() async {
   await proxy.initialize();
   final configuration = await ServiceConfiguration.load();
   MediaKit.ensureInitialized(libmpv: Platform.isLinux ? _linkedLibmpv() : null);
-  await windowManager.ensureInitialized();
-  await windowManager.waitUntilReadyToShow(
-    const WindowOptions(
-      size: Size(1360, 860),
-      minimumSize: Size(960, 640),
-      center: true,
-      title: 'Melonbang',
-      backgroundColor: Color(0xfff4f5f7),
-      titleBarStyle: TitleBarStyle.hidden,
-    ),
-    () async {
-      await windowManager.show();
-      await windowManager.focus();
-    },
-  );
+  // Taken now, while it is the app's only window: a later lookup can find the
+  // menu bar icon's window instead.
+  final window = WindowManager.instance.getCurrent()!
+    ..titleBarStyle = TitleBarStyle.hidden
+    // The hidden style hides the macOS window buttons too; keep them.
+    ..isWindowControlButtonsVisible = true
+    ..title = 'Melonbang'
+    ..backgroundColor = const Color(0xfff4f5f7).toNative()
+    ..minimumSize = const Size(960, 640).toNative()
+    ..setSize(const Size(1360, 860).toNative(), false)
+    ..center()
+    ..show()
+    ..focus();
   runApp(
     MelonApp(
+      window: window,
       service: AppServices(
         configuration: configuration,
         proxy: proxy,
