@@ -56,9 +56,9 @@ abstract final class Background {
     await _channel.invokeMethod<void>('keepAwake', on);
   }
 
-  /// Lets the macOS runner quit once the services are closed.
-  static Future<void> allowQuit() async {
+  /// Quits the macOS runner, once the services are closed.
+  static Future<void> quit() async {
     if (!Platform.isMacOS) return;
-    await _channel.invokeMethod<void>('allowQuit');
+    await _channel.invokeMethod<void>('quit');
   }
 }

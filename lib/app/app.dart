@@ -55,7 +55,13 @@ import '../ui/tracking/subject_page.dart';
 import '../ui/tracking/tracking_page.dart';
 
 class MelonApp extends StatefulWidget {
-  const MelonApp({super.key, required this.service, required this.preferences});
+  const MelonApp({
+    super.key,
+    required this.window,
+    required this.service,
+    required this.preferences,
+  });
+  final Window window;
   final AppServices service;
   final SharedPreferences preferences;
   @override
@@ -65,7 +71,7 @@ class MelonApp extends StatefulWidget {
 /// The window: navigation, history, title bar, sidebar and full screen. Page
 /// state and requests belong to the feature controllers.
 class _MelonAppState extends State<MelonApp>
-    with WindowListener, WidgetsBindingObserver
+    with WidgetsBindingObserver
     implements PlaybackShell {
   final messages = GlobalKey<ScaffoldMessengerState>();
   final navigation = GlobalKey<NavigatorState>();
@@ -98,6 +104,10 @@ class _MelonAppState extends State<MelonApp>
 
   /// While the first close asks whether to stay in the background.
   bool askingClose = false;
+
+  /// Set once everything is shut down and the window may close for good.
+  bool exiting = false;
+  ListenerId? windowListener;
 
   /// The tray icon while there are subscriptions.
   AppTray? tray;
@@ -133,6 +143,7 @@ class _MelonAppState extends State<MelonApp>
   /// toggling it there does not change the other pages.
   bool playerSidebarVisible = false;
 
+  Window get window => widget.window;
   AppServices get service => widget.service;
   Playback get playback => service.playback;
   PlaybackCoordinator get coordinator => service.coordinator;
@@ -168,12 +179,11 @@ class _MelonAppState extends State<MelonApp>
     continueRange.addListener(servicesChanged);
     unawaited(appearance.refreshSystemAccent());
     recentSearches = widget.preferences.getStringList('recentSearches') ?? [];
-    windowManager.addListener(this);
-    unawaited(windowManager.setPreventClose(true));
+    windowListener = window.addListener(windowEvent);
     Background.listen(
       onQuit: quit,
       onOpenSubject: (_) {
-        unawaited(showWindow());
+        showWindow();
         navigate('downloads');
       },
     );
@@ -628,10 +638,11 @@ class _MelonAppState extends State<MelonApp>
   }
 
   /// Brings the window back from the background or the Dock.
-  Future<void> showWindow() async {
-    if (await windowManager.isMinimized()) await windowManager.restore();
-    await windowManager.show();
-    await windowManager.focus();
+  void showWindow() {
+    if (window.isMinimized) window.restore();
+    window
+      ..show()
+      ..focus();
   }
 
   /// Keeps the tray icon, and macOS awake enough for the timers, while
@@ -645,19 +656,17 @@ class _MelonAppState extends State<MelonApp>
       unawaited(Background.keepAwake(active).catchError((Object _) {}));
     }
     if (subscriptions.subscriptions.isEmpty) {
-      unawaited(tray?.hide());
+      tray?.hide();
       return;
     }
     final icon = tray ??= AppTray(
-      onOpen: () => unawaited(showWindow()),
+      onOpen: showWindow,
       onCheck: subscriptions.checkNow,
       onQuit: quit,
     );
-    unawaited(
-      icon.show(
-        subscribed: subscriptions.subscriptions.length,
-        caching: downloads.active.value,
-      ),
+    icon.show(
+      subscribed: subscriptions.subscriptions.length,
+      caching: downloads.active.value,
     );
   }
 
@@ -665,13 +674,33 @@ class _MelonAppState extends State<MelonApp>
   /// uninstalling, past staying in the background.
   void quit() {
     quitting = true;
-    onWindowClose();
+    closeWindow();
+  }
+
+  /// The window's close requests, focus and full screen.
+  void windowEvent(WindowEvent event) {
+    switch (event) {
+      case WindowCloseRequestedEvent(:final request):
+        // The title bar's close, Alt-F4 and our own close button all go
+        // through [closeWindow]; only its final close passes.
+        if (exiting) return;
+        request.cancel();
+        closeWindow();
+      case WindowFocusedEvent():
+        // System colours and proxy settings can change while the app runs.
+        unawaited(appearance.refreshSystemAccent());
+        unawaited(service.proxy.refreshSystem());
+      case WindowEnteredFullScreenEvent():
+        fullScreenChanged(true);
+      case WindowExitedFullScreenEvent():
+        fullScreenChanged(false);
+      default:
+    }
   }
 
   /// Closing the window while subscriptions run keeps the app going in
   /// the background, once asked; otherwise, or when [quitting], it quits.
-  @override
-  void onWindowClose() async {
+  void closeWindow() async {
     if (closing || askingClose) return;
     if (!quitting && ready && service.subscriptions.active) {
       final preferences = service.subscriptions.preferences;
@@ -699,7 +728,7 @@ class _MelonAppState extends State<MelonApp>
     setState(() => closing = true);
     // Detach the video texture before disposing its native rendering context.
     // A hidden window draws no frames, and has no texture on screen.
-    if (await windowManager.isVisible()) {
+    if (window.isVisible) {
       await WidgetsBinding.instance.endOfFrame.timeout(
         const Duration(seconds: 1),
         onTimeout: () {},
@@ -715,16 +744,15 @@ class _MelonAppState extends State<MelonApp>
         }
       } finally {
         if (relaunching) await relaunchAfterExit();
-        await tray?.hide();
-        await Background.allowQuit().catchError((Object _) {});
-        // Use WM_CLOSE so the runner destroys its view before leaving the message
-        // loop. windowManager.destroy posts WM_QUIT directly on Windows.
-        await windowManager.setPreventClose(false);
-        // The macOS runner stays open without windows; quitting ends it.
+        tray?.hide();
+        exiting = true;
         if (Platform.isMacOS) {
-          await windowManager.destroy();
+          // The macOS runner stays open without windows; it quits itself.
+          await Background.quit().catchError((Object _) {});
         } else {
-          await windowManager.close();
+          // Closing continues the runner's own WM_CLOSE on Windows, which
+          // destroys its view before leaving the message loop.
+          window.close();
         }
       }
     }
@@ -736,9 +764,9 @@ class _MelonAppState extends State<MelonApp>
     if (route == 'player') goBack();
     if (fullScreen) await setFullScreen(false);
     if (Platform.isLinux) {
-      await windowManager.minimize();
+      window.minimize();
     } else {
-      await windowManager.hide();
+      window.hide();
     }
   }
 
@@ -757,13 +785,6 @@ class _MelonAppState extends State<MelonApp>
   @override
   void didChangePlatformBrightness() {
     if (appearance.mode == ThemeChoice.system) setState(() {});
-  }
-
-  /// System colours and proxy settings can change while the app runs.
-  @override
-  void onWindowFocus() {
-    unawaited(appearance.refreshSystemAccent());
-    unawaited(service.proxy.refreshSystem());
   }
 
   /// The cover the current page takes its colour from, while that is on.
@@ -813,16 +834,8 @@ class _MelonAppState extends State<MelonApp>
     quit();
   }
 
-  @override
-  void onWindowEnterFullScreen() {
-    if (mounted) setState(() => fullScreen = true);
-    _fullScreenTransition?.complete();
-    _fullScreenTransition = null;
-  }
-
-  @override
-  void onWindowLeaveFullScreen() {
-    if (mounted) setState(() => fullScreen = false);
+  void fullScreenChanged(bool value) {
+    if (mounted) setState(() => fullScreen = value);
     _fullScreenTransition?.complete();
     _fullScreenTransition = null;
   }
@@ -831,20 +844,20 @@ class _MelonAppState extends State<MelonApp>
     return _fullScreenOperations = _fullScreenOperations.then(
       (_) => perform(() async {
         if (!mounted || closing) return;
-        if (await windowManager.isFullScreen() != value) {
+        if (window.isFullScreen != value) {
           // AppKit updates its style mask before the fullscreen animation ends.
           // Wait for its completion event before allowing a reverse transition.
           final transition = Platform.isMacOS ? Completer<void>() : null;
           _fullScreenTransition = transition;
           try {
-            await windowManager.setFullScreen(value);
+            window.isFullScreen = value;
             await transition?.future.timeout(const Duration(seconds: 5));
           } finally {
             _fullScreenTransition = null;
           }
         }
         // Windows can resize to fullscreen without emitting enter/leave events.
-        final actual = await windowManager.isFullScreen();
+        final actual = window.isFullScreen;
         if (mounted && !closing) setState(() => fullScreen = actual);
       }),
     );
@@ -878,14 +891,14 @@ class _MelonAppState extends State<MelonApp>
     homeFeedback.dispose();
     playerPanel.dispose();
     continueRange.dispose();
-    unawaited(tray?.hide());
+    tray?.hide();
     search.dispose();
     searchFocus.dispose();
     appearance.removeListener(servicesChanged);
     continueRange.removeListener(servicesChanged);
     appearance.dispose();
     WidgetsBinding.instance.removeObserver(this);
-    windowManager.removeListener(this);
+    if (windowListener case final listener?) window.removeListener(listener);
     super.dispose();
   }
 
@@ -943,6 +956,7 @@ class _MelonAppState extends State<MelonApp>
                   children: [
                     if (!fullScreen)
                       AppTitleBar(
+                        window: window,
                         immersive: route == 'player' && windowFullScreen,
                         dark: dark,
                         sidebarVisible: showSidebar,

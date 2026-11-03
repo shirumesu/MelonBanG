@@ -57,6 +57,14 @@ class MainFlutterWindow: NSWindow {
     centerWindowButtons()
   }
 
+  /// Hiding the title bar keeps the frame, so no resize says the buttons
+  /// moved back; centre them once AppKit has laid the title bar out again.
+  override var styleMask: NSWindow.StyleMask {
+    didSet {
+      DispatchQueue.main.async { [weak self] in self?.centerWindowButtons() }
+    }
+  }
+
   /// Flutter draws a 44-point title bar; AppKit centres the window buttons
   /// on its default 28-point one, which leaves them above the bar's other
   /// controls. Grow the button container to the bar and centre the buttons,
@@ -146,9 +154,12 @@ class MainFlutterWindow: NSWindow {
         activity = nil
       }
       result(nil)
-    case "allowQuit":
+    case "quit":
       quitAllowed = true
       result(nil)
+      // After this call returns: AppKit shuts the engine down as it quits,
+      // which cannot happen while Dart is running.
+      DispatchQueue.main.async { NSApp.terminate(nil) }
     default:
       result(FlutterMethodNotImplemented)
     }

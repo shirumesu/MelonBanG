@@ -11,6 +11,7 @@ import 'theme.dart';
 class AppTitleBar extends StatelessWidget {
   const AppTitleBar({
     super.key,
+    required this.window,
     required this.dark,
     required this.sidebarVisible,
     required this.onToggleSidebar,
@@ -27,6 +28,7 @@ class AppTitleBar extends StatelessWidget {
     this.onRestartToUpdate,
   });
   final String backLabel;
+  final Window window;
 
   final bool dark, sidebarVisible, immersive;
   final VoidCallback onToggleSidebar, onToggleTheme, onClearRecentSearches;
@@ -49,7 +51,9 @@ class AppTitleBar extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) => Stack(
           children: [
-            const Positioned.fill(child: DragToMoveArea(child: SizedBox())),
+            Positioned.fill(
+              child: DragToMoveArea(window: window, child: const SizedBox()),
+            ),
             Row(
               children: [
                 SizedBox(width: macOS ? 78 : 8),
@@ -103,23 +107,19 @@ class AppTitleBar extends StatelessWidget {
                 if (!macOS) ...[
                   IconButton(
                     tooltip: '最小化',
-                    onPressed: windowManager.minimize,
+                    onPressed: window.minimize,
                     icon: const Icon(Icons.remove, size: 16),
                   ),
                   IconButton(
                     tooltip: '最大化 / 还原',
-                    onPressed: () async {
-                      if (await windowManager.isMaximized()) {
-                        await windowManager.unmaximize();
-                      } else {
-                        await windowManager.maximize();
-                      }
-                    },
+                    onPressed: () => window.isMaximized
+                        ? window.unmaximize()
+                        : window.maximize(),
                     icon: const Icon(Icons.crop_square, size: 15),
                   ),
                   IconButton(
                     tooltip: '关闭窗口',
-                    onPressed: windowManager.close,
+                    onPressed: window.close,
                     icon: const Icon(Icons.close, size: 17),
                   ),
                   const SizedBox(width: 5),
