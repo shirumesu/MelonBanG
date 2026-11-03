@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../domain/catalog.dart';
+import '../domain/episode_release.dart';
 import '../core/content_cache.dart';
 import '../core/json.dart';
 import '../core/network.dart';
@@ -221,13 +222,26 @@ class CatalogRepository implements Catalog {
       .toIso8601String()
       .substring(0, 10);
 
+  /// A schedule entry as a card: its broadcast type (`tv`, `web`) is the
+  /// platform, and the start of its broadcast rule the air date.
+  Subject _scheduled(Json item) {
+    final begin = DateTime.tryParse('${object(item['source'])['begin'] ?? ''}');
+    return card({
+      ...item,
+      if (item['platform'] == null && item['type'] is String)
+        'platform': (item['type'] as String).toUpperCase(),
+      if (item['airDate'] == null && begin != null)
+        'airDate': shanghaiDay(begin).toIso8601String().substring(0, 10),
+    });
+  }
+
   SchedulePage _today(dynamic value) {
     final response = object(value);
     return SchedulePage(
       date: response['date'] as String?,
       items: objects(response['items'])
           .where((item) => number(item['subjectId']) > 0)
-          .map(card)
+          .map(_scheduled)
           .toList(),
     );
   }
@@ -285,7 +299,7 @@ class CatalogRepository implements Catalog {
         weekday: labels[day - 1],
         items: objects(byDate[date])
             .where((item) => number(item['subjectId']) > 0)
-            .map(card)
+            .map(_scheduled)
             .toList(),
       );
     }).toList();

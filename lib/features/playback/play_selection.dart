@@ -63,11 +63,6 @@ class PlaySelectionRepository {
     await store.remove(_rememberedScope, '$subjectId');
   }
 
-  Future<void> forgetAll() async {
-    _remembered.clear();
-    await store.clear(_rememberedScope);
-  }
-
   static const _rememberedScope = 'source_preferences';
 
   /// Cached files, online entries and torrents for [episode], or for the

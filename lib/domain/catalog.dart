@@ -332,6 +332,7 @@ class Subject {
     this.watchedEpisodes,
     this.airingAt,
     this.relation,
+    this.nsfw = false,
   });
 
   factory Subject.fromJson(Map<String, dynamic> value) {
@@ -405,6 +406,7 @@ class Subject {
       },
       airingAt: DateTime.tryParse('${value['airingAt'] ?? ''}'),
       relation: _text(value['relation']),
+      nsfw: value['nsfw'] == true,
     );
   }
 
@@ -439,6 +441,9 @@ class Subject {
 
   /// Related subjects: how this one relates.
   final String? relation;
+
+  /// Marked R18 on Bangumi.
+  final bool nsfw;
 
   String get title => displayTitle([nameCn, displayName, name]);
   CollectionStatus? get status => collection?.status;
@@ -529,6 +534,7 @@ class Subject {
     watchedEpisodes: watchedEpisodes,
     airingAt: airingAt,
     relation: relation,
+    nsfw: nsfw,
   );
 }
 

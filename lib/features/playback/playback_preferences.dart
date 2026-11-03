@@ -77,7 +77,7 @@ class PlaybackPreferences extends ChangeNotifier {
 
   /// Playing an episode starts caching the next aired one from the same
   /// source family.
-  bool get cacheNext => storage.getBool('player-cache-next') ?? false;
+  bool get cacheNext => storage.getBool('player-cache-next') ?? true;
 
   /// Autoplay, the next episode and caching it pass over recaps and
   /// programmes about the show (总集篇, 特番).

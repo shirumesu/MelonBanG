@@ -68,9 +68,9 @@ class DanmakuPreferences extends ChangeNotifier {
   void _readDisplay(Json saved) {
     enabled = saved['enabled'] as bool? ?? true;
     size = number(saved['size'] ?? 25).clamp(14, 36).toDouble();
-    opacity = number(saved['opacity'] ?? .9).clamp(.1, 1).toDouble();
-    area = number(saved['area'] ?? .6).clamp(.2, 1).toDouble();
-    density = number(saved['density'] ?? 1).toInt().clamp(0, 3);
+    opacity = number(saved['opacity'] ?? .35).clamp(.1, 1).toDouble();
+    area = number(saved['area'] ?? 1).clamp(.2, 1).toDouble();
+    density = number(saved['density'] ?? 3).toInt().clamp(0, 3);
     speed = number(saved['speed'] ?? 2).toInt().clamp(0, 4);
     overlap = saved['overlap'] as bool? ?? false;
     shield = saved['shield'] as bool? ?? false;
@@ -130,7 +130,6 @@ class DanmakuPreferences extends ChangeNotifier {
     );
   }
 
-  void resetDisplay() => update(() => _readDisplay(const {}));
   void setProvider(String provider, bool value) =>
       update(() => providers[provider] = value);
   void addFilter(String value) {

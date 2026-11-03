@@ -63,6 +63,11 @@ class _DownloadsPageState extends State<DownloadsPage> {
   final played = <int>{};
   final _requested = <int>{};
 
+  /// Subjects shown as a group of tasks; one stays a group while its tasks
+  /// are deleted down to the last, rather than turning into a lone task
+  /// under the pointer.
+  final _grouped = <int>{};
+
   /// The entries each group of the list showed last, by id.
   final shown = <String, Set<String>>{};
 
@@ -433,10 +438,30 @@ class _DownloadsPageState extends State<DownloadsPage> {
     if (subjectId != null) _loadSubject(subjectId);
     final subject = subjects[subjectId];
     if (tasks.length == 1 &&
+        !_grouped.contains(subjectId) &&
         !widget.subscriptions.subscriptions.containsKey(subjectId)) {
       return _task(context, tasks.single, subject);
     }
-    return _group(context, subject, subjectId!, tasks);
+    _grouped.add(subjectId!);
+    return _group(context, subject, subjectId, tasks);
+  }
+
+  /// How many episodes [tasks] hold: two files of one episode count once,
+  /// and a batch counts the episodes its videos hold. Videos of no known
+  /// episode count one each.
+  static int _episodeCount(Subject? subject, Iterable<DownloadTask> tasks) {
+    final known = <int>{};
+    var unknown = 0;
+    for (final task in tasks) {
+      final episodes = subject == null
+          ? const <int>{}
+          : {?task.episodeId, ...episodeFiles(subject, task).keys};
+      if (episodes.isEmpty) {
+        unknown += task.videos.length > 1 ? task.videos.length : 1;
+      }
+      known.addAll(episodes);
+    }
+    return known.length + unknown;
   }
 
   /// Starts or continues watching an entry: the subject's cache from where
@@ -508,9 +533,11 @@ class _DownloadsPageState extends State<DownloadsPage> {
     final ordered = _ordered(subject, tasks);
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
-    final done = tasks.where((t) => t.complete).length;
+    final complete = tasks.where((t) => t.complete);
+    final done = complete.length;
     final failed = tasks.where((t) => t.status == DownloadStatus.failed).length;
     final ongoing = tasks.length - done - failed;
+    final episodes = _episodeCount(subject, complete);
     final speed = tasks.fold<int>(0, (sum, t) => sum + t.downloadSpeed);
     final ticked = tasks.where((t) => selectedTasks.contains(t.id)).length;
     final title = subject?.title ?? ordered.first.title;
@@ -561,9 +588,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             if (done == tasks.length)
-                              Text('$done 集', style: small)
+                              Text('$episodes 集', style: small)
                             else if (done > 0)
-                              MelonBadge('已缓存 $done', color: sky),
+                              MelonBadge('已缓存 $episodes 集', color: sky),
                             if (ongoing > 0) MelonBadge('进行中 $ongoing'),
                             if (failed > 0)
                               MelonBadge('需要重试 $failed', color: scheme.error),
@@ -772,82 +799,100 @@ class _DownloadsPageState extends State<DownloadsPage> {
     final id = task.id;
     final scheme = Theme.of(context).colorScheme;
     final details = expanded.contains(id);
+    void toggle() =>
+        setState(() => details ? expanded.remove(id) : expanded.add(id));
     return MelonPanel(
-      padding: const EdgeInsets.all(Gap.lg),
+      padding: EdgeInsets.zero,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (selecting) _taskCheck(task),
-              _SubjectCoverLink(
-                url: task.coverUrl,
-                title: task.title,
-                id: task.subjectId ?? 0,
-                onOpen: switch (task.subjectId) {
-                  final id? => () => widget.onOpenSubject(id),
-                  null => null,
-                },
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _SubjectTitleLink(
-                      title: task.title,
-                      onOpen: switch (task.subjectId) {
-                        final id? => () => widget.onOpenSubject(id),
-                        null => null,
-                      },
-                    ),
-                    const SizedBox(height: Gap.sm),
-                    DownloadTaskStatus(task: task),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              // Buttons of different heights centre on one line.
-              Row(
-                mainAxisSize: MainAxisSize.min,
+          // Like a group, the whole entry opens its details.
+          InkWell(
+            customBorder: CardTheme.of(context).shape,
+            onTap: toggle,
+            child: Padding(
+              padding: const EdgeInsets.all(Gap.lg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _watchButton(subject, [task]),
-                  if (task.toggle != null) ...[
-                    const SizedBox(width: 8),
-                    DownloadToggleButton(
-                      task: task,
-                      onToggle: _toggle,
-                      labelled: true,
-                    ),
-                  ],
-                  IconButton(
-                    tooltip: details ? '收起详情' : '详情',
-                    onPressed: () => setState(
-                      () => details ? expanded.remove(id) : expanded.add(id),
-                    ),
-                    icon: ExpandChevron(open: details),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (selecting) _taskCheck(task),
+                      _SubjectCoverLink(
+                        url: task.coverUrl,
+                        title: task.title,
+                        id: task.subjectId ?? 0,
+                        onOpen: switch (task.subjectId) {
+                          final id? => () => widget.onOpenSubject(id),
+                          null => null,
+                        },
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _SubjectTitleLink(
+                              title: task.title,
+                              onOpen: switch (task.subjectId) {
+                                final id? => () => widget.onOpenSubject(id),
+                                null => null,
+                              },
+                            ),
+                            const SizedBox(height: Gap.sm),
+                            DownloadTaskStatus(task: task),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Buttons of different heights centre on one line.
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _watchButton(subject, [task]),
+                          if (task.toggle != null) ...[
+                            const SizedBox(width: 8),
+                            DownloadToggleButton(
+                              task: task,
+                              onToggle: _toggle,
+                              labelled: true,
+                            ),
+                          ],
+                          IconButton(
+                            tooltip: details ? '收起详情' : '详情',
+                            onPressed: toggle,
+                            icon: ExpandChevron(open: details),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
+                  if ((task.errorMessage ?? task.persistenceError)
+                      case final issue?)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Text(
+                        issue,
+                        style: TextStyle(color: scheme.error, fontSize: 12),
+                      ),
+                    ),
                 ],
               ),
-            ],
-          ),
-          if ((task.errorMessage ?? task.persistenceError) case final issue?)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                issue,
-                style: TextStyle(color: scheme.error, fontSize: 12),
-              ),
             ),
+          ),
           MotionReveal(
             visible: details,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Divider(height: 24),
-                ..._details(context, task, subject, removable: true),
-              ],
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(Gap.lg, 0, Gap.lg, Gap.lg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  ..._details(context, task, subject, removable: true),
+                ],
+              ),
             ),
           ),
         ],

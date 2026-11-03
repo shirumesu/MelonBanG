@@ -124,7 +124,10 @@ complete.
 The playback window is a sliding set of pieces from the reader's position
 (about 24 MiB, 2–48 pieces), moved each time the reader enters a piece.
 Upstream set deadlines only after the reader blocked on a missing piece, so
-the swarm idled at every window boundary. Tail probes do not move the window.
+the swarm idled at every window boundary. Tail probes do not move the window;
+a probe is a read in the last 2% of the file (4–32 MiB), not in the last ten
+pieces: with 16 MiB pieces that was most of an episode, so resuming it at
+10 minutes was not taken for a seek and the window stayed on the header.
 Only the window's first 8 MiB (at least one piece) are top priority with
 deadlines; the rest rank just below. The swarm spreads its requests over every
 top-priority piece and a piece is readable only once complete, so with 16 MiB

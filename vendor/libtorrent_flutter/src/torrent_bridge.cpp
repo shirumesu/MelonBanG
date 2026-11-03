@@ -952,6 +952,17 @@ struct StreamEngine {
 
     std::atomic<bool> active{true};
 
+    // Container probes read the index at the end of the file (MKV cues, an
+    // MP4 index written last) and must not drag the playback window there.
+    // The region is a few MB rather than a count of pieces: ten 16 MB pieces
+    // are most of an episode, and a resume read there was taken for a probe,
+    // so the window stayed on the header and the resume point never came.
+    bool is_tail_probe(int64_t off) const {
+        const int64_t tail = std::clamp(
+            file_size / 50, (int64_t)4 << 20, (int64_t)32 << 20);
+        return off > file_size - tail;
+    }
+
     int byte_to_piece(int64_t off) const {
         if (piece_length <= 0) return start_piece;
         return (int)((file_offset + off) / piece_length);
@@ -1440,7 +1451,7 @@ static bool serve_range(StreamEngine* s, TorrReader* reader, socket_t cli,
     int64_t cursor = range_start;
     TB_LOG("serve_range: start=%lld end=%lld gen=%d", (long long)range_start, (long long)range_end, my_gen);
 
-    bool is_tail = (range_start > s->file_size - s->piece_length * 10);
+    bool is_tail = s->is_tail_probe(range_start);
 
     if (!is_tail) {
         reader->offset = range_start;
@@ -1699,7 +1710,7 @@ static void handle_connection(StreamEngine* s, socket_t cli, int reader_id) {
             // This stops old time-critical picks without disrupting peer
             // connections (unlike batch-resetting ALL pieces to dont_download).
             int64_t old_head = s->read_head.load();
-            bool is_tail_req = (rstart > fsz - s->piece_length * 10);
+            bool is_tail_req = s->is_tail_probe(rstart);
             TB_LOG("handle_conn: rstart=%lld rend=%lld old_head=%lld is_tail=%d",
                    (long long)rstart, (long long)rend, (long long)old_head, is_tail_req?1:0);
             if (!is_tail_req && old_head > 0 && std::abs(rstart - old_head) > 65536) {
