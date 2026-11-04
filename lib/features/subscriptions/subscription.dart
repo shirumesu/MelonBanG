@@ -30,8 +30,10 @@ class SubscriptionFilter {
     preferred: value['preferred'] == true,
     smart: value['smart'] == true,
     qualities: _strings(value['qualities']),
-    languages: _strings(value['languages']),
-    forms: _strings(value['forms']),
+    languages: resourceSubtitleSelection(_strings(value['languages']))
+        .difference(resourceSubtitleForms.toSet()),
+    forms: resourceSubtitleSelection(_strings(value['forms']))
+        .intersection(resourceSubtitleForms.toSet()),
   );
 
   /// Groups chosen by name.
@@ -44,8 +46,9 @@ class SubscriptionFilter {
   /// instead of named or preferred ones.
   final bool smart;
 
-  /// Of [resourceQualities], [resourceLanguages] and [resourceSubtitleForms];
-  /// 简体 also takes 简繁 and 简日 releases, which state 简体 among others.
+  /// Of [resourceQualities]; of [resourceLanguages] and [resourceBilingual];
+  /// and of [resourceSubtitleForms]. 简体 also takes 简繁 and 简日 releases,
+  /// which state 简体 among others.
   final Set<String> qualities, languages, forms;
 
   /// Releases of every group count.
@@ -78,7 +81,7 @@ class SubscriptionFilter {
     'preferred': preferred,
     'smart': smart,
     'qualities': _ordered(qualities, resourceQualities),
-    'languages': _ordered(languages, resourceLanguages),
+    'languages': _ordered(languages, resourceSubtitleChoices),
     'forms': _ordered(forms, resourceSubtitleForms),
   };
 
@@ -94,10 +97,7 @@ class SubscriptionFilter {
     },
     if (qualities.isNotEmpty) _ordered(qualities, resourceQualities).join('、'),
     if (languages.isNotEmpty || forms.isNotEmpty)
-      [
-        ..._ordered(languages, resourceLanguages),
-        ..._ordered(forms, resourceSubtitleForms),
-      ].join('、'),
+      _ordered({...languages, ...forms}, resourceSubtitleChoices).join('、'),
   ].join(' · ');
 
   @override

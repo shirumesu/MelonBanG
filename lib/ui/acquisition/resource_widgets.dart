@@ -10,6 +10,7 @@ import '../../features/appearance/appearance.dart';
 import '../core/external_link.dart';
 import '../core/byte_units.dart';
 import '../core/motion.dart';
+import '../core/selection_controls.dart';
 import '../core/theme.dart';
 import 'download_labels.dart';
 
@@ -18,6 +19,32 @@ import 'download_labels.dart';
 double resourceDownloadWidth({required bool labelled}) => labelled ? 84 : 36;
 double resourcePlayWidth({required bool labelled}) => labelled ? 76 : 36;
 const _actionGap = 6.0;
+
+/// The subtitle filter's sections: either script may meet a selection,
+/// while 中日双语 and 内封 each narrow it further. [option] makes a choice's
+/// option, with the label and help it shows.
+List<MelonFilterSection<String>> subtitleFilterSections(
+  MelonFilterOption<String> Function(String value, String label, String? help)
+  option,
+) => [
+  MelonFilterSection([
+    for (final value in resourceLanguages) option(value, value, null),
+  ], title: '中文字幕'),
+  MelonFilterSection([
+    option(resourceBilingual, resourceBilingual, '中文字幕旁同时有日文字幕，如简日、繁日'),
+    for (final value in resourceSubtitleForms)
+      option(
+        value,
+        '$value字幕',
+        '字幕是视频文件里单独的轨道，播放时可以关闭，有多条时（如简繁）可以切换；'
+            '内嵌字幕已压进画面，无法关闭',
+      ),
+  ], title: '只看'),
+];
+
+/// The subtitle filter's selection, such as `简体、中日双语、内封`.
+String subtitleFilterSummary(Set<String> selected) =>
+    resourceSubtitleChoices.where(selected.contains).join('、');
 
 /// A compact action of a result row: an icon, and a label when wide.
 class _ResourceAction extends StatelessWidget {
