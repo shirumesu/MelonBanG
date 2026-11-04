@@ -173,8 +173,14 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           ? settings.preferredGroups
           : strings(form['sourceGroups']),
     );
-    languages.addAll(strings(form['languages']));
-    subtitleForms.addAll(strings(form['subtitleForms']));
+    final subtitles = resourceSubtitleSelection([
+      ...strings(form['languages']),
+      ...strings(form['subtitleForms']),
+    ]);
+    languages.addAll(
+      subtitles.where((e) => !resourceSubtitleForms.contains(e)),
+    );
+    subtitleForms.addAll(subtitles.where(resourceSubtitleForms.contains));
     excluded.addAll(strings(form['excluded']));
     excludedProviders.addAll(strings(form['excludedProviders']));
     expandedTitles.addAll(strings(form['expandedTitles']));
@@ -1000,26 +1006,25 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       label: '字幕',
                       icon: Icons.subtitles_outlined,
                       active: languages.isNotEmpty || subtitleForms.isNotEmpty,
-                      summary: summary(
-                        {...languages, ...subtitleForms},
-                        [...resourceLanguages, ...resourceSubtitleForms],
+                      summary: summary({
+                        ...languages,
+                        ...subtitleForms,
+                      }, resourceSubtitleChoices),
+                      tooltip: '按字幕语言和能否关闭筛选',
+                      sections: subtitleFilterSections(
+                        (value, label, help) => MelonFilterOption(
+                          value,
+                          label,
+                          help: help,
+                          detail: '${results.subtitleCounts[value] ?? 0}',
+                          enabled: (results.subtitleCounts[value] ?? 0) > 0,
+                        ),
                       ),
-                      tooltip: '勾选“简体”也包含简繁、简日双语',
-                      sections: [
-                        MelonFilterSection([
-                          for (final value in resourceLanguages)
-                            counted(value, results.languageCounts),
-                        ], title: '字幕语言'),
-                        MelonFilterSection([
-                          for (final value in resourceSubtitleForms)
-                            counted(value, results.formCounts),
-                        ], title: '字幕形式'),
-                      ],
                       selected: {...languages, ...subtitleForms},
                       onToggle: (value, on) => toggle(
-                        resourceLanguages.contains(value)
-                            ? languages
-                            : subtitleForms,
+                        resourceSubtitleForms.contains(value)
+                            ? subtitleForms
+                            : languages,
                         value,
                         on,
                       ),

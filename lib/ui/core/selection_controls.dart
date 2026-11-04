@@ -354,10 +354,14 @@ class MelonFilterOption<T> {
     this.enabled = true,
     this.more = const [],
     this.mixed = false,
+    this.help,
   });
   final T value;
   final String label;
   final String? detail;
+
+  /// What the option means, behind a question mark after [label].
+  final String? help;
 
   /// Unselected with some of the choices it stands for selected.
   final bool mixed;
@@ -559,7 +563,29 @@ class MelonFilterMenu<T> extends StatelessWidget {
             ),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: described ? 320 : 220),
-        child: option.subtitle == null
+        child: option.subtitle == null && option.help != null
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      option.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: Gap.xs),
+                  Tooltip(
+                    message: option.help,
+                    child: Icon(
+                      Icons.help_outline_rounded,
+                      size: 15,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              )
+            : option.subtitle == null
             ? Text(option.label, maxLines: 1, overflow: TextOverflow.ellipsis)
             : Padding(
                 padding: const EdgeInsets.symmetric(vertical: 6),

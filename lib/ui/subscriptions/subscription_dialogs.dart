@@ -198,8 +198,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
   /// together.
   final groupCounts = <String, int>{},
       qualityCounts = <String, int>{},
-      languageCounts = <String, int>{},
-      formCounts = <String, int>{};
+      subtitleCounts = <String, int>{};
 
   /// Every release found, and the single-episode ones, the earliest
   /// published first.
@@ -228,12 +227,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
       if (!mounted) return;
       setState(() {
         final spellings = <String, int>{};
-        for (final counts in [
-          groupCounts,
-          qualityCounts,
-          languageCounts,
-          formCounts,
-        ]) {
+        for (final counts in [groupCounts, qualityCounts, subtitleCounts]) {
           counts.clear();
         }
         final found = <(_File, DateTime?)>[];
@@ -250,8 +244,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
 
           add(spellings, info.groups);
           add(qualityCounts, [?info.quality]);
-          add(languageCounts, info.languages);
-          add(formCounts, info.subtitleForms);
+          add(subtitleCounts, info.subtitleChoices);
           if (info.batch || releaseRebroadcast(candidate.release.title)) {
             continue;
           }
@@ -476,10 +469,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
     final partly =
         !filter.preferred &&
         preferred.any((name) => groupsMatch(filter.groups, [name]));
-    final subtitles = [
-      ...resourceLanguages.where(filter.languages.contains),
-      ...resourceSubtitleForms.where(filter.forms.contains),
-    ];
+    final subtitles = {...filter.languages, ...filter.forms};
     final menus = [
       MelonFilterMenu<String>(
         label: switch ((filter.groups.length, filter.preferred)) {
@@ -605,28 +595,21 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
         onToggle: (value, on) => _toggle(_Part.qualities, value, on),
       ),
       MelonFilterMenu<String>(
-        label: switch (subtitles) {
-          [] => '不限字幕',
-          ['简体'] => '简体（含简繁、简日）',
-          ['繁体'] => '繁体（含简繁、繁日）',
-          _ => subtitles.join('、'),
-        },
+        label: subtitles.isEmpty ? '不限字幕' : subtitleFilterSummary(subtitles),
         icon: Icons.subtitles_outlined,
         active: subtitles.isNotEmpty,
-        tooltip: '勾选“简体”也包含简繁、简日双语',
-        sections: [
-          MelonFilterSection([
-            for (final value in resourceLanguages)
-              counted(value, languageCounts),
-          ], title: '字幕语言'),
-          MelonFilterSection([
-            for (final value in resourceSubtitleForms)
-              counted(value, formCounts),
-          ], title: '字幕形式'),
-        ],
-        selected: {...filter.languages, ...filter.forms},
+        tooltip: '按字幕语言和能否关闭筛选',
+        sections: subtitleFilterSections(
+          (value, label, help) => MelonFilterOption(
+            value,
+            label,
+            help: help,
+            detail: counted(value, subtitleCounts).detail,
+          ),
+        ),
+        selected: subtitles,
         onToggle: (value, on) => _toggle(
-          resourceLanguages.contains(value) ? _Part.languages : _Part.forms,
+          resourceSubtitleForms.contains(value) ? _Part.forms : _Part.languages,
           value,
           on,
         ),

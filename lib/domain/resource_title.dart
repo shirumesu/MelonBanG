@@ -14,6 +14,7 @@ class ResourceTitleInfo {
     this.qualities = const {},
     this.languages = const {},
     this.subtitleForms = const {},
+    this.bilingual = false,
     this.quality,
     this.episodeLabel,
     this.episodeConflict = false,
@@ -40,8 +41,20 @@ class ResourceTitleInfo {
   /// Every output quality the title mentions; [quality] is set only when unique.
   final Set<String> qualities;
 
-  /// Subtitle languages ([resourceLanguages]) and forms ([resourceSubtitleForms]).
+  /// Subtitle languages (简体, 繁体, 日文) and forms (内封, 内嵌, 外挂) the
+  /// title states.
   final Set<String> languages, subtitleForms;
+
+  /// Whether Japanese lines come beside Chinese ones, as in 简日, 简繁日
+  /// and 中日双语 releases; the last leave the script unstated.
+  final bool bilingual;
+
+  /// Which of [resourceSubtitleChoices] the release meets.
+  List<String> get subtitleChoices => [
+    ...resourceLanguages.where(languages.contains),
+    if (bilingual) resourceBilingual,
+    ...resourceSubtitleForms.where(subtitleForms.contains),
+  ];
 
   /// The number of a single-episode release as written, and the number in
   /// parentheses some groups add across seasons: `03(51)`.
@@ -80,8 +93,35 @@ class ResourceTitleInfo {
 
 /// Filter vocabularies, in display order.
 const resourceQualities = ['4K', '1080p', '720p'];
-const resourceLanguages = ['简体', '繁体', '日文'];
-const resourceSubtitleForms = ['内封', '内嵌', '外挂'];
+
+/// The Chinese scripts of subtitles; a selection of both takes either, and
+/// 简繁 releases meet both.
+const resourceLanguages = ['简体', '繁体'];
+
+/// Chinese subtitles with Japanese lines beside them, selected among the
+/// languages but met on its own, besides the scripts.
+const resourceBilingual = '中日双语';
+
+/// Subtitles in a track of their own the player can turn off. External
+/// files are left out: streams from a torrent do not load them.
+const resourceSubtitleForms = ['内封'];
+
+/// The subtitle filter's choices, in display order.
+const resourceSubtitleChoices = [
+  ...resourceLanguages,
+  resourceBilingual,
+  ...resourceSubtitleForms,
+];
+
+/// Subtitle selections saved before 中日双语: 日文 selected releases with
+/// Japanese lines, now 中日双语, and of the forms only 内封 remains.
+Set<String> resourceSubtitleSelection(Iterable<String> saved) => {
+  for (final value in saved)
+    if (value == '日文')
+      resourceBilingual
+    else if (resourceSubtitleChoices.contains(value))
+      value,
+};
 
 final _languagePatterns = {
   '简体': [
@@ -230,7 +270,7 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
       if (entry.value.any((pattern) => pattern.hasMatch(normalized))) entry.key,
   };
   final subtitleForms = {
-    for (final form in resourceSubtitleForms)
+    for (final form in const ['内封', '内嵌', '外挂'])
       if (normalized.contains(form)) form,
   };
   labels.addAll(qualities);
@@ -427,6 +467,10 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
     qualities: qualities,
     languages: languages,
     subtitleForms: subtitleForms,
+    bilingual:
+        languages.contains('日文') &&
+        (languages.any(resourceLanguages.contains) ||
+            RegExp(r'中日|日中').hasMatch(normalized)),
     labels: labels.toSet().toList(),
     warnings: warnings,
     sourceGroups: sourceGroups,
@@ -460,7 +504,8 @@ int? preferredGroupIndex(Iterable<String> groups, List<String> preferred) {
 }
 
 /// What a title leaves unstated of the selections: each non-empty selection
-/// must overlap its annotations or find none stated. Null when it fails one;
+/// must overlap its annotations or find none stated; [resourceBilingual]
+/// among [languages] is a selection of its own. Null when it fails one;
 /// otherwise the names of the selections it states nothing for, so such
 /// titles can follow confirmed ones.
 List<String>? resourceSelectionGaps(
@@ -474,7 +519,22 @@ List<String>? resourceSelectionGaps(
   for (final (name, selected, values) in [
     ('画质', qualities, [?info.quality]),
     ('字幕组', groups, info.groups),
-    ('字幕', languages, info.languages),
+    (
+      '字幕',
+      languages.intersection(resourceLanguages.toSet()),
+      info.bilingual ? info.languages.difference(const {'日文'}) : info.languages,
+    ),
+    // Releases stating their languages state whether they are bilingual.
+    (
+      '字幕',
+      languages.intersection(const {resourceBilingual}),
+      [
+        if (info.bilingual)
+          resourceBilingual
+        else if (info.languages.isNotEmpty)
+          '单语',
+      ],
+    ),
     ('字幕', subtitleForms, info.subtitleForms),
   ]) {
     if (selected.isEmpty || values.any(selected.contains)) continue;

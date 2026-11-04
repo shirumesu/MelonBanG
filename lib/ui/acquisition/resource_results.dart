@@ -141,8 +141,7 @@ class ResourceResults {
       (info) => info.quality == null ? const [] : [info.quality!],
     );
     groupCounts = tally((info) => info.groups);
-    languageCounts = tally((info) => info.languages);
-    formCounts = tally((info) => info.subtitleForms);
+    subtitleCounts = tally((info) => info.subtitleChoices);
     groupNames = {...groupCounts.keys, ...groups}.toList()
       ..sort((a, b) {
         final byCount = (groupCounts[b] ?? 0).compareTo(groupCounts[a] ?? 0);
@@ -296,10 +295,7 @@ class ResourceResults {
   /// [unstatedCount] are those of the shown kind not stating a selection,
   /// shown or not.
   late final List<(PlayCandidate, ResourceTitleInfo)> matching, visible;
-  late final Map<String, int> qualityCounts,
-      groupCounts,
-      languageCounts,
-      formCounts;
+  late final Map<String, int> qualityCounts, groupCounts, subtitleCounts;
   late final Map<ResourceFamily, int> kindCounts;
   late final int unstatedCount;
 
