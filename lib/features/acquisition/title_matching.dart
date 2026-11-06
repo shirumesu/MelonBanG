@@ -61,25 +61,33 @@ double sourceMatchScore(
   SourceSubject site,
   Iterable<String> names,
 ) {
-  final target = normalizeSourceTitle(site.title);
   var best = 0.0;
-  for (final name in names) {
-    final expected = normalizeSourceTitle(name);
-    double dice(String a, String b) {
-      if (a == b) return 1;
-      if (a.length < 2 || b.length < 2) return 0;
-      final left = <String>{
-        for (var i = 0; i < a.length - 1; i++) a.substring(i, i + 2),
-      };
-      final right = <String>{
-        for (var i = 0; i < b.length - 1; i++) b.substring(i, i + 2),
-      };
-      return 2 * left.intersection(right).length / (left.length + right.length);
-    }
+  // An alias, often the original name alone, has the season the site's
+  // title states.
+  final stated = _normalize(site.title).$2;
+  for (final title in [site.title, ...site.aliases]) {
+    final (text, season) = _normalize(title);
+    final target = (text, season ?? stated ?? 1);
+    for (final name in names) {
+      final expected = normalizeSourceTitle(name);
+      double dice(String a, String b) {
+        if (a == b) return 1;
+        if (a.length < 2 || b.length < 2) return 0;
+        final left = <String>{
+          for (var i = 0; i < a.length - 1; i++) a.substring(i, i + 2),
+        };
+        final right = <String>{
+          for (var i = 0; i < b.length - 1; i++) b.substring(i, i + 2),
+        };
+        return 2 *
+            left.intersection(right).length /
+            (left.length + right.length);
+      }
 
-    final score =
-        dice(expected.$1, target.$1) - (expected.$2 != target.$2 ? .4 : 0);
-    if (score > best) best = score;
+      final score =
+          dice(expected.$1, target.$1) - (expected.$2 != target.$2 ? .4 : 0);
+      if (score > best) best = score;
+    }
   }
   final year = int.tryParse((subject.airDate ?? '').split('-').first);
   if (year != null && site.year != null) {

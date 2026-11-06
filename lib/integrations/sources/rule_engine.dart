@@ -186,16 +186,29 @@ abstract class HttpRuleEngine implements SourceEngine {
   }
 }
 
-/// A title search that retries once with whitespace removed, which some
-/// sites need for spaced names such as `FX 战士久留美`.
-Future<List<SourceSubject>> searchWithCompactRetry(
+/// A title search that, finding nothing, retries with whitespace removed,
+/// which some sites need for spaced names such as `FX 战士久留美`, then with
+/// the [titleStem]: sites search their own title only, and translate a
+/// show's title differently.
+Future<List<SourceSubject>> searchWithFallbacks(
   String name,
   Future<List<SourceSubject>> Function(String) query,
 ) async {
-  final rows = await query(name);
   final compact = name.replaceAll(RegExp(r'\s+'), '');
-  return rows.isEmpty && compact != name ? query(compact) : rows;
+  for (final text in {name, compact, ?titleStem(name)}) {
+    final rows = await query(text);
+    if (rows.isNotEmpty) return rows;
+  }
+  return const [];
 }
+
+/// The words a Chinese title starts with, before its first 与, 和, 的, 之,
+/// 及 or punctuation: `黑猫与魔女的教室` is `黑猫和魔女的课堂` on some sites,
+/// and searching `黑猫` finds it. Null without such a lead of two or more
+/// characters.
+String? titleStem(String name) =>
+    RegExp(r'^[\u3400-\u9fff]{2,}?(?=[与與和的之及、，,：:·・\s])')
+        .firstMatch(name.trim())?[0];
 
 String unescapeAddress(String input) {
   final unicode = input.replaceAllMapped(

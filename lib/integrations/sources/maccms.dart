@@ -22,7 +22,7 @@ class MaccmsApiEngine extends HttpRuleEngine implements OnlineSourceEngine {
   Future<List<SourceSubject>> searchSubjects(
     String name, {
     RequestCancellation? cancel,
-  }) => searchWithCompactRetry(name, (query) async {
+  }) => searchWithFallbacks(name, (query) async {
     final (body, _) = await request(object(config['search']), {
       'query': query,
     }, cancel: cancel);
@@ -35,6 +35,10 @@ class MaccmsApiEngine extends HttpRuleEngine implements OnlineSourceEngine {
   SourceSubject _subject(Json row) => SourceSubject(
     id: '${row['vod_id']}',
     title: '${row['vod_name']}',
+    aliases: [
+      for (final name in '${row['vod_sub'] ?? ''}'.split(RegExp('[,，/、|]')))
+        if (name.trim().isNotEmpty) name.trim(),
+    ],
     year: int.tryParse('${row['vod_year'] ?? ''}'),
     episodeTotal: int.tryParse(
       RegExp(r'\d+').firstMatch('${row['vod_remarks'] ?? ''}')?[0] ?? '',

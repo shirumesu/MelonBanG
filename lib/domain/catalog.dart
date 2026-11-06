@@ -448,14 +448,16 @@ class Subject {
   String get title => displayTitle([nameCn, displayName, name]);
   CollectionStatus? get status => collection?.status;
 
-  /// True while any main episode aired within 90 days of [now].
-  bool airing({DateTime? now}) {
+  /// Whether every main episode has aired: as many are listed as the count
+  /// says, each dated, and the last one's day is over. A show still
+  /// listing episodes, or with one undated, is airing.
+  bool finished({DateTime? now}) {
+    final main = episodes.where((episode) => episode.main).toList();
+    if (main.isEmpty || main.length < (episodeTotal ?? 0)) return false;
     final today = now ?? DateTime.now();
-    return episodes.any(
+    return main.every(
       (episode) =>
-          episode.main &&
-          (episode.aired?.isAfter(today.subtract(const Duration(days: 90))) ??
-              false),
+          episode.aired?.add(const Duration(days: 1)).isBefore(today) ?? false,
     );
   }
 

@@ -682,7 +682,11 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: Text(item.title, style: text.titleLarge)),
+            Expanded(
+              child: SelectionArea(
+                child: Text(item.title, style: text.titleLarge),
+              ),
+            ),
             // As tall as one title line, so it centres on the first.
             IconButton(
               tooltip: '在 Bangumi 打开',
@@ -695,7 +699,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           ],
         ),
         if ((item.name ?? '').isNotEmpty && item.name != item.title)
-          Text(item.name!, style: text.bodySmall),
+          SelectionArea(child: Text(item.name!, style: text.bodySmall)),
         const SizedBox(height: Gap.md),
         Wrap(
           spacing: Gap.sm,
@@ -843,18 +847,20 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           duration: motionDuration(context, 260),
           curve: Curves.easeOutCubic,
           alignment: Alignment.topLeft,
-          child: _summaryExpanded
-              ? SelectableText(
-                  key: PageStorageKey('subject-summary:${item.id}'),
-                  summary,
-                  style: const TextStyle(fontSize: 13, height: 1.75),
-                )
-              : Text(
-                  summary.replaceAll(RegExp(r'\s+'), ' '),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, height: 1.75),
-                ),
+          // Selectable folded too: copying it shouldn't need unfolding.
+          child: SelectionArea(
+            child: _summaryExpanded
+                ? Text(
+                    summary,
+                    style: const TextStyle(fontSize: 13, height: 1.75),
+                  )
+                : Text(
+                    summary.replaceAll(RegExp(r'\s+'), ' '),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13, height: 1.75),
+                  ),
+          ),
         ),
         if (summary.length > 90)
           Align(
