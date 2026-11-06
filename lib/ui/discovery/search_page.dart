@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/catalog.dart';
 import '../../features/discovery/discovery_controller.dart';
+import '../core/action_feedback.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
@@ -98,7 +99,11 @@ class _SearchPageState extends State<SearchPage> {
             if (results.isEmpty && busy)
               const _PosterSkeletons()
             else if (results.isEmpty && error != null)
-              EmptyState(text: error, action: discovery.retrySearch)
+              EmptyState(
+                text: '暂时无法搜索',
+                detail: error,
+                action: discovery.retrySearch,
+              )
             else if (results.isEmpty && query.filtered)
               EmptyState(
                 text: '没有符合筛选的番剧',
@@ -117,9 +122,14 @@ class _SearchPageState extends State<SearchPage> {
                 ),
               ),
             if (results.isNotEmpty && error != null)
-              EmptyState(
-                text: error,
-                action: busy ? null : discovery.retrySearch,
+              Padding(
+                padding: const EdgeInsets.only(top: Gap.xl),
+                child: Center(
+                  child: InlineIssue(
+                    '加载更多失败：$error',
+                    onRetry: busy ? null : discovery.retrySearch,
+                  ),
+                ),
               )
             else if (results.isNotEmpty && search.hasMore)
               Padding(

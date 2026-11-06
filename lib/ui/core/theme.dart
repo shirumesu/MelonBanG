@@ -525,6 +525,21 @@ ThemeData _appTheme(bool dark, Color accent) {
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
       showCheckmark: false,
     ),
+    // Every message floats as one calm card above the page's foot,
+    // whichever screen shows it.
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      width: 480,
+      elevation: 3,
+      backgroundColor: scheme.inverseSurface,
+      actionTextColor: scheme.inversePrimary,
+      contentTextStyle: appFont.copyWith(
+        fontSize: 13,
+        height: 1.45,
+        color: scheme.onInverseSurface,
+      ),
+      shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
+    ),
     tabBarTheme: TabBarThemeData(
       labelColor: scheme.primary,
       unselectedLabelColor: scheme.onSurface,

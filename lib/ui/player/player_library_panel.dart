@@ -14,6 +14,7 @@ import '../../features/playback/play_selection.dart';
 import '../../features/playback/playback.dart';
 import '../acquisition/download_labels.dart';
 import '../acquisition/download_task_widgets.dart';
+import '../core/action_feedback.dart';
 import '../core/account_avatar.dart';
 import '../core/bbcode.dart';
 import '../core/byte_units.dart';
@@ -845,10 +846,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
               if (taskError != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: Gap.sm),
-                  child: Text(
-                    taskError!,
-                    style: TextStyle(color: scheme.error, fontSize: 12),
-                  ),
+                  child: InlineIssue(taskError!),
                 ),
               for (final task in tasks) taskTile(task),
             ],
@@ -910,10 +908,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
             if (task.errorMessage case final message?)
               Padding(
                 padding: const EdgeInsets.only(top: Gap.xs),
-                child: Text(
-                  message,
-                  style: TextStyle(fontSize: 11, color: scheme.error),
-                ),
+                child: InlineIssue(message),
               ),
           ],
         ),

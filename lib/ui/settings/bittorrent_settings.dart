@@ -1,7 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../domain/bittorrent_settings.dart';
+import '../../features/appearance/appearance.dart';
+import '../core/byte_units.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
 import 'settings_page.dart';
@@ -85,6 +89,27 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
     load(widget.settings);
   }
 
+  /// Speeds are typed in the megabytes the app shows: MB or MiB.
+  ByteUnits units = ByteUnits.binary;
+  int get _mega => units.base * units.base;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final next = ByteUnitsScope.of(context);
+    if (next == units) return;
+    units = next;
+    for (final key in numericKeys.where((key) => key.endsWith('KiB'))) {
+      if (limited[key] == true) fields[key]!.text = _speed(draft[key] as int);
+    }
+  }
+
+  /// A limit stored in KiB/s, in [units]' megabytes.
+  String _speed(int kib) =>
+      double.parse((kib * 1024 / _mega).toStringAsFixed(2))
+          .toString()
+          .replaceFirst(RegExp(r'\.0$'), '');
+
   @override
   void dispose() {
     for (final controller in fields.values) {
@@ -102,10 +127,7 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
       var value = '${draft[key]}';
       if (key.endsWith('KiB')) {
         limited[key] = (draft[key] as int) > 0;
-        value = ((draft[key] as int) / 1024).toString().replaceFirst(
-          RegExp(r'\.0$'),
-          '',
-        );
+        value = _speed(draft[key] as int);
       }
       fields[key]!.text = value;
     }
@@ -143,7 +165,9 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
           value > maximum) {
         errors[key] = message;
       } else {
-        values[key] = key.endsWith('KiB') ? (value * 1024).round() : value;
+        values[key] = key.endsWith('KiB')
+            ? math.max(1, (value * _mega / 1024).round())
+            : value;
       }
     }
     if (draft['seedMode'] == 'limited' &&
@@ -256,7 +280,7 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
       runSpacing: Gap.sm,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        if (limited[key]!) numberField(key, unit: 'MiB/s'),
+        if (limited[key]!) numberField(key, unit: '${units.names[1]}/s'),
         MelonChoiceMenu<bool>(
           value: limited[key]!,
           options: const {false: '不限速', true: '限制速度'},

@@ -228,14 +228,17 @@ class _StorageSettingsState extends State<StorageSettings> {
                   ),
                 ],
                 const SizedBox(height: 8),
-                Text(
-                  '所在磁盘可用 ${ByteUnitsScope.of(context).format(space.free)}'
-                  '${needed == null ? '' : '，迁移约需 ${ByteUnitsScope.of(context).format(needed)}'}'
-                  '${short ? '，空间不足' : ''}',
-                  style: short
-                      ? TextStyle(color: Theme.of(context).colorScheme.error)
-                      : Theme.of(context).textTheme.bodySmall,
-                ),
+                if (short)
+                  InlineIssue(
+                    '所在磁盘可用 ${ByteUnitsScope.of(context).format(space.free)}'
+                    '，迁移约需 ${ByteUnitsScope.of(context).format(needed)}，空间不足',
+                  )
+                else
+                  Text(
+                    '所在磁盘可用 ${ByteUnitsScope.of(context).format(space.free)}'
+                    '${needed == null ? '' : '，迁移约需 ${ByteUnitsScope.of(context).format(needed)}'}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 if (media && space.system) ...[
                   const SizedBox(height: 8),
                   Text(
@@ -245,21 +248,11 @@ class _StorageSettingsState extends State<StorageSettings> {
                 ],
                 if (cloudSynced(selected)) ...[
                   const SizedBox(height: 8),
-                  Text(
-                    _syncedNote,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
+                  const InlineIssue(_syncedNote),
                 ],
                 if (inside) ...[
                   const SizedBox(height: 12),
-                  Text(
-                    '卸载时选择删除数据，或手动删除安装目录，已下载的番剧会被一起删除。',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
+                  const InlineIssue('卸载时选择删除数据，或手动删除安装目录，已下载的番剧会被一起删除。'),
                 ],
                 const SizedBox(height: 20),
                 const Text(
@@ -317,10 +310,7 @@ class _StorageSettingsState extends State<StorageSettings> {
             SelectableText('媒体缓存 → ${plan['media']}', style: small),
           const SizedBox(height: 8),
           if (copy?.error case final message?)
-            Text(
-              '复制已停止：$message',
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            )
+            InlineIssue('复制已停止：$message')
           else if (copied)
             Text(
               '重新打开应用即可完成迁移，并删除原位置的文件'
@@ -450,10 +440,7 @@ class _StorageSettingsState extends State<StorageSettings> {
         if (error != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-            child: Text(
-              error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
+            child: InlineIssue(error!),
           ),
       ],
     );
@@ -551,12 +538,7 @@ class _StorageSetupState extends State<StorageSetup> {
                       ),
                     if (cloudSynced(media)) ...[
                       const SizedBox(height: 4),
-                      Text(
-                        _syncedNote,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
+                      const InlineIssue(_syncedNote),
                     ],
                     const SizedBox(height: 10),
                     OutlinedButton.icon(
@@ -571,10 +553,7 @@ class _StorageSetupState extends State<StorageSetup> {
               Text('之后可以在 设置 › 存储 › 媒体缓存 里更改', style: text.bodySmall),
               if (error != null) ...[
                 const SizedBox(height: 12),
-                Text(
-                  error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
+                InlineIssue(error!),
               ],
               const SizedBox(height: 20),
               Align(

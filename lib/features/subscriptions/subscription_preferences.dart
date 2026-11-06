@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/json.dart';
+import '../../domain/resource_title.dart';
 import '../../domain/transfer.dart';
 import 'subscription.dart';
 
@@ -31,8 +32,11 @@ enum AutoUnsubscribe {
 /// Settings shared by every subscription, and the filter the next one
 /// starts from.
 class SubscriptionPreferences extends ChangeNotifier {
-  SubscriptionPreferences(this._preferences);
+  SubscriptionPreferences(this._preferences, {required this.subtitleLanguage});
   final SharedPreferences _preferences;
+
+  /// The player's subtitle language, which the first filter selects.
+  final String Function() subtitleLanguage;
 
   /// Null until the first close asks.
   CloseAction? get closeAction => _choice(CloseAction.values, 'closeAction');
@@ -58,8 +62,9 @@ class SubscriptionPreferences extends ChangeNotifier {
 
   /// The filter last subscribed with, without the groups it named: those
   /// were that show's, and another show's groups differ. Naming groups
-  /// carries over as the preferred ones while any are set. 1080p 简体 by the
-  /// preferred groups, or by any group while none are set, before the first.
+  /// carries over as the preferred ones while any are set. Before the
+  /// first, 1080p in the player's [subtitleLanguage] by the preferred
+  /// groups, or by any group while none are set.
   SubscriptionFilter defaultFilter(List<String> preferredGroups) {
     final saved = _preferences.getString('subscriptionFilter');
     if (saved != null) {
@@ -69,8 +74,8 @@ class SubscriptionPreferences extends ChangeNotifier {
           groups: const {},
           preferred:
               !filter.smart &&
-              (filter.preferred ||
-                  (filter.groups.isNotEmpty && preferredGroups.isNotEmpty)),
+              preferredGroups.isNotEmpty &&
+              (filter.preferred || filter.groups.isNotEmpty),
         );
       } on FormatException {
         // A damaged value falls back to the first default.
@@ -79,7 +84,12 @@ class SubscriptionPreferences extends ChangeNotifier {
     return SubscriptionFilter(
       preferred: preferredGroups.isNotEmpty,
       qualities: const {'1080p'},
-      languages: const {'简体'},
+      languages: switch (subtitleLanguage()) {
+        'cht' => const {'繁体'},
+        'ja' => const {resourceBilingual},
+        'auto' => const {},
+        _ => const {'简体'},
+      },
     );
   }
 

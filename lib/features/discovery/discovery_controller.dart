@@ -96,12 +96,24 @@ class DiscoveryController extends ChangeNotifier {
             notifyListeners();
           }),
     ]);
-    if (trendingFailed && todayFailed) return '刷新失败，仍显示上次内容。';
-    if (trendingFailed) return '今日放送已更新，本季热度刷新失败。';
-    if (todayFailed) return '本季热度已更新，今日放送刷新失败。';
+    if (trendingFailed && todayFailed) {
+      return trending.isNotEmpty || today.isNotEmpty
+          ? '刷新失败，仍显示上次内容'
+          : '刷新失败：${trendingError ?? todayError}';
+    }
+    if (trendingFailed) return '今日放送已更新，本季热度刷新失败';
+    if (todayFailed) return '本季热度已更新，今日放送刷新失败';
     return null;
   }
 
+  /// Whether a failed home feed still shows its earlier content, so its
+  /// failure has no place on the page; an empty feed names it there.
+  bool get homeShowsStale =>
+      (trendingError != null && trending.isNotEmpty) ||
+      (todayError != null && today.isNotEmpty);
+
+  /// Loads the weekly calendar, showing cached days first; a failure stays
+  /// in [calendarError] for the calendar page to show.
   Future<void> loadCalendar() async {
     calendarLoading = true;
     calendarError = null;
@@ -115,7 +127,6 @@ class DiscoveryController extends ChangeNotifier {
       show(await catalog.calendar(onCached: show));
     } catch (e) {
       calendarError = errorMessage(e);
-      rethrow;
     } finally {
       calendarLoading = false;
       notifyListeners();

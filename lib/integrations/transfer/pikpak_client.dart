@@ -26,7 +26,7 @@ class PikPakException implements Exception {
 }
 
 class PikPakCaptchaRequired extends PikPakException {
-  const PikPakCaptchaRequired(this.url) : super('PikPak 需要网页验证，请完成验证后重试。');
+  const PikPakCaptchaRequired(this.url) : super('PikPak 需要网页验证，请完成验证后重试');
   final Uri url;
 }
 
@@ -145,7 +145,7 @@ class PikPakClient {
   Future<void> signIn(String username, String password) async {
     username = username.trim();
     if (username.isEmpty || password.isEmpty) {
-      throw const PikPakException('请输入 PikPak 账号和密码。');
+      throw const PikPakException('请输入 PikPak 账号和密码');
     }
     final generation = ++_generation;
     if (_captchaAccount != username) {
@@ -208,7 +208,7 @@ class PikPakClient {
     if ('${response['access_token'] ?? ''}'.isEmpty ||
         '${response['refresh_token'] ?? ''}'.isEmpty ||
         '${response['sub'] ?? ''}'.isEmpty) {
-      throw const PikPakException('PikPak 登录响应缺少凭据，请重试。');
+      throw const PikPakException('PikPak 登录响应缺少凭据，请重试');
     }
     final tokens = <String, dynamic>{
       'account': name,
@@ -226,7 +226,7 @@ class PikPakClient {
   }
 
   Future<void> _refresh({bool force = false}) async {
-    if (_tokens == null) throw const PikPakException('请先在数据源页面登录 PikPak。');
+    if (_tokens == null) throw const PikPakException('请先在数据源页面登录 PikPak');
     if (!force &&
         _integer(_tokens!['expires_at']) >
             DateTime.now().millisecondsSinceEpoch) {
@@ -327,7 +327,7 @@ class PikPakClient {
       throw PikPakCaptchaRequired(url);
     }
     if (_captchaToken.isEmpty) {
-      throw const PikPakException('无法取得 PikPak 验证凭据，请重试。');
+      throw const PikPakException('无法取得 PikPak 验证凭据，请重试');
     }
     return _captchaToken;
   }
@@ -621,7 +621,7 @@ class PikPakClient {
     String? token,
     String? captcha,
   }) async {
-    if (_closed) throw const PikPakException('PikPak 服务已关闭。');
+    if (_closed) throw const PikPakException('PikPak 服务已关闭');
     final abort = Completer<void>();
     final request =
         http.AbortableRequest(method, uri, abortTrigger: abort.future)
@@ -647,7 +647,7 @@ class PikPakClient {
             const Duration(seconds: 30),
             onTimeout: () {
               if (!abort.isCompleted) abort.complete();
-              throw TimeoutException('PikPak 请求超时。');
+              throw TimeoutException('PikPak 连接超时');
             },
           );
     } finally {
@@ -657,17 +657,21 @@ class PikPakClient {
     try {
       result = object(jsonDecode(utf8.decode(response.bodyBytes)));
     } on FormatException {
-      throw PikPakException('PikPak 返回了无效响应（HTTP ${response.statusCode}）。');
+      throw const PikPakException('PikPak 返回的数据无法识别');
     }
     final code = _integer(result['error_code']);
     if (response.statusCode >= 400 || code != 0 || result['error'] != null) {
-      var message =
-          '${result['error_description'] ?? result['error'] ?? '请求失败'}';
-      if (result['error'] == 'invalid_account_or_password') {
-        message = '账号或密码不正确';
-      } else if (code == 4126 || result['error'] == 'invalid_grant') {
-        message = '登录已过期，请重新登录';
-      }
+      // The server's own wording is shown only when it is Chinese.
+      final described = '${result['error_description'] ?? ''}';
+      final message = switch (result['error']) {
+        'invalid_account_or_password' => '账号或密码不正确',
+        'invalid_grant' => '登录已过期，请重新登录',
+        _ when code == 4126 => '登录已过期，请重新登录',
+        _ when RegExp(r'[一-鿿]').hasMatch(described) => described,
+        _ when response.statusCode == 429 => '请求太频繁，请稍后再试',
+        _ when response.statusCode >= 500 => '服务暂时不可用，请稍后再试',
+        _ => '请求没有成功，请稍后再试',
+      };
       throw PikPakException(
         'PikPak：$message',
         code: code,
@@ -680,7 +684,7 @@ class PikPakClient {
 
   void _checkGeneration(int generation) {
     if (_closed || generation != _generation) {
-      throw const PikPakException('PikPak 账号已更改，请重试。');
+      throw const PikPakException('PikPak 账号已更改，请重试');
     }
   }
 

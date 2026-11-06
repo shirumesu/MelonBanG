@@ -317,7 +317,7 @@ class TrackingRepository {
   });
 
   String _failure(Object error) => error is ApiException && error.status == 400
-      ? 'Bangumi 拒绝了这次修改（${error.reason ?? 'HTTP 400'}）'
+      ? 'Bangumi 没有接受这次修改'
       : errorMessage(error);
 
   /// Sends one queued edit to Bangumi.

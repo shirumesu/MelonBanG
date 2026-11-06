@@ -255,3 +255,89 @@ class _IssueBannerState extends State<IssueBanner> {
     );
   }
 }
+
+/// The tone for words about something that went wrong: the error hue,
+/// drawn toward the muted text colour so a failure reads calmly.
+Color issueColor(BuildContext context) {
+  final scheme = Theme.of(context).colorScheme;
+  return Color.lerp(scheme.error, scheme.onSurfaceVariant, .3)!;
+}
+
+/// One compact line naming what went wrong, for a row, card or form whose
+/// failure belongs right beside it; [IssueBanner] for a whole panel.
+class InlineIssue extends StatelessWidget {
+  const InlineIssue(
+    this.text, {
+    super.key,
+    this.onRetry,
+    this.actionLabel = '重试',
+    this.maxLines,
+  });
+  final String text;
+
+  /// Null when the issue offers no action.
+  final VoidCallback? onRetry;
+  final String actionLabel;
+  final int? maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = issueColor(context);
+    final style = Theme.of(context).textTheme.bodySmall?.copyWith(color: color);
+    final line = Text.rich(
+      TextSpan(
+        children: [
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Icon(Icons.error_outline_rounded, size: 14, color: color),
+            ),
+          ),
+          TextSpan(text: text),
+        ],
+      ),
+      style: style,
+      maxLines: maxLines,
+      overflow: maxLines == null ? null : TextOverflow.ellipsis,
+    );
+    return Semantics(
+      liveRegion: true,
+      child: onRetry == null
+          ? line
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(child: line),
+                const SizedBox(width: 4),
+                TextButton(
+                  onPressed: onRetry,
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(0, 28),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  child: Text(actionLabel),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+/// Shows [text] in the app's snackbar, the one place transient messages
+/// and failures without a place of their own appear.
+void showMessage(
+  ScaffoldMessengerState? messenger,
+  String text, {
+  String? actionLabel,
+  VoidCallback? onAction,
+}) => messenger?.showSnackBar(
+  SnackBar(
+    content: Text(text),
+    action: actionLabel == null || onAction == null
+        ? null
+        : SnackBarAction(label: actionLabel, onPressed: onAction),
+  ),
+);

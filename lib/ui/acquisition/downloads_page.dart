@@ -7,6 +7,7 @@ import '../../domain/transfer.dart';
 import '../../features/acquisition/title_matching.dart';
 import '../../features/downloads/downloads_controller.dart';
 import '../../features/subscriptions/subscription_controller.dart';
+import '../core/action_feedback.dart';
 import '../core/motion.dart';
 import '../core/byte_units.dart';
 import '../core/page_widgets.dart';
@@ -775,10 +776,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         if ((task.errorMessage ?? task.persistenceError) case final issue?)
           Padding(
             padding: const EdgeInsets.fromLTRB(72, 0, 8, 6),
-            child: Text(
-              issue,
-              style: TextStyle(color: scheme.error, fontSize: 12),
-            ),
+            child: InlineIssue(issue),
           ),
         MotionReveal(
           visible: details,
@@ -797,7 +795,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   Widget _task(BuildContext context, DownloadTask task, Subject? subject) {
     final id = task.id;
-    final scheme = Theme.of(context).colorScheme;
     final details = expanded.contains(id);
     void toggle() =>
         setState(() => details ? expanded.remove(id) : expanded.add(id));
@@ -872,10 +869,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       case final issue?)
                     Padding(
                       padding: const EdgeInsets.only(top: 12),
-                      child: Text(
-                        issue,
-                        style: TextStyle(color: scheme.error, fontSize: 12),
-                      ),
+                      child: InlineIssue(issue),
                     ),
                 ],
               ),

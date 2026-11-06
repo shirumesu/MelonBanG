@@ -1017,10 +1017,12 @@ class _ContinueSectionState extends State<_ContinueSection> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Padding(
+                    // With the header's and rows' own inset, contents line
+                    // up with the panel title.
                     padding: const EdgeInsets.fromLTRB(
-                      Gap.lg,
-                      Gap.lg,
-                      0,
+                      Gap.sm,
+                      Gap.sm,
+                      Gap.sm,
                       Gap.lg,
                     ),
                     child: SizedBox(
@@ -1032,6 +1034,16 @@ class _ContinueSectionState extends State<_ContinueSection> {
                         onOpen: widget.onOpenSubject,
                         onPlay: widget.onPlayEpisode,
                       ),
+                    ),
+                  ),
+                  // A hairline keeps the hero part of the panel rather than
+                  // a block set into it.
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: Gap.lg),
+                    child: VerticalDivider(
+                      width: 1,
+                      thickness: 1,
+                      color: Theme.of(context).colorScheme.outlineVariant,
                     ),
                   ),
                   Expanded(
@@ -1109,12 +1121,9 @@ class _Hero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    final scheme = Theme.of(context).colorScheme;
     final item = watch.item;
     final next = watch.next;
     final detail = watch.detail;
-    const tabular = [FontFeature.tabularFigures()];
     final Widget play = switch (watch.release) {
       _ when detail == null => const FilledButton(
         onPressed: null,
@@ -1137,98 +1146,141 @@ class _Hero extends StatelessWidget {
         ),
       ),
     };
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: insetSurface(context),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _HeroHeader(watch: watch, onOpen: () => onOpen(item)),
+        const SizedBox(height: Gap.sm),
+        Expanded(
+          child: _HeroEpisodes(
+            // Opens at the next episode again when that changes.
+            key: ValueKey((item.id, watch.nextIndex)),
+            watch: watch,
+            playable: playable,
+            onPlay: onPlay,
+          ),
+        ),
+        const SizedBox(height: Gap.sm),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
+          child: Row(
+            children: [
+              Expanded(child: play),
+              const SizedBox(width: Gap.sm),
+              OutlinedButton(
+                onPressed: () => onOpen(item),
+                child: const Text('详情'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The hero's cover, title and progress, opening the subject: it lights up
+/// under the pointer as the queue rows do, and a chevron says where it goes.
+class _HeroHeader extends StatefulWidget {
+  const _HeroHeader({required this.watch, required this.onOpen});
+  final _Watch watch;
+  final VoidCallback onOpen;
+
+  @override
+  State<_HeroHeader> createState() => _HeroHeaderState();
+}
+
+class _HeroHeaderState extends State<_HeroHeader> {
+  bool hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final watch = widget.watch;
+    final item = watch.item;
+    const tabular = [FontFeature.tabularFigures()];
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: widget.onOpen,
+        onHover: (value) => setState(() => hovered = value),
         borderRadius: controlBorderRadius,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(Gap.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            InkWell(
-              onTap: () => onOpen(item),
-              borderRadius: controlBorderRadius,
-              child: SizedBox(
-                height: 134,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    CoverFrame(
-                      shadow: true,
-                      child: SizedBox(
-                        width: 96,
-                        child: SubjectCover(
-                          url: item.coverUrl,
-                          title: item.title,
-                          id: item.id,
-                        ),
-                      ),
+        child: Padding(
+          padding: const EdgeInsets.all(Gap.sm),
+          child: SizedBox(
+            height: 134,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                CoverFrame(
+                  shadow: true,
+                  child: SizedBox(
+                    width: 96,
+                    child: SubjectCover(
+                      url: item.coverUrl,
+                      title: item.title,
+                      id: item.id,
                     ),
-                    const SizedBox(width: Gap.lg),
-                    Expanded(
-                      child: Column(
+                  ),
+                ),
+                const SizedBox(width: Gap.lg),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (watch.seen case final seen?)
+                        Text('${_ago(seen)}看过', style: text.bodySmall),
+                      const SizedBox(height: Gap.xs),
+                      Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (watch.seen case final seen?)
-                            Text('${_ago(seen)}看过', style: text.bodySmall),
-                          const SizedBox(height: Gap.xs),
-                          Text(
-                            item.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: text.titleMedium,
-                          ),
-                          const SizedBox(height: Gap.xs),
-                          Text(
-                            '★ ${scoreLabel(item.score)}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontFeatures: tabular,
-                              color: scheme.tertiary,
+                          Flexible(
+                            child: Text(
+                              item.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.titleMedium,
                             ),
                           ),
-                          const Spacer(),
-                          _Progress(
-                            watch,
-                            style: text.bodySmall!.copyWith(
-                              fontFeatures: tabular,
+                          AnimatedOpacity(
+                            opacity: hovered ? 1 : 0,
+                            duration: motionDuration(context, 120),
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 1),
+                              child: Icon(
+                                Icons.chevron_right_rounded,
+                                size: 20,
+                                color: scheme.onSurfaceVariant,
+                              ),
                             ),
                           ),
-                          if (detail != null) ...[
-                            const SizedBox(height: Gap.sm),
-                            _EpisodeStrip(watch, height: 6),
-                          ],
                         ],
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: Gap.md),
-            Expanded(
-              child: _HeroEpisodes(
-                // Opens at the next episode again when that changes.
-                key: ValueKey((item.id, watch.nextIndex)),
-                watch: watch,
-                playable: playable,
-                onPlay: onPlay,
-              ),
-            ),
-            const SizedBox(height: Gap.sm),
-            Row(
-              children: [
-                Expanded(child: play),
-                const SizedBox(width: Gap.sm),
-                OutlinedButton(
-                  onPressed: () => onOpen(item),
-                  child: const Text('详情'),
+                      const SizedBox(height: Gap.xs),
+                      Text(
+                        '★ ${scoreLabel(item.score)}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontFeatures: tabular,
+                          color: scheme.tertiary,
+                        ),
+                      ),
+                      const Spacer(),
+                      _Progress(
+                        watch,
+                        style: text.bodySmall!.copyWith(fontFeatures: tabular),
+                      ),
+                      if (watch.detail != null) ...[
+                        const SizedBox(height: Gap.sm),
+                        _EpisodeStrip(watch, height: 6),
+                      ],
+                    ],
+                  ),
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1281,7 +1333,6 @@ class _HeroEpisodesState extends State<_HeroEpisodes> {
           keepScrollOffset: false,
         );
         return ScrollEdgeFade(
-          color: insetSurface(context),
           // The fades say it scrolls; a bar would crowd the notes.
           child: ScrollConfiguration(
             behavior: ScrollConfiguration.of(context)

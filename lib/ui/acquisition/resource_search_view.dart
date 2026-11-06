@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/cancellation.dart';
 import '../../core/error_message.dart';
 import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
@@ -15,6 +16,7 @@ import '../../features/acquisition/resource_metadata.dart';
 import '../../features/acquisition/title_matching.dart';
 import '../../features/playback/play_selection.dart';
 import '../../features/playback/resource_search.dart';
+import '../core/action_feedback.dart';
 import '../core/external_link.dart';
 import '../core/byte_units.dart';
 import '../core/motion.dart';
@@ -236,10 +238,14 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           episodeKeyword: episodeQuery.text,
         ),
       );
-    } catch (_) {
+    } on RequestCancelled {
+      // A newer search replaced this one.
+    } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('搜索失败，请重试')));
+        showMessage(
+          ScaffoldMessenger.of(context),
+          '搜索失败：${errorMessage(error)}',
+        );
       }
     } finally {
       if (mounted) setState(() => searching = false);
@@ -314,12 +320,11 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   void offerDownloads(int count) {
     final open = widget.onOpenDownloads;
     if (open == null || count == 0 || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(count == 1 ? '已加入缓存' : '已将 $count 话加入缓存'),
-        behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(label: '查看缓存', onPressed: open),
-      ),
+    showMessage(
+      ScaffoldMessenger.of(context),
+      count == 1 ? '已加入缓存' : '已将 $count 话加入缓存',
+      actionLabel: '查看缓存',
+      onAction: open,
     );
   }
 
@@ -358,8 +363,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       await widget.onPlay(candidate, target);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(errorMessage(error))));
+        showMessage(ScaffoldMessenger.of(context), errorMessage(error));
       }
     } finally {
       if (mounted) setState(() => opening = null);
@@ -640,7 +644,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   Widget _form(BuildContext context) {
     final names = subject == null ? const <String>[] : resourceNames(subject!);
     final aliases = names.where((name) => name != keyword.text.trim()).toList();
-    final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final shownEpisode = state.terms == null ? episode : searched;
     final includedAliases = aliases.where((name) => !excluded.contains(name));
@@ -805,14 +808,10 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             padding: const EdgeInsets.only(top: Gap.sm),
             child: Row(
               children: [
-                Icon(Icons.error_outline, size: 18, color: scheme.error),
-                const SizedBox(width: Gap.sm),
                 Expanded(
-                  child: Text(
+                  child: InlineIssue(
                     '${rule.name}：${sourceRegistry.errors[rule.id] ?? '需要更新应用'}',
                     maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: small?.copyWith(color: scheme.error),
                   ),
                 ),
                 TextButton.icon(
@@ -1593,21 +1592,9 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 rows: (wide) => [
                   if (snapshot.hasError)
                     notice(
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              '读取失败：${errorMessage(snapshot.error!)}',
-                              style: small?.copyWith(
-                                color: Theme.of(context).colorScheme.error,
-                              ),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () => setState(() => parts.remove(id)),
-                            child: const Text('重试'),
-                          ),
-                        ],
+                      InlineIssue(
+                        '读取失败：${errorMessage(snapshot.error!)}',
+                        onRetry: () => setState(() => parts.remove(id)),
                       ),
                     )
                   else if (rows == null)

@@ -15,11 +15,8 @@ import 'title_matching.dart';
 ///
 /// Sources and their site subjects run concurrently; [onUpdate] receives all
 /// rows found so far whenever a site subject adds some.
-///
-/// With [firstReady], returns as soon as one confident match exists and falls
-/// back to a full search when none does; with [preferProvider], a match of
-/// that source is awaited until its search ends. Manual-only sources (uploads that
-/// need explicit confirmation) are included only when [includeManual].
+/// Manual-only sources (uploads that need explicit confirmation) are
+/// included only when [includeManual].
 Future<List<PlayCandidate>> onlineCandidates(
   SourceRegistry registry,
   Subject subject,
@@ -28,28 +25,15 @@ Future<List<PlayCandidate>> onlineCandidates(
   void Function(SourceProgress)? onProgress,
   void Function(List<PlayCandidate>)? onUpdate,
   RequestCancellation? cancel,
-  bool firstReady = false,
-  String? preferProvider,
   bool includeManual = true,
 }) async {
   final result = <PlayCandidate>[];
   final operation = RequestCancellation();
   final stop = cancel?.listen(operation.cancel);
-  final ready = Completer<List<PlayCandidate>>();
-  bool confident(PlayCandidate candidate) => !candidate.possibleMatch;
   final usable = registry
       .usableOf(SourceKind.online)
       .where((rule) => includeManual || !rule.manualOnly)
       .toList();
-  var preferredDone = !usable.any((rule) => rule.id == preferProvider);
-  void completeIfReady() {
-    if (!firstReady || ready.isCompleted) return;
-    if (result.any(
-      (c) => confident(c) && (preferredDone || c.provider == preferProvider),
-    )) {
-      ready.complete(List.of(result));
-    }
-  }
 
   bool accepted(SourceSubject site) =>
       siteMatches(subject, episode, site, names);
@@ -69,19 +53,12 @@ Future<List<PlayCandidate>> onlineCandidates(
           id,
           names,
           cancel: operation,
-          enough: manual
-              ? (rows) => rows.any(accepted)
-              : firstReady
-              ? (rows) => rows.any(
-                  (site) => sourceMatchScore(subject, site, names) >= .84,
-                )
-              : null,
+          enough: manual ? (rows) => rows.any(accepted) : null,
         );
         void publish(Iterable<PlayCandidate> rows) {
           if (rows.isEmpty) return;
           result.addAll(rows);
           onUpdate?.call(List.of(result));
-          completeIfReady();
         }
 
         await Future.wait(
@@ -134,6 +111,8 @@ Future<List<PlayCandidate>> onlineCandidates(
           status: SearchStatus.ready,
         );
       } catch (error) {
+        // A dropped search reports nothing more.
+        if (operation.isCancelled) return;
         // Failed sources keep their health while others remain usable.
         progress = progress.copyWith(
           completed: 1,
@@ -144,28 +123,12 @@ Future<List<PlayCandidate>> onlineCandidates(
         );
       }
       onProgress?.call(progress);
-      if (id == preferProvider) {
-        preferredDone = true;
-        completeIfReady();
-      }
     }),
-  ).then((_) => List.of(result));
+  );
   try {
-    final rows = await (firstReady ? Future.any([ready.future, all]) : all);
+    await all;
     cancel?.throwIfCancelled();
-    if (firstReady && !rows.any(confident)) {
-      return await onlineCandidates(
-        registry,
-        subject,
-        episode,
-        names: names,
-        onProgress: onProgress,
-        onUpdate: onUpdate,
-        cancel: cancel,
-        includeManual: includeManual,
-      );
-    }
-    return rows;
+    return List.of(result);
   } finally {
     stop?.call();
     operation.cancel();
@@ -211,7 +174,10 @@ PlayCandidate _candidate(
     providerLabel: rule.name,
     title: title,
     line: line,
-    quality: rule.manualOnly ? null : info.quality,
+    // A site's titles seldom state quality; its rule gives the usual one.
+    quality: rule.manualOnly
+        ? null
+        : info.quality ?? rule.config['quality'] as String?,
     languages: info.languages,
     target: target,
     instant: true,

@@ -163,10 +163,6 @@ class ConnectivityCheck extends ChangeNotifier {
   }
 }
 
-/// A short reason for a failed connection; the diagnostic itself when the
-/// cause is unknown.
-String describeNetworkError(Object error) {
-  if (networkFailure(error) case final reason?) return reason;
-  final text = '$error';
-  return text.length > 80 ? '${text.substring(0, 80)}…' : text;
-}
+/// A short reason for a failed connection.
+String describeNetworkError(Object error) =>
+    networkFailure(error) ?? errorMessage(error);

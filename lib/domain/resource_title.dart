@@ -1,5 +1,6 @@
 import 'package:pinyin/pinyin.dart';
 
+import 'release_traits.dart';
 import 'sources.dart';
 
 /// Read-only release annotations. These never establish episode/file identity.
@@ -491,18 +492,6 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
   );
 }
 
-/// The place in [preferred] of the first name one of the credited [groups]
-/// holds, by part and ignoring case, so `喵萌` finds 喵萌奶茶屋; null when
-/// none does.
-int? preferredGroupIndex(Iterable<String> groups, List<String> preferred) {
-  final credited = [for (final group in groups) group.toLowerCase()];
-  for (final (index, name) in preferred.indexed) {
-    final wanted = name.toLowerCase();
-    if (credited.any((group) => group.contains(wanted))) return index;
-  }
-  return null;
-}
-
 /// What a title leaves unstated of the selections: each non-empty selection
 /// must overlap its annotations or find none stated; [resourceBilingual]
 /// among [languages] is a selection of its own. Null when it fails one;
@@ -537,7 +526,14 @@ List<String>? resourceSelectionGaps(
     ),
     ('字幕', subtitleForms, info.subtitleForms),
   ]) {
-    if (selected.isEmpty || values.any(selected.contains)) continue;
+    if (selected.isEmpty) continue;
+    // Group names are compared as preferred groups are, so a typed 喵萌
+    // finds 喵萌奶茶屋.
+    if (name == '字幕组'
+        ? groupsMatch(values, selected)
+        : values.any(selected.contains)) {
+      continue;
+    }
     if (values.isNotEmpty) return null;
     gaps.add(name);
   }

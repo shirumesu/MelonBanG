@@ -10,6 +10,7 @@ import '../../features/playback/playback_library.dart';
 import '../../features/playback/resume_controller.dart';
 import '../../features/tracking/subject_controller.dart';
 import '../../features/tracking/tracking_controller.dart';
+import '../core/action_feedback.dart';
 import '../core/external_link.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
@@ -1002,13 +1003,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         if (_episodeError != null)
           Padding(
             padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              _episodeError!,
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.error,
-              ),
-            ),
+            child: InlineIssue(_episodeError!),
           ),
       ],
     );
@@ -1179,10 +1174,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     final small = Theme.of(context).textTheme.bodySmall;
     final Widget? content;
     if (_collectionError != null) {
-      content = Text(
-        _collectionError!,
-        style: small?.copyWith(color: scheme.error),
-      );
+      content = InlineIssue(_collectionError!);
     } else if (_nudge != null) {
       content = Row(
         children: [

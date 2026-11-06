@@ -305,12 +305,7 @@ class _SourcesPageState extends State<SourcesPage> {
                     if (registry.updateIssue != null && _update.issue == null)
                       Padding(
                         padding: const EdgeInsets.only(top: Gap.sm),
-                        child: Text(
-                          registry.updateIssue!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                        ),
+                        child: InlineIssue(registry.updateIssue!),
                       ),
                     FeedbackIssue(
                       feedback: _engineIssue,

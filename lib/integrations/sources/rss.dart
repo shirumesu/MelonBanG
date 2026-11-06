@@ -17,13 +17,20 @@ class RssEngine implements TorrentSourceEngine {
   final ApiClient api;
   @override
   final SourceInstance instance;
+
+  /// The mirror that answered last; the first one until then.
+  String? _base;
   @override
-  String get currentBase => instance.baseUrls.first;
+  String get currentBase => _base ?? instance.baseUrls.first;
   Json get _metadata => object(instance.config['metadata']);
 
-  Uri _address(Json step, String keyword) => Uri.parse(currentBase).resolve(
-    '${step['url']}'.replaceAll('{query}', Uri.encodeQueryComponent(keyword)),
-  );
+  Uri _address(Json step, String keyword, [String? base]) =>
+      Uri.parse(base ?? currentBase).resolve(
+        '${step['url']}'.replaceAll(
+          '{query}',
+          Uri.encodeQueryComponent(keyword),
+        ),
+      );
 
   /// [uri]'s text, or with [end] only up to where it matches.
   Future<String> _read(
@@ -50,17 +57,30 @@ class RssEngine implements TorrentSourceEngine {
     RequestCancellation? cancel,
   }) async {
     final step = object(instance.config['search']);
-    final uri = _address(step, keyword);
-    return _releases(
-      _rss,
-      await _read(
-        uri,
-        step,
-        'application/rss+xml,application/xml,text/xml',
-        cancel: cancel,
-      ),
-      uri,
-    );
+    // A mirror that fails or answers with something else than a feed (a
+    // challenge page) hands over to the next; the last failure is reported.
+    Object? failure;
+    for (final base in {?_base, ...instance.baseUrls}) {
+      final uri = _address(step, keyword, base);
+      try {
+        final releases = await _releases(
+          _rss,
+          await _read(
+            uri,
+            step,
+            'application/rss+xml,application/xml,text/xml',
+            cancel: cancel,
+          ),
+          uri,
+        );
+        _base = base;
+        return releases;
+      } catch (error) {
+        cancel?.throwIfCancelled();
+        failure = error;
+      }
+    }
+    throw failure ?? const FormatException('资源站未返回有效 RSS');
   }
 
   @override
@@ -185,6 +205,14 @@ List<TorrentRelease> parseRss(String xml, {required Uri base}) {
     final magnet = RegExp(r'magnet:\?[^\s<>"\x27]+')
         .firstMatch(item.innerText)
         ?.group(0);
+    String? field(String name) => item.childElements
+        .where((e) => e.name.local == name)
+        .firstOrNull
+        ?.innerText
+        .trim();
+    // Nyaa names its .torrent files by number and states the info hash
+    // apart; as a magnet the release merges with other sites' copies.
+    final hash = field('infoHash');
     final raw =
         (_isTorrentLocator(enclosure) ||
                 attachment?.getAttribute('type') == 'application/x-bittorrent'
@@ -193,14 +221,20 @@ List<TorrentRelease> parseRss(String xml, {required Uri base}) {
         magnet ??
         (_isTorrentLocator(link) ? link : null);
     if (raw == null) continue;
+    final locator = raw.startsWith('magnet:')
+        ? raw
+        : hash != null && RegExp(r'^[0-9a-fA-F]{40}$').hasMatch(hash)
+        ? 'magnet:?xt=urn:btih:${hash.toLowerCase()}'
+        : base.resolve(raw).toString();
     results.add(
       TorrentRelease(
         title: item.getElement('title')?.innerText.trim() ?? '未命名资源',
-        locator: raw.startsWith('magnet:') ? raw : base.resolve(raw).toString(),
+        locator: locator,
         publishedAt:
             item.getElement('pubDate')?.innerText ??
             item.getElement('torrent')?.getElement('pubDate')?.innerText,
         sizeBytes: int.tryParse(attachment?.getAttribute('length') ?? ''),
+        sizeLabel: field('size'),
         detailUrl: link == null ? null : base.resolve(link).toString(),
       ),
     );

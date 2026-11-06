@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/error_message.dart';
 import '../../domain/sources.dart';
+import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
 
 /// Sign-in of the PikPak account the PikPak source downloads with.
@@ -147,10 +148,7 @@ class _PikPakAccountState extends State<PikPakAccount> {
           if (error case final message?)
             Padding(
               padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                message,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
+              child: InlineIssue(message),
             ),
           if (verificationUrl != null) ...[
             const SizedBox(height: 8),

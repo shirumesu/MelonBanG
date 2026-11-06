@@ -7,6 +7,7 @@ import '../../domain/catalog.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
 import '../acquisition/resource_metadata.dart';
+import '../../domain/release_traits.dart';
 import '../../domain/resource_title.dart';
 import '../../core/store.dart';
 import '../../domain/play_candidate.dart';
@@ -43,9 +44,10 @@ class PlaySelectionRepository {
   /// the playback preference.
   bool Function() remember = () => true;
 
-  /// Release groups to rank first, in order; set by the app from the
-  /// playback preference.
-  List<String> Function() groups = () => const [];
+  /// The releases the user would pick for a subject; set by the app from
+  /// its subscription, the filter new subscriptions start from and the
+  /// preferred groups.
+  ReleaseTaste Function(int subjectId) taste = (_) => const ReleaseTaste();
   final _remembered = <int, RememberedSource?>{};
 
   /// The source last played for [subjectId], while remembering is on.
@@ -66,23 +68,29 @@ class PlaySelectionRepository {
   static const _rememberedScope = 'source_preferences';
 
   /// Cached files, online entries and torrents for [episode], or for the
-  /// whole subject without one, ranked for playback. Outside playback,
-  /// torrents PikPak's index holds are also PikPak candidates. [terms]
-  /// default to the catalogue names and the chapter number; [onUpdate] hands
-  /// over the ranking of what is found so far each time results arrive, to
-  /// be worked out when shown; [onProgress] reports each online, torrent and
-  /// PikPak search state.
+  /// whole subject without one, ranked for playback. With [includeCloud],
+  /// torrents PikPak's index holds are also PikPak candidates.
+  /// [terms] default to the catalogue names and the chapter number;
+  /// [onUpdate] hands over the ranking of what is found so far each time
+  /// results arrive, to be worked out when shown; [onProgress] reports each
+  /// online, torrent and PikPak search state.
+  ///
+  /// [automatic] playback leaves out sources that need a manual choice and
+  /// optional site pages, and with [settleOn] stops waiting for the slowest
+  /// sources [settleGrace] after a result it accepts turned up.
   Future<List<PlayCandidate>> candidates(
     Subject subject,
     Episode? episode, {
     ResourceTerms? terms,
     bool includeDownloads = true,
-    bool instantOnly = false,
     bool includeOnline = true,
+    bool includeTorrents = true,
+    bool includeCloud = true,
     bool onlineFirst = false,
-    bool forPlayback = false,
+    bool automatic = false,
     String language = 'auto',
     bool useContinuity = false,
+    bool Function(PlayCandidate)? settleOn,
     void Function(List<PlayCandidate> Function() ranked)? onUpdate,
     void Function(SourceProgress)? onProgress,
     RequestCancellation? cancel,
@@ -96,6 +104,7 @@ class PlaySelectionRepository {
     final preferred = await remembered(subjectId);
     cancel?.throwIfCancelled();
     if (preferred != null) onlineFirst = preferred.family == 'online';
+    final releaseTaste = taste(subjectId);
     List<PlayCandidate> ranked() => rankPlayCandidates(
       found.values,
       onlineFirst: onlineFirst,
@@ -103,13 +112,23 @@ class PlaySelectionRepository {
       remembered: preferred,
       continuity: useContinuity ? continuity[subjectId] : null,
       singleEpisode: episode != null,
-      groups: groups(),
+      taste: releaseTaste,
     );
+    // Searches still running once the result is settled are dropped.
+    final searches = RequestCancellation();
+    final unlink = cancel?.listen(searches.cancel);
+    final settled = Completer<void>();
+    Timer? grace;
     void add(Iterable<PlayCandidate> values) {
-      if (cancel?.isCancelled == true) return;
+      if (searches.isCancelled) return;
       for (final candidate in values) {
         candidate.health = -(_failures[candidate.id] ?? 0);
         found[candidate.id] = candidate;
+      }
+      if (settleOn != null && grace == null && values.any(settleOn)) {
+        grace = Timer(settleGrace, () {
+          if (!settled.isCompleted) settled.complete();
+        });
       }
       onUpdate?.call(ranked);
     }
@@ -174,10 +193,6 @@ class PlaySelectionRepository {
         // A task awaiting metadata cannot supply a playable file yet.
       }
     }
-    if (forPlayback) {
-      final local = ranked();
-      if (local.firstOrNull?.kind == PlayKind.local) return local;
-    }
     final Future<void> onlineRequest = includeOnline
         ? onlineCandidates(
             registry,
@@ -186,19 +201,13 @@ class PlaySelectionRepository {
             names: search.searchNames,
             onProgress: onProgress,
             onUpdate: add,
-            cancel: cancel,
-            firstReady: forPlayback && !useContinuity,
-            preferProvider: preferred?.family == 'online'
-                ? preferred!.provider
-                : null,
-            includeManual: !forPlayback && !instantOnly,
+            cancel: searches,
+            includeManual: !automatic,
           )
         : Future<void>.value();
-    // Playback looks torrents up in PikPak's index only for a subject last
-    // played through PikPak.
     final searchCloud =
-        (!forPlayback || preferred?.family == 'pikpak') &&
-        !instantOnly &&
+        includeTorrents &&
+        includeCloud &&
         cloud.available &&
         registry.isEnabled('pikpak');
     // Torrents by info hash: checked against the index, and held there.
@@ -241,7 +250,7 @@ class PlaySelectionRepository {
         cloudSlots--;
       }
       try {
-        if (cancel?.isCancelled != true && await cloud.holds(hash)) {
+        if (!searches.isCancelled && await cloud.holds(hash)) {
           held.add(hash);
           add([releaseCandidate(release, order, kind: PlayKind.pikpak)]);
         }
@@ -268,6 +277,7 @@ class PlaySelectionRepository {
           describeResource(candidate.release.title),
         );
     void addReleases(ReleaseSearchResult result) {
+      if (searches.isCancelled) return;
       if (onProgress != null) result.sources.forEach(onProgress);
       add([
         for (final (index, candidate) in result.candidates.indexed)
@@ -287,36 +297,105 @@ class PlaySelectionRepository {
       reportCloud();
     }
 
-    final sourceRequest = instantOnly
-        ? Future<void>.value()
-        : releases
+    final sourceRequest = includeTorrents
+        ? releases
               .search(
                 subjectId,
                 search,
                 episodeId: episodeId,
                 coverUrl: subject.coverUrl,
-                cancel: cancel,
-                includeMetadata: !forPlayback,
+                cancel: searches,
+                includeMetadata: !automatic,
                 onUpdate: addReleases,
               )
-              .then(addReleases);
-    if (forPlayback && onlineFirst) {
-      // Search in parallel, but do not delay ready online playback for metadata.
-      sourceRequest.ignore();
-      await onlineRequest;
-      final preferred = ranked().firstOrNull;
-      if (preferred?.kind == PlayKind.online && !preferred!.possibleMatch) {
-        return ranked();
+              .then(addReleases)
+        : Future<void>.value();
+    Future<void> everything() async {
+      await Future.wait([onlineRequest, sourceRequest]);
+      sourcesDone = true;
+      if (searchCloud) {
+        reportCloud();
+        await Future.wait(cloudChecks);
       }
     }
-    await Future.wait([onlineRequest, sourceRequest]);
-    sourcesDone = true;
-    if (searchCloud) {
-      reportCloud();
-      await Future.wait(cloudChecks);
+
+    try {
+      await Future.any([everything(), settled.future]);
+    } on RequestCancelled {
+      cancel?.throwIfCancelled();
+      // A settled search cancelled the sources still running.
+    } finally {
+      grace?.cancel();
+      unlink?.call();
+      searches.cancel();
     }
     cancel?.throwIfCancelled();
     return ranked();
+  }
+
+  /// How long automatic playback still waits for slower sources once one
+  /// has what it wants: long enough for most sites to answer, short of
+  /// feeling stuck.
+  static const settleGrace = Duration(seconds: 4);
+
+  /// What automatic playback opens for [episode] when it has no cache: by
+  /// the subject's remembered source family, else by [onlineFirst]. Online
+  /// first never downloads: only online entries are searched. BT first
+  /// takes the best torrent, as [rankPlayCandidates] orders them by the
+  /// subject's [taste], and plays online only when no torrent has the
+  /// episode. A forced [family] (caching the next episode from the one
+  /// playing) takes that family alone. Only confident matches are picked;
+  /// `uncertain` says some possible ones were left for the user, `online`
+  /// that only online sources were searched.
+  Future<({PlayCandidate? chosen, bool uncertain, bool online})> pick(
+    Subject subject,
+    Episode episode, {
+    required bool onlineFirst,
+    String language = 'auto',
+    String? family,
+    void Function(SourceProgress)? onProgress,
+    RequestCancellation? cancel,
+  }) async {
+    final preferred = family == null ? await remembered(subject.id) : null;
+    final want = family ?? preferred?.family ?? (onlineFirst ? 'online' : 'bt');
+    final online = want == 'online';
+    bool allowed(PlayCandidate c) => family == null || c.family == family;
+    final ranked = await candidates(
+      subject,
+      episode,
+      includeDownloads: false,
+      includeOnline: online || family == null,
+      includeTorrents: !online,
+      // PikPak's index is looked up only for a subject played through it.
+      includeCloud: want == 'pikpak',
+      onlineFirst: online,
+      automatic: true,
+      language: language,
+      useContinuity: true,
+      settleOn: (c) =>
+          c.family == want &&
+          !c.possibleMatch &&
+          !describeCandidate(c).batch &&
+          switch (c.target) {
+            OnlineTarget(:final ref) => ref != null,
+            _ => true,
+          },
+      onProgress: onProgress,
+      cancel: cancel,
+    );
+    final playable = ranked.where(
+      (c) =>
+          allowed(c) &&
+          switch (c.target) {
+            OnlineTarget(:final ref) => ref != null,
+            _ => true,
+          },
+    );
+    return (
+      chosen: playable.where((c) => !c.possibleMatch).firstOrNull,
+      uncertain: playable.any((c) => c.possibleMatch),
+      online: online,
+    );
   }
 
   /// Opens [candidate] as the episode; a torrent is added first and plays
@@ -372,7 +451,7 @@ class PlaySelectionRepository {
           final current = downloads.snapshot().task(id);
           if (current == null ||
               current.status == DownloadStatus.failed ||
-              '$e'.contains('多个视频')) {
+              e is MultipleVideos) {
             rethrow;
           }
           await changes.moveNext();
@@ -482,12 +561,39 @@ class RememberedSource {
   };
 }
 
+/// The releases the user would pick for a subject: release [groups] in
+/// order, and the qualities, subtitle languages and forms a subscription
+/// filter selects.
+class ReleaseTaste {
+  const ReleaseTaste({
+    this.groups = const [],
+    this.qualities = const {},
+    this.languages = const {},
+    this.forms = const {},
+  });
+  final List<String> groups;
+  final Set<String> qualities, languages, forms;
+
+  /// 0 when [info] meets every selection, 1 when it states nothing for
+  /// some, 2 when it fails one.
+  int fit(ResourceTitleInfo info) => switch (resourceSelectionGaps(
+    info,
+    qualities: qualities,
+    languages: languages,
+    subtitleForms: forms,
+  )) {
+    null => 2,
+    final gaps => gaps.isEmpty ? 0 : 1,
+  };
+}
+
 /// Ranks candidates for playback and recommendation: cached files first, then
 /// online or torrent by [onlineFirst], PikPak last unless it was [remembered].
 /// Within a tier confident matches precede possible ones, recently failed
 /// sources drop, the subject's remembered source and then this run's choice
-/// continue, releases of the preferred [groups] follow in their order, and
-/// [resourceScores] orders the rest.
+/// continue; single episodes come before batches when [singleEpisode], then
+/// releases of the [taste]'s groups in their order, those meeting its
+/// selections, and [resourceScores] orders the rest.
 List<PlayCandidate> rankPlayCandidates(
   Iterable<PlayCandidate> candidates, {
   required bool onlineFirst,
@@ -495,7 +601,7 @@ List<PlayCandidate> rankPlayCandidates(
   String? continuity,
   String language = 'auto',
   bool singleEpisode = true,
-  List<String> groups = const [],
+  ReleaseTaste taste = const ReleaseTaste(),
 }) {
   final torrents = onlineFirst ? 2.0 : 1.0;
   double tier(PlayCandidate c) => switch (c.kind) {
@@ -505,15 +611,18 @@ List<PlayCandidate> rankPlayCandidates(
     PlayKind.pikpak => remembered?.family == 'pikpak' ? torrents - .5 : 3,
   };
   int affinity(PlayCandidate c) => remembered?.affinity(c) ?? 0;
+  final groups = taste.groups;
+  final result = candidates.toList();
+  final described = {for (final c in result) c: describeCandidate(c)};
   int preference(PlayCandidate c) => c.kind == PlayKind.online
       ? groups.length
-      : preferredGroupIndex(c.line.split(' & '), groups) ?? groups.length;
-
-  final result = candidates.toList();
+      : preferredGroupIndex(creditedGroups(described[c]!), groups) ??
+            groups.length;
   final scores = resourceScores(
     result,
     language: language,
     singleEpisode: singleEpisode,
+    described: described,
   );
   // Each candidate's keys are worked out once, smaller first; sorting
   // compares hundreds of results many times over.
@@ -525,7 +634,9 @@ List<PlayCandidate> rankPlayCandidates(
         -c.health,
         -affinity(c),
         c.continuityKey == continuity ? 0 : 1,
+        singleEpisode && described[c]!.batch ? 1 : 0,
         preference(c),
+        taste.fit(described[c]!),
         -scores[c.id]!,
         c.order,
       ],
@@ -570,16 +681,19 @@ Map<String, double> resourceScores(
   List<PlayCandidate> candidates, {
   String language = 'auto',
   bool singleEpisode = true,
+  Map<PlayCandidate, ResourceTitleInfo>? described,
 }) {
+  // The player's subtitle language; 自动 prefers no script.
   final preferred = switch (language) {
-    'traditional' || 'cht' => '繁体',
-    'japanese' || 'ja' => '日文',
-    _ => '简体',
+    'chs' => '简体',
+    'cht' => '繁体',
+    'ja' => '日文',
+    _ => null,
   };
   final details = {
     for (final candidate in candidates)
       candidate.id: (
-        describeCandidate(candidate),
+        described?[candidate] ?? describeCandidate(candidate),
         switch (candidate.target) {
           ReleaseTarget(candidate: ReleaseCandidate(:final release)) =>
             releaseBytes(release),

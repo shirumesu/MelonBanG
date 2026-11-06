@@ -188,7 +188,9 @@ class LibtorrentTransfer implements TorrentTransfer {
         'workingTrackers': info.workingTrackers,
         'failedTrackers': info.failedTrackers,
         'dhtNodes': info.dhtNodes,
-        'errorMessage': info.errorMsg.isEmpty ? null : info.errorMsg,
+        'errorMessage': info.errorMsg.isEmpty
+            ? null
+            : torrentFailure(info.errorMsg),
         'totalBytes': info.totalWanted,
         'downloadedBytes': info.totalDone,
         'complete': !checking && info.isFinished,
@@ -719,7 +721,7 @@ class LibtorrentTransfer implements TorrentTransfer {
         .where((f) => f['mediaKind'] == 'video')
         .toList();
     if (fileId == null && videos.length > 1) {
-      throw StateError('资源包含多个视频，请在缓存列表中选择具体文件');
+      throw MultipleVideos();
     }
     final files =
         (_files[id] ?? [])

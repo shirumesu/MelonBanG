@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/catalog.dart';
 import '../../features/discovery/schedule_filter.dart';
+import '../core/action_feedback.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
@@ -159,6 +160,14 @@ class _CalendarPageState extends State<CalendarPage> {
                     : '显示 ${items.length} 部，共 ${all.length} 部',
                 trailing: _filters(filter, all, now),
               ),
+              // Days from an earlier load stay readable when a refresh fails.
+              if (widget.error != null &&
+                  !widget.loading &&
+                  widget.calendar.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: Gap.md),
+                  child: InlineIssue('刷新失败，仍显示上次内容', onRetry: widget.onRetry),
+                ),
               if (items.isEmpty && all.isNotEmpty)
                 EmptyState(
                   text: '筛选后本日没有番剧',

@@ -1,8 +1,8 @@
 // Bundled fallback for the declarative rules served by Melon API.
 const bundledSourceRules = r'''{
   "engine": 2,
-  "version": "2026.10.10.1",
-  "updatedAt": "2026-10-10T08:00:00Z",
+  "version": "2026.11.06.1",
+  "updatedAt": "2026-11-06T08:00:00Z",
   "rules": [
     {
       "id": "modu",
@@ -15,6 +15,54 @@ const bundledSourceRules = r'''{
       "detail": {"url": "/api.php/provide/vod/?ac=detail&ids={id}"},
       "headers": {},
       "lineFilter": "^modum3u8$",
+      "playlistFilter": {"foreignPathBlocks": true},
+      "test": {"subject": "葬送的芙莉莲", "minEpisodes": 28},
+      "disabled": false,
+      "quality": "1080p"
+    },
+    {
+      "id": "ikun",
+      "name": "iKun资源",
+      "engine": "maccms-api",
+      "minEngine": 1,
+      "baseUrls": ["https://ikunzyapi.com", "https://www.ikunzy.com"],
+      "website": "https://ikunzy.com",
+      "search": {"url": "/api.php/provide/vod/?ac=detail&wd={query}"},
+      "detail": {"url": "/api.php/provide/vod/?ac=detail&ids={id}"},
+      "headers": {},
+      "lineFilter": "^ikm3u8$",
+      "quality": "1080p",
+      "playlistFilter": {"foreignPathBlocks": true},
+      "test": {"subject": "葬送的芙莉莲", "minEpisodes": 28},
+      "disabled": false
+    },
+    {
+      "id": "hongniu",
+      "name": "红牛资源",
+      "engine": "maccms-api",
+      "minEngine": 1,
+      "baseUrls": ["https://www.hongniuzy2.com", "https://www.hongniuzy3.com"],
+      "website": "https://www.hongniuzy2.com",
+      "search": {"url": "/api.php/provide/vod/?ac=detail&wd={query}"},
+      "detail": {"url": "/api.php/provide/vod/?ac=detail&ids={id}"},
+      "headers": {},
+      "lineFilter": "^hnm3u8$",
+      "quality": "1080p",
+      "test": {"subject": "葬送的芙莉莲", "minEpisodes": 28},
+      "disabled": false
+    },
+    {
+      "id": "wujin",
+      "name": "无尽资源",
+      "engine": "maccms-api",
+      "minEngine": 1,
+      "baseUrls": ["https://api.wujinapi.com"],
+      "website": "https://wujinzy.com",
+      "search": {"url": "/api.php/provide/vod/?ac=detail&wd={query}"},
+      "detail": {"url": "/api.php/provide/vod/?ac=detail&ids={id}"},
+      "headers": {},
+      "lineFilter": "^wjm3u8$",
+      "quality": "720p",
       "playlistFilter": {"foreignPathBlocks": true},
       "test": {"subject": "葬送的芙莉莲", "minEpisodes": 28},
       "disabled": false
@@ -56,6 +104,30 @@ const bundledSourceRules = r'''{
       "website": "https://mikanani.me",
       "search": {"url": "/RSS/Search?searchstr={query}"},
       "metadata": {"parser": "mikan", "url": "/Home/Search?searchstr={query}"},
+      "test": {"subject": "葬送的芙莉莲"},
+      "disabled": false
+    },
+    {
+      "id": "animes-garden",
+      "name": "Anime Garden",
+      "engine": "rss",
+      "kind": "torrent",
+      "minEngine": 2,
+      "baseUrls": ["https://api.animes.garden"],
+      "website": "https://animes.garden",
+      "search": {"url": "/feed.xml?search={query}&pageSize=100"},
+      "test": {"subject": "葬送的芙莉莲"},
+      "disabled": false
+    },
+    {
+      "id": "acgnx",
+      "name": "末日动漫",
+      "engine": "rss",
+      "kind": "torrent",
+      "minEngine": 2,
+      "baseUrls": ["https://share.acgnx.se", "https://www.acgnx.se"],
+      "website": "https://share.acgnx.se",
+      "search": {"url": "/rss.xml?keyword={query}"},
       "test": {"subject": "葬送的芙莉莲"},
       "disabled": false
     }
