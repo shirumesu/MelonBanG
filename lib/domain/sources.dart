@@ -110,6 +110,7 @@ final class SourceSubject {
     this.durationSeconds,
     this.publishedAt,
     this.tags = const [],
+    this.aliases = const [],
     this.danmakuCount,
     this.direct = false,
     this.data = const {},
@@ -125,6 +126,9 @@ final class SourceSubject {
   final int? durationSeconds;
   final DateTime? publishedAt;
   final List<String> tags;
+
+  /// Other titles the site gives the entry, such as its original name.
+  final List<String> aliases;
 
   /// Comments posted on an upload, across its parts.
   final int? danmakuCount;

@@ -1,8 +1,8 @@
 // Bundled fallback for the declarative rules served by Melon API.
 const bundledSourceRules = r'''{
-  "engine": 2,
-  "version": "2026.11.06.1",
-  "updatedAt": "2026-11-06T08:00:00Z",
+  "engine": 3,
+  "version": "2026.11.06.2",
+  "updatedAt": "2026-11-06T12:00:00Z",
   "rules": [
     {
       "id": "modu",
@@ -130,7 +130,18 @@ const bundledSourceRules = r'''{
       "search": {"url": "/rss.xml?keyword={query}"},
       "test": {"subject": "葬送的芙莉莲"},
       "disabled": false
+    },
+    {
+      "id": "nyaa",
+      "name": "Nyaa",
+      "engine": "rss",
+      "kind": "torrent",
+      "minEngine": 3,
+      "baseUrls": ["https://nyaa.si"],
+      "website": "https://nyaa.si",
+      "search": {"url": "/?page=rss&c=1_3&q={query}"},
+      "test": {"subject": "葬送的芙莉莲"},
+      "disabled": false
     }
   ]
-}
-''';
+}''';

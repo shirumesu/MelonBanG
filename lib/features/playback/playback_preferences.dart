@@ -20,9 +20,10 @@ class PlaybackPreferences extends ChangeNotifier {
   String get completedPriority =>
       storage.getString('player-completed-priority') ?? 'online';
 
-  /// Whether [subject] plays online before BT, by whether it is airing.
+  /// Whether [subject] plays online before BT, by whether every episode
+  /// has aired.
   bool onlineFirst(Subject subject) =>
-      (subject.airing() ? airingPriority : completedPriority) == 'online';
+      (subject.finished() ? completedPriority : airingPriority) == 'online';
 
   /// Release groups whose releases rank first, most preferred first. Kept
   /// as text split at commas, semicolons and 、, half or full width, as it

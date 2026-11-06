@@ -14,7 +14,7 @@ class SelectorEngine extends HttpRuleEngine implements OnlineSourceEngine {
   Future<List<SourceSubject>> searchSubjects(
     String name, {
     RequestCancellation? cancel,
-  }) => searchWithCompactRetry(name, (query) async {
+  }) => searchWithFallbacks(name, (query) async {
     final step = object(config['search']);
     final (body, uri) = await request(step, {'query': query}, cancel: cancel);
     return [
