@@ -325,20 +325,21 @@ class _NowMarker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final ink = coralInk(Theme.of(context).brightness == Brightness.dark);
     return SizedBox(
       height: 28,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: Gap.md),
         child: Row(
           children: [
-            const SizedBox(
+            SizedBox(
               width: 40,
               child: Text(
                 '现在',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
-                  color: coral,
+                  color: ink,
                 ),
               ),
             ),
@@ -369,11 +370,11 @@ class _NowMarker extends StatelessWidget {
             const SizedBox(width: Gap.sm),
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
-                color: coral,
-                fontFeatures: [FontFeature.tabularFigures()],
+                color: ink,
+                fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
           ],

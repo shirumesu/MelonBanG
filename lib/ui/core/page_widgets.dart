@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'motion.dart';
+import 'pointer_lamp.dart';
 import 'theme.dart';
 
 class PageScroll extends StatelessWidget {
@@ -77,7 +78,15 @@ class MelonPanel extends StatelessWidget {
         child: content,
       );
     }
-    return Card(child: content);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: panelBorderRadius,
+        boxShadow: panelShadows(context),
+      ),
+      child: Card(
+        child: PointerLamp(radius: panelBorderRadius, child: content),
+      ),
+    );
   }
 }
 
