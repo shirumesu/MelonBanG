@@ -125,8 +125,9 @@ class DanmakuQuickSettings extends StatelessWidget {
       double min,
       double max,
       String shown,
-      void Function(double) change,
-    ) => _Row(
+      void Function(double) change, {
+      int? divisions,
+    }) => _Row(
       label: label,
       child: Row(
         children: [
@@ -136,6 +137,7 @@ class DanmakuQuickSettings extends StatelessWidget {
               value: value,
               min: min,
               max: max,
+              divisions: divisions,
               onChanged: (value) => prefs.update(() => change(value)),
             ),
           ),
@@ -227,6 +229,16 @@ class DanmakuQuickSettings extends StatelessWidget {
                     onChanged: (value) =>
                         prefs.update(() => prefs.density = value),
                   ),
+                ),
+                slider(
+                  '上限',
+                  DanmakuPreferences.limits.indexOf(prefs.limit).toDouble(),
+                  0,
+                  DanmakuPreferences.limits.length - 1.0,
+                  danmakuLimitLabel(prefs.limit),
+                  (value) =>
+                      prefs.limit = DanmakuPreferences.limits[value.round()],
+                  divisions: DanmakuPreferences.limits.length - 1,
                 ),
                 const SizedBox(height: Gap.sm),
                 Wrap(

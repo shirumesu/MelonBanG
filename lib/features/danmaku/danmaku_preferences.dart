@@ -64,6 +64,25 @@ class DanmakuPreferences extends ChangeNotifier {
   late double size, opacity, area;
   late int density, speed;
 
+  /// Comments shown per episode at most, 0 for all: thousands crowding the
+  /// screen and the layout add little.
+  late int limit;
+
+  /// The limits offered, the last showing all.
+  static const limits = [
+    1000,
+    2000,
+    3000,
+    4000,
+    5000,
+    6000,
+    8000,
+    10000,
+    15000,
+    20000,
+    0,
+  ];
+
   /// Reads the display preferences from [saved], the defaults where missing.
   void _readDisplay(Json saved) {
     enabled = saved['enabled'] as bool? ?? true;
@@ -72,6 +91,10 @@ class DanmakuPreferences extends ChangeNotifier {
     area = number(saved['area'] ?? 1).clamp(.2, 1).toDouble();
     density = number(saved['density'] ?? 3).toInt().clamp(0, 3);
     speed = number(saved['speed'] ?? 2).toInt().clamp(0, 4);
+    limit = switch (saved['limit']) {
+      final int value when limits.contains(value) => value,
+      _ => 6000,
+    };
     overlap = saved['overlap'] as bool? ?? false;
     shield = saved['shield'] as bool? ?? false;
     scroll = saved['scroll'] as bool? ?? true;
@@ -111,6 +134,7 @@ class DanmakuPreferences extends ChangeNotifier {
         'area': area,
         'density': density,
         'speed': speed,
+        'limit': limit,
         'overlap': overlap,
         'shield': shield,
         'scroll': scroll,
@@ -146,10 +170,13 @@ class DanmakuPreferences extends ChangeNotifier {
     );
   }
 
-  /// Comments that pass mode/colour/filter rules, in time order. With
-  /// [merge], a comment repeating one shown in the last [mergeWindow]
-  /// seconds, from any source, is folded into it and counted as `×N`.
-  List<DanmakuComment> visible(List<DanmakuComment> comments) {
+  /// Comments that pass mode/colour/filter rules, in time order, and how
+  /// many [limit] left out. With [merge], a comment repeating one shown in
+  /// the last [mergeWindow] seconds, from any source, is folded into it and
+  /// counted as `×N`.
+  ({List<DanmakuComment> shown, int thinned}) visible(
+    List<DanmakuComment> comments,
+  ) {
     final result = <DanmakuComment>[];
     // Normalized text → index in result of its latest shown comment.
     final shown = <String, int>{};
@@ -194,7 +221,30 @@ class DanmakuPreferences extends ChangeNotifier {
         color: item.color,
       );
     }
-    return result;
+    return _thin(result);
+  }
+
+  /// [comments] down to [limit], taken evenly through the episode so busy
+  /// scenes stay busier than quiet ones; the viewer's own are always kept.
+  ({List<DanmakuComment> shown, int thinned}) _thin(
+    List<DanmakuComment> comments,
+  ) {
+    final others = comments.where((item) => !item.own).length;
+    if (limit == 0 || others <= limit) return (shown: comments, thinned: 0);
+    final shown = <DanmakuComment>[];
+    var seen = 0;
+    for (final item in comments) {
+      if (item.own) {
+        shown.add(item);
+        continue;
+      }
+      // Keeps the comment that starts each of [limit] equal shares.
+      if (seen * limit ~/ others != (seen + 1) * limit ~/ others) {
+        shown.add(item);
+      }
+      seen++;
+    }
+    return (shown: shown, thinned: others - limit);
   }
 
   static const mergeWindow = 10.0;
@@ -228,3 +278,6 @@ class DanmakuPreferences extends ChangeNotifier {
     return ChineseHelper.convertCharToSimplifiedChinese(char) != char;
   });
 }
+
+/// A per-episode limit as shown: `6000`, or `不限`.
+String danmakuLimitLabel(int limit) => limit == 0 ? '不限' : '$limit';

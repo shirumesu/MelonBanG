@@ -683,6 +683,22 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
           ),
         ),
         SettingsItem(
+          '弹幕 数量 上限 每集 性能 太多',
+          _watch(prefs, (context) {
+            const limits = DanmakuPreferences.limits;
+            return SettingSlider(
+              title: '每集最多显示',
+              value: limits.indexOf(prefs.limit).toDouble(),
+              min: 0,
+              max: limits.length - 1,
+              divisions: limits.length - 1,
+              label: danmakuLimitLabel(prefs.limit),
+              onChanged: (value) =>
+                  prefs.update(() => prefs.limit = limits[value.round()]),
+            );
+          }),
+        ),
+        SettingsItem(
           '弹幕 去重 合并 重复',
           _watch(
             prefs,

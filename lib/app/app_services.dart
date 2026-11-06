@@ -39,6 +39,8 @@ import '../features/tracking/tracking_controller.dart';
 import '../features/update/app_update.dart';
 import '../features/update/uninstall.dart';
 import '../integrations/danmaku/bahamut.dart';
+import '../integrations/danmaku/iqiyi.dart';
+import '../integrations/danmaku/tencent.dart';
 import '../integrations/danmaku/bilibili.dart';
 import '../integrations/danmaku/dandanplay.dart';
 import '../integrations/danmaku/melon.dart';
@@ -188,6 +190,8 @@ class AppServices {
         DandanplayDanmaku(api, configuration),
         BilibiliDanmaku(api),
         BahamutDanmaku(api),
+        TencentDanmaku(api),
+        IqiyiDanmaku(api),
       ]),
       DanmakuPreferences(preferences),
     );

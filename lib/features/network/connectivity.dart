@@ -62,6 +62,8 @@ class ConnectivityCheck extends ChangeNotifier {
     ProbeTarget('dandanplay', '弹弹play', '弹幕', Uri.https('api.dandanplay.net')),
     ProbeTarget('bilibili', 'Bilibili', '弹幕', Uri.https('api.bilibili.com')),
     ProbeTarget('bahamut', '巴哈姆特', '弹幕', Uri.https('api.gamer.com.tw')),
+    ProbeTarget('tencent', '腾讯视频', '弹幕', Uri.https('dm.video.qq.com')),
+    ProbeTarget('iqiyi', '爱奇艺', '弹幕', Uri.https('cmts.iqiyi.com')),
     for (final kind in SourceKind.values)
       for (final source in sources.instancesOf(kind))
         if (sources.isEnabled(source.id))
