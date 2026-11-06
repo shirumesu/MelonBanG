@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
 import 'cancellation.dart';
+import 'error_message.dart';
 import 'json.dart';
 
 export 'cancellation.dart';
@@ -69,7 +70,7 @@ class _HostRequests {
   }
 }
 
-class ApiException implements Exception {
+class ApiException implements UserFacingError {
   const ApiException(this.status, this.host, {this.reason, this.code});
   final int status;
   final String host;
@@ -81,7 +82,36 @@ class ApiException implements Exception {
   String toString() =>
       '$host 请求失败（HTTP $status）'
       '${reason == null || reason!.isEmpty ? '' : '：$reason'}';
+
+  /// The service's own Chinese reason, else what the status means.
+  @override
+  String get userMessage {
+    if (reason case final text? when RegExp(r'[一-鿿]').hasMatch(text)) {
+      return text;
+    }
+    final name = serviceName(host);
+    // Latin names stand apart from the Chinese after them.
+    final service = RegExp(r'[A-Za-z]$').hasMatch(name) ? '$name ' : name;
+    return switch (status) {
+      401 => '$service登录已失效，请重新登录',
+      403 => '$service拒绝了这次访问',
+      404 => '内容不存在或已被删除',
+      429 => '请求太频繁，请稍后再试',
+      >= 500 => '$service暂时无法访问，请稍后再试',
+      _ => '$service没有接受这次请求',
+    };
+  }
 }
+
+/// What the user calls the service at [host].
+String serviceName(String host) => switch (host) {
+  _ when host.endsWith('bgm.tv') || host.contains('bangumi') => 'Bangumi',
+  _ when host.contains('github') => 'GitHub',
+  _ when host.contains('pikpak') => 'PikPak',
+  _ when host.contains('bilibili') => 'B 站',
+  _ when host.contains('melon') || host.contains('konataizumi') => 'Melon 服务',
+  _ => '网站',
+};
 
 class ApiClient {
   ApiClient({this.timeout = const Duration(seconds: 20)});
@@ -129,7 +159,7 @@ class ApiClient {
 
   Never _timedOut(Uri uri, Completer<void> abort) {
     if (!abort.isCompleted) abort.complete();
-    throw TimeoutException('${uri.host} 请求超时', timeout);
+    throw TimeoutException('连接超时，请检查网络后重试', timeout);
   }
 
   void _checkResponse(http.Response response, Uri uri) {
@@ -242,6 +272,25 @@ class ApiClient {
                 // (measured ~2% to api.bgm.tv); the request was never sent and
                 // a fresh connection succeeds.
                 if (attempt > 0) rethrow;
+              } catch (error) {
+                // A read dropped midway or a gateway briefly down usually
+                // answers a second try; writes are never repeated.
+                final transient = switch (error) {
+                  SocketException() || http.ClientException() => true,
+                  ApiException(:final status) => const {
+                    502,
+                    503,
+                    504,
+                  }.contains(status),
+                  _ => false,
+                };
+                if (attempt > 0 ||
+                    !transient ||
+                    abort.isCompleted ||
+                    (method != 'GET' && method != 'HEAD')) {
+                  rethrow;
+                }
+                await Future<void>.delayed(const Duration(milliseconds: 600));
               }
             }
           })

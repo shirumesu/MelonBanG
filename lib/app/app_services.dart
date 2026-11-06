@@ -226,7 +226,10 @@ class AppServices {
       downloads: downloads,
       tracking: tracking,
       library: library,
-      preferences: SubscriptionPreferences(preferences),
+      preferences: SubscriptionPreferences(
+        preferences,
+        subtitleLanguage: () => playback.settings.subtitleLanguage,
+      ),
       preferredGroups: () => playback.settings.preferredGroups,
     );
     _dispose.add(subscriptions.close);
@@ -240,7 +243,20 @@ class AppServices {
     );
     playback = Playback(library, downloads, danmaku, preferences, proxy);
     selection.remember = () => playback.settings.rememberSource;
-    selection.groups = () => playback.settings.preferredGroups;
+    // A subscribed show picks as its subscription does; others as a new
+    // subscription would start, the preferred groups after the named ones.
+    selection.taste = (subjectId) {
+      final preferred = playback.settings.preferredGroups;
+      final filter =
+          subscriptions.subscriptions[subjectId]?.filter ??
+          subscriptions.preferences.defaultFilter(preferred);
+      return ReleaseTaste(
+        groups: {...filter.groupNames(preferred), ...preferred}.toList(),
+        qualities: filter.qualities,
+        languages: filter.languages,
+        forms: filter.forms,
+      );
+    };
     coordinator = PlaybackCoordinator(
       playback,
       selection,

@@ -6,6 +6,7 @@ import '../../core/error_message.dart';
 import '../../domain/danmaku.dart';
 import '../../features/danmaku/danmaku_controller.dart';
 import '../../features/playback/playback.dart';
+import '../core/action_feedback.dart';
 import '../core/theme.dart';
 import 'danmaku_filter_editor.dart';
 
@@ -155,7 +156,6 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final sources = playback.session == null
         ? const <DanmakuSourceState>[]
@@ -190,10 +190,7 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
         if (loadError != null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: Gap.xs),
-            child: Text(
-              loadError!,
-              style: small?.copyWith(color: scheme.error),
-            ),
+            child: InlineIssue(loadError!),
           ),
         for (final source in sources) sourceRow(source),
         const SizedBox(height: Gap.md),
@@ -352,10 +349,7 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
           if (searchError != null)
             Padding(
               padding: const EdgeInsets.only(top: Gap.sm),
-              child: Text(
-                searchError!,
-                style: small?.copyWith(color: scheme.error),
-              ),
+              child: InlineIssue(searchError!),
             ),
           if (level != null && (levels.length > 1 || level.$1.isNotEmpty))
             Padding(

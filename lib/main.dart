@@ -15,6 +15,10 @@ import 'core/service_configuration.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (kReleaseMode) {
+    // Every failure the user should know of is shown where it happens; one
+    // that escapes is not printed to the console either.
+    FlutterError.onError = (_) {};
+    PlatformDispatcher.instance.onError = (_, _) => true;
     // A part that fails to build says so instead of leaving a grey box.
     ErrorWidget.builder = (_) => const Directionality(
       textDirection: TextDirection.ltr,

@@ -26,22 +26,35 @@ class BitTorrentSettings {
   final int connectionsPerTask, listenPort;
   final bool resumeOnStartup, dht, upnp, ipv6, forceEncryption;
 
-  factory BitTorrentSettings.fromJson(Json data) => BitTorrentSettings(
-    seedMode: data['seedMode'] as String? ?? 'limited',
-    seedRatio: (data['seedRatio'] as num?)?.toDouble() ?? 1,
-    seedMinutes: (data['seedMinutes'] as num?)?.toInt() ?? 60,
-    downloadKiB: (data['downloadKiB'] as num?)?.toInt() ?? 0,
-    uploadKiB: (data['uploadKiB'] as num?)?.toInt() ?? 1024,
-    activeDownloads: (data['activeDownloads'] as num?)?.toInt() ?? 3,
-    activeSeeds: (data['activeSeeds'] as num?)?.toInt() ?? 2,
-    connectionsPerTask: (data['connectionsPerTask'] as num?)?.toInt() ?? 50,
-    listenPort: (data['listenPort'] as num?)?.toInt() ?? 0,
-    resumeOnStartup: data['resumeOnStartup'] as bool? ?? true,
-    dht: data['dht'] as bool? ?? true,
-    upnp: data['upnp'] as bool? ?? true,
-    ipv6: data['ipv6'] as bool? ?? true,
-    forceEncryption: data['forceEncryption'] as bool? ?? false,
-  );
+  /// Saved settings; a value missing or of the wrong type takes the default.
+  factory BitTorrentSettings.fromJson(Json data) {
+    const fallback = BitTorrentSettings();
+    T read<T>(String key, T value) => switch (data[key]) {
+      final T saved => saved,
+      final num saved when T == double => saved.toDouble() as T,
+      final num saved when T == int => saved.toInt() as T,
+      _ => value,
+    };
+    return BitTorrentSettings(
+      seedMode: read('seedMode', fallback.seedMode),
+      seedRatio: read('seedRatio', fallback.seedRatio),
+      seedMinutes: read('seedMinutes', fallback.seedMinutes),
+      downloadKiB: read('downloadKiB', fallback.downloadKiB),
+      uploadKiB: read('uploadKiB', fallback.uploadKiB),
+      activeDownloads: read('activeDownloads', fallback.activeDownloads),
+      activeSeeds: read('activeSeeds', fallback.activeSeeds),
+      connectionsPerTask: read(
+        'connectionsPerTask',
+        fallback.connectionsPerTask,
+      ),
+      listenPort: read('listenPort', fallback.listenPort),
+      resumeOnStartup: read('resumeOnStartup', fallback.resumeOnStartup),
+      dht: read('dht', fallback.dht),
+      upnp: read('upnp', fallback.upnp),
+      ipv6: read('ipv6', fallback.ipv6),
+      forceEncryption: read('forceEncryption', fallback.forceEncryption),
+    );
+  }
 
   Json toJson() => {
     'seedMode': seedMode,

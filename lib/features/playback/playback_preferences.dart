@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../domain/catalog.dart';
+
 class PlaybackPreferences extends ChangeNotifier {
   PlaybackPreferences(this.storage);
   final SharedPreferences storage;
@@ -17,6 +19,10 @@ class PlaybackPreferences extends ChangeNotifier {
       storage.getString('player-airing-priority') ?? 'bt';
   String get completedPriority =>
       storage.getString('player-completed-priority') ?? 'online';
+
+  /// Whether [subject] plays online before BT, by whether it is airing.
+  bool onlineFirst(Subject subject) =>
+      (subject.airing() ? airingPriority : completedPriority) == 'online';
 
   /// Release groups whose releases rank first, most preferred first. Kept
   /// as text split at commas, semicolons and 、, half or full width, as it

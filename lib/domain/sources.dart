@@ -1,9 +1,11 @@
 import '../core/cancellation.dart';
+import '../core/error_message.dart';
 import '../core/json.dart';
 
 /// Highest rule engine version this client can run. Rules with a higher
-/// `minEngine` are listed but never executed.
-const sourceEngineVersion = 2;
+/// `minEngine` are listed but never executed. 3: RSS feeds stating info
+/// hashes apart from numbered .torrent links (Nyaa), and RSS mirrors.
+const sourceEngineVersion = 3;
 
 /// What a source instance yields: instant streams or torrent releases.
 enum SourceKind { online, torrent }
@@ -86,11 +88,13 @@ final class SourceSnapshot {
   final Json json;
 }
 
-class SourceVerificationRequired implements Exception {
+class SourceVerificationRequired implements UserFacingError {
   const SourceVerificationRequired(this.url);
   final String url;
   @override
-  String toString() => '站点需要人机验证，请在浏览器打开 $url';
+  String get userMessage => '站点要求人机验证，在浏览器里打开一次后再试';
+  @override
+  String toString() => '$userMessage：$url';
 }
 
 /// A title on an online site. [data] is private to the producing engine.

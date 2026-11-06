@@ -57,10 +57,25 @@ class AppUpdate extends ChangeNotifier {
   Future<void> setAutoDownload(bool value) async {
     await preferences.setBool('update-auto-download', value);
     notifyListeners();
+    // A version found earlier starts downloading now.
+    if (value && phase == UpdatePhase.available) await download();
   }
 
   Future<void> setBeta(bool value) async {
     await preferences.setBool('update-beta', value);
+    // Leaving the beta channel drops a downloaded prerelease, which would
+    // otherwise still install on exit.
+    if (!value &&
+        phase == UpdatePhase.ready &&
+        (readyVersion?.contains('-') ?? false)) {
+      try {
+        if (await _pending.exists()) await _pending.delete(recursive: true);
+      } on FileSystemException {
+        // Left for the next start, which clears it.
+      }
+      readyVersion = null;
+      phase = UpdatePhase.idle;
+    }
     notifyListeners();
     await check();
   }
@@ -137,11 +152,7 @@ class AppUpdate extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      release = await releases.newerThan(
-        version,
-        _platform,
-        prereleases: beta,
-      );
+      release = await releases.newerThan(version, _platform, prereleases: beta);
       phase = release == null ? UpdatePhase.idle : UpdatePhase.available;
       checkedAt = DateTime.now();
     } catch (e) {
@@ -169,7 +180,7 @@ class AppUpdate extends ChangeNotifier {
         await _fetch(release.package, image);
         final executable = await Process.run('chmod', ['755', image.path]);
         if (executable.exitCode != 0) {
-          throw StateError('无法设置执行权限：${executable.stderr}'.trim());
+          throw StateError('无法让更新包运行，请到 GitHub 手动下载新版本');
         }
       } else {
         await _unpack(release.package, staging);
@@ -188,7 +199,7 @@ class AppUpdate extends ChangeNotifier {
       phase = UpdatePhase.failed;
       final location = Platform.isWindows ? '安装目录' : ' MelonBanG 所在的文件夹';
       error =
-          '无法写入$location（${e.osError?.message ?? e.message}），请到 GitHub 手动下载新版本';
+          '无法写入$location（${fileFailure(e.osError?.errorCode)}），请到 GitHub 手动下载新版本';
     } catch (e) {
       phase = UpdatePhase.failed;
       error = '下载更新失败：${errorMessage(e)}';
@@ -213,7 +224,7 @@ class AppUpdate extends ChangeNotifier {
             ['-xf', archive.path, '-C', staging.path],
           );
     if (unpacked.exitCode != 0) {
-      throw StateError('解压失败：${unpacked.stderr}'.trim());
+      throw StateError('更新包解压失败，可能下载不完整，请重试');
     }
     if (Platform.isMacOS &&
         !await Directory(p.join(staging.path, _bundleName)).exists()) {
@@ -232,7 +243,7 @@ class AppUpdate extends ChangeNotifier {
           url,
           abort: Completer<void>(),
           timeout: _idle,
-          message: '连接 ${url.host} 超时',
+          message: '下载更新超时',
         );
         if (response.statusCode != 200) {
           await response.stream.listen(null).cancel();

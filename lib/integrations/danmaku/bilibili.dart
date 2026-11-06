@@ -7,6 +7,7 @@ import 'package:pinyin/pinyin.dart' show ChineseHelper;
 import 'package:protobuf/protobuf.dart';
 import 'package:xml/xml.dart';
 
+import '../../core/error_message.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../domain/danmaku.dart';
@@ -334,7 +335,7 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
       );
     }
     if (comments.isEmpty && failure != null) {
-      throw StateError('Bilibili 弹幕获取失败：$failure');
+      throw StateError('B 站弹幕获取失败：${errorMessage(failure!)}');
     }
     return compute(sortedComments, comments);
   }

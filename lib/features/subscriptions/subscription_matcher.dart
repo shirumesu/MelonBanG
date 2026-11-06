@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../../domain/catalog.dart';
 import '../../domain/release_traits.dart';
 import '../../domain/resource_title.dart';
@@ -56,7 +58,8 @@ class ReleaseJudgement {
 /// with the title of the file cached, take that group's corrected release
 /// when [revisions] allows. Releases are taken in publishing order, so the
 /// first of an episode's matching files is kept, whichever subscribed group
-/// it is by. A smart filter takes the groups [smartGroups] picks from
+/// it is by; following the preferred groups, of files found together the
+/// one by the group listed first is kept. A smart filter takes the groups [smartGroups] picks from
 /// [candidates], with episodes timed by [aired]. A release stating nothing
 /// for a selection only counts while the filter names one group, whose
 /// releases word it their own way.
@@ -86,12 +89,17 @@ List<ReleaseJudgement> judgeReleases({
             record.name,
         ]
       : filter.groupNames(preferredGroups);
-  final loosely = !filter.anyGroup && names.length == 1;
+  // Preferred groups while none are set leave every group in.
+  final anyGroup = filter.anyGroup || (!filter.smart && names.isEmpty);
+  final loosely = !anyGroup && names.length == 1;
   final ordered = candidates.toList()
     ..sort((a, b) {
       final x = releasePublished(a.release.publishedAt);
       final y = releasePublished(b.release.publishedAt);
-      if (x == null || y == null) return 0;
+      // Undated releases go last, keeping the order consistent.
+      if (x == null || y == null) {
+        return (x == null ? 1 : 0) - (y == null ? 1 : 0);
+      }
       return x.compareTo(y);
     });
   final judged = <ReleaseJudgement>[];
@@ -113,7 +121,7 @@ List<ReleaseJudgement> judgeReleases({
           reason: reason,
           episode: episode,
         );
-    if (!filter.anyGroup && !groupsMatch(creditedGroups(info), names)) {
+    if (!anyGroup && !groupsMatch(creditedGroups(info), names)) {
       judged.add(skip(Verdict.otherGroup, '不是订阅的字幕组'));
       continue;
     }
@@ -212,12 +220,19 @@ List<ReleaseJudgement> judgeReleases({
       }
       continue;
     }
-    // A corrected release goes before the first one when both are new.
+    // Following the preferred groups, the earliest of them out with the
+    // episode in their order; otherwise whichever came first. A corrected
+    // release goes before the first one when both are new.
+    final order = filter.preferred ? preferredGroups : const <String>[];
+    int rank(ReleaseJudgement option) =>
+        preferredGroupIndex(creditedGroups(option.info), order) ?? order.length;
+    final best = options.map(rank).reduce(math.min);
+    final ranked = options.where((option) => rank(option) == best);
     final chosen =
-        options
+        ranked
             .where((option) => releaseRevision(option.candidate.release.title))
             .lastOrNull ??
-        options.first;
+        ranked.first;
     for (final option in options) {
       final replaces = held.contains(episode);
       judged.add(

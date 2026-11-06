@@ -709,7 +709,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
         .where((file) => file['mediaKind'] == 'video')
         .toList();
     if (fileId == null && videos.length > 1) {
-      throw StateError('资源包含多个视频，请在缓存列表中选择具体文件');
+      throw MultipleVideos();
     }
     final file = (task['files'] as List)
         .cast<Json>()

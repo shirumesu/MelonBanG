@@ -190,11 +190,7 @@ class ResourceSearchController extends ChangeNotifier {
         terms: terms,
         includeDownloads: false,
         cancel: cancellation,
-        onlineFirst:
-            (subject.airing()
-                ? settings.airingPriority
-                : settings.completedPriority) ==
-            'online',
+        onlineFirst: settings.onlineFirst(subject),
         language: settings.subtitleLanguage,
         useContinuity: playback.session?.subjectId == subject.id,
         onUpdate: (rank) {

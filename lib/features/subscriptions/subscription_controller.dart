@@ -413,7 +413,7 @@ class SubscriptionController extends ChangeNotifier {
       if (result.sources.every(
         (source) => source.status == SearchStatus.error,
       )) {
-        throw StateError('资源站都没有响应：${result.sources.first.message ?? '连接失败'}');
+        throw StateError('资源站都没有响应，稍后会再试');
       }
       subscription.failures = 0;
       subscription.issue = null;
@@ -551,9 +551,19 @@ class SubscriptionController extends ChangeNotifier {
     }
   }
 
-  /// Ends the subscriptions of shows not played for three weeks, when the
-  /// settings say so; a subscription younger than that is left.
+  /// Ends the subscriptions of shows not played for three weeks, or those
+  /// already finished, when the settings say so; a subscription younger
+  /// than three weeks is left.
   Future<void> _endUnwatched() async {
+    // Those finished while the settings kept them end once they no longer do.
+    if (preferences.autoUnsubscribe == AutoUnsubscribe.finished) {
+      for (final subscription in subscriptions.values.toList()) {
+        if (subscription.finishedAt != null) {
+          await _end(subscription, '已完结，剧集都缓存好了');
+        }
+      }
+      return;
+    }
     if (preferences.autoUnsubscribe != AutoUnsubscribe.unwatched) return;
     final Map<int, DateTime> played;
     try {

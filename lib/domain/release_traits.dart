@@ -29,6 +29,15 @@ bool groupsMatch(Iterable<String> credited, Iterable<String> wanted) {
   return false;
 }
 
+/// The place in [preferred] of the first name [credited] matches, as
+/// [groupsMatch] compares them; null when none does.
+int? preferredGroupIndex(Iterable<String> credited, List<String> preferred) {
+  for (final (index, name) in preferred.indexed) {
+    if (groupsMatch(credited, [name])) return index;
+  }
+  return null;
+}
+
 final _rebroadcast = RegExp(r'重映|重播|补档|再放送|数码重制');
 final _revision = RegExp(
   r'(?:(?<![a-z0-9])|(?<=\d))v([2-9])(?![a-z0-9])',

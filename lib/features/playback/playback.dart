@@ -50,7 +50,7 @@ class Playback extends ChangeNotifier {
     );
     _subscriptions.add(
       errors.listen((value) {
-        error ??= value;
+        error ??= playerFailure(value);
         notifyListeners();
       }),
     );

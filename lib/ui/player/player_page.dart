@@ -1845,6 +1845,16 @@ class _PreparingView extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (failed == null && preparing.source != null) ...[
+                  const SizedBox(height: Gap.xs),
+                  Text(
+                    '已选择 ${preparing.source}',
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: muted, fontSize: 12),
+                  ),
+                ],
                 if (failed == null && live != null) ...[
                   const SizedBox(height: Gap.xs),
                   Text(

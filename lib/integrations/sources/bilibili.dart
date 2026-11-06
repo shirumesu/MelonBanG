@@ -36,7 +36,7 @@ class BilibiliEngine implements OnlineSourceEngine {
       throw SourceVerificationRequired('${instance.website}');
     }
     if (value['code'] != 0) {
-      throw StateError('Bilibili：${value['message']}（${value['code']}）');
+      throw StateError('B 站没有返回内容，可能需要登录或有地区限制');
     }
     return value;
   }

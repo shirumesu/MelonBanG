@@ -291,3 +291,9 @@ abstract interface class OnlineTransfer implements Transfer {
     String? coverUrl,
   });
 }
+
+/// A torrent holding several videos, none chosen yet: the user picks one in
+/// the cache list rather than waiting for one.
+class MultipleVideos extends StateError {
+  MultipleVideos() : super('资源包含多个视频，请在缓存列表中选择具体文件');
+}

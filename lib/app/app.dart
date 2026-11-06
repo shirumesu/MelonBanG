@@ -246,12 +246,13 @@ class _MelonAppState extends State<MelonApp>
       if (service.update.autoCheck) unawaited(perform(service.update.check));
       await Future.wait([
         discovery.loadHome().then((issue) {
-          if (issue != null) showError(issue);
+          // An empty feed names its failure on the home page itself.
+          if (issue != null && discovery.homeShowsStale) showError(issue);
         }),
         personal.refresh(),
         refreshPlaybackAvailability(),
       ]);
-      unawaited(perform(discovery.loadCalendar));
+      unawaited(discovery.loadCalendar());
     } catch (e) {
       // Once the window works, a failed first load is an ordinary error.
       if (ready) {
@@ -399,12 +400,8 @@ class _MelonAppState extends State<MelonApp>
   }
 
   @override
-  void showError(Object e) => messages.currentState?.showSnackBar(
-    SnackBar(
-      content: Text(errorMessage(e)),
-      behavior: SnackBarBehavior.floating,
-    ),
-  );
+  void showError(Object e) =>
+      showMessage(messages.currentState, errorMessage(e));
 
   Future<void> perform(Future<void> Function() action) async {
     try {
@@ -431,7 +428,7 @@ class _MelonAppState extends State<MelonApp>
     setState(() => route = 'subject');
     final opening = subjects.open(item);
     unawaited(perform(refreshPlaybackAvailability));
-    if (discovery.calendar.isEmpty) unawaited(perform(discovery.loadCalendar));
+    if (discovery.calendar.isEmpty) unawaited(discovery.loadCalendar());
     await perform(() => opening);
   }
 
@@ -631,13 +628,13 @@ class _MelonAppState extends State<MelonApp>
         unawaited(perform(pullProgress));
         // Continue watching times the next episodes by the schedule.
         if (discovery.calendar.isEmpty) {
-          unawaited(perform(discovery.loadCalendar));
+          unawaited(discovery.loadCalendar());
         }
       case 'tracking':
         unawaited(personal.pull());
-        unawaited(perform(discovery.loadCalendar));
+        unawaited(discovery.loadCalendar());
       case 'calendar':
-        unawaited(perform(discovery.loadCalendar));
+        unawaited(discovery.loadCalendar());
     }
   }
 
@@ -1306,7 +1303,7 @@ class _MelonAppState extends State<MelonApp>
           loading: discovery.calendarLoading,
           error: discovery.calendarError,
           onOpenSubject: openSubject,
-          onRetry: () => perform(discovery.loadCalendar),
+          onRetry: discovery.loadCalendar,
           filter: scheduleFilter,
         );
       case 'tracking':

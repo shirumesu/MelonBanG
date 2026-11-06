@@ -7,6 +7,7 @@ import '../../domain/transfer.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
 import '../../features/appearance/appearance.dart';
+import '../core/action_feedback.dart';
 import '../core/external_link.dart';
 import '../core/byte_units.dart';
 import '../core/motion.dart';
@@ -404,8 +405,6 @@ class ResourceResultRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final small = Theme.of(context).textTheme.bodySmall;
     final units = ByteUnitsScope.of(context);
     final groups = resourceGroupLabel(info);
     final (group, size, date) = switch (candidate.target) {
@@ -467,7 +466,7 @@ class ResourceResultRow extends StatelessWidget {
         if (error != null)
           Padding(
             padding: const EdgeInsets.only(left: 18, top: 4),
-            child: Text(error!, style: small?.copyWith(color: scheme.error)),
+            child: InlineIssue(error!),
           ),
       ],
       actions: (wide) => Row(
@@ -970,10 +969,7 @@ class ResourceEpisodeRow extends StatelessWidget {
                   if (error != null)
                     Padding(
                       padding: const EdgeInsets.only(left: 18, bottom: 4),
-                      child: Text(
-                        error!,
-                        style: small?.copyWith(color: scheme.error),
-                      ),
+                      child: InlineIssue(error!),
                     ),
                 ],
               ),

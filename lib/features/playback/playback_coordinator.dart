@@ -10,6 +10,7 @@ import '../tracking/tracking_repository.dart';
 import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/playback_session.dart';
+import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
 import '../downloads/download_repository.dart';
 import 'play_selection.dart';
@@ -49,6 +50,7 @@ class PreparingPlayback {
     this.subject,
     this.episode,
     this.status,
+    this.source,
     this.downloadId,
     this.failed,
   });
@@ -58,6 +60,7 @@ class PreparingPlayback {
       detail = '${episode.label}  ${episode.title}',
       coverUrl = subject.coverUrl,
       status = null,
+      source = null,
       downloadId = null,
       failed = null;
 
@@ -68,8 +71,12 @@ class PreparingPlayback {
   final Subject? subject;
   final Episode? episode;
 
-  /// The current step, such as resolving an address or opening the video.
+  /// The current step, such as searching, resolving an address or opening
+  /// the video.
   final String? status;
+
+  /// The source picked for the episode, once chosen.
+  final String? source;
 
   /// The download being started or streamed, whose live state is shown.
   final String? downloadId;
@@ -79,6 +86,7 @@ class PreparingPlayback {
 
   PreparingPlayback _copy({
     String? status,
+    String? source,
     String? downloadId,
     String? failed,
   }) => PreparingPlayback(
@@ -88,6 +96,7 @@ class PreparingPlayback {
     subject: subject,
     episode: episode,
     status: status ?? this.status,
+    source: source ?? this.source,
     downloadId: downloadId ?? this.downloadId,
     failed: failed,
   );
@@ -118,7 +127,7 @@ class PlaybackCoordinator extends ChangeNotifier {
         if (_activeCandidate != null &&
             !playback.opening &&
             shell.showingPlayer) {
-          unawaited(_recover(reason));
+          unawaited(_recover(playerFailure(reason)));
         }
       }),
     );
@@ -376,94 +385,110 @@ class PlaybackCoordinator extends ChangeNotifier {
     return operation;
   }
 
-  /// Plays [episode] of the subject on the player route.
+  /// Plays [episode] of the subject on the player route, picking its source
+  /// as every other automatic start does.
   void playEpisode(Episode episode) {
     final current = subject;
     if (current != null) {
       unawaited(
-        _perform(() => selectEpisode(current, episode, useContinuity: true)),
+        prepare(current, episode, () => selectEpisode(current, episode)),
       );
     }
   }
 
-  Future<List<PlayCandidate>> _candidates(
+  /// The cached copy of [episode] that plays first, if it has one. A cache
+  /// that cannot open is reported rather than replaced by another source
+  /// when [strict]; an unfinished one streams from its transfer.
+  Future<PlayCandidate?> _cached(
     Subject item,
     Episode episode, {
-    bool instantOnly = false,
-    bool useContinuity = false,
-    bool forPlayback = false,
-    RequestCancellation? cancel,
-  }) {
-    final settings = playback.settings;
-    return selection.candidates(
+    required RequestCancellation cancel,
+    bool strict = true,
+  }) async {
+    if (!(await library.playableEpisodes(item.id)).contains(episode.id)) {
+      return null;
+    }
+    final local = await selection.candidates(
       item,
       episode,
-      instantOnly: instantOnly,
-      useContinuity: useContinuity,
-      forPlayback: forPlayback,
-      cancel: cancel ?? _selectionCancel,
-      onlineFirst:
-          (item.airing()
-              ? settings.airingPriority
-              : settings.completedPriority) ==
-          'online',
-      language: settings.subtitleLanguage,
+      includeOnline: false,
+      includeTorrents: false,
+      cancel: cancel,
+      useContinuity: true,
+      language: playback.settings.subtitleLanguage,
     );
+    if (local.isEmpty && strict) {
+      throw StateError('${episode.label}的缓存暂时无法播放');
+    }
+    return local.firstOrNull;
   }
 
-  /// Plays a cached file when one exists, otherwise the best instant source.
-  Future<void> selectEpisode(
-    Subject item,
-    Episode episode, {
-    bool useContinuity = false,
-  }) async {
+  /// Plays a cached file when one exists, otherwise the source [_pick]
+  /// chooses; the preparing player shows the search and the choice.
+  Future<void> selectEpisode(Subject item, Episode episode) async {
     playback.cancelAutoplay();
     final request = _nextSelection();
+    final cancel = _selectionCancel;
     _activeCandidate = null;
     _cancelDeadlines();
-    final available = await library.playableEpisodes(item.id);
+    final local = await _cached(item, episode, cancel: cancel);
     if (_closed || request != _selectionRequest) return;
-    if (available.contains(episode.id)) {
-      final local = await selection.candidates(
-        item,
-        episode,
-        instantOnly: true,
-        includeOnline: false,
-        cancel: _selectionCancel,
-        useContinuity: useContinuity,
-        language: playback.settings.subtitleLanguage,
-      );
-      if (_closed || request != _selectionRequest) return;
-      // A cache that cannot open is reported rather than replaced by
-      // another source; an unfinished one streams from its transfer.
-      if (local.isEmpty) {
-        throw StateError('${episode.label}的缓存暂时无法播放');
-      }
-      await playCandidate(local.first, item, episode);
+    if (local != null) {
+      await playCandidate(local, item, episode);
       return;
     }
-    playback.showNotice('正在查找${episode.label}资源');
-    final choices = await _candidates(
+    final chosen = await _pick(item, episode, cancel: cancel, show: true);
+    if (_closed || request != _selectionRequest) return;
+    if (chosen.candidate case final candidate?) {
+      _preparingStep(source: describePick(candidate));
+      await playCandidate(candidate, item, episode, picked: true);
+    } else {
+      _failPreparing(_preparingTicket, chosen.reason!);
+    }
+  }
+
+  /// The source automatic playback opens for [episode], or why there is
+  /// none; [show] reports the search on the preparing player.
+  Future<({PlayCandidate? candidate, String? reason})> _pick(
+    Subject item,
+    Episode episode, {
+    required RequestCancellation cancel,
+    bool show = false,
+  }) async {
+    final settings = playback.settings;
+    final onlineFirst = settings.onlineFirst(item);
+    final sources = <String, SourceProgress>{};
+    if (show) {
+      _preparingStep(status: onlineFirst ? '正在查找在线资源…' : '正在查找资源…');
+    }
+    // Reports arriving after the pick, or for a replaced one, are dropped.
+    var done = false;
+    final result = await selection.pick(
       item,
       episode,
-      useContinuity: useContinuity,
-      forPlayback: true,
+      onlineFirst: onlineFirst,
+      language: settings.subtitleLanguage,
+      cancel: cancel,
+      onProgress: show
+          ? (progress) {
+              if (done || cancel.isCancelled) return;
+              sources[progress.sourceId] = progress;
+              _preparingStep(status: searchStatus(sources.values));
+            }
+          : null,
     );
-    if (_closed || request != _selectionRequest) return;
-    if (choices.isEmpty) {
-      if (preparing != null) {
-        _failPreparing(_preparingTicket, '没有找到可以直接播放的资源');
-        return;
-      }
-      playback.showNotice('${episode.label}没有能直接播放的资源');
-      await shell.openResources(item, episode);
-      return;
+    done = true;
+    if (result.chosen case final chosen?) {
+      return (candidate: chosen, reason: null);
     }
-    if (choices.first.possibleMatch) {
-      await chooseSource(item, episode);
-      return;
-    }
-    await playCandidate(choices.first, item, episode);
+    return (
+      candidate: null,
+      reason: result.uncertain
+          ? '只找到可能不是这部番的资源，请自己选择'
+          : result.online
+          ? '没有找到能在线播放的${episode.label}，可以选择资源下载观看'
+          : '没有找到${episode.label}的资源，可以换个关键词搜索',
+    );
   }
 
   /// Plays [episode]'s cache when it has one, otherwise lets the user pick a
@@ -540,6 +565,8 @@ class PlaybackCoordinator extends ChangeNotifier {
     Episode episode,
     Future<void> Function() start,
   ) async {
+    // The video being left stays where it was, behind the preparing view.
+    if (playback.uri != null) unawaited(playback.player.pause());
     shell.enterPlayer();
     final ticket = ++_preparingTicket;
     _retryPreparing = () =>
@@ -585,11 +612,16 @@ class PlaybackCoordinator extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Shows the step a preparing player is at, and the download it waits on.
-  void _preparingStep({String? status, String? downloadId}) {
+  /// Shows the step a preparing player is at, the source it picked and the
+  /// download it waits on.
+  void _preparingStep({String? status, String? source, String? downloadId}) {
     final current = preparing;
     if (_closed || current == null || current.failed != null) return;
-    preparing = current._copy(status: status, downloadId: downloadId);
+    preparing = current._copy(
+      status: status,
+      source: source,
+      downloadId: downloadId,
+    );
     notifyListeners();
   }
 
@@ -598,6 +630,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     Subject item,
     Episode episode, {
     bool recovery = false,
+    bool picked = false,
     Duration? recoveryPosition,
   }) async {
     final request = recovery ? _selectionRequest : _nextSelection();
@@ -652,6 +685,9 @@ class PlaybackCoordinator extends ChangeNotifier {
           _activeCandidate = candidate;
           await playback.open(session);
           if (playback.error != null) throw StateError(playback.error!);
+          if (picked) {
+            playback.showNotice('已自动选择 ${describePick(candidate)}');
+          }
           // A failed write only loses the preference, not the playback.
           unawaited(
             selection
@@ -843,37 +879,17 @@ class PlaybackCoordinator extends ChangeNotifier {
         return;
       }
       final wanted = playing.family;
-      final choices =
-          (await selection.candidates(
-            detail,
-            next,
-            includeDownloads: false,
-            useContinuity: true,
-            onlineFirst: wanted == 'online',
-            language: playback.settings.subtitleLanguage,
-            cancel: cancel,
-          )).where(
-            (c) =>
-                !c.possibleMatch &&
-                c.kind != PlayKind.local &&
-                c.family == wanted &&
-                !describeCandidate(c).batch &&
-                switch (c.target) {
-                  ReleaseTarget() => true,
-                  OnlineTarget(:final ref) => ref != null,
-                  DownloadTarget() => false,
-                },
-          );
+      final picked = await selection.pick(
+        detail,
+        next,
+        onlineFirst: wanted == 'online',
+        family: wanted,
+        language: playback.settings.subtitleLanguage,
+        cancel: cancel,
+      );
       if (_closed || cancel.isCancelled) return;
-      final chosen =
-          choices
-              .where((c) => c.continuityKey == playing.continuityKey)
-              .firstOrNull ??
-          choices
-              .where((c) => playing.line.isNotEmpty && c.line == playing.line)
-              .firstOrNull ??
-          choices.firstOrNull;
-      if (chosen == null) {
+      final chosen = picked.chosen;
+      if (chosen == null || describeCandidate(chosen).batch) {
         playback.showNotice('没有找到${next.label}的同类资源，未自动缓存');
         return;
       }
@@ -906,8 +922,8 @@ class PlaybackCoordinator extends ChangeNotifier {
     }
   }
 
-  /// The next aired main episode and how it would play; never starts a new
-  /// BT task.
+  /// The next aired main episode and how it would play: its cache, else
+  /// the source a click on it would pick, opened in the preparing player.
   Future<AutoplayTarget?> _prepareAutoplay(PlaybackSession session) async {
     final cancellation = _selectionCancel;
     final id = session.subjectId, currentId = session.episodeId;
@@ -917,32 +933,10 @@ class PlaybackCoordinator extends ChangeNotifier {
         : await tracking.subject(id, forPlayback: true);
     final next = _nextAired(item, currentId);
     if (next == null) return null;
-    if ((await library.playableEpisodes(id)).contains(next.id)) {
-      final local = await selection.candidates(
-        item,
-        next,
-        instantOnly: true,
-        includeOnline: false,
-        cancel: cancellation,
-        useContinuity: true,
-        language: playback.settings.subtitleLanguage,
-      );
-      if (local.isNotEmpty) {
-        return AutoplayTarget(
-          episode: next,
-          sourceLabel: local.first.sourceLabel,
-          play: () => playCandidate(local.first, item, next),
-        );
-      }
-    }
-    final choices = (await _candidates(
-      item,
-      next,
-      instantOnly: true,
-      cancel: cancellation,
-      useContinuity: true,
-    )).where((c) => c.instant && !c.possibleMatch).toList();
-    if (choices.isEmpty) {
+    final chosen =
+        await _cached(item, next, cancel: cancellation, strict: false) ??
+        (await _pick(item, next, cancel: cancellation)).candidate;
+    if (chosen == null) {
       return AutoplayTarget(
         episode: next,
         sourceLabel: '',
@@ -952,8 +946,11 @@ class PlaybackCoordinator extends ChangeNotifier {
     }
     return AutoplayTarget(
       episode: next,
-      sourceLabel: choices.first.sourceLabel,
-      play: () => playCandidate(choices.first, item, next),
+      sourceLabel: chosen.sourceLabel,
+      play: () => prepare(item, next, () async {
+        _preparingStep(source: describePick(chosen));
+        await playCandidate(chosen, item, next);
+      }),
     );
   }
 
@@ -993,4 +990,31 @@ class PlaybackCoordinator extends ChangeNotifier {
     await _operations;
     await playback.close();
   }
+}
+
+/// A picked source as the player names it: the release group, quality and
+/// site of a torrent, the site and line of an online entry.
+String describePick(PlayCandidate candidate) => [
+  if (candidate.kind == PlayKind.online) ...[
+    candidate.providerLabel ?? candidate.provider,
+    if (candidate.line.isNotEmpty) '线路 ${candidate.line}',
+  ] else ...[
+    if (candidate.line.isNotEmpty) candidate.line,
+    ?candidate.quality,
+    candidate.providerLabel ?? candidate.provider,
+  ],
+].join(' · ');
+
+/// What a source search is waiting on, for the preparing player.
+String searchStatus(Iterable<SourceProgress> sources) {
+  final waiting = [
+    for (final source in sources)
+      if (source.status == SearchStatus.loading) source.sourceName,
+  ];
+  final found = sources.fold(0, (sum, source) => sum + source.resultCount);
+  if (waiting.isEmpty) return '正在挑选最合适的资源…';
+  final names = waiting.length > 3
+      ? '${waiting.take(3).join('、')}等 ${waiting.length} 个来源'
+      : waiting.join('、');
+  return found == 0 ? '正在从 $names 查找…' : '已找到 $found 个结果，还在等 $names…';
 }
