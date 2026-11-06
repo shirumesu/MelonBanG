@@ -91,3 +91,22 @@ DanmakuMode? danmakuMode(int value) => switch (value) {
   5 => DanmakuMode.top,
   _ => null,
 };
+
+/// A platform's series [title] as compared with the catalogue's: normalized,
+/// without its season, with the season it states (1 when none) and
+/// bracketed marks such as `[日语版]`. `间谍过家家 第2季` and `间谍过家家
+/// 第二季` are both (间谍过家家, 2).
+(String, int) seasonedTitle(String title) {
+  var text = title.replaceAll(RegExp(r'[\[【（(][^\]】）)]*[\]】）)]'), ' ');
+  final season = RegExp(
+    r'第\s*([一二三四五六七八九十\d]+)\s*[季期部]|season\s*(\d+)|\bs(\d+)\b',
+    caseSensitive: false,
+  ).firstMatch(text);
+  if (season != null) text = text.replaceRange(season.start, season.end, ' ');
+  final number = season?[1] ?? season?[2] ?? season?[3];
+  return (normalizedTitle(text), number == null ? 1 : _value(number));
+}
+
+/// Mandarin, Cantonese and other dubs, which platforms list as their own
+/// series and are not the catalogue's.
+final dubbedTitle = RegExp(r'普通话|国语|粤语|中配|配音版');

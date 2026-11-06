@@ -54,6 +54,9 @@ class DanmakuController extends ChangeNotifier {
 
   /// [comments] after preferences.
   List<DanmakuComment> visible = const [];
+
+  /// How many comments the per-episode limit left out of [visible].
+  int thinned = 0;
   final _comments = <String, List<DanmakuComment>>{};
   final _loads = <String, Object>{};
 
@@ -466,7 +469,9 @@ class DanmakuController extends ChangeNotifier {
   static const copyWindow = .5;
 
   void _refresh({DanmakuComment? sent}) {
-    visible = preferences.visible(comments);
+    final result = preferences.visible(comments);
+    visible = result.shown;
+    thinned = result.thinned;
     if (sent == null) {
       revision++;
     } else {

@@ -168,9 +168,11 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
             Text('来源', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(width: Gap.sm),
             Text(
-              danmaku.duplicates == 0
-                  ? '共 ${danmaku.comments.length} 条'
-                  : '共 ${danmaku.comments.length} 条（已去重 ${danmaku.duplicates} 条）',
+              [
+                '共 ${danmaku.comments.length} 条',
+                if (danmaku.duplicates > 0) '已去重 ${danmaku.duplicates} 条',
+                if (danmaku.thinned > 0) '按上限少显示 ${danmaku.thinned} 条',
+              ].join('，'),
               style: small,
             ),
             const Spacer(),
