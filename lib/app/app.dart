@@ -37,8 +37,10 @@ import '../ui/core/cached_image.dart';
 import '../ui/core/cover_colors.dart';
 import '../ui/core/motion.dart';
 import '../ui/core/page_widgets.dart';
+import '../ui/core/pointer_lamp.dart';
 import '../ui/core/subject_posters.dart';
 import '../ui/core/theme.dart';
+import '../ui/core/theme_reveal.dart';
 import '../ui/discovery/calendar_page.dart';
 import '../ui/discovery/home_page.dart';
 import '../ui/discovery/search_page.dart';
@@ -914,17 +916,26 @@ class _MelonAppState extends State<MelonApp>
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Melonbang',
-      builder: (context, child) => ByteUnitsScope(
-        units: appearance.byteUnits,
-        child: ready
-            ? ContentCacheScope(
-                cache: service.cache,
-                child: SubjectCoverScope(
-                  covers: service.catalog,
-                  child: child!,
-                ),
-              )
-            : child!,
+      // A reveal replaces the fades between themes.
+      themeAnimationDuration: instantTheme
+          ? Duration.zero
+          : kThemeAnimationDuration,
+      builder: (context, child) => LampTracker(
+        child: ThemeReveal(
+          key: themeReveal,
+          child: ByteUnitsScope(
+            units: appearance.byteUnits,
+            child: ready
+                ? ContentCacheScope(
+                    cache: service.cache,
+                    child: SubjectCoverScope(
+                      covers: service.catalog,
+                      child: child!,
+                    ),
+                  )
+                : child!,
+          ),
+        ),
       ),
       scaffoldMessengerKey: messages,
       navigatorKey: navigation,
@@ -952,7 +963,9 @@ class _MelonAppState extends State<MelonApp>
             // between light and dark.
             builder: (context) => AnimatedTheme(
               data: theme,
-              duration: motionDuration(context, 300),
+              duration: instantTheme
+                  ? Duration.zero
+                  : motionDuration(context, 300),
               curve: Curves.easeInOut,
               child: Scaffold(
                 body: Column(
@@ -972,7 +985,7 @@ class _MelonAppState extends State<MelonApp>
                             sidebarVisible = !sidebarVisible;
                           }
                         }),
-                        onToggleTheme: () => setDark(!dark),
+                        onToggleTheme: revealTheme,
                         search: search,
                         searchFocusNode: searchFocus,
                         onSearch: (query) => searchSubjects(query: query),
@@ -1104,6 +1117,28 @@ class _MelonAppState extends State<MelonApp>
   void setDark(bool value) => unawaited(
     appearance.setMode(value ? ThemeChoice.dark : ThemeChoice.light),
   );
+
+  final themeReveal = GlobalKey<ThemeRevealState>();
+
+  /// While the title bar's switch opens the new theme from the pointer.
+  bool instantTheme = false;
+
+  /// The title bar's switch: the other theme spreads out from the pointer.
+  void revealTheme() {
+    final reveal = themeReveal.currentState;
+    final next = dark ? ThemeChoice.light : ThemeChoice.dark;
+    if (reveal == null) return unawaited(appearance.setMode(next));
+    unawaited(
+      reveal
+          .run(() {
+            setState(() => instantTheme = true);
+            return appearance.setMode(next);
+          })
+          .whenComplete(() {
+            if (mounted) setState(() => instantTheme = false);
+          }),
+    );
+  }
 
   List<SettingsSection> settingsSections() => [
     accountSection(

@@ -82,6 +82,99 @@ MelonAccent accentOf(BuildContext context) =>
 Color badgeInk(Color tint, bool dark) =>
     Color((Hct.fromInt(tint.toARGB32())..tone = dark ? 76 : 46).toInt());
 
+/// Coral as text, such as 现在 on the schedule: deepened in light mode to
+/// 4.5:1 on a panel.
+Color coralInk(bool dark) => dark ? coral : const Color(0xffce3d59);
+
+/// [a] mixed into [b] by [t] in OKLab, as CSS `color-mix(in oklab, …)`:
+/// the mix keeps a hue between the two instead of greying as sRGB does.
+Color mixOklab(Color a, Color b, double t) {
+  List<double> lab(Color c) {
+    double lin(double v) =>
+        v <= .04045 ? v / 12.92 : math.pow((v + .055) / 1.055, 2.4).toDouble();
+    final r = lin(c.r), g = lin(c.g), bl = lin(c.b);
+    double cbrt(double v) => math.pow(v, 1 / 3).toDouble();
+    final l = cbrt(.4122214708 * r + .5363325363 * g + .0514459929 * bl);
+    final m = cbrt(.2119034982 * r + .6806995451 * g + .1073969566 * bl);
+    final s = cbrt(.0883024619 * r + .2817188376 * g + .6299787005 * bl);
+    return [
+      .2104542553 * l + .7936177850 * m - .0040720468 * s,
+      1.9779984951 * l - 2.4285922050 * m + .4505937099 * s,
+      .0259040371 * l + .7827717662 * m - .8086757660 * s,
+    ];
+  }
+
+  final x = lab(a), y = lab(b);
+  final ll = x[0] * t + y[0] * (1 - t);
+  final aa = x[1] * t + y[1] * (1 - t);
+  final bb = x[2] * t + y[2] * (1 - t);
+  final l = math.pow(ll + .3963377774 * aa + .2158037573 * bb, 3).toDouble();
+  final m = math.pow(ll - .1055613458 * aa - .0638541728 * bb, 3).toDouble();
+  final s = math.pow(ll - .0894841775 * aa - 1.2914855480 * bb, 3).toDouble();
+  double enc(double v) {
+    v = v.clamp(0, 1).toDouble();
+    return v <= .0031308 ? v * 12.92 : 1.055 * math.pow(v, 1 / 2.4) - .055;
+  }
+
+  return Color.from(
+    alpha: a.a * t + b.a * (1 - t),
+    red: enc(4.0767416621 * l - 3.3077115913 * m + .2309699292 * s),
+    green: enc(-1.2684380046 * l + 2.6097574011 * m - .3413193965 * s),
+    blue: enc(-.0041960863 * l - .7034186147 * m + 1.7076147010 * s),
+  );
+}
+
+/// The light a panel's edge catches from the pointer: a warm grey with a
+/// little of the accent in it, mid-light and low in chroma (about OKLCH
+/// 0.75 / 0.036 / 152° for mint in light mode), never a glow. [strength]
+/// scales it down in dark mode, where the same light reads brighter.
+({Color color, double strength}) panelLamp(BuildContext context) {
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  final accent = accentOf(context).accent;
+  return dark
+      ? (color: mixOklab(accent, const Color(0xffd6d0c7), .22), strength: .6)
+      : (color: mixOklab(accent, const Color(0xffbab5ad), .26), strength: 1);
+}
+
+/// A raised panel's outline and lift: a half-pixel hairline, then a tight
+/// and a soft shadow, both faint.
+List<BoxShadow> panelShadows(BuildContext context) {
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  return dark
+      ? [
+          BoxShadow(
+            color: Colors.white.withValues(alpha: .13),
+            spreadRadius: .5,
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .25),
+            blurRadius: 2,
+            offset: const Offset(0, 1),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .2),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ]
+      : [
+          BoxShadow(
+            color: const Color(0xff264034).withValues(alpha: .2),
+            spreadRadius: .5,
+          ),
+          BoxShadow(
+            color: const Color(0xff1e322a).withValues(alpha: .05),
+            blurRadius: 2,
+            offset: const Offset(0, 1),
+          ),
+          BoxShadow(
+            color: const Color(0xff1e322a).withValues(alpha: .05),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ];
+}
+
 /// A tight contact shadow under a wide ambient one, both cast downward;
 /// [raised] lifts the poster under the pointer by deepening the ambient one.
 List<BoxShadow> posterShadows(BuildContext context, {bool raised = false}) {
@@ -217,7 +310,10 @@ ThemeData _appTheme(bool dark, Color accent) {
             ? seeded.primary
             : dark
             ? mintOnDark
-            : const Color(0xff168364),
+            // Small text such as links, counts and ratings needs 4.5:1
+            // on the page as well as on a panel; colours are adjusted in
+            // OKLCH lightness only, keeping hue and chroma.
+            : const Color(0xff007a5c),
         onPrimary: !brand
             ? seeded.onPrimary
             : dark
@@ -240,7 +336,7 @@ ThemeData _appTheme(bool dark, Color accent) {
         onSecondaryContainer: dark
             ? const Color(0xffff8fa5)
             : const Color(0xffb54763),
-        tertiary: dark ? const Color(0xffe0bd70) : const Color(0xffa57520),
+        tertiary: dark ? const Color(0xffe0bd70) : const Color(0xff8f6103),
         surface: dark ? const Color(0xff1e2430) : const Color(0xfffbfcfb),
         surfaceContainerLowest: dark
             ? const Color(0xff151922)
@@ -369,14 +465,22 @@ ThemeData _appTheme(bool dark, Color accent) {
       ).copyWith(side: focusRing(scheme)),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
-      style: OutlinedButton.styleFrom(
-        foregroundColor: scheme.onSurface,
-        backgroundColor: scheme.surface,
-        shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
-        minimumSize: const Size(64, 36),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
-      ).copyWith(side: focusRing(scheme, BorderSide(color: scheme.outlineVariant))),
+      style:
+          OutlinedButton.styleFrom(
+            foregroundColor: scheme.onSurface,
+            backgroundColor: scheme.surface,
+            shape: const RoundedRectangleBorder(
+              borderRadius: controlBorderRadius,
+            ),
+            minimumSize: const Size(64, 36),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            textStyle: appFont.copyWith(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ).copyWith(
+            side: focusRing(scheme, BorderSide(color: scheme.outlineVariant)),
+          ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
@@ -434,7 +538,13 @@ ThemeData _appTheme(bool dark, Color accent) {
       decoration: BoxDecoration(
         color: scheme.inverseSurface,
         borderRadius: badgeBorderRadius,
-        boxShadow: [BoxShadow(color: menuShadow, blurRadius: 8, offset: const Offset(0, 2))],
+        boxShadow: [
+          BoxShadow(
+            color: menuShadow,
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       textStyle: appFont.copyWith(
         fontSize: 12,
