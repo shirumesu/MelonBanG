@@ -1019,16 +1019,20 @@ class OpeningEnding {
   const OpeningEnding({this.opening, this.ending});
   final ChapterSpan? opening, ending;
 
+  // Fansub and BD chapters name the songs OP/ED (or misspell them, as
+  // `OPENIG`); Crunchyroll's, kept in many WEB-DL releases, name them
+  // Intro and Credits, Netflix's Credits.
   static final _openingName = RegExp(
-    r'^\s*(op\b|op\d|opening|オープニング|片头|序曲)',
+    r'^\s*(op\b|op\d|open|intro\b|オープニング|片头|片頭|序曲)',
     caseSensitive: false,
   );
   static final _endingName = RegExp(
-    r'^\s*(ed\b|ed\d|ending|エンディング|片尾)',
+    r'^\s*(ed\b|ed\d|ending|end\s*credits|credits?\b|outro\b|エンディング|片尾)',
     caseSensitive: false,
   );
 
-  /// Chapters named as OP/ED; without names, a chapter of the usual song
+  /// Chapters named as OP/ED, the opening in the first half and the ending
+  /// in the second; either one not named is a chapter of the usual song
   /// length (80–95 s, or 55–65 s for 10–20 minute episodes) in the first or
   /// last part of the episode, as Animeko does.
   static OpeningEnding? find(
@@ -1047,26 +1051,39 @@ class OpeningEnding {
           ),
         ),
     ];
-    ChapterSpan? named(RegExp name) => spans
-        .where((chapter) => name.hasMatch(chapter.title))
-        .firstOrNull
-        ?.span;
-    var opening = named(_openingName), ending = named(_endingName);
-    if (opening == null && ending == null) {
-      final (low, high) = duration > 20 * 60
-          ? (80.0, 95.0)
-          : duration > 10 * 60
-          ? (55.0, 65.0)
-          : (0.0, 0.0);
-      bool song(ChapterSpan span) =>
-          span.end - span.start >= low && span.end - span.start <= high;
-      final songs = [
-        for (final chapter in spans)
-          if (high > 0 && song(chapter.span)) chapter.span,
-      ];
-      opening = songs.where((span) => span.start < duration * .4).firstOrNull;
-      ending = songs.where((span) => span.start > duration * .6).lastOrNull;
-    }
+    final half = duration / 2;
+    final (low, high) = duration > 20 * 60
+        ? (80.0, 95.0)
+        : duration > 10 * 60
+        ? (55.0, 65.0)
+        : (0.0, 0.0);
+    final songs = [
+      for (final chapter in spans)
+        if (high > 0 &&
+            chapter.span.end - chapter.span.start >= low &&
+            chapter.span.end - chapter.span.start <= high)
+          chapter.span,
+    ];
+    final opening =
+        spans
+            .where(
+              (chapter) =>
+                  chapter.span.start < half &&
+                  _openingName.hasMatch(chapter.title),
+            )
+            .firstOrNull
+            ?.span ??
+        songs.where((span) => span.start < duration * .4).firstOrNull;
+    final ending =
+        spans
+            .where(
+              (chapter) =>
+                  chapter.span.start >= half &&
+                  _endingName.hasMatch(chapter.title),
+            )
+            .lastOrNull
+            ?.span ??
+        songs.where((span) => span.start > duration * .6).lastOrNull;
     if (opening == null && ending == null) return null;
     return OpeningEnding(opening: opening, ending: ending);
   }
