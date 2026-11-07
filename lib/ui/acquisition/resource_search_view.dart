@@ -106,7 +106,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   ResourceFamily kind = ResourceFamily.all;
   // Whether results not stating a selected filter show, after the rest.
   bool showUnstated = false;
-  bool searching = false;
   String? opening;
   PageStorageBucket? storage;
   bool formRestored = false, restoringForm = false;
@@ -116,7 +115,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   Subject? get subject => state.subject;
   Episode? get episode => state.episode;
   Episode? get searched => state.searched;
-  bool get searchBusy => controller.busy || searching;
+  bool get searchBusy => controller.busy;
 
   @override
   void initState() {
@@ -220,12 +219,9 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     super.dispose();
   }
 
+  /// Starts a search with the form's terms, replacing one still running.
   Future<void> search() async {
-    if (searchBusy) return;
-    setState(() {
-      searching = true;
-      parts.clear();
-    });
+    setState(parts.clear);
     try {
       await controller.search(
         ResourceTerms(
@@ -247,8 +243,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           '搜索失败：${errorMessage(error)}',
         );
       }
-    } finally {
-      if (mounted) setState(() => searching = false);
     }
   }
 
@@ -745,24 +739,18 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 prefixText: '集数  ',
               ),
             );
+            // Searching again stops the running search, so a mistyped
+            // keyword or episode never has to wait it out.
             final button = Tooltip(
-              message: searchBusy ? '正在搜索资源…' : '搜索资源',
+              message: searchBusy ? '停止当前搜索，按新的关键词重新搜索' : '搜索资源',
               child: FilledButton(
-                onPressed: searchBusy ? null : search,
+                onPressed: search,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    // Keeps the button as wide as its label.
-                    const Opacity(opacity: 0, child: Text('搜索')),
-                    MotionSwap(
-                      value: searchBusy,
-                      child: searchBusy
-                          ? const SizedBox.square(
-                              dimension: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('搜索'),
-                    ),
+                    // Keeps the fields still when the label changes.
+                    const Opacity(opacity: 0, child: Text('重新搜索')),
+                    Text(searchBusy ? '重新搜索' : '搜索'),
                   ],
                 ),
               ),
@@ -800,6 +788,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             child: ResourceSearchStatus(
               providers: state.sites,
               cloud: state.cloud,
+              settled: controller.slow && state.candidates.isNotEmpty,
             ),
           ),
         ),
@@ -894,12 +883,10 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                   Tooltip(
                     message: '清空集数重新搜索，按字幕组归类后选择集数下载',
                     child: TextButton.icon(
-                      onPressed: searchBusy
-                          ? null
-                          : () {
-                              episodeQuery.clear();
-                              search();
-                            },
+                      onPressed: () {
+                        episodeQuery.clear();
+                        search();
+                      },
                       icon: const Icon(Icons.download_rounded, size: 17),
                       label: const Text('批量下载'),
                     ),

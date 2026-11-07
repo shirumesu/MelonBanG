@@ -624,15 +624,16 @@ class _SubjectCoverState extends State<SubjectCover> {
     final id = widget.id;
     if (catalog == null || id <= 0 || _address != null) return;
     void retry() {
-      if (!mounted || id != widget.id || _address != null) return;
-      _retry = Timer(
-        Duration(seconds: math.min(60, 1 << math.min(++_attempt, 6))),
-        _resolve,
-      );
+      if (!mounted || id != widget.id || _address != null || _attempt > 0) {
+        return;
+      }
+      _attempt++;
+      _retry = Timer(const Duration(seconds: 2), _resolve);
     }
 
-    // The placeholder remains visible while missing metadata or a failed
-    // catalogue request is retried, just like CachedImage's byte requests.
+    // Missing metadata or a failed catalogue request is asked once more, as
+    // CachedImage retries its bytes once; then the placeholder stays until
+    // the cover is built anew.
     unawaited(
       catalog
           .resolveCover(id)

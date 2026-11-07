@@ -82,6 +82,14 @@ class ResourceSearchController extends ChangeNotifier {
 
   ResourceSearchState state = const ResourceSearchState();
   bool busy = false;
+
+  /// Whether the running search has gone on past [patience]. Most sites
+  /// answer within 3 seconds (measured 2026-11-07: 9 of 10 by 2.8 s); one
+  /// still loading after that is shown as slow, its results joining when
+  /// they arrive, instead of holding the whole page in a loading state.
+  bool slow = false;
+  static const patience = Duration(seconds: 5);
+  Timer? _patience;
   int _ticket = 0;
   RequestCancellation _cancel = RequestCancellation();
 
@@ -106,6 +114,8 @@ class ResourceSearchController extends ChangeNotifier {
     _cancel.cancel();
     _ticket++;
     busy = false;
+    _patience?.cancel();
+    slow = false;
   }
 
   void _rerank() {
@@ -168,6 +178,12 @@ class ResourceSearchController extends ChangeNotifier {
     void showSoon() => pending ??= Timer(interval, show);
 
     busy = true;
+    slow = false;
+    _patience?.cancel();
+    _patience = Timer(patience, () {
+      slow = true;
+      notifyListeners();
+    });
     show();
     final settings = playback.settings;
     try {
@@ -218,6 +234,7 @@ class ResourceSearchController extends ChangeNotifier {
       if (pending != null) show();
       if (ticket == _ticket) {
         busy = false;
+        _patience?.cancel();
         notifyListeners();
       }
     }

@@ -33,9 +33,10 @@ ImageProvider cachedImageProvider(
   _CachedImage(ContentCacheScope.of(context), url),
 );
 
-/// An [Image] backed by [ContentCache] that recovers from transient failures:
-/// it retries with backoff and as soon as any other view reads the same
-/// address. [MissingImage] failures are reported through [onMissing] instead.
+/// An [Image] backed by [ContentCache]. A failed load is retried once, and
+/// again as soon as any other view reads the same address; otherwise it
+/// shows [errorBuilder] until it is built anew, since failures are never
+/// cached. [MissingImage] failures are reported through [onMissing] instead.
 class CachedImage extends StatefulWidget {
   const CachedImage({
     super.key,
@@ -105,11 +106,8 @@ class _CachedImageState extends State<CachedImage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && url == widget.url) widget.onMissing?.call(url);
       });
-    } else {
-      _retry = Timer(
-        Duration(seconds: math.min(60, 1 << math.min(_attempt + 1, 6))),
-        _reload,
-      );
+    } else if (_attempt == 0) {
+      _retry = Timer(const Duration(seconds: 2), _reload);
     }
   }
 
