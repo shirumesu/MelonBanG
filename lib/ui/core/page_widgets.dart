@@ -1,10 +1,79 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'motion.dart';
 import 'pointer_lamp.dart';
 import 'theme.dart';
+
+/// A [ListenableBuilder] for a page kept while another is shown: hidden,
+/// its tickers muted, it skips [listenable]'s changes and builds once on
+/// showing again, so a hidden page never asks for frames.
+class ShownListenableBuilder extends StatefulWidget {
+  const ShownListenableBuilder({
+    super.key,
+    required this.listenable,
+    required this.builder,
+  });
+  final Listenable listenable;
+  final WidgetBuilder builder;
+
+  @override
+  State<ShownListenableBuilder> createState() => _ShownListenableBuilderState();
+}
+
+class _ShownListenableBuilderState extends State<ShownListenableBuilder> {
+  ValueListenable<TickerModeData>? _shown;
+  bool _missed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.listenable.addListener(_changed);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final shown = TickerMode.getValuesNotifier(context);
+    if (shown == _shown) return;
+    _shown?.removeListener(_shownChanged);
+    _shown = shown..addListener(_shownChanged);
+  }
+
+  @override
+  void didUpdateWidget(ShownListenableBuilder old) {
+    super.didUpdateWidget(old);
+    if (old.listenable == widget.listenable) return;
+    old.listenable.removeListener(_changed);
+    widget.listenable.addListener(_changed);
+  }
+
+  @override
+  void dispose() {
+    widget.listenable.removeListener(_changed);
+    _shown?.removeListener(_shownChanged);
+    super.dispose();
+  }
+
+  void _changed() {
+    if (_shown!.value.enabled) {
+      setState(() {});
+    } else {
+      _missed = true;
+    }
+  }
+
+  void _shownChanged() {
+    if (!_shown!.value.enabled || !_missed) return;
+    _missed = false;
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context);
+}
 
 class PageScroll extends StatelessWidget {
   const PageScroll({super.key, required this.children});

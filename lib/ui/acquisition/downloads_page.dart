@@ -57,6 +57,10 @@ class DownloadsPage extends StatefulWidget {
 }
 
 class _DownloadsPageState extends State<DownloadsPage> {
+  late final _changes = Listenable.merge([
+    widget.downloads.snapshot,
+    widget.subscriptions,
+  ]);
   String filter = '全部';
   String statusFilter = '全部状态';
   final expanded = <String>{};
@@ -232,12 +236,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([
-      widget.downloads.snapshot,
-      widget.subscriptions,
-    ]),
-    builder: (context, _) => _page(context, widget.downloads.snapshot.value),
+  Widget build(BuildContext context) => ShownListenableBuilder(
+    listenable: _changes,
+    builder: (context) => _page(context, widget.downloads.snapshot.value),
   );
 
   Widget _page(BuildContext context, TransferSnapshot snapshot) {
