@@ -305,29 +305,57 @@ String resourceProviderStatus(SourceProgress source) => switch (source.status) {
   SearchStatus.ready => '${source.resultCount} 条',
 };
 
+/// A running search's progress. Sites are waited on under a progress bar
+/// until [settled]; then the sites still loading, and the PikPak and release
+/// group lookups that only add to what shows, are a quiet line.
 class ResourceSearchStatus extends StatelessWidget {
-  const ResourceSearchStatus({super.key, required this.providers, this.cloud});
+  const ResourceSearchStatus({
+    super.key,
+    required this.providers,
+    this.cloud,
+    required this.settled,
+  });
   final List<SourceProgress> providers;
   final SourceProgress? cloud;
 
+  /// Whether results show and the search has run past its patience, so a
+  /// slow site no longer holds the page.
+  final bool settled;
+
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const LinearProgressIndicator(minHeight: 2),
-      const SizedBox(height: Gap.sm),
-      Text(
-        providers.any((e) => e.status == SearchStatus.loading)
-            ? '正在搜索 ${providers.where((e) => e.status != SearchStatus.loading).length}/${providers.length} 个资源站'
-            // PikPak stays loading until the sites' group pages finish too.
-            : cloud?.status == SearchStatus.loading &&
-                  cloud!.completed < cloud!.total
-            ? '正在查询 PikPak ${cloud!.completed}/${cloud!.total}'
-            : '正在补充字幕组信息',
-        style: Theme.of(context).textTheme.bodySmall,
-      ),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final pending = [
+      for (final provider in providers)
+        if (provider.status == SearchStatus.loading) provider.sourceName,
+    ];
+    final waiting = pending.isNotEmpty && !settled;
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        waiting
+            ? const LinearProgressIndicator(minHeight: 2)
+            : const SizedBox(height: 2),
+        const SizedBox(height: Gap.sm),
+        Text(
+          waiting
+              ? '正在搜索 ${providers.length - pending.length}/${providers.length} 个资源站'
+              : pending.isNotEmpty
+              ? '${pending.take(3).join('、')}'
+                    '${pending.length > 3 ? ' 等 ${pending.length} 个资源站' : ''}'
+                    '响应较慢，找到的资源会自动加入'
+              // PikPak stays loading until the sites' group pages finish too.
+              : cloud?.status == SearchStatus.loading &&
+                    cloud!.completed < cloud!.total
+              ? '正在查询 PikPak ${cloud!.completed}/${cloud!.total}'
+              : '正在补充字幕组信息',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: waiting ? null : theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 String resourceSizeLabel(TorrentRelease release, ByteUnits units) {

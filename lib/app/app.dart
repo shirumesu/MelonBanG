@@ -172,8 +172,12 @@ class _MelonAppState extends State<MelonApp>
       };
 
   /// Whether the title-bar progress shows: a subject only until its detail
-  /// is shown, after which its sections show what they still load.
-  bool get busy => loading && (route != 'subject' || subjects.waiting);
+  /// is shown, after which its sections show what they still load; never
+  /// for resources, whose page shows each site's progress.
+  bool get busy =>
+      loading &&
+      route != 'resources' &&
+      (route != 'subject' || subjects.waiting);
 
   @override
   void initState() {
@@ -792,8 +796,7 @@ class _MelonAppState extends State<MelonApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     Background.yieldResources(
-      state == AppLifecycleState.hidden &&
-          !(ready && playback.playing),
+      state == AppLifecycleState.hidden && !(ready && playback.playing),
     );
   }
 
