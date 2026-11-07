@@ -154,6 +154,8 @@ class LibtorrentTransfer implements TorrentTransfer {
     final elapsed = (now - _lastTick) / 1000;
     _lastTick = now;
     final before = {for (final t in _tasks.values) t['id']: t['status']};
+    final shown = {for (final t in _tasks.values) t['id']: _shown(t)};
+    var filesRead = false;
     for (final entry in _handles.entries.toList()) {
       final id = entry.key, info = snapshot[entry.value];
       final task = _tasks[id];
@@ -226,6 +228,7 @@ class LibtorrentTransfer implements TorrentTransfer {
               !checking &&
               now - (_fileReadAt[id] ?? 0) >= 3000);
       if (info.hasMetadata && refreshFiles) {
+        filesRead = true;
         _fileReadAt[id] = now;
         _files[id] = lt.LibtorrentFlutter.instance
             .getFiles(entry.value)
@@ -263,7 +266,7 @@ class LibtorrentTransfer implements TorrentTransfer {
       }
     }
     _schedule();
-    final periodic = now - _lastSaved >= 5000;
+    final periodic = now - _lastSaved >= 30000;
     for (final task in _tasks.values) {
       final changing = const {
         'downloading',
@@ -282,7 +285,48 @@ class LibtorrentTransfer implements TorrentTransfer {
       }
     }
     if (periodic) _lastSaved = now;
-    _emit();
+    // The engine reports every poll; a seeding task with no peers changes
+    // nothing anyone sees.
+    if (filesRead ||
+        shown.length != _tasks.length ||
+        _tasks.values.any((t) => !_sameShown(shown[t['id']], _shown(t)))) {
+      _emit();
+    }
+  }
+
+  static const _shownKeys = [
+    'status',
+    'title',
+    'progress',
+    'downloadSpeedBytesPerSecond',
+    'uploadSpeedBytesPerSecond',
+    'peerCount',
+    'seedCount',
+    'knownPeerCount',
+    'trackerCount',
+    'workingTrackers',
+    'failedTrackers',
+    'dhtNodes',
+    'errorMessage',
+    'totalBytes',
+    'downloadedBytes',
+    'uploadedBytes',
+    'complete',
+    'seedStopReason',
+  ];
+
+  /// What the downloads page shows of [task], seeding time in minutes.
+  static List<Object?> _shown(Json task) => [
+    for (final key in _shownKeys) task[key],
+    (number(task['seedSeconds']) / 60).floor(),
+  ];
+
+  static bool _sameShown(List<Object?>? a, List<Object?> b) {
+    if (a == null || a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   void _schedule() {

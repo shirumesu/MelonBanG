@@ -454,6 +454,17 @@ class _MelonAppState extends State<MelonApp>
     setState(() => route = 'player');
   }
 
+  /// Detach the video texture before disposing its native rendering context.
+  /// A hidden window draws no frames, and has no texture on screen.
+  @override
+  Future<void> videoDetached() async {
+    if (!window.isVisible) return;
+    await WidgetsBinding.instance.endOfFrame.timeout(
+      const Duration(seconds: 1),
+      onTimeout: () {},
+    );
+  }
+
   /// A playing player searches in its own sheet instead of leaving for the
   /// resources page.
   @override
@@ -727,14 +738,7 @@ class _MelonAppState extends State<MelonApp>
       }
     }
     setState(() => closing = true);
-    // Detach the video texture before disposing its native rendering context.
-    // A hidden window draws no frames, and has no texture on screen.
-    if (window.isVisible) {
-      await WidgetsBinding.instance.endOfFrame.timeout(
-        const Duration(seconds: 1),
-        onTimeout: () {},
-      );
-    }
+    await videoDetached();
     try {
       if (ready) await coordinator.close();
     } finally {
@@ -781,6 +785,16 @@ class _MelonAppState extends State<MelonApp>
   void relaunch() {
     relaunching = true;
     quit();
+  }
+
+  /// Hidden to the tray or minimized, the app gives way to whatever the user
+  /// does now, unless a video still plays on.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    Background.yieldResources(
+      state == AppLifecycleState.hidden &&
+          !(ready && playback.playing),
+    );
   }
 
   @override

@@ -207,6 +207,18 @@ Win32Window::MessageHandler(HWND hwnd,
       return 0;
     }
 
+    // Hiding to the tray tells the view nothing, so Flutter would keep the
+    // app inactive and drawing. An empty view is hidden to it, as when the
+    // window is minimized, which stops frames until it is shown again.
+    case WM_SHOWWINDOW: {
+      if (child_content_ != nullptr && lparam == 0) {
+        RECT rect = wparam ? GetClientArea() : RECT{};
+        MoveWindow(child_content_, rect.left, rect.top, rect.right - rect.left,
+                   rect.bottom - rect.top, FALSE);
+      }
+      break;
+    }
+
     case WM_ACTIVATE:
       if (child_content_ != nullptr) {
         SetFocus(child_content_);

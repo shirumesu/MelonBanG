@@ -32,9 +32,23 @@ class Playback extends ChangeNotifier {
     danmaku.addListener(_danmakuChanged);
     settings.addListener(_settingsChanged);
     _savedRate = preferences.getDouble('player-rate') ?? 1;
+    _lastAudibleVolume = preferences.getDouble(_volumeKey) ?? 80;
+  }
+
+  /// Opens mpv and its video output, which hold a decoder, buffers and GPU
+  /// textures; [unload] closes them again.
+  Player _create() {
+    final player = _player = Player(
+      configuration: const PlayerConfiguration(
+        title: 'Melonbang',
+        libass: true,
+      ),
+    );
+    _shaders = 'off';
+    _cacheWait = 0;
     unawaited(player.setRate(_savedRate));
     _hwdec = settings.hardwareDecoding;
-    video = VideoController(
+    _video = VideoController(
       player,
       configuration: VideoControllerConfiguration(hwdec: _mpvHwdec(_hwdec)),
     );
@@ -42,17 +56,28 @@ class Playback extends ChangeNotifier {
     _subscriptions.add(
       player.stream.videoParams.listen((_) => _scheduleOutputSize()),
     );
-    _subscriptions.add(player.stream.position.listen(_skipSongs));
     _subscriptions.add(
-      player.stream.buffering.listen((buffering) {
-        if (buffering) unawaited(_stalled());
+      player.stream.position.listen((position) {
+        _skipSongs(position);
+        _positions.add(position);
       }),
     );
     _subscriptions.add(
-      errors.listen((value) {
-        error ??= playerFailure(value);
-        notifyListeners();
+      player.stream.buffering.listen((buffering) {
+        if (buffering) unawaited(_stalled());
+        _buffering.add(buffering);
       }),
+    );
+    _subscriptions.add(
+      player.stream.error
+          // media_kit forwards FFmpeg's TCP EOF log as an error, including
+          // at the end of an HTTP response. It does not mean playback failed.
+          .where((message) => message != 'tcp: ffurl_read returned 0xdfb9b0bb')
+          .listen((value) {
+            error ??= playerFailure(value);
+            notifyListeners();
+            _errors.add(value);
+          }),
     );
     _subscriptions.add(
       player.stream.completed.listen((done) {
@@ -68,7 +93,6 @@ class Playback extends ChangeNotifier {
         unawaited(saveProgress());
       }),
     );
-    _lastAudibleVolume = preferences.getDouble(_volumeKey) ?? 80;
     if (preferences.getBool(_mutedKey) == true) {
       unawaited(player.setVolume(0));
     } else {
@@ -126,7 +150,9 @@ class Playback extends ChangeNotifier {
         );
       });
     }
+    return player;
   }
+
   final PlaybackLibrary library;
   final DownloadRepository downloads;
   final DanmakuController danmaku;
@@ -134,15 +160,29 @@ class Playback extends ChangeNotifier {
 
   /// Online media goes through the app's proxy; local streams never do.
   final NetworkProxy proxy;
-  final player = Player(
-    configuration: const PlayerConfiguration(title: 'Melonbang', libass: true),
-  );
-  // media_kit forwards FFmpeg's TCP EOF log as an error, including at the
-  // end of an HTTP response. It does not mean playback failed.
-  Stream<String> get errors => player.stream.error.where(
-    (message) => message != 'tcp: ffurl_read returned 0xdfb9b0bb',
-  );
-  late final VideoController video;
+  Player? _player;
+  VideoController? _video;
+
+  /// The player, opened when first used and closed by [unload].
+  Player get player => _player ?? _create();
+  VideoController get video {
+    if (_video == null) _create();
+    return _video!;
+  }
+
+  /// Whether a video plays now; false without a player.
+  bool get playing => _player?.state.playing ?? false;
+
+  /// Pauses the video, if one is open.
+  Future<void> pause() async => _player?.pause();
+
+  /// The open player's position, buffering and errors, across players.
+  Stream<Duration> get positions => _positions.stream;
+  Stream<bool> get buffering => _buffering.stream;
+  Stream<String> get errors => _errors.stream;
+  final _positions = StreamController<Duration>.broadcast();
+  final _buffering = StreamController<bool>.broadcast();
+  final _errors = StreamController<String>.broadcast();
   final _subscriptions = <StreamSubscription<dynamic>>[];
   Timer? _timer, _volumeWrite, _rateWrite, _autoplayTimer;
   late final PlaybackPreferences settings;
@@ -245,7 +285,7 @@ class Playback extends ChangeNotifier {
   Timer? _cacheWaitDecay;
 
   Future<void> _setCacheWait(int step) async {
-    final platform = player.platform;
+    final platform = _player?.platform;
     if (platform is! NativePlayer) return;
     _cacheWait = step;
     await platform.setProperty('cache-pause-wait', '${_cacheWaits[step]}');
@@ -317,7 +357,7 @@ class Playback extends ChangeNotifier {
     if (on == _boosting) return;
     _boosting = on;
     if (on) cancelAutoplay();
-    await player.setRate(on ? 3 : _savedRate);
+    await _player?.setRate(on ? 3 : _savedRate);
   }
 
   Future<void> open(PlaybackSession next) {
@@ -494,8 +534,8 @@ class Playback extends ChangeNotifier {
 
   void _settingsChanged() {
     if (!settings.autoplay) cancelAutoplay();
-    final platform = player.platform;
-    if (settings.hardwareDecoding != _hwdec && platform is NativePlayer) {
+    final platform = _player?.platform;
+    if (platform is NativePlayer && settings.hardwareDecoding != _hwdec) {
       _hwdec = settings.hardwareDecoding;
       unawaited(platform.setProperty('hwdec', _mpvHwdec(_hwdec)));
     }
@@ -560,7 +600,7 @@ class Playback extends ChangeNotifier {
 
   Future<void> _applyShaders() async {
     final mode = settings.superResolution;
-    final platform = player.platform;
+    final platform = _player?.platform;
     if (!superResolutionAvailable ||
         platform is! NativePlayer ||
         mode == _shaders) {
@@ -610,6 +650,8 @@ class Playback extends ChangeNotifier {
   }
 
   Future<void> _resizeOutput() async {
+    final player = _player, video = _video;
+    if (player == null || video == null) return;
     final revision = ++_outputRevision;
     final params = player.state.videoParams;
     final rotated = params.rotate == 90 || params.rotate == 270;
@@ -975,6 +1017,37 @@ class Playback extends ChangeNotifier {
     }
   }
 
+  /// Saves the place and closes the player, so its decoder, buffers and
+  /// textures are freed; playing again opens a new one.
+  ///
+  /// The native output is disposed once [detached] says no video texture
+  /// is drawn any more.
+  Future<void> unload(Future<void> Function() detached) async {
+    cancelAutoplay();
+    await _openQueue;
+    await _frameQueue;
+    final player = _player;
+    if (player == null) return;
+    await player.pause();
+    await saveProgress();
+    session = null;
+    uri = null;
+    frameStepping = false;
+    _timer?.cancel();
+    _outputTimer?.cancel();
+    _cacheWaitDecay?.cancel();
+    for (final subscription in _subscriptions) {
+      await subscription.cancel();
+    }
+    _subscriptions.clear();
+    downloads.releaseStreamsExcept(null);
+    notifyListeners();
+    await detached();
+    _player = null;
+    _video = null;
+    await player.dispose();
+  }
+
   Future<void> close() => _closing ??= _close();
   Future<void> _close() async {
     _closed = true;
@@ -993,8 +1066,11 @@ class Playback extends ChangeNotifier {
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
-    await player.dispose();
+    await _player?.dispose();
     downloads.releaseStreamsExcept(null);
+    await _positions.close();
+    await _buffering.close();
+    await _errors.close();
   }
 }
 

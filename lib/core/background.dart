@@ -1,5 +1,7 @@
+import 'dart:ffi';
 import 'dart:io';
 
+import 'package:ffi/ffi.dart';
 import 'package:flutter/services.dart';
 
 /// What the desktop does for the app while its window is closed to the
@@ -55,6 +57,38 @@ abstract final class Background {
     if (!Platform.isMacOS) return;
     await _channel.invokeMethod<void>('keepAwake', on);
   }
+
+  /// On Windows, runs the process in efficiency mode (EcoQoS) at background
+  /// CPU, disk and memory priority while [on], so games and other foreground
+  /// apps come first; downloads continue, only slower when contended.
+  static void yieldResources(bool on) {
+    if (!Platform.isWindows || _yielding == on) return;
+    _yielding = on;
+    final process = _getCurrentProcess();
+    _setPriorityClass(process, on ? 0x00100000 : 0x00200000);
+    final throttling = calloc<Uint32>(3);
+    // PROCESS_POWER_THROTTLING_STATE: version 1, execution speed.
+    throttling[0] = 1;
+    throttling[1] = 1;
+    throttling[2] = on ? 1 : 0;
+    _setProcessInformation(process, 4, throttling.cast(), 12);
+    calloc.free(throttling);
+  }
+
+  static bool _yielding = false;
+  static final _kernel32 = DynamicLibrary.open('kernel32.dll');
+  static final _getCurrentProcess = _kernel32
+      .lookupFunction<IntPtr Function(), int Function()>('GetCurrentProcess');
+  static final _setPriorityClass = _kernel32
+      .lookupFunction<
+        Int32 Function(IntPtr, Uint32),
+        int Function(int, int)
+      >('SetPriorityClass');
+  static final _setProcessInformation = _kernel32
+      .lookupFunction<
+        Int32 Function(IntPtr, Int32, Pointer<Void>, Uint32),
+        int Function(int, int, Pointer<Void>, int)
+      >('SetProcessInformation');
 
   /// Quits the macOS runner, once the services are closed.
   static Future<void> quit() async {

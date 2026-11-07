@@ -31,6 +31,9 @@ abstract interface class PlaybackShell {
   /// Opens resource search for [episode]: the player's own sheet while the
   /// player shows, else the resources page.
   Future<void> openResources(Subject subject, Episode episode);
+
+  /// Completes once the player's video texture is no longer drawn.
+  Future<void> videoDetached();
 }
 
 /// A chosen source that could not be played; nothing else is tried for it.
@@ -117,7 +120,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     playback.resolveNext = _prepareAutoplay;
     playback.addListener(_markWatched);
     _subscriptions.add(
-      playback.player.stream.position.listen((_) {
+      playback.positions.listen((_) {
         _markWatched();
         _considerCacheNext();
       }),
@@ -132,7 +135,7 @@ class PlaybackCoordinator extends ChangeNotifier {
       }),
     );
     _subscriptions.add(
-      playback.player.stream.buffering.listen((buffering) {
+      playback.buffering.listen((buffering) {
         _bufferDeadline?.cancel();
         // A transfer stream buffers while its data arrives; that is not a
         // failing source.
@@ -308,13 +311,12 @@ class PlaybackCoordinator extends ChangeNotifier {
     preparing = null;
   }
 
-  /// Pauses and saves progress after queued playback work, then runs
-  /// [afterwards].
+  /// Closes the video after queued playback work, saving its place and
+  /// freeing what it held, then runs [afterwards]. Playing again reloads it.
   void stop(Future<void> Function() afterwards) {
     _operations = _operations.then(
       (_) => _perform(() async {
-        await playback.player.pause();
-        await playback.saveProgress();
+        await playback.unload(shell.videoDetached);
         await afterwards();
       }),
     );
@@ -566,7 +568,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     Future<void> Function() start,
   ) async {
     // The video being left stays where it was, behind the preparing view.
-    if (playback.uri != null) unawaited(playback.player.pause());
+    unawaited(playback.pause());
     shell.enterPlayer();
     final ticket = ++_preparingTicket;
     _retryPreparing = () =>
@@ -805,7 +807,7 @@ class PlaybackCoordinator extends ChangeNotifier {
       _failPreparing(_preparingTicket, reason);
       return;
     }
-    unawaited(playback.player.pause());
+    unawaited(playback.pause());
     failure = PlaybackFailure(reason, episode);
     notifyListeners();
   }
