@@ -59,10 +59,15 @@ class ReleaseJudgement {
 /// when [revisions] allows. Releases are taken in publishing order, so the
 /// first of an episode's matching files is kept, whichever subscribed group
 /// it is by; following the preferred groups, of files found together the
-/// one by the group listed first is kept. A smart filter takes the groups [smartGroups] picks from
-/// [candidates], with episodes timed by [aired]. A release stating nothing
-/// for a selection only counts while the filter names one group, whose
-/// releases word it their own way.
+/// one by the group listed first is kept. Of that group's files of the
+/// episode found together, one with subtitles the player can turn off goes
+/// first, as the resource search ranks them, so episodes found together
+/// take the same version rather than whichever was posted a minute earlier.
+/// A smart filter takes the groups
+/// [smartGroups] picks from [candidates], with episodes timed by [aired].
+/// Subtitles are read across a group's series as the resource search reads
+/// them; a release still stating nothing for a selection only counts while
+/// the filter names one group, whose releases word it their own way.
 List<ReleaseJudgement> judgeReleases({
   required Subject subject,
   required SubscriptionFilter filter,
@@ -92,6 +97,13 @@ List<ReleaseJudgement> judgeReleases({
   // Preferred groups while none are set leave every group in.
   final anyGroup = filter.anyGroup || (!filter.smart && names.isEmpty);
   final loosely = !anyGroup && names.length == 1;
+  final subtitlesOf = seriesSubtitles([
+    for (final candidate in candidates)
+      describeResource(
+        candidate.release.title,
+        releaseGroups: candidate.release.releaseGroups,
+      ),
+  ]);
   final ordered = candidates.toList()
     ..sort((a, b) {
       final x = releasePublished(a.release.publishedAt);
@@ -147,12 +159,7 @@ List<ReleaseJudgement> judgeReleases({
       );
       continue;
     }
-    final gaps = resourceSelectionGaps(
-      info,
-      qualities: filter.qualities,
-      languages: filter.languages,
-      subtitleForms: filter.forms,
-    );
+    final gaps = filter.gaps(info, subtitlesOf);
     if (gaps == null || (gaps.isNotEmpty && !loosely)) {
       judged.add(
         skip(
@@ -221,18 +228,34 @@ List<ReleaseJudgement> judgeReleases({
       continue;
     }
     // Following the preferred groups, the earliest of them out with the
-    // episode in their order; otherwise whichever came first. A corrected
-    // release goes before the first one when both are new.
+    // episode in their order; otherwise whichever came first. Of that
+    // group's files, the earliest with subtitles in a track of their own,
+    // else the earliest; a corrected release goes before the others when
+    // both are new, the latest of them.
     final order = filter.preferred ? preferredGroups : const <String>[];
     int rank(ReleaseJudgement option) =>
         preferredGroupIndex(creditedGroups(option.info), order) ?? order.length;
     final best = options.map(rank).reduce(math.min);
     final ranked = options.where((option) => rank(option) == best);
+    final group = creditedGroups(ranked.first.info);
+    final versions = ranked
+        .where((option) => groupsMatch(creditedGroups(option.info), group))
+        .toList();
+    final corrected = versions
+        .where((option) => releaseRevision(option.candidate.release.title))
+        .toList()
+        .reversed
+        .toList();
+    final pool = corrected.isEmpty ? versions : corrected;
     final chosen =
-        ranked
-            .where((option) => releaseRevision(option.candidate.release.title))
-            .lastOrNull ??
-        ranked.first;
+        pool
+            .where(
+              (option) => resourceSubtitleForms.any(
+                subtitlesOf(option.info).subtitleForms.contains,
+              ),
+            )
+            .firstOrNull ??
+        pool.first;
     for (final option in options) {
       final replaces = held.contains(episode);
       judged.add(
@@ -292,22 +315,24 @@ Map<String, GroupRecord> groupRecords({
   required DateTime? Function(Episode) aired,
 }) {
   final records = <String, GroupRecord>{};
-  for (final candidate in candidates) {
-    final release = candidate.release;
-    final info = describeResource(
-      release.title,
-      releaseGroups: release.releaseGroups,
-    );
+  final described = [
+    for (final candidate in candidates)
+      (
+        candidate.release,
+        describeResource(
+          candidate.release.title,
+          releaseGroups: candidate.release.releaseGroups,
+        ),
+      ),
+  ];
+  final subtitlesOf = seriesSubtitles([
+    for (final (_, info) in described) info,
+  ]);
+  for (final (release, info) in described) {
     if (info.batch || releaseRebroadcast(release.title)) continue;
     final episode = releaseEpisode(subject, info);
     if (episode == null) continue;
-    final gaps = resourceSelectionGaps(
-      info,
-      qualities: filter.qualities,
-      languages: filter.languages,
-      subtitleForms: filter.forms,
-    );
-    if (gaps == null) continue;
+    if (filter.gaps(info, subtitlesOf) == null) continue;
     // A bare date says nothing about the hour.
     final raw = release.publishedAt ?? '';
     final published = raw.length > 10 ? releasePublished(raw) : null;

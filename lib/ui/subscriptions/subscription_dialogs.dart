@@ -188,6 +188,11 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
   late final List<Episode> earlier = widget.controller.earlierEpisodes(
     widget.subject,
   );
+
+  /// Aired episodes left out of [earlier] as they have a cache already.
+  late final List<Episode> cached = widget.controller.cachedEarlier(
+    widget.subject,
+  );
   late bool cacheEarlier =
       subscription == null && widget.controller.preferences.cacheEarlier;
   final cancel = RequestCancellation();
@@ -204,6 +209,9 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
   /// published first.
   var releases = <ReleaseCandidate>[];
   var files = <_File>[];
+
+  /// The subtitles of [releases], read across each group's series.
+  var subtitlesOf = seriesSubtitles(const []);
 
   /// Why the search found nothing, when no site answered.
   String? searchError;
@@ -231,11 +239,13 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
           counts.clear();
         }
         final found = <(_File, DateTime?)>[];
+        final described = <ResourceTitleInfo>[];
         for (final candidate in result.candidates) {
           final info = describeResource(
             candidate.release.title,
             releaseGroups: candidate.release.releaseGroups,
           );
+          described.add(info);
           void add(Map<String, int> counts, Iterable<String> values) {
             for (final value in values) {
               counts[value] = (counts[value] ?? 0) + 1;
@@ -271,6 +281,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
         );
         files = [for (final (file, _) in found) file];
         releases = result.candidates;
+        subtitlesOf = seriesSubtitles(described);
         searchError = switch (result.sources) {
           [] => '没有可用的 BT 资源站',
           final sources
@@ -352,14 +363,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
 
   /// Whether [info] meets the filter's quality and subtitles, or states
   /// nothing for them.
-  bool _meets(ResourceTitleInfo info) =>
-      resourceSelectionGaps(
-        info,
-        qualities: filter.qualities,
-        languages: filter.languages,
-        subtitleForms: filter.forms,
-      ) !=
-      null;
+  bool _meets(ResourceTitleInfo info) => filter.gaps(info, subtitlesOf) != null;
 
   /// How long after its episode aired [file] came out, when both times
   /// are known to the minute.
@@ -753,6 +757,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                     '${subscription == null ? '同时' : ''}缓存已播出'
                     '${widget.subject.episodes.any((e) => e.watched) ? '、还没看' : ''}'
                     '的${episodeRange(earlier)}',
+                subtitle: cached.isEmpty ? null : '${episodeRange(cached)}已有缓存',
               ),
             if (offerWatching)
               check(

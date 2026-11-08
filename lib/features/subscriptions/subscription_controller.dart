@@ -367,6 +367,22 @@ class SubscriptionController extends ChangeNotifier {
     ];
   }
 
+  /// Main episodes of [subject] aired before its subscription, or before
+  /// one made now, that have a cache already, by a subscription or by hand,
+  /// which [earlierEpisodes] leaves out.
+  List<Episode> cachedEarlier(Subject subject) {
+    final subscription = subscriptions[subject.id];
+    final held = _held(subscription, subject);
+    final since = subscription?.createdAt ?? DateTime.now();
+    return [
+      for (final episode in subject.episodes)
+        if (episode.main &&
+            held.contains(episode.id) &&
+            !_since(since, subject, episode))
+          episode,
+    ];
+  }
+
   /// What [subscription] needs from the user: a failure, or an episode no
   /// matching release came out for a day after it aired.
   SubscriptionIssue? issueOf(Subscription subscription) {

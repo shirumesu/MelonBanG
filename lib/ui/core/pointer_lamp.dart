@@ -58,8 +58,11 @@ class LampTracker extends StatelessWidget {
         lamp._nudge();
         return false;
       },
+      // Opaque, as nothing lies behind the root: a region that is not
+      // reports no hit to its ancestors, and the tap region surface above
+      // it then never learns of a tap, so text fields stopped losing focus
+      // and popovers stopped closing on a click outside.
       child: MouseRegion(
-        opaque: false,
         hitTestBehavior: HitTestBehavior.translucent,
         onHover: lamp._move,
         onExit: (_) => lamp._leave(),

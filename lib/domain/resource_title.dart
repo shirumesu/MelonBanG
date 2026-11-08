@@ -16,6 +16,7 @@ class ResourceTitleInfo {
     this.languages = const {},
     this.subtitleForms = const {},
     this.bilingual = false,
+    this.noChinese = false,
     this.quality,
     this.episodeLabel,
     this.episodeConflict = false,
@@ -49,6 +50,12 @@ class ResourceTitleInfo {
   /// Whether Japanese lines come beside Chinese ones, as in 简日, 简繁日
   /// and 中日双语 releases; the last leave the script unstated.
   final bool bilingual;
+
+  /// Whether the title says it carries no Chinese subtitles: 无中文字幕,
+  /// 生肉, 【生】. Nothing else tells: a streaming platform's rips differ by
+  /// title and region (Crunchyroll and B-Global rips carry Chinese for some
+  /// shows, not others), so a rip naming its platform alone stays unstated.
+  final bool noChinese;
 
   /// Which of [resourceSubtitleChoices] the release meets.
   List<String> get subtitleChoices => [
@@ -135,11 +142,20 @@ final _languagePatterns = {
     RegExp(r'繁(?:简|日|体|中|英)|[简中]繁|(?:^|[\[【(（\s_/&])繁(?=$|[\]】)）\s_/&])'),
     _token(r'CHT|BIG5|TC|JPTC|ZHT|ZH-?HANT'),
   ],
-  '日文': [RegExp(r'[简繁中]日|日[语文]|日(?:简|繁)'), _token(r'JP|JPN|JPSC|JPTC|JA')],
+  '日文': [
+    RegExp(r'[简繁中]日|日[语文]|日(?:简|繁)'),
+    _token(r'JP|JPN|JPSC|JPTC|JA'),
+    // A fansub's 简体双语 puts Japanese lines beside its script.
+    RegExp(r'(?:简体|繁体|简中|繁中)双语'),
+  ],
 };
 
 RegExp _token(String pattern) =>
     RegExp('(?<![a-z0-9])(?:$pattern)(?![a-z0-9])', caseSensitive: false);
+
+/// A title saying it has no Chinese subtitles, in simplified script:
+/// `[无中文字幕]`, `(1080P 无中文 多国字幕)`, `生肉`, `无字幕`, `【生】`.
+final _noChinese = RegExp(r'无中文|生肉|无字幕|[\[【(（]生[\]】)）]');
 
 final _numerals = {
   for (final (i, c) in '一二三四五六七八九十'.split('').indexed) c: i + 1,
@@ -212,7 +228,7 @@ final _sourceQuality = RegExp(
 final _repost = RegExp(r'^[\[【〖]\s*(?:搬运|转载)\s*[\]】〗]$');
 final _format = _token(r'BDRemux|BDRip|BD|WebRip|WEB[- ]DL');
 final _technical = RegExp(
-  r'^(?:(?:BDRemux|BDRip|BD|WEBRip|WEB(?:[- ]DL)?|HDTV|REMUX|HEVC|AVC|AV1|H[ ._-]?26[45]|x26[45]|AAC|FLAC|OPUS|TRUEHD|DTS|MP4|MKV|PGS|SRT|ASS|1080p|720p|2160p|(?:3840|1920|1280)\s*[x×*]\s*\d+|4K|10[- ]?BIT|8[- ]?BIT|GB|BIG5|CHS|CHT|JPN|FIN|END|V\d|RESEED|MOVIE|SP|OVA|ONA)(?=$|[\s_/+(.-])|(?:REMAKE重制版|国漫|合集|搬运|转载)$|(?:简繁|简体|繁体|简中|繁中|简日|繁日|粤日|内封|外挂))',
+  r'^(?:(?:BDRemux|BDRip|BD|WEBRip|WEB(?:[- ]DL)?|HDTV|REMUX|HEVC|AVC|AV1|H[ ._-]?26[45]|x26[45]|AAC|FLAC|OPUS|TRUEHD|DTS|MP4|MKV|PGS|SRT|ASS|1080p|720p|2160p|(?:3840|1920|1280)\s*[x×*]\s*\d+|4K|10[- ]?BIT|8[- ]?BIT|GB|BIG5|CHS|CHT|JPN|FIN|END|V\d|RESEED|MOVIE|SP|OVA|ONA)(?=$|[\s_/+(.-])|(?:REMAKE重制版|国漫|合集|搬运|转载|生)$|(?:简繁|简体|繁体|简中|繁中|简日|繁日|粤日|内封|外挂|无中文|生肉|无字幕))',
   caseSensitive: false,
 );
 
@@ -266,9 +282,11 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
       '4K',
   };
   final quality = qualities.length == 1 ? qualities.single : null;
+  final noChinese = _noChinese.hasMatch(normalized);
   final languages = {
     for (final entry in _languagePatterns.entries)
-      if (entry.value.any((pattern) => pattern.hasMatch(normalized))) entry.key,
+      if (entry.value.any((pattern) => pattern.hasMatch(normalized)))
+        if (!(noChinese && resourceLanguages.contains(entry.key))) entry.key,
   };
   final subtitleForms = {
     for (final form in const ['内封', '内嵌', '外挂'])
@@ -309,9 +327,16 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
       for (final language in ['CHS', 'CHT', 'GB', 'BIG5', 'VOSTFR'])
         if (_token(language).hasMatch(normalized)) language,
   ];
+  // The forms describe Chinese subtitles, which it has none of.
+  if (noChinese) {
+    subtitleForms.clear();
+    subtitleLabels
+      ..clear()
+      ..add('无中文字幕');
+  }
   // Bahamut streams carry burned-in traditional subtitles, which rips of
   // them seldom state in full.
-  if (_token('Baha').hasMatch(normalized)) {
+  if (!noChinese && _token('Baha').hasMatch(normalized)) {
     final stated = [
       if (languages.isEmpty) '繁体',
       if (subtitleForms.isEmpty) '内嵌',
@@ -469,9 +494,11 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
     languages: languages,
     subtitleForms: subtitleForms,
     bilingual:
+        !noChinese &&
         languages.contains('日文') &&
         (languages.any(resourceLanguages.contains) ||
             RegExp(r'中日|日中').hasMatch(normalized)),
+    noChinese: noChinese,
     labels: labels.toSet().toList(),
     warnings: warnings,
     sourceGroups: sourceGroups,
@@ -496,7 +523,8 @@ ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
 /// must overlap its annotations or find none stated; [resourceBilingual]
 /// among [languages] is a selection of its own. Null when it fails one;
 /// otherwise the names of the selections it states nothing for, so such
-/// titles can follow confirmed ones.
+/// titles can follow confirmed ones. Every subtitle choice is of Chinese
+/// subtitles, so a title saying it has none fails any.
 List<String>? resourceSelectionGaps(
   ResourceTitleInfo info, {
   Set<String> qualities = const {},
@@ -504,6 +532,9 @@ List<String>? resourceSelectionGaps(
   Set<String> languages = const {},
   Set<String> subtitleForms = const {},
 }) {
+  if (info.noChinese && (languages.isNotEmpty || subtitleForms.isNotEmpty)) {
+    return null;
+  }
   final gaps = <String>{};
   for (final (name, selected, values) in [
     ('画质', qualities, [?info.quality]),
@@ -538,4 +569,42 @@ List<String>? resourceSelectionGaps(
     gaps.add(name);
   }
   return gaps.toList();
+}
+
+/// `简繁内封`, as [info]'s title words its subtitles; `未标明字幕` when it
+/// states none.
+String subtitleName(ResourceTitleInfo info) {
+  final stated = info.subtitles.split('|').toSet();
+  final words = info.labels.where(stated.contains);
+  if (words.isNotEmpty) return words.join(' ');
+  final named = [...info.languages, ...info.subtitleForms];
+  return named.isEmpty ? '未标明字幕' : named.join();
+}
+
+/// Reads subtitles across [releases]: a group leaves them out of some titles
+/// of a series (`ASSx2` against `[简繁内封字幕]`), so a release stating none
+/// takes what the group's other releases of the series from the same
+/// platform state, where they agree. The release returned stands for the
+/// given one's subtitles only.
+ResourceTitleInfo Function(ResourceTitleInfo) seriesSubtitles(
+  Iterable<ResourceTitleInfo> releases,
+) {
+  String key(ResourceTitleInfo info) =>
+      '${info.series}|${info.platforms.join(' ')}';
+  bool states(ResourceTitleInfo info) =>
+      info.noChinese ||
+      info.languages.isNotEmpty ||
+      info.subtitleForms.isNotEmpty;
+  final stated = <String, Map<String, ResourceTitleInfo>>{};
+  for (final info in releases) {
+    if (info.series != null && states(info)) {
+      (stated[key(info)] ??= {})[subtitleName(info)] ??= info;
+    }
+  }
+  return (info) => info.series != null && !states(info)
+      ? switch (stated[key(info)]) {
+          final named? when named.length == 1 => named.values.single,
+          _ => info,
+        }
+      : info;
 }

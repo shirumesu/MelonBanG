@@ -60,6 +60,24 @@ class SubscriptionFilter {
     ...groups,
   ];
 
+  /// What [info] leaves unstated of the quality and subtitles, as
+  /// [resourceSelectionGaps] tells, its subtitles read across its series by
+  /// [subtitlesOf] as the resource search reads them; null when it fails one.
+  List<String>? gaps(
+    ResourceTitleInfo info,
+    ResourceTitleInfo Function(ResourceTitleInfo) subtitlesOf,
+  ) => switch ((
+    resourceSelectionGaps(info, qualities: qualities),
+    resourceSelectionGaps(
+      subtitlesOf(info),
+      languages: languages,
+      subtitleForms: forms,
+    ),
+  )) {
+    (final quality?, final subtitles?) => [...quality, ...subtitles],
+    _ => null,
+  };
+
   SubscriptionFilter copyWith({
     Set<String>? groups,
     bool? preferred,

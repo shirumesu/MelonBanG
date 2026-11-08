@@ -45,16 +45,6 @@ class ResourceEntry {
   String get id => series ? key : members.single.$1.id;
 }
 
-/// `简繁内封`, as [info]'s title words its subtitles; `未标明字幕` when it
-/// states none.
-String subtitleName(ResourceTitleInfo info) {
-  final stated = info.subtitles.split('|').toSet();
-  final words = info.labels.where(stated.contains);
-  if (words.isNotEmpty) return words.join(' ');
-  final named = [...info.languages, ...info.subtitleForms];
-  return named.isEmpty ? '未标明字幕' : named.join();
-}
-
 /// The results as the filters show them, the counts the filter menus offer
 /// and the rows of the list.
 class ResourceResults {
@@ -83,26 +73,9 @@ class ResourceResults {
         .where((entry) => !entry.$1.providers.every(excludedProviders.contains))
         .toList();
     String platformOf(ResourceTitleInfo info) => info.platforms.join(' ');
-    // A group leaves its subtitles out of some titles of a series, so a
-    // release stating none takes those its other releases of the series
-    // from the same platform state, where they agree.
-    final statedSubtitles = <String, Map<String, ResourceTitleInfo>>{};
-    for (final (_, info) in fromShownProviders) {
-      if (info.series case final series?
-          when info.languages.isNotEmpty || info.subtitleForms.isNotEmpty) {
-        final key = '$series|${platformOf(info)}';
-        (statedSubtitles[key] ??= {})[subtitleName(info)] ??= info;
-      }
-    }
-    ResourceTitleInfo subtitlesOf(ResourceTitleInfo info) =>
-        info.series != null &&
-            info.languages.isEmpty &&
-            info.subtitleForms.isEmpty
-        ? switch (statedSubtitles['${info.series}|${platformOf(info)}']) {
-            final stated? when stated.length == 1 => stated.values.single,
-            _ => info,
-          }
-        : info;
+    final subtitlesOf = seriesSubtitles([
+      for (final (_, info) in fromShownProviders) info,
+    ]);
     _gaps = {
       for (final (candidate, info) in fromShownProviders)
         if ((
