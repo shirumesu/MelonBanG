@@ -25,16 +25,13 @@ explaining the fix. They keep the upstream MIT license. The macOS libraries use
 upstream checksum-pinned Swift Package Manager artifacts; the Windows x64 libraries
 use mpv's own weekly build, pinned by name and MD5.
 
-[melon_libtorrent](https://github.com/shirumesu/melon_libtorrent) grew out of this
-app's copy of libtorrent_flutter; its README lists the changes. On Windows the
-plugin builds its bridge from source against libtorrent from this app's vcpkg
-manifest (`windows/vcpkg.json`, registry pinned in Windows CMake), linked statically;
-`scripts/build.ps1` copies native dependency copyright files into the Release
-directory's `licenses` folder. On macOS and Linux its build hook compiles the bridge
-with pinned libtorrent 2.1.2 and OpenSSL 3.6.5 sources, linking both statically into
-one bundled library; Boost is used for its headers only (Homebrew's on macOS, pinned
-Boost 1.92.0 on Linux). No runtime library comes from Homebrew. Native license notices
-ship in the package's `licenses` folder and are included in Flutter's license bundle.
+[melon_libtorrent](https://pub.dev/packages/melon_libtorrent) grew out of this
+app's copy of libtorrent_flutter; its README lists the changes. Each platform uses the
+bridge library prebuilt for the package's GitHub Release and verified against the
+SHA-256 pinned in the package: libtorrent 2.1.2 and OpenSSL 3.6.5 (2.1.1 and 3.6.4 from
+vcpkg on Windows), linked statically into one bundled library, with Boost used for its
+headers only. Native license notices ship in the package's `licenses` folder and are
+included in Flutter's license bundle.
 See [OpenSSL's license](https://www.openssl.org/source/license.html) and
 [Boost's license](https://www.boost.org/users/license.html).
 

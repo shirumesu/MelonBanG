@@ -54,12 +54,5 @@ try {
     $packageRoot = [Uri]::new($packageConfigDirectory, $package.rootUri).LocalPath
     Copy-Item -LiteralPath (Join-Path $packageRoot 'LICENSE') -Destination (Join-Path $licensesDirectory "$pluginName.txt")
   }
-  $nativeShare = Join-Path $projectDirectory 'build/windows/x64/vcpkg_installed/x64-windows-static-md/share'
-  Get-ChildItem -LiteralPath $nativeShare -Directory | ForEach-Object {
-    $nativeLicense = Join-Path $_.FullName 'copyright'
-    if (Test-Path -LiteralPath $nativeLicense) {
-      Copy-Item -LiteralPath $nativeLicense -Destination (Join-Path $licensesDirectory ($_.Name + '.txt'))
-    }
-  }
   Write-Output (Join-Path $releaseDirectory 'melonbang.exe')
 } finally { Pop-Location }

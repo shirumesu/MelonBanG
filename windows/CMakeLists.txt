@@ -5,15 +5,6 @@ if(POLICY CMP0135)
 endif()
 # Lets the updater choose a static C runtime.
 cmake_policy(SET CMP0091 NEW)
-include(FetchContent)
-FetchContent_Declare(vcpkg
-  URL https://github.com/microsoft/vcpkg/archive/04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4.tar.gz
-  URL_HASH SHA256=6c4b4bd1e2d6b1598ff001be73cd90bd596f687d9243377061b06b5b81815a24
-)
-FetchContent_MakeAvailable(vcpkg)
-set(CMAKE_TOOLCHAIN_FILE "${vcpkg_SOURCE_DIR}/scripts/buildsystems/vcpkg.cmake" CACHE FILEPATH "Native dependencies")
-set(VCPKG_TARGET_TRIPLET "x64-windows-static-md" CACHE STRING "Native architecture")
-set(VCPKG_MANIFEST_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 project(melonbang LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
@@ -42,7 +33,7 @@ set(CMAKE_EXE_LINKER_FLAGS_PROFILE "${CMAKE_EXE_LINKER_FLAGS_RELEASE}")
 set(CMAKE_SHARED_LINKER_FLAGS_PROFILE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}")
 set(CMAKE_C_FLAGS_PROFILE "${CMAKE_C_FLAGS_RELEASE}")
 set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")
-# vcpkg's packages have Debug and Release builds only.
+# Imported libraries usually have Debug and Release builds only.
 set(CMAKE_MAP_IMPORTED_CONFIG_PROFILE Release)
 
 # Use Unicode for all projects.

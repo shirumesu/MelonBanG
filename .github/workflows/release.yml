@@ -9,7 +9,6 @@ name: Release
 # A tag run restores only caches saved on master, not ones saved by another
 # tag. ci.yml saves the Linux Flutter caches there; Windows and macOS do not
 # cache Flutter, whose save took minutes and was never restored.
-# native-cache.yml keeps the Windows native dependencies cached on master.
 on:
   push:
     tags: ['v*']
@@ -51,22 +50,12 @@ jobs:
       - name: Install NSIS
         shell: pwsh
         run: choco install nsis --no-progress -y
-      # vcpkg's binary packages of libtorrent, Boost and OpenSSL, saved by
-      # native-cache.yml; the newest one is restored, and vcpkg rebuilds only
-      # ports whose ABI (sources, compiler) differs.
-      - uses: actions/cache/restore@v5
-        with:
-          path: ${{ runner.temp }}\vcpkg
-          key: vcpkg-${{ github.run_id }}
-          restore-keys: vcpkg-
       # The release job signs the manifest once both platforms are in it.
       - name: Package
         shell: pwsh
         env:
           MELONBANG_SERVICES_JSON: ${{ secrets.MELONBANG_SERVICES_JSON }}
-          VCPKG_BINARY_SOURCES: clear;files,${{ runner.temp }}\vcpkg,read
         run: |
-          New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'vcpkg') | Out-Null
           if ([string]::IsNullOrWhiteSpace($env:MELONBANG_SERVICES_JSON)) {
             throw 'Set the MELONBANG_SERVICES_JSON repository secret.'
           }
@@ -100,9 +89,6 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match pubspec version $version." >&2
             exit 1
           fi
-      # The torrent bridge's build hook compiles OpenSSL and libtorrent.
-      - name: Install native build tools
-        run: brew install cmake ninja boost
       - name: Package
         env:
           MELONBANG_SERVICES_JSON: ${{ secrets.MELONBANG_SERVICES_JSON }}
