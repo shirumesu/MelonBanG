@@ -11,6 +11,25 @@ class MainFlutterWindow: NSWindow {
   /// Set once Dart has shut its services down, so quitting proceeds.
   static var quitAllowed = false
 
+  /// Set while AppKit waits on Dart to quit: the app answered a quit,
+  /// logout or shutdown with `.terminateLater`.
+  static var pendingTerminate = false
+
+  /// Lets the quit through: answers the one AppKit waits on, or starts one.
+  /// Runs after the current Dart call returns, since AppKit shuts the engine
+  /// down as it quits, which cannot happen while Dart is running.
+  static func allowTerminate() {
+    quitAllowed = true
+    DispatchQueue.main.async {
+      if pendingTerminate {
+        pendingTerminate = false
+        NSApp.reply(toApplicationShouldTerminate: true)
+      } else {
+        NSApp.terminate(nil)
+      }
+    }
+  }
+
   /// Keeps App Nap from stretching the subscription timers while the
   /// window is hidden.
   private static var activity: NSObjectProtocol?
@@ -155,11 +174,8 @@ class MainFlutterWindow: NSWindow {
       }
       result(nil)
     case "quit":
-      quitAllowed = true
       result(nil)
-      // After this call returns: AppKit shuts the engine down as it quits,
-      // which cannot happen while Dart is running.
-      DispatchQueue.main.async { NSApp.terminate(nil) }
+      allowTerminate()
     default:
       result(FlutterMethodNotImplemented)
     }

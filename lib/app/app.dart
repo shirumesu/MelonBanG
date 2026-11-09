@@ -194,6 +194,7 @@ class _MelonAppState extends State<MelonApp>
         showWindow();
         navigate('downloads');
       },
+      onEndSession: endSession,
     );
     unawaited(boot());
   }
@@ -717,8 +718,10 @@ class _MelonAppState extends State<MelonApp>
 
   /// Closing the window while subscriptions run keeps the app going in
   /// the background, once asked; otherwise, or when [quitting], it quits.
+  /// A quit goes on past the question still open, since macOS waits on it
+  /// to log out or shut down.
   void closeWindow() async {
-    if (closing || askingClose) return;
+    if (closing || (askingClose && !quitting)) return;
     if (!quitting && ready && service.subscriptions.active) {
       final preferences = service.subscriptions.preferences;
       var action = preferences.closeAction;
@@ -734,7 +737,8 @@ class _MelonAppState extends State<MelonApp>
         } finally {
           askingClose = false;
         }
-        if (action == null) return;
+        // A quit while asking has closed already.
+        if (action == null || closing) return;
         await preferences.setCloseAction(action);
       }
       if (action == CloseAction.background) {
@@ -761,7 +765,9 @@ class _MelonAppState extends State<MelonApp>
           await service.update.applyOnExit(restart: restartForUpdate);
         }
       } finally {
-        if (relaunching) await relaunchAfterExit();
+        // Quitting goes on without the relaunch rather than leaving a blank
+        // window, and a logout or shutdown on macOS waiting.
+        if (relaunching) await relaunchAfterExit().catchError((Object _) {});
         tray?.hide();
         exiting = true;
         if (Platform.isLinux) {
@@ -775,6 +781,28 @@ class _MelonAppState extends State<MelonApp>
         }
       }
     }
+  }
+
+  /// Windows is logging out or shutting down, and ends the process soon
+  /// after this returns: stop playback and close the services, so the
+  /// downloads keep what they need to resume and the database is closed.
+  /// The runner waits four seconds at most, then closes the window.
+  Future<void> endSession() async {
+    if (mounted && !closing) setState(() => closing = true);
+    try {
+      if (ready) {
+        await coordinator.close().timeout(const Duration(seconds: 1));
+      }
+    } catch (_) {
+      // The services still close.
+    }
+    try {
+      await service.close().timeout(const Duration(milliseconds: 2500));
+    } catch (_) {
+      // Ends anyway.
+    }
+    tray?.hide();
+    exiting = true;
   }
 
   /// Hides the window, or minimizes it on Linux, whose desktops may have no

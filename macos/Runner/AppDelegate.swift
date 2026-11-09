@@ -5,18 +5,20 @@ import UserNotifications
 @main
 class AppDelegate: FlutterAppDelegate, UNUserNotificationCenterDelegate {
   override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-    // Route Command-Q, the Dock and the menu bar through Dart's playback and
-    // download shutdown lifecycle, also while the window is hidden; Dart
-    // allows the quit once it is done.
+    // Route Command-Q, the Dock, the menu bar, logging out and shutting down
+    // through Dart's playback and download shutdown lifecycle, also while
+    // the window is hidden. The quit waits rather than being cancelled, so a
+    // logout or shutdown goes on once Dart is done and calls back "quit".
     if !MainFlutterWindow.quitAllowed, let channel = MainFlutterWindow.systemChannel {
+      if MainFlutterWindow.pendingTerminate { return .terminateLater }
+      MainFlutterWindow.pendingTerminate = true
       channel.invokeMethod("quit", arguments: nil) { reply in
         // Dart has not started listening yet; nothing to shut down.
         if reply as? NSObject === FlutterMethodNotImplemented {
-          MainFlutterWindow.quitAllowed = true
-          NSApp.terminate(nil)
+          MainFlutterWindow.allowTerminate()
         }
       }
-      return .terminateCancel
+      return .terminateLater
     }
     return .terminateNow
   }

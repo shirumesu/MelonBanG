@@ -19,6 +19,8 @@ class ProxyServer {
   const ProxyServer(this.host, this.port, {this.userInfo = ''});
   final String host;
   final int port;
+
+  /// `user:password`, percent-encoded as in the address.
   final String userInfo;
 
   /// `host:port`, `http://host:port` or `http://user:pass@host:port`; throws
@@ -33,6 +35,9 @@ class ProxyServer {
     if (scheme == null) value = 'http://$value';
     final uri = Uri.tryParse(value);
     if (uri == null || uri.host.isEmpty) {
+      if ('@'.allMatches(value).length > 1) {
+        throw const FormatException('用户名或密码里的 @ 请写成 %40');
+      }
       throw const FormatException('地址格式不正确，例如 127.0.0.1:7890');
     }
     if (!uri.hasPort || uri.port <= 0 || uri.port > 65535) {
@@ -41,18 +46,58 @@ class ProxyServer {
     if (uri.path.isNotEmpty && uri.path != '/') {
       throw const FormatException('代理地址不能带路径');
     }
-    return ProxyServer(uri.host, uri.port, userInfo: uri.userInfo);
+    final server = ProxyServer(uri.host, uri.port, userInfo: uri.userInfo);
+    if (server.userInfo.isNotEmpty) {
+      // Dart's proxy directive takes the account as it is, split at the
+      // first colon, and separates proxies with semicolons.
+      final (user, password) = server._credentials;
+      if (user.isEmpty || password.isEmpty) {
+        throw const FormatException(
+          '账号需要同时填写用户名和密码，例如 http://用户名:密码@127.0.0.1:7890',
+        );
+      }
+      if (user.contains(':')) {
+        throw const FormatException('用户名不能包含冒号');
+      }
+      if ('$user$password'.contains(';')) {
+        throw const FormatException('用户名和密码不能包含分号');
+      }
+    }
+    return server;
   }
 
-  String get _authority =>
-      '${userInfo.isEmpty ? '' : '$userInfo@'}'
-      '${host.contains(':') ? '[$host]' : host}:$port';
+  /// The user name and password, decoded.
+  (String, String) get _credentials {
+    final colon = userInfo.indexOf(':');
+    String decode(String part) {
+      try {
+        return Uri.decodeComponent(part);
+      } on ArgumentError {
+        return part;
+      }
+    }
 
-  /// The proxy as Dart's [HttpClient.findProxy] names it.
-  String get directive => 'PROXY $_authority';
+    return colon < 0
+        ? (decode(userInfo), '')
+        : (
+            decode(userInfo.substring(0, colon)),
+            decode(userInfo.substring(colon + 1)),
+          );
+  }
 
-  /// The proxy as mpv's `http-proxy` option takes it.
-  String get url => 'http://$_authority';
+  String get _hostPort => '${host.contains(':') ? '[$host]' : host}:$port';
+
+  /// The proxy as Dart's [HttpClient.findProxy] names it, with the account
+  /// decoded: Dart sends it as written.
+  String get directive {
+    if (userInfo.isEmpty) return 'PROXY $_hostPort';
+    final (user, password) = _credentials;
+    return 'PROXY $user:$password@$_hostPort';
+  }
+
+  /// The proxy as mpv's `http-proxy` option takes it; FFmpeg decodes the
+  /// percent-encoded account itself.
+  String get url => 'http://${userInfo.isEmpty ? '' : '$userInfo@'}$_hostPort';
 
   @override
   String toString() => '$host:$port';

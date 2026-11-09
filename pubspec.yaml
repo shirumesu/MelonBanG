@@ -70,6 +70,9 @@ flutter:
     - assets/images/mark.png
     # The Windows tray icon, a copy of the app icon.
     - assets/images/tray.ico
+    # The macOS menu bar icon: a template image AppKit tints for the menu
+    # bar, 36 pixels at 144 dpi for 18 points.
+    - assets/images/tray-template.png
     # Anime4K 4.0.1 (MIT, notice in each file and assets/shaders/LICENSE).
     - assets/shaders/
 

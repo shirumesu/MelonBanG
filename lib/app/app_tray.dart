@@ -81,11 +81,14 @@ class AppTray {
     final icon = tray.TrayIcon.create();
     if (icon == null) return null;
     icon
-      ..icon = tray.ImageAsset.fromAsset(
-        Platform.isWindows
-            ? 'assets/images/tray.ico'
-            : 'assets/images/mark.png',
-      )
+      // The menu bar tints a template image for its appearance and for the
+      // highlight while the menu is open.
+      ..isIconTemplate = Platform.isMacOS
+      ..icon = tray.ImageAsset.fromAsset(switch (Platform.operatingSystem) {
+        'windows' => 'assets/images/tray.ico',
+        'macos' => 'assets/images/tray-template.png',
+        _ => 'assets/images/mark.png',
+      })
       ..setTooltip('MelonBanG · 后台检查订阅更新')
       // Windows opens the window on a click and the menu on a right click;
       // the menu bar opens the menu either way. Linux panels open the menu

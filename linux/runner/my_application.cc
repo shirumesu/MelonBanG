@@ -12,6 +12,8 @@ struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
   FlMethodChannel* credentials;
+  // The window, once activated; cleared when it is destroyed.
+  GtkWindow* window;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -106,8 +108,17 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+  // Opened again, such as from the launcher while minimized to the
+  // background: bring the window back rather than start a second engine.
+  if (self->window != nullptr) {
+    gtk_window_present(self->window);
+    return;
+  }
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+  self->window = window;
+  g_object_add_weak_pointer(G_OBJECT(window),
+                            reinterpret_cast<gpointer*>(&self->window));
 
   // Use a header bar when running in GNOME as this is the common style used
   // by applications and is the setup most users will be using (e.g. Ubuntu
@@ -191,6 +202,14 @@ static gboolean my_application_local_command_line(GApplication* application,
     return TRUE;
   }
 
+  // Another copy runs for this user: activating asks it to show its window,
+  // so that two processes never share the database and the downloads.
+  if (g_application_get_is_remote(application)) {
+    g_application_activate(application);
+    *exit_status = 0;
+    return TRUE;
+  }
+
   g_application_activate(application);
   *exit_status = 0;
 
@@ -218,6 +237,11 @@ static void my_application_shutdown(GApplication* application) {
 // Implements GObject::dispose.
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
+  if (self->window != nullptr) {
+    g_object_remove_weak_pointer(G_OBJECT(self->window),
+                                 reinterpret_cast<gpointer*>(&self->window));
+    self->window = nullptr;
+  }
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   g_clear_object(&self->credentials);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
@@ -241,7 +265,19 @@ MyApplication* my_application_new() {
   // the application to be recognized beyond its binary name.
   g_set_prgname(APPLICATION_ID);
 
+  // One copy per user, as on Windows; a separate MELONBANG_DATA_DIR keeps its
+  // own data, and may run beside it.
+  const gchar* data_directory = g_getenv("MELONBANG_DATA_DIR");
+#if GLIB_CHECK_VERSION(2, 74, 0)
+  GApplicationFlags flags = G_APPLICATION_DEFAULT_FLAGS;
+#else
+  GApplicationFlags flags = G_APPLICATION_FLAGS_NONE;
+#endif
+  if (data_directory != nullptr && data_directory[0] != '\0') {
+    flags = G_APPLICATION_NON_UNIQUE;
+  }
+
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID, "flags",
-                                     G_APPLICATION_NON_UNIQUE, nullptr));
+                                     flags, nullptr));
 }

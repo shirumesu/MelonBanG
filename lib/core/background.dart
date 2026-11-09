@@ -6,38 +6,44 @@ import 'package:flutter/services.dart';
 
 /// What the desktop does for the app while its window is closed to the
 /// background: system notifications, keeping macOS from napping, and the
-/// runner's requests to quit or to open a notification.
+/// runner's requests to quit, to open a notification or to end the session.
 abstract final class Background {
   static const _channel = MethodChannel('org.melonbang/system');
 
-  /// Takes the macOS runner's requests: [onQuit] for Command-Q, the Dock or
-  /// the menu bar, [onOpenSubject] for a clicked notification.
+  /// Takes the macOS and Windows runners' requests: [onQuit] for macOS
+  /// Command-Q, the Dock, the menu bar, logging out and shutting down,
+  /// [onOpenSubject] for a clicked notification, and [onEndSession] while
+  /// Windows logs out or shuts down, which ends the process once it returns.
   static void listen({
     required void Function() onQuit,
     required void Function(int subjectId) onOpenSubject,
+    required Future<void> Function() onEndSession,
   }) {
-    if (!Platform.isMacOS) return;
+    if (!Platform.isMacOS && !Platform.isWindows) return;
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'quit':
           onQuit();
         case 'openNotification':
           if (call.arguments case final int id) onOpenSubject(id);
+        case 'endSession':
+          await onEndSession();
         default:
           throw MissingPluginException();
       }
     });
   }
 
-  /// Shows a system notification about [subjectId]; clicking it on macOS
-  /// calls [listen]'s `onOpenSubject`. Windows shows none.
+  /// Shows a system notification about [subjectId]; clicking it calls
+  /// [listen]'s `onOpenSubject`. Windows shows it as a tray balloon, a
+  /// toast on Windows 10 and later.
   static Future<void> notify(
     String title,
     String body, {
     int? subjectId,
   }) async {
     try {
-      if (Platform.isMacOS) {
+      if (Platform.isMacOS || Platform.isWindows) {
         await _channel.invokeMethod<void>('notify', {
           'title': title,
           'body': body,
