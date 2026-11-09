@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../features/playback/playback_preferences.dart';
+import '../core/action_feedback.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
@@ -40,6 +42,33 @@ class _PreferredGroupsSettingState extends State<PreferredGroupsSetting> {
     save([...groups, value]);
   }
 
+  /// Removes [name], with a way back to where it was.
+  void remove(String name) {
+    final index = groups.indexOf(name);
+    if (index < 0) return;
+    save([...groups]..removeAt(index));
+    showMessage(
+      ScaffoldMessenger.maybeOf(context),
+      '已移除 $name',
+      actionLabel: '撤销',
+      onAction: () {
+        final current = widget.prefs.preferredGroups;
+        if (current.any((e) => e.toLowerCase() == name.toLowerCase())) return;
+        save([...current]..insert(index.clamp(0, current.length), name));
+      },
+    );
+  }
+
+  /// Moves [name] by [step] places, from the keyboard.
+  void move(String name, int step) {
+    final order = [...groups];
+    final from = order.indexOf(name);
+    final to = from + step;
+    if (from < 0 || to < 0 || to >= order.length) return;
+    order.insert(to, order.removeAt(from));
+    save(order);
+  }
+
   /// Seen groups not yet preferred, with how often they were found and
   /// whether a cache task credits them, the most found first.
   List<(String, int, bool)> suggestions() {
@@ -61,7 +90,7 @@ class _PreferredGroupsSettingState extends State<PreferredGroupsSetting> {
       children: [
         const SettingRow(
           title: '字幕组偏好',
-          subtitle: '越靠前越优先；BT 和 PikPak 资源里这些字幕组的发布排在前面并优先推荐，订阅选“偏好字幕组”时也按这个顺序挑。拖动调整顺序',
+          subtitle: '越靠前越优先；BT 和 PikPak 资源里这些字幕组的发布排在前面并优先推荐，订阅选“偏好字幕组”时也按这个顺序挑。拖动调整顺序，也可以选中后按 Alt + ← / → 移动、Delete 移除',
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
@@ -83,9 +112,11 @@ class _PreferredGroupsSettingState extends State<PreferredGroupsSetting> {
     final tag = _GroupTag(
       index: index,
       name: name,
-      onRemove: () => save([...groups]..remove(name)),
+      onRemove: () => remove(name),
     );
+    // Keyed by name, so a tag moved from the keyboard keeps its focus.
     return DragTarget<String>(
+      key: ValueKey(name),
       onWillAcceptWithDetails: (details) {
         final order = [...groups];
         final from = order.indexOf(details.data);
@@ -108,10 +139,79 @@ class _PreferredGroupsSettingState extends State<PreferredGroupsSetting> {
           child: Opacity(opacity: .9, child: tag),
         ),
         childWhenDragging: Opacity(opacity: .35, child: tag),
-        child: MouseRegion(cursor: SystemMouseCursors.grab, child: tag),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.grab,
+          child: _GroupKeys(
+            onMove: (step) => move(name, step),
+            onRemove: () => remove(name),
+            child: tag,
+          ),
+        ),
       ),
     );
   }
+}
+
+class _MoveIntent extends Intent {
+  const _MoveIntent(this.step);
+  final int step;
+}
+
+/// Makes a group tag a keyboard stop: Alt + ← / → move it, Delete or
+/// Backspace remove it.
+class _GroupKeys extends StatefulWidget {
+  const _GroupKeys({
+    required this.onMove,
+    required this.onRemove,
+    required this.child,
+  });
+  final ValueChanged<int> onMove;
+  final VoidCallback onRemove;
+  final Widget child;
+
+  @override
+  State<_GroupKeys> createState() => _GroupKeysState();
+}
+
+class _GroupKeysState extends State<_GroupKeys> {
+  bool highlighted = false;
+
+  @override
+  Widget build(BuildContext context) => FocusableActionDetector(
+    shortcuts: const {
+      SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): _MoveIntent(-1),
+      SingleActivator(LogicalKeyboardKey.arrowRight, alt: true): _MoveIntent(1),
+      SingleActivator(LogicalKeyboardKey.delete): DismissIntent(),
+      SingleActivator(LogicalKeyboardKey.backspace): DismissIntent(),
+    },
+    actions: {
+      _MoveIntent: CallbackAction<_MoveIntent>(
+        onInvoke: (intent) => widget.onMove(intent.step),
+      ),
+      DismissIntent: CallbackAction<DismissIntent>(
+        onInvoke: (_) => widget.onRemove(),
+      ),
+    },
+    onShowFocusHighlight: (value) => setState(() => highlighted = value),
+    child: Semantics(
+      hint: 'Alt 加左右方向键调整顺序，Delete 移除',
+      child: DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(
+          borderRadius: controlBorderRadius,
+          border: highlighted
+              ? Border.all(
+                  color: Theme.of(context).colorScheme.primary
+                      .withValues(alpha: .7),
+                  width: 1.5,
+                  strokeAlign: BorderSide.strokeAlignInside,
+                )
+              : null,
+        ),
+        child: widget.child,
+      ),
+    ),
+  );
 }
 
 class _GroupTag extends StatelessWidget {
@@ -150,14 +250,17 @@ class _GroupTag extends StatelessWidget {
             name,
             style: TextStyle(fontSize: 13, color: scheme.onPrimaryContainer),
           ),
-          IconButton(
-            tooltip: '移除',
-            onPressed: onRemove,
-            icon: const Icon(Icons.close_rounded),
-            iconSize: 14,
-            color: scheme.onPrimaryContainer.withValues(alpha: .7),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+          // The tag itself takes the keyboard, where Delete removes it.
+          ExcludeFocus(
+            child: IconButton(
+              tooltip: '移除',
+              onPressed: onRemove,
+              icon: const Icon(Icons.close_rounded),
+              iconSize: 14,
+              color: scheme.onPrimaryContainer.withValues(alpha: .7),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            ),
           ),
         ],
       ),

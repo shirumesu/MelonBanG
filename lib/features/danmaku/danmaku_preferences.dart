@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -142,7 +143,25 @@ class DanmakuPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
+  Timer? _pendingSave;
+
+  /// Applies [change] at once and saves it once it settles, for a slider
+  /// being dragged: every frame would otherwise rewrite the preferences.
+  /// [flush] saves it when the drag ends.
+  void preview(VoidCallback change) {
+    change();
+    notifyListeners();
+    _pendingSave?.cancel();
+    _pendingSave = Timer(const Duration(milliseconds: 300), _save);
+  }
+
+  /// Saves a [preview] still waiting.
+  void flush() {
+    if (_pendingSave?.isActive ?? false) _save();
+  }
+
   void _save() {
+    _pendingSave?.cancel();
     storage.setString(
       'danmaku-preferences',
       jsonEncode({

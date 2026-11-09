@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../features/appearance/appearance.dart';
@@ -638,7 +640,8 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
         min: min,
         max: max,
         label: label(),
-        onChanged: (value) => prefs.update(() => change(value)),
+        onChanged: (value) => prefs.preview(() => change(value)),
+        onChangeEnd: (_) => prefs.flush(),
       ),
     ),
   );
@@ -736,7 +739,8 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
               divisions: limits.length - 1,
               label: danmakuLimitLabel(prefs.limit),
               onChanged: (value) =>
-                  prefs.update(() => prefs.limit = limits[value.round()]),
+                  prefs.preview(() => prefs.limit = limits[value.round()]),
+              onChangeEnd: (_) => prefs.flush(),
             );
           }),
         ),
@@ -794,7 +798,7 @@ SettingsSection shortcutsSection() => SettingsSection(
   icon: Icons.keyboard_outlined,
   groups: [
     SettingsGroup([
-      for (final (action, keys) in const [
+      for (final (action, keys) in [
         ('播放 / 暂停', 'Space / K / 单击画面'),
         ('后退 / 前进 5 秒', '← / →'),
         ('3 倍速快进', '按住 →'),
@@ -808,6 +812,8 @@ SettingsSection shortcutsSection() => SettingsSection(
         ('退出全屏', 'Esc'),
         ('搜索番剧', 'Ctrl / ⌘ + F'),
         ('返回', 'Alt + ← / ⌘ + ['),
+        if (Platform.isMacOS) ('打开设置', '⌘ + ,'),
+        ('保存收藏编辑', 'Ctrl / ⌘ + Enter'),
       ])
         SettingsItem(
           '快捷键 按键 $action $keys',

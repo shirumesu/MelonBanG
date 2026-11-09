@@ -19,9 +19,12 @@ class AccountAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    // Nobody to show, such as before signing in: a neutral silhouette.
+    // Nobody to show, such as before signing in: a neutral silhouette. A
+    // name's initial is white on grape deepened to read at 4.5:1.
     final fallback = ColoredBox(
-      color: name.isEmpty ? scheme.surfaceContainerHigh : grape,
+      color: name.isEmpty
+          ? scheme.surfaceContainerHigh
+          : badgeInk(grape, false),
       child: Center(
         child: name.isEmpty
             ? Icon(

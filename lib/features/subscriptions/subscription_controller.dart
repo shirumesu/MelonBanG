@@ -676,10 +676,14 @@ class SubscriptionController extends ChangeNotifier {
     bool markWatching = false,
   }) async {
     if (markWatching) {
-      await tracking.setCollection(
-        subject.id,
-        const CollectionChange(status: CollectionStatus.watching),
-      );
+      try {
+        await tracking.setCollection(
+          subject.id,
+          const CollectionChange(status: CollectionStatus.watching),
+        );
+      } on SyncFailure catch (e) {
+        throw SyncFailure('标为在看失败：${e.userMessage}', e.cause);
+      }
     }
     final existing = subscriptions[subject.id];
     if (existing == null && earlier != null) {

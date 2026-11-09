@@ -138,6 +138,28 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
   /// Validates the draft with the typed numbers and saves it when valid.
   void commit() {
     if (!mounted) return;
+    final (:values, :errors) = _check();
+    setState(() {
+      fieldErrors
+        ..clear()
+        ..addAll(errors);
+      error = null;
+    });
+    if (errors.isEmpty) _save(values);
+  }
+
+  /// A number typed but not yet committed, when the panel goes before its
+  /// field loses focus, such as on leaving settings: saved when valid.
+  @override
+  void deactivate() {
+    final (:values, :errors) = _check();
+    if (errors.isEmpty && !mapEquals(values, draft)) _save(values);
+    super.deactivate();
+  }
+
+  /// The draft with the typed numbers, and the fields whose numbers are
+  /// out of range.
+  ({Map<String, dynamic> values, Map<String, String> errors}) _check() {
     final values = {...draft};
     final errors = <String, String>{};
     for (final key in numericKeys) {
@@ -178,13 +200,10 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
         values['seedMinutes'] == 0) {
       errors['seedRatio'] = '分享率和分享时间至少一项大于 0';
     }
-    setState(() {
-      fieldErrors
-        ..clear()
-        ..addAll(errors);
-      error = null;
-    });
-    if (errors.isNotEmpty) return;
+    return (values: values, errors: errors);
+  }
+
+  void _save(Map<String, dynamic> values) {
     // Typed numbers join the draft, which a change of byte units shows
     // again and the next commit starts from.
     draft = values;

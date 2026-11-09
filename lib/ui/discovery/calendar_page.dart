@@ -18,8 +18,12 @@ class CalendarPage extends StatefulWidget {
     required this.onRetry,
     required this.onOpenSubject,
     required this.filter,
+    this.watchingIds = const {},
   });
   final List<ScheduleDay> calendar;
+
+  /// The shows the user is watching, marked 在追.
+  final Set<int> watchingIds;
   final SchedulePreference filter;
   final bool loading;
   final String? error;
@@ -185,6 +189,7 @@ class _CalendarPageState extends State<CalendarPage> {
                   child: BroadcastTimeline(
                     items: items,
                     onOpen: widget.onOpenSubject,
+                    watchingIds: widget.watchingIds,
                   ),
                 ),
             ],

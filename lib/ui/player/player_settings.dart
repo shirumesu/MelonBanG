@@ -141,7 +141,8 @@ class DanmakuQuickSettings extends StatelessWidget {
               min: min,
               max: max,
               divisions: divisions,
-              onChanged: (value) => prefs.update(() => change(value)),
+              onChanged: (value) => prefs.preview(() => change(value)),
+              onChangeEnd: (_) => prefs.flush(),
             ),
           ),
           SizedBox(

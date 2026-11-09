@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../domain/collection_edit.dart';
 import '../../domain/catalog.dart';
@@ -163,7 +164,13 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
     }
   }
 
+  bool get _canSave =>
+      status != null &&
+      changed &&
+      comment.text.runes.length <= collectionCommentLimit;
+
   void _save() {
+    if (!_canSave) return;
     if (tagInput.text.trim().isNotEmpty && !_addTags(tagInput.text)) return;
     final value = draft.collection;
     Navigator.pop(
@@ -212,253 +219,283 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
         ],
       ),
     );
-    return Material(
-      color: scheme.surface,
-      elevation: 6,
-      shadowColor: Colors.black26,
-      borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
-      clipBehavior: Clip.antiAlias,
-      child: SizedBox(
-        width: 440,
-        height: double.infinity,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 12, 14),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 40,
-                    height: 54,
-                    child: CoverFrame(
-                      radius: badgeBorderRadius,
-                      child: SubjectCover(
-                        url: widget.subject.coverUrl,
-                        title: widget.subject.title,
-                        id: widget.subject.id,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: Gap.md),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('编辑收藏', style: text.titleMedium),
-                        Text(
-                          widget.subject.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: text.bodySmall,
+    final saveKeys = defaultTargetPlatform == TargetPlatform.macOS
+        ? '⌘ + Enter'
+        : 'Ctrl + Enter';
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.enter, meta: true): _save,
+        const SingleActivator(LogicalKeyboardKey.enter, control: true): _save,
+        const SingleActivator(LogicalKeyboardKey.numpadEnter, meta: true):
+            _save,
+        const SingleActivator(LogicalKeyboardKey.numpadEnter, control: true):
+            _save,
+      },
+      // Holds focus when nothing in the drawer has it, so the shortcuts work
+      // from the moment it opens.
+      child: Focus(
+        autofocus: !widget.focusComment,
+        skipTraversal: true,
+        child: Material(
+          color: scheme.surface,
+          elevation: 6,
+          shadowColor: Colors.black26,
+          borderRadius: const BorderRadius.horizontal(
+            left: Radius.circular(12),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: SizedBox(
+            width: 440,
+            height: double.infinity,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 12, 14),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 40,
+                        height: 54,
+                        child: CoverFrame(
+                          radius: badgeBorderRadius,
+                          child: SubjectCover(
+                            url: widget.subject.coverUrl,
+                            title: widget.subject.title,
+                            id: widget.subject.id,
+                          ),
                         ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: '关闭（保留草稿）',
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                children: [
-                  if (restored && changed)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: Gap.lg),
-                      padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
-                      decoration: BoxDecoration(
-                        color: scheme.primaryContainer.withValues(alpha: .5),
-                        borderRadius: controlBorderRadius,
                       ),
-                      child: Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              '已恢复上次未保存的编辑',
-                              style: TextStyle(fontSize: 12),
+                      const SizedBox(width: Gap.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('编辑收藏', style: text.titleMedium),
+                            Text(
+                              widget.subject.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.bodySmall,
                             ),
-                          ),
-                          TextButton(
-                            onPressed: _reset,
-                            child: const Text('放弃草稿'),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  section(
-                    '状态',
-                    MelonSegmentedControl<CollectionStatus>(
-                      options: collectionLabels,
-                      value: status,
-                      semanticLabel: '收藏状态',
-                      onChanged: (value) => _update(
-                        status: value,
-                        completeEpisodes: value == CollectionStatus.completed
-                            ? null
-                            : false,
+                      IconButton(
+                        tooltip: '关闭（保留草稿）',
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close),
                       ),
-                    ),
-                    detail: status == null ? '先选一个状态，才能保存其他内容' : null,
+                    ],
                   ),
-                  section(
-                    '我的评分',
-                    Container(
-                      padding: const EdgeInsets.fromLTRB(8, 6, 4, 6),
-                      decoration: BoxDecoration(
-                        color: scheme.surfaceContainer,
-                        borderRadius: controlBorderRadius,
-                      ),
-                      child: Row(
-                        children: [
-                          StarRating(
-                            value: status == CollectionStatus.wish ? 0 : score,
-                            size: 22,
-                            labelWidth: 80,
-                            enabled:
-                                status != null &&
-                                status != CollectionStatus.wish,
-                            onTap: (value) {
-                              if (status != null &&
-                                  status != CollectionStatus.wish) {
-                                _update(score: value);
-                              }
-                            },
-                          ),
-                          const Spacer(),
-                          if (score > 0 && status != CollectionStatus.wish)
-                            TextButton(
-                              onPressed: () => _update(score: 0),
-                              child: const Text('清除'),
-                            ),
-                        ],
-                      ),
-                    ),
-                    detail: status == CollectionStatus.wish
-                        ? '想看状态不能评分，改回其他状态时恢复原评分'
-                        : null,
-                  ),
-                  section(
-                    '标签',
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+                ),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    children: [
+                      if (restored && changed)
                         Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                          margin: const EdgeInsets.only(bottom: Gap.lg),
+                          padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
                           decoration: BoxDecoration(
-                            color: scheme.surfaceContainerHigh,
+                            color: scheme.primaryContainer.withValues(
+                              alpha: .5,
+                            ),
                             borderRadius: controlBorderRadius,
                           ),
-                          child: Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            crossAxisAlignment: WrapCrossAlignment.center,
+                          child: Row(
                             children: [
-                              for (final tag in tags)
-                                InputChip(
-                                  label: Text(tag),
-                                  onDeleted: () => _toggleTag(tag),
-                                  deleteButtonTooltipMessage: '移除 $tag',
+                              const Expanded(
+                                child: Text(
+                                  '已恢复上次未保存的编辑',
+                                  style: TextStyle(fontSize: 12),
                                 ),
-                              SizedBox(
-                                width: 180,
-                                child: TextField(
-                                  controller: tagInput,
-                                  decoration: const InputDecoration(
-                                    hintText: '回车或逗号添加',
-                                    filled: false,
-                                    contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 4,
-                                      vertical: 8,
-                                    ),
-                                  ),
-                                  onSubmitted: _addTags,
-                                  onChanged: (value) {
-                                    if (endsWithTagSeparator(value)) {
-                                      _addTags(value);
-                                    }
-                                  },
-                                ),
+                              ),
+                              TextButton(
+                                onPressed: _reset,
+                                child: const Text('放弃草稿'),
                               ),
                             ],
                           ),
                         ),
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Text(
-                            tagError ?? '每个标签至少两个字，不能包含空白',
-                            style: text.bodySmall?.copyWith(
-                              color: tagError == null ? null : scheme.error,
-                            ),
+                      section(
+                        '状态',
+                        MelonSegmentedControl<CollectionStatus>(
+                          options: collectionLabels,
+                          value: status,
+                          semanticLabel: '收藏状态',
+                          onChanged: (value) => _update(
+                            status: value,
+                            completeEpisodes:
+                                value == CollectionStatus.completed
+                                ? null
+                                : false,
                           ),
                         ),
-                        if (popular.isNotEmpty) ...[
-                          const SizedBox(height: Gap.sm),
-                          TagToggles(
-                            tags: popular,
-                            selected: tags.toSet(),
-                            onToggle: _toggleTag,
-                          ),
-                        ],
-                      ],
-                    ),
-                    detail: '${tags.length} / $collectionTagLimit',
-                  ),
-                  section(
-                    '吐槽',
-                    TextField(
-                      controller: comment,
-                      autofocus: widget.focusComment,
-                      minLines: 4,
-                      maxLines: 8,
-                      onChanged: (value) => _update(comment: value),
-                      decoration: InputDecoration(
-                        hintText: '写一句吐槽…',
-                        counterText:
-                            '${comment.text.runes.length}/$collectionCommentLimit',
-                        errorText: tooLong ? '吐槽超过字数上限' : null,
+                        detail: status == null ? '先选一个状态，才能保存其他内容' : null,
                       ),
-                    ),
+                      section(
+                        '我的评分',
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(8, 6, 4, 6),
+                          decoration: BoxDecoration(
+                            color: scheme.surfaceContainer,
+                            borderRadius: controlBorderRadius,
+                          ),
+                          child: Row(
+                            children: [
+                              StarRating(
+                                value: status == CollectionStatus.wish
+                                    ? 0
+                                    : score,
+                                size: 22,
+                                labelWidth: 80,
+                                enabled:
+                                    status != null &&
+                                    status != CollectionStatus.wish,
+                                onTap: (value) {
+                                  if (status != null &&
+                                      status != CollectionStatus.wish) {
+                                    _update(score: value);
+                                  }
+                                },
+                              ),
+                              const Spacer(),
+                              if (score > 0 && status != CollectionStatus.wish)
+                                TextButton(
+                                  onPressed: () => _update(score: 0),
+                                  child: const Text('清除'),
+                                ),
+                            ],
+                          ),
+                        ),
+                        detail: status == CollectionStatus.wish
+                            ? '想看状态不能评分，改回其他状态时恢复原评分'
+                            : null,
+                      ),
+                      section(
+                        '标签',
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                              decoration: BoxDecoration(
+                                color: scheme.surfaceContainerHigh,
+                                borderRadius: controlBorderRadius,
+                              ),
+                              child: Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  for (final tag in tags)
+                                    InputChip(
+                                      label: Text(tag),
+                                      onDeleted: () => _toggleTag(tag),
+                                      deleteButtonTooltipMessage: '移除 $tag',
+                                    ),
+                                  SizedBox(
+                                    width: 180,
+                                    child: TextField(
+                                      controller: tagInput,
+                                      decoration: const InputDecoration(
+                                        hintText: '回车或逗号添加',
+                                        filled: false,
+                                        contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 8,
+                                        ),
+                                      ),
+                                      onSubmitted: _addTags,
+                                      onChanged: (value) {
+                                        if (endsWithTagSeparator(value)) {
+                                          _addTags(value);
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                tagError ?? '每个标签至少两个字，不能包含空白',
+                                style: text.bodySmall?.copyWith(
+                                  color: tagError == null ? null : scheme.error,
+                                ),
+                              ),
+                            ),
+                            if (popular.isNotEmpty) ...[
+                              const SizedBox(height: Gap.sm),
+                              TagToggles(
+                                tags: popular,
+                                selected: tags.toSet(),
+                                onToggle: _toggleTag,
+                              ),
+                            ],
+                          ],
+                        ),
+                        detail: '${tags.length} / $collectionTagLimit',
+                      ),
+                      section(
+                        '吐槽',
+                        TextField(
+                          controller: comment,
+                          autofocus: widget.focusComment,
+                          minLines: 4,
+                          maxLines: 8,
+                          onChanged: (value) => _update(comment: value),
+                          decoration: InputDecoration(
+                            hintText: '写一句吐槽…',
+                            counterText:
+                                '${comment.text.runes.length}/$collectionCommentLimit',
+                            errorText: tooLong ? '吐槽超过字数上限' : null,
+                          ),
+                        ),
+                      ),
+                      if (status == CollectionStatus.completed)
+                        CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: draft.completeEpisodes,
+                          onChanged: (value) =>
+                              _update(completeEpisodes: value ?? false),
+                          title: const Text('同时将全部正片标为已看'),
+                        ),
+                    ],
                   ),
-                  if (status == CollectionStatus.completed)
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: draft.completeEpisodes,
-                      onChanged: (value) =>
-                          _update(completeEpisodes: value ?? false),
-                      title: const Text('同时将全部正片标为已看'),
-                    ),
-                ],
-              ),
+                ),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          changed ? '关闭会暂存草稿' : '',
+                          style: text.bodySmall,
+                        ),
+                      ),
+                      if (changed)
+                        TextButton(
+                          onPressed: _discard,
+                          child: const Text('放弃修改'),
+                        ),
+                      const SizedBox(width: Gap.sm),
+                      Tooltip(
+                        message: saveKeys,
+                        child: FilledButton(
+                          onPressed: _canSave ? _save : null,
+                          child: const Text('保存'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      changed ? '关闭会暂存草稿' : '',
-                      style: text.bodySmall,
-                    ),
-                  ),
-                  if (changed)
-                    TextButton(onPressed: _discard, child: const Text('放弃修改')),
-                  const SizedBox(width: Gap.sm),
-                  FilledButton(
-                    onPressed: status == null || !changed || tooLong
-                        ? null
-                        : _save,
-                    child: const Text('保存'),
-                  ),
-                ],
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -466,8 +503,9 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
 }
 
 /// Ten clickable stars with hover preview and a score label that follows
-/// the hovered star. [onTap] fires even when [enabled] is false so callers
-/// can explain why scoring is unavailable.
+/// the hovered star. From the keyboard ← and → preview a score and Enter
+/// picks it. [onTap] fires even when [enabled] is false so callers can
+/// explain why scoring is unavailable.
 class StarRating extends StatefulWidget {
   const StarRating({
     super.key,
@@ -496,9 +534,36 @@ class _StarRatingState extends State<StarRating> {
   /// that star a small bounce.
   int popped = 0, pops = 0;
 
+  /// Whether the stars have keyboard focus and show its ring.
+  bool highlighted = false;
+
+  void _pick(int n) {
+    if (widget.enabled) {
+      setState(() {
+        popped = n;
+        pops++;
+      });
+    }
+    widget.onTap(n);
+  }
+
+  /// Moves the keyboard preview by [step] stars.
+  void _step(int step) {
+    if (!widget.enabled) return;
+    final from = hover > 0 ? hover : widget.value;
+    setState(() => hover = (from + step).clamp(1, 10));
+  }
+
+  void _confirm() {
+    final n = widget.enabled && hover > 0 ? hover : widget.value;
+    setState(() => hover = 0);
+    _pick(math.max(n, 1));
+  }
+
   @override
   Widget build(BuildContext context) {
-    final empty = Theme.of(context).colorScheme.surfaceContainerHighest;
+    final scheme = Theme.of(context).colorScheme;
+    final empty = scheme.surfaceContainerHighest;
     final shown = widget.enabled && hover > 0 ? hover : widget.value;
     final stars = MouseRegion(
       onExit: (_) => setState(() => hover = 0),
@@ -514,15 +579,7 @@ class _StarRatingState extends State<StarRating> {
                 cursor: SystemMouseCursors.click,
                 onEnter: (_) => setState(() => hover = n),
                 child: GestureDetector(
-                  onTap: () {
-                    if (widget.enabled) {
-                      setState(() {
-                        popped = n;
-                        pops++;
-                      });
-                    }
-                    widget.onTap(n);
-                  },
+                  onTap: () => _pick(n),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: .5),
                     child: _Star(
@@ -548,7 +605,46 @@ class _StarRatingState extends State<StarRating> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        stars,
+        FocusableActionDetector(
+          shortcuts: const {
+            SingleActivator(LogicalKeyboardKey.arrowLeft): _StepIntent(-1),
+            SingleActivator(LogicalKeyboardKey.arrowRight): _StepIntent(1),
+            SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+            SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
+            SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+          },
+          actions: {
+            _StepIntent: CallbackAction<_StepIntent>(
+              onInvoke: (intent) => _step(intent.step),
+            ),
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) => _confirm(),
+            ),
+          },
+          onShowFocusHighlight: (value) => setState(() => highlighted = value),
+          // A preview left by the keyboard goes when focus does.
+          onFocusChange: (focused) {
+            if (!focused && hover > 0) setState(() => hover = 0);
+          },
+          child: Semantics(
+            label: '评分',
+            hint: '左右方向键选择，回车确认',
+            child: DecoratedBox(
+              position: DecorationPosition.foreground,
+              decoration: BoxDecoration(
+                borderRadius: badgeBorderRadius,
+                border: highlighted
+                    ? Border.all(
+                        color: scheme.primary.withValues(alpha: .7),
+                        width: 1.5,
+                        strokeAlign: BorderSide.strokeAlignOutside,
+                      )
+                    : null,
+              ),
+              child: stars,
+            ),
+          ),
+        ),
         const SizedBox(width: Gap.sm),
         // Fixed height: the label's size changes with hover, and a shifting
         // row would move the stars out from under the pointer.
@@ -563,6 +659,11 @@ class _StarRatingState extends State<StarRating> {
       ],
     );
   }
+}
+
+class _StepIntent extends Intent {
+  const _StepIntent(this.step);
+  final int step;
 }
 
 /// One star: its colour fades as the rating passes over it, it rises under

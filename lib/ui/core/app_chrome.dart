@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../features/update/app_update.dart';
@@ -210,6 +211,19 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
   /// Typed text can also be searched as a tag, written `#text`.
   bool get offersTag => typed.isNotEmpty && !typed.startsWith('#');
 
+  /// What each suggestion searches, in the order shown.
+  List<String> get queries => [if (offersTag) '#$typed', ...options];
+
+  /// The suggestion the arrow keys moved to; -1 leaves Enter to search the
+  /// typed text.
+  int highlight = -1;
+
+  /// Closed with Esc; typing or ↓ opens the suggestions again.
+  bool dismissed = false;
+  late String _text = widget.controller.text;
+
+  bool get open => suggestions.isShowing;
+
   @override
   void initState() {
     super.initState();
@@ -235,14 +249,86 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
   }
 
   void sync() {
-    final visible =
-        widget.focusNode.hasFocus && (offersTag || options.isNotEmpty);
+    final focused = widget.focusNode.hasFocus;
+    if (widget.controller.text != _text || !focused) {
+      _text = widget.controller.text;
+      highlight = -1;
+      dismissed = false;
+    }
+    final visible = focused && !dismissed && queries.isNotEmpty;
+    if (!visible || highlight >= queries.length) highlight = -1;
     if (visible) {
       suggestions.show();
     } else {
       suggestions.hide();
     }
     setState(() {});
+  }
+
+  /// Moves the highlight by [step], through the typed text after the last
+  /// suggestion; ↓ on closed suggestions opens them.
+  void _move(int step) {
+    if (!open) {
+      dismissed = false;
+      sync();
+      return;
+    }
+    final slots = queries.length + 1;
+    setState(() => highlight = (highlight + 1 + step + slots) % slots - 1);
+  }
+
+  void _dismiss() {
+    dismissed = true;
+    sync();
+  }
+
+  /// The arrow keys, Enter on a highlighted suggestion and Esc, only while
+  /// they act on the suggestions; otherwise the field keeps its own keys,
+  /// as it does for an input method choosing among its candidates.
+  Map<ShortcutActivator, VoidCallback> get _keys {
+    if (widget.controller.value.composing.isValid) return const {};
+    return {
+      if (open) ...{
+        const SingleActivator(LogicalKeyboardKey.arrowUp): () => _move(-1),
+        const SingleActivator(LogicalKeyboardKey.escape): _dismiss,
+      },
+      if (open || (dismissed && queries.isNotEmpty))
+        const SingleActivator(LogicalKeyboardKey.arrowDown): () => _move(1),
+      if (open && highlight >= 0) ...{
+        const SingleActivator(LogicalKeyboardKey.enter): () =>
+            widget.onSearch(queries[highlight]),
+        const SingleActivator(LogicalKeyboardKey.numpadEnter): () =>
+            widget.onSearch(queries[highlight]),
+      },
+    };
+  }
+
+  Widget _suggestion({
+    required int index,
+    required IconData icon,
+    required String label,
+  }) {
+    final highlighted = index == highlight;
+    return Builder(
+      builder: (context) {
+        // The highlighted row scrolls into view as the arrow keys reach it.
+        if (highlighted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (context.mounted) context.findRenderObject()?.showOnScreen();
+          });
+        }
+        return ListTile(
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          tileColor: highlighted
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: .08)
+              : null,
+          leading: Icon(icon, size: 18),
+          title: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+          onTap: () => widget.onSearch(queries[index]),
+        );
+      },
+    );
   }
 
   @override
@@ -284,19 +370,10 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
                           shrinkWrap: true,
                           children: [
                             if (offersTag)
-                              ListTile(
-                                dense: true,
-                                visualDensity: VisualDensity.compact,
-                                leading: const Icon(
-                                  Icons.sell_outlined,
-                                  size: 18,
-                                ),
-                                title: Text(
-                                  '按标签搜索 #$typed',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                onTap: () => widget.onSearch('#$typed'),
+                              _suggestion(
+                                index: 0,
+                                icon: Icons.sell_outlined,
+                                label: '按标签搜索 #$typed',
                               ),
                             if (options.isNotEmpty)
                               Padding(
@@ -317,22 +394,13 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
                                   ],
                                 ),
                               ),
-                            for (final option in options)
-                              ListTile(
-                                dense: true,
-                                visualDensity: VisualDensity.compact,
-                                leading: Icon(
-                                  option.startsWith('#')
-                                      ? Icons.sell_outlined
-                                      : Icons.history,
-                                  size: 18,
-                                ),
-                                title: Text(
-                                  option,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                onTap: () => widget.onSearch(option),
+                            for (final (index, option) in options.indexed)
+                              _suggestion(
+                                index: index + (offersTag ? 1 : 0),
+                                icon: option.startsWith('#')
+                                    ? Icons.sell_outlined
+                                    : Icons.history,
+                                label: option,
                               ),
                           ],
                         ),
@@ -343,64 +411,67 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
               ),
             ),
           ),
-          child: TextField(
-            key: const PageStorageKey('catalogue-search-input'),
-            controller: widget.controller,
-            focusNode: widget.focusNode,
-            textAlignVertical: TextAlignVertical.center,
-            style: const TextStyle(fontSize: 13, height: 1.25),
-            onSubmitted: (value) => widget.onSearch(value.trim()),
-            decoration: InputDecoration(
-              fillColor: scheme.surface,
-              hintText: '搜索番剧或 #标签',
-              contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: controlBorderRadius,
-                borderSide: BorderSide(color: scheme.outlineVariant),
-              ),
-              prefixIconConstraints: const BoxConstraints(
-                minWidth: 34,
-                minHeight: 32,
-              ),
-              suffixIconConstraints: const BoxConstraints(minHeight: 32),
-              prefixIcon: const Icon(Icons.search, size: 17),
-              suffixIcon: Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: MotionSwap(
-                  value: focused,
-                  alignment: Alignment.centerRight,
-                  child: focused
-                      ? IconButton(
-                          tooltip: '搜索番剧',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () =>
-                              widget.onSearch(widget.controller.text.trim()),
-                          icon: const Icon(Icons.arrow_forward, size: 16),
-                        )
-                      : Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: scheme.surfaceContainerHigh,
-                                borderRadius: const BorderRadius.all(
-                                  Radius.circular(5),
+          child: CallbackShortcuts(
+            bindings: _keys,
+            child: TextField(
+              key: const PageStorageKey('catalogue-search-input'),
+              controller: widget.controller,
+              focusNode: widget.focusNode,
+              textAlignVertical: TextAlignVertical.center,
+              style: const TextStyle(fontSize: 13, height: 1.25),
+              onSubmitted: (value) => widget.onSearch(value.trim()),
+              decoration: InputDecoration(
+                fillColor: scheme.surface,
+                hintText: '搜索番剧或 #标签',
+                contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: controlBorderRadius,
+                  borderSide: BorderSide(color: scheme.outlineVariant),
+                ),
+                prefixIconConstraints: const BoxConstraints(
+                  minWidth: 34,
+                  minHeight: 32,
+                ),
+                suffixIconConstraints: const BoxConstraints(minHeight: 32),
+                prefixIcon: const Icon(Icons.search, size: 17),
+                suffixIcon: Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: MotionSwap(
+                    value: focused,
+                    alignment: Alignment.centerRight,
+                    child: focused
+                        ? IconButton(
+                            tooltip: '搜索番剧',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () =>
+                                widget.onSearch(widget.controller.text.trim()),
+                            icon: const Icon(Icons.arrow_forward, size: 16),
+                          )
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 1,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: scheme.surfaceContainerHigh,
+                                  borderRadius: const BorderRadius.all(
+                                    Radius.circular(5),
+                                  ),
+                                ),
+                                child: Text(
+                                  shortcut,
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: scheme.onSurfaceVariant,
+                                  ),
                                 ),
                               ),
-                              child: Text(
-                                shortcut,
-                                style: TextStyle(
-                                  fontSize: 10.5,
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                            ],
+                          ),
+                  ),
                 ),
               ),
             ),

@@ -284,7 +284,12 @@ class PlaybackCoordinator extends ChangeNotifier {
     int episodeId,
     EpisodeStatus status,
   ) async {
-    await tracking.setEpisode(subjectId, episodeId, status);
+    try {
+      await tracking.setEpisode(subjectId, episodeId, status);
+    } on SyncFailure catch (e) {
+      final action = status == EpisodeStatus.watched ? '标记看过' : '取消看过';
+      throw SyncFailure('$action失败：${e.userMessage}', e.cause);
+    }
     final current = subject;
     if (_closed || current?.id != subjectId) return;
     subject = current!.copyWith(

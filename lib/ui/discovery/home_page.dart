@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
@@ -931,26 +930,15 @@ class _ContinueSection extends StatefulWidget {
 }
 
 class _ContinueSectionState extends State<_ContinueSection> {
-  late final Timer clock;
-
   /// Subjects the queue has shown; later ones fade in as they join.
   final _shown = <int>{};
 
+  // Episodes become watchable as they air.
   @override
-  void initState() {
-    super.initState();
-    // Episodes become watchable as they air.
-    clock = Timer.periodic(const Duration(minutes: 1), (_) => setState(() {}));
-  }
+  Widget build(BuildContext context) =>
+      ShownClock(period: const Duration(minutes: 1), builder: _build);
 
-  @override
-  void dispose() {
-    clock.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _build(BuildContext context) {
     final resumes = {
       for (final item in widget.resumable) item.subject.id: item,
     };

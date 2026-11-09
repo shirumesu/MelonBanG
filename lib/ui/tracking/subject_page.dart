@@ -1575,31 +1575,14 @@ final _timeTag = RegExp(r'^(\d{4}(年(\d{1,2}月)?)?|\d{1,2}月)$');
 
 /// The play button's label while the next episode has not aired, kept
 /// current as the time nears.
-class _ReleaseCountdown extends StatefulWidget {
+class _ReleaseCountdown extends StatelessWidget {
   const _ReleaseCountdown({required this.release, required this.episode});
   final Release release;
   final Episode episode;
 
   @override
-  State<_ReleaseCountdown> createState() => _ReleaseCountdownState();
-}
-
-class _ReleaseCountdownState extends State<_ReleaseCountdown> {
-  late final Timer _tick;
-
-  @override
-  void initState() {
-    super.initState();
-    _tick = Timer.periodic(const Duration(seconds: 30), (_) => setState(() {}));
-  }
-
-  @override
-  void dispose() {
-    _tick.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) =>
-      Text('${releaseWhen(widget.release)}更新');
+  Widget build(BuildContext context) => ShownClock(
+    period: const Duration(seconds: 30),
+    builder: (context) => Text('${releaseWhen(release)}更新'),
+  );
 }

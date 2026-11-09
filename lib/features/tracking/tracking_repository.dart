@@ -8,6 +8,19 @@ import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../core/store.dart';
 
+/// A collection or progress edit Bangumi did not take; the local rows are
+/// back to how they were. [userMessage] is only the reason: the caller says
+/// what was being saved.
+class SyncFailure implements UserFacingError {
+  const SyncFailure(this.userMessage, this.cause);
+  @override
+  final String userMessage;
+  final Object cause;
+
+  @override
+  String toString() => 'SyncFailure: $cause';
+}
+
 class TrackingRepository {
   TrackingRepository(this.store, this.account, this.catalog);
   final AppStore store;
@@ -113,80 +126,86 @@ class TrackingRepository {
     'collectedAt': DateTime.now().toUtc().toIso8601String(),
   };
 
-  Future<void> setCollection(int subjectId, CollectionChange change) async {
-    final status = change.status, comment = change.comment, tags = change.tags;
-    var score = change.score;
-    final completeEpisodes = change.completeEpisodes;
+  Future<void> setCollection(int subjectId, CollectionChange change) {
     final user = account.userId;
-    final current =
-        await store.get(_collection(user), '$subjectId') ??
-        _row(await catalog.subject(subjectId));
-    if (_closed || user != account.userId) throw StateError('账号已经切换');
-    if ((status?.key ?? current['status'] ?? 'wish') == 'wish') {
-      if (status == CollectionStatus.wish && number(current['userScore']) > 0) {
-        _heldScores['$user:$subjectId'] = number(current['userScore']).toInt();
-        score = 0;
-      }
-    } else if (score != null) {
-      _heldScores.remove('$user:$subjectId');
-    } else if (current['status'] == 'wish') {
-      // Leaving wish restores the score Bangumi made us clear on entering it.
-      score = _heldScores.remove('$user:$subjectId');
-    }
-    final fields = {
-      'type': ?status?.remoteValue,
-      'rate': ?score,
-      'tags': ?tags,
-      'comment': ?comment,
-    };
-    List<int> episodeIds = [];
-    if (completeEpisodes) {
-      final detail = await catalog.subject(subjectId);
-      episodeIds = detail.episodes
-          .where((episode) => episode.main && episode.id > 0)
-          .map((episode) => episode.id)
-          .toSet()
-          .toList();
+    // The row is read in turn, after the subject's earlier edits wrote it.
+    return _inOrder(user, subjectId, () async {
+      final status = change.status, comment = change.comment;
+      final tags = change.tags;
+      var score = change.score;
+      final completeEpisodes = change.completeEpisodes;
+      final current =
+          await store.get(_collection(user), '$subjectId') ??
+          _row(await catalog.subject(subjectId));
       if (_closed || user != account.userId) throw StateError('账号已经切换');
-    }
-    if (fields.isEmpty && !completeEpisodes) return;
-    await _commit(
-      user,
-      subjectId,
-      [
-        (_collection(user), '$subjectId'),
-        for (final id in episodeIds) (_episodes(user), '$id'),
-      ],
-      () async => [
-        if (fields.isNotEmpty)
-          await store.mutate(
-            _collection(user),
-            '$subjectId',
-            {
-              'subjectId': subjectId,
-              'status': ?status?.key,
-              'userScore': ?score,
-              'collectionTags': ?tags,
-              'comment': ?comment,
-            },
-            user,
-            'subject:$subjectId',
-            {'kind': 'subject', 'subjectId': subjectId, 'fields': fields},
-            defaults: {...current, 'status': current['status'] ?? 'wish'},
-            initialMutation: const {
-              'fields': {'type': 1},
-            },
-          ),
-        if (episodeIds.isNotEmpty)
-          await store.markEpisodes(
-            _episodes(user),
-            _collection(user),
-            user,
-            subjectId,
-            episodeIds,
-          ),
-      ],
-    );
+      if ((status?.key ?? current['status'] ?? 'wish') == 'wish') {
+        if (status == CollectionStatus.wish &&
+            number(current['userScore']) > 0) {
+          _heldScores['$user:$subjectId'] = number(current['userScore'])
+              .toInt();
+          score = 0;
+        }
+      } else if (score != null) {
+        _heldScores.remove('$user:$subjectId');
+      } else if (current['status'] == 'wish') {
+        // Leaving wish restores the score Bangumi made us clear on entering it.
+        score = _heldScores.remove('$user:$subjectId');
+      }
+      final fields = {
+        'type': ?status?.remoteValue,
+        'rate': ?score,
+        'tags': ?tags,
+        'comment': ?comment,
+      };
+      List<int> episodeIds = [];
+      if (completeEpisodes) {
+        final detail = await catalog.subject(subjectId);
+        episodeIds = detail.episodes
+            .where((episode) => episode.main && episode.id > 0)
+            .map((episode) => episode.id)
+            .toSet()
+            .toList();
+        if (_closed || user != account.userId) throw StateError('账号已经切换');
+      }
+      if (fields.isEmpty && !completeEpisodes) return;
+      await _apply(
+        user,
+        subjectId,
+        [
+          (_collection(user), '$subjectId'),
+          for (final id in episodeIds) (_episodes(user), '$id'),
+        ],
+        () async => [
+          if (fields.isNotEmpty)
+            await store.mutate(
+              _collection(user),
+              '$subjectId',
+              {
+                'subjectId': subjectId,
+                'status': ?status?.key,
+                'userScore': ?score,
+                'collectionTags': ?tags,
+                'comment': ?comment,
+              },
+              user,
+              'subject:$subjectId',
+              {'kind': 'subject', 'subjectId': subjectId, 'fields': fields},
+              defaults: {...current, 'status': current['status'] ?? 'wish'},
+              initialMutation: const {
+                'fields': {'type': 1},
+              },
+            ),
+          if (episodeIds.isNotEmpty)
+            await store.markEpisodes(
+              _episodes(user),
+              _collection(user),
+              user,
+              subjectId,
+              episodeIds,
+            ),
+        ],
+      );
+    });
   }
 
   Future<void> setEpisode(
@@ -271,15 +290,24 @@ class TrackingRepository {
     return result;
   }
 
-  /// Writes an edit locally so it shows at once, then sends it to Bangumi.
-  /// When sending fails the [touched] rows go back to how they were and the
-  /// error names why. [write] returns the queued sequences.
+  /// Writes an edit locally so it shows at once, then sends it to Bangumi,
+  /// after the subject's earlier edits. When sending fails the [touched]
+  /// rows go back to how they were and a [SyncFailure] names why. [write]
+  /// returns the queued sequences.
   Future<void> _commit(
     String user,
     int subjectId,
     List<(String, String)> touched,
     Future<List<int?>> Function() write,
-  ) => _inOrder(user, subjectId, () async {
+  ) => _inOrder(user, subjectId, () => _apply(user, subjectId, touched, write));
+
+  /// [_commit] for a task already running in the subject's turn.
+  Future<void> _apply(
+    String user,
+    int subjectId,
+    List<(String, String)> touched,
+    Future<List<int?>> Function() write,
+  ) async {
     if (_closed || user != account.userId) throw StateError('账号已经切换');
     if (user == 'local') {
       await write();
@@ -310,11 +338,9 @@ class TrackingRepository {
       }
       // The account may have just turned out locked or expired.
       _changed();
-      throw StateError(
-        before == null ? _failure(e) : '同步到 Bangumi 失败，修改已撤销：${_failure(e)}',
-      );
+      throw SyncFailure(_failure(e), e);
     }
-  });
+  }
 
   String _failure(Object error) => error is ApiException && error.status == 400
       ? 'Bangumi 没有接受这次修改'

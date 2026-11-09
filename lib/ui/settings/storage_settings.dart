@@ -377,16 +377,35 @@ class _StorageSettingsState extends State<StorageSettings> {
     final small = Theme.of(context).textTheme.bodySmall;
     Widget location(bool media) => SettingRow(
       title: media ? '媒体缓存' : '应用数据',
-      subtitle: usageLabel(media ? usage?.mediaBytes : usage?.dataBytes),
-      trailing: OutlinedButton.icon(
-        // Without location management (a data folder given at launch)
-        // there is nothing to move.
-        onPressed:
-            busy || widget.storage == null || widget.storage!.pending != null
-            ? null
-            : () => choose(media),
-        icon: const Icon(Icons.drive_file_move_outline, size: 18),
-        label: const Text('更改位置'),
+      subtitle: [
+        usageLabel(media ? usage?.mediaBytes : usage?.dataBytes),
+        if (widget.storage == null) '位置由启动参数指定，移除该参数后才能更改',
+      ].join('；'),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Usage is measured on opening, after cleaning and after moving;
+          // this catches files changed outside the app.
+          IconButton(
+            tooltip: '刷新空间用量',
+            visualDensity: VisualDensity.compact,
+            onPressed: measuring ? null : refreshUsage,
+            icon: const Icon(Icons.refresh, size: 18),
+          ),
+          const SizedBox(width: 4),
+          OutlinedButton.icon(
+            // Without location management (a data folder given at launch)
+            // there is nothing to move.
+            onPressed:
+                busy ||
+                    widget.storage == null ||
+                    widget.storage!.pending != null
+                ? null
+                : () => choose(media),
+            icon: const Icon(Icons.drive_file_move_outline, size: 18),
+            label: const Text('更改位置'),
+          ),
+        ],
       ),
     );
     Widget path(String value) => Padding(
@@ -420,18 +439,6 @@ class _StorageSettingsState extends State<StorageSettings> {
         divider,
         location(true),
         path(widget.mediaDirectory),
-        divider,
-        SettingRow(
-          title: '刷新空间用量',
-          subtitle: widget.storage == null
-              ? '当前使用启动参数指定的数据目录，请先移除该参数以启用位置管理'
-              : null,
-          trailing: IconButton(
-            tooltip: '刷新空间用量',
-            onPressed: measuring ? null : refreshUsage,
-            icon: const Icon(Icons.refresh, size: 18),
-          ),
-        ),
         if (widget.storage case final storage?
             when storage.pending != null) ...[
           divider,

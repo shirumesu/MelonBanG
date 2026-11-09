@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -73,6 +75,44 @@ class _ShownListenableBuilderState extends State<ShownListenableBuilder> {
 
   @override
   Widget build(BuildContext context) => widget.builder(context);
+}
+
+/// Builds again every [period], for text that follows the time; on a page
+/// kept while another is shown, the ticks wait and it builds once on
+/// showing again.
+class ShownClock extends StatefulWidget {
+  const ShownClock({super.key, required this.period, required this.builder});
+  final Duration period;
+  final WidgetBuilder builder;
+
+  @override
+  State<ShownClock> createState() => _ShownClockState();
+}
+
+class _ShownClockState extends State<ShownClock> {
+  final _ticks = ValueNotifier(0);
+  late Timer _timer = _start();
+
+  Timer _start() => Timer.periodic(widget.period, (_) => _ticks.value++);
+
+  @override
+  void didUpdateWidget(ShownClock old) {
+    super.didUpdateWidget(old);
+    if (old.period == widget.period) return;
+    _timer.cancel();
+    _timer = _start();
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    _ticks.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      ShownListenableBuilder(listenable: _ticks, builder: widget.builder);
 }
 
 class PageScroll extends StatelessWidget {

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -67,25 +66,20 @@ class TodayTimeline extends StatefulWidget {
 class _TodayTimelineState extends State<TodayTimeline> {
   static const rowHeight = 64.0;
   final scroll = ScrollController();
-  late final Timer clock;
   bool positioned = false;
 
   @override
-  void initState() {
-    super.initState();
-    // Air status is derived from the schedule time only.
-    clock = Timer.periodic(const Duration(seconds: 30), (_) => setState(() {}));
-  }
-
-  @override
   void dispose() {
-    clock.cancel();
     scroll.dispose();
     super.dispose();
   }
 
+  // Air status is derived from the schedule time only.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      ShownClock(period: const Duration(seconds: 30), builder: _build);
+
+  Widget _build(BuildContext context) {
     final now = DateTime.now();
     final items = widget.items;
     final aired = [
@@ -384,26 +378,38 @@ class _NowMarker extends StatelessWidget {
   }
 }
 
+/// A day's shows by air time; those aired are marked 已更新 and those in
+/// the collection being watched 在追, as on the home timeline.
 class BroadcastTimeline extends StatelessWidget {
   const BroadcastTimeline({
     super.key,
     required this.items,
     required this.onOpen,
+    this.watchingIds = const {},
   });
   final List<Subject> items;
   final ValueChanged<Subject> onOpen;
+  final Set<int> watchingIds;
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      for (var i = 0; i < items.length; i++)
-        _BroadcastEntry(
-          key: ValueKey('${items[i].id}:$i'),
-          item: items[i],
-          onOpen: onOpen,
-          first: i == 0,
-          last: i == items.length - 1,
-        ),
-    ],
+  Widget build(BuildContext context) => ShownClock(
+    period: const Duration(minutes: 1),
+    builder: (context) {
+      final now = DateTime.now();
+      return Column(
+        children: [
+          for (var i = 0; i < items.length; i++)
+            _BroadcastEntry(
+              key: ValueKey('${items[i].id}:$i'),
+              item: items[i],
+              onOpen: onOpen,
+              first: i == 0,
+              last: i == items.length - 1,
+              aired: items[i].airingAt?.isBefore(now) ?? false,
+              watching: watchingIds.contains(items[i].id),
+            ),
+        ],
+      );
+    },
   );
 }
 
@@ -414,10 +420,12 @@ class _BroadcastEntry extends StatefulWidget {
     required this.onOpen,
     required this.first,
     required this.last,
+    required this.aired,
+    required this.watching,
   });
   final Subject item;
   final ValueChanged<Subject> onOpen;
-  final bool first, last;
+  final bool first, last, aired, watching;
   @override
   State<_BroadcastEntry> createState() => _BroadcastEntryState();
 }
@@ -537,10 +545,29 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                                       fontWeight: FontWeight.w800,
                                     ),
                                   ),
-                                  if (item.episodeTotal != null) ...[
+                                  if (item.episodeTotal != null ||
+                                      widget.aired) ...[
                                     const SizedBox(height: 7),
-                                    Text(
-                                      '全 ${item.episodeTotal} 话',
+                                    Text.rich(
+                                      TextSpan(
+                                        children: [
+                                          if (item.episodeTotal != null)
+                                            TextSpan(
+                                              text: '全 ${item.episodeTotal} 话',
+                                            ),
+                                          if (item.episodeTotal != null &&
+                                              widget.aired)
+                                            const TextSpan(text: ' · '),
+                                          if (widget.aired)
+                                            TextSpan(
+                                              text: '已更新',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                color: scheme.primary,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
                                       style: Theme.of(context)
                                           .textTheme
                                           .bodySmall,
@@ -549,6 +576,11 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                                 ],
                               ),
                             ),
+                            if (widget.watching)
+                              const Padding(
+                                padding: EdgeInsets.only(left: Gap.sm),
+                                child: MelonBadge('在追'),
+                              ),
                             const SizedBox(width: 12),
                             OutlinedButton(
                               onPressed: () => widget.onOpen(item),

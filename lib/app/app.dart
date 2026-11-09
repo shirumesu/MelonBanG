@@ -976,6 +976,9 @@ class _MelonAppState extends State<MelonApp>
               goBack,
           const SingleActivator(LogicalKeyboardKey.bracketLeft, meta: true):
               goBack,
+          if (Platform.isMacOS)
+            const SingleActivator(LogicalKeyboardKey.comma, meta: true): () =>
+                navigate('settings'),
         },
         // The mouse's back button goes back like the title-bar action.
         child: Listener(
@@ -1340,6 +1343,7 @@ class _MelonAppState extends State<MelonApp>
           onOpenSubject: openSubject,
           onRetry: discovery.loadCalendar,
           filter: scheduleFilter,
+          watchingIds: {for (final item in personal.watching) item.id},
         );
       case 'tracking':
         return TrackingPage(

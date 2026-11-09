@@ -533,6 +533,7 @@ class SettingRow extends StatelessWidget {
     this.onTap,
     this.subtitleColor,
     this.help,
+    this.toggled,
   });
   final String title;
   final String? subtitle;
@@ -543,8 +544,14 @@ class SettingRow extends StatelessWidget {
   /// A longer explanation behind a ? mark beside the title.
   final String? help;
 
+  /// Set when the row is a switch: the row takes the keyboard focus and
+  /// reads as one switch in this state, [trailing] only shows it and [help]
+  /// is read as the hint.
+  final bool? toggled;
+
   @override
   Widget build(BuildContext context) {
+    final switches = toggled != null;
     final label = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -560,7 +567,10 @@ class SettingRow extends StatelessWidget {
             ),
             if (help != null) ...[
               const SizedBox(width: Gap.xs),
-              HelpHint(message: help!),
+              ExcludeSemantics(
+                excluding: switches,
+                child: HelpHint(message: help!),
+              ),
             ],
           ],
         ),
@@ -575,7 +585,13 @@ class SettingRow extends StatelessWidget {
         ],
       ],
     );
-    return InkWell(
+    final trailing = switch (this.trailing) {
+      final control? when switches => ExcludeSemantics(
+        child: ExcludeFocus(child: control),
+      ),
+      final control => control,
+    };
+    final row = InkWell(
       onTap: onTap,
       customBorder: CardTheme.of(context).shape,
       child: Padding(
@@ -596,7 +612,7 @@ class SettingRow extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: Gap.md),
-                  trailing!,
+                  trailing,
                 ],
               );
             }
@@ -609,7 +625,7 @@ class SettingRow extends StatelessWidget {
                 Expanded(child: label),
                 if (trailing != null) ...[
                   const SizedBox(width: Gap.xl),
-                  trailing!,
+                  trailing,
                 ],
               ],
             );
@@ -617,10 +633,16 @@ class SettingRow extends StatelessWidget {
         ),
       ),
     );
+    return switches
+        ? MergeSemantics(
+            child: Semantics(toggled: toggled, hint: help, child: row),
+          )
+        : row;
   }
 }
 
-/// A [SettingRow] that toggles [value]; tapping the row flips it too.
+/// A [SettingRow] that toggles [value]; tapping the row flips it too. The
+/// row is the one keyboard stop and reads as one switch.
 class SettingSwitch extends StatelessWidget {
   const SettingSwitch({
     super.key,
@@ -640,6 +662,7 @@ class SettingSwitch extends StatelessWidget {
     title: title,
     subtitle: subtitle,
     help: help,
+    toggled: value,
     onTap: () => onChanged(!value),
     trailing: Switch(value: value, onChanged: onChanged),
   );

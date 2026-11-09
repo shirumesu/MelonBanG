@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/proxy.dart';
@@ -77,6 +79,16 @@ class _ProxyAddressState extends State<_ProxyAddress> {
     focus.addListener(() {
       if (!focus.hasFocus) save();
     });
+  }
+
+  /// An address typed but not yet saved, when the row goes before the
+  /// field loses focus, such as on leaving settings: saved when valid.
+  @override
+  void deactivate() {
+    if (input.text.trim() != widget.proxy.address) {
+      unawaited(widget.proxy.setAddress(input.text).catchError((Object _) {}));
+    }
+    super.deactivate();
   }
 
   @override

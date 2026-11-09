@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import '../../core/error_message.dart';
 import '../../core/json.dart' show coverAddress;
 import '../../domain/catalog.dart';
 import '../core/account_avatar.dart';
@@ -48,6 +50,8 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   /// snapshots so rows rebuilt while scrolling show them at once.
   final _topics = <int, AsyncSnapshot<List<TopicPost>>>{};
   final _blogs = <int, AsyncSnapshot<String>>{};
+  final _queuedReads = Queue<Future<void> Function()>();
+  int _reads = 0;
 
   /// Keeps the posts' selectable text from sharing the page's saved scroll
   /// offset, which built each row scrolled away and springing back into view.
@@ -71,6 +75,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
       _totals.clear();
       _topics.clear();
       _blogs.clear();
+      _queuedReads.clear();
       _requested = false;
       _editing = _confirmDelete = false;
     }
@@ -132,19 +137,33 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
     if (!retry && cache.containsKey(id)) return;
     final pending = AsyncSnapshot<T>.waiting();
     cache[id] = pending;
-    unawaited(
-      request(id)
-          .then(
-            (value) => AsyncSnapshot.withData(ConnectionState.done, value),
-            onError: (Object error) =>
-                AsyncSnapshot<T>.withError(ConnectionState.done, error),
-          )
-          .then((snapshot) {
-            if (mounted && identical(cache[id], pending)) {
-              setState(() => cache[id] = snapshot);
-            }
-          }),
-    );
+    _queuedReads.add(() async {
+      // A row of a replaced subject or segment no longer waits for it.
+      if (!mounted || !identical(cache[id], pending)) return;
+      final snapshot = await request(id).then(
+        (value) => AsyncSnapshot.withData(ConnectionState.done, value),
+        onError: (Object error) =>
+            AsyncSnapshot<T>.withError(ConnectionState.done, error),
+      );
+      if (mounted && identical(cache[id], pending)) {
+        setState(() => cache[id] = snapshot);
+      }
+    });
+    _startReads();
+  }
+
+  /// Starts queued reads, in the order rows asked, while fewer than four
+  /// run: a screen of topics would otherwise send a dozen at once.
+  void _startReads() {
+    while (_reads < 4 && _queuedReads.isNotEmpty) {
+      _reads++;
+      unawaited(
+        _queuedReads.removeFirst()().whenComplete(() {
+          _reads--;
+          if (mounted) _startReads();
+        }),
+      );
+    }
   }
 
   Widget _row(CommunityEntry entry) {
@@ -252,7 +271,11 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
       segment == 'comments' && entry.userId == widget.client.userId;
 
   Future<void> _saveComment(String text) => _commentFeedback.run(() async {
-    await widget.onSaveComment(text);
+    try {
+      await widget.onSaveComment(text);
+    } catch (e) {
+      return '吐槽保存失败：${errorMessage(e)}';
+    }
     if (mounted) setState(() => _editing = _confirmDelete = false);
     return null;
   });
