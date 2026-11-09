@@ -14,7 +14,13 @@ dependencies:
   media_kit: ^1.2.6
   media_kit_video:
     path: vendor/media_kit_video
-  media_kit_libs_video: ^1.0.7
+  # Platform libraries directly, not media_kit_libs_video: the umbrella pulls
+  # the hosted macOS and Windows packages, which would need overrides.
+  media_kit_libs_linux: ^1.2.1
+  media_kit_libs_macos_video:
+    path: vendor/media_kit_libs_macos_video
+  media_kit_libs_windows_video:
+    path: vendor/media_kit_libs_windows_video
   file_selector: ^1.1.0
   window_manager: ^0.6.0
   tray_manager: ^0.8.2
@@ -37,14 +43,6 @@ dependencies:
 
 dev_dependencies:
   flutter_lints: ^6.0.0
-
-dependency_overrides:
-  file_selector_macos:
-    path: vendor/file_selector_macos
-  media_kit_libs_macos_video:
-    path: vendor/media_kit_libs_macos_video
-  media_kit_libs_windows_video:
-    path: vendor/media_kit_libs_windows_video
 
 flutter:
   config:
