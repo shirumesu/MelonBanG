@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
@@ -215,6 +216,35 @@ class ApiClient {
         _checkResponse(response, uri);
       }
       return response;
+    },
+  );
+
+  /// [uri]'s body, read only up to [maxBytes]: a larger one stops
+  /// downloading and fails with [tooLarge].
+  Future<Uint8List> bytes(
+    Uri uri, {
+    required int maxBytes,
+    required String tooLarge,
+    Map<String, String> headers = const {},
+    RequestCancellation? cancel,
+  }) => _exchange(
+    uri,
+    headers: headers,
+    cancel: cancel,
+    read: (streamed) async {
+      if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+        _checkResponse(await http.Response.fromStream(streamed), uri);
+      }
+      if ((streamed.contentLength ?? 0) > maxBytes) {
+        await streamed.stream.listen(null).cancel();
+        throw StateError(tooLarge);
+      }
+      final body = BytesBuilder(copy: false);
+      await for (final chunk in streamed.stream) {
+        body.add(chunk);
+        if (body.length > maxBytes) throw StateError(tooLarge);
+      }
+      return body.takeBytes();
     },
   );
 

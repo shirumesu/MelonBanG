@@ -87,7 +87,7 @@ class LibtorrentTransfer implements TorrentTransfer {
       (a, b) => number(a['createdAt']).compareTo(number(b['createdAt'])),
     );
     for (final task in restored) {
-      if (await deletedOutside(task, directory)) {
+      if (await taskDeletedOutside(task, directory)) {
         await _discard(task);
         final folder = Directory('${task['savePath']}');
         if (await folder.exists()) await folder.delete(recursive: true);

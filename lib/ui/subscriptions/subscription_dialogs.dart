@@ -173,17 +173,20 @@ typedef _File = ({
 });
 
 class _SubscriptionDialogState extends State<_SubscriptionDialog> {
-  late final Subscription? subscription =
+  /// The subscription when the dialog opened. The dialog follows the live
+  /// one, which a check may end meanwhile; [earlier] and [cached] stay as
+  /// they were when it opened.
+  late final Subscription? opened =
       widget.controller.subscriptions[widget.subject.id];
   late SubscriptionFilter filter =
-      subscription?.filter ??
+      opened?.filter ??
       widget.controller.preferences.defaultFilter(widget.preferredGroups);
   late final bool watching =
       widget.subject.collection?.status == CollectionStatus.watching;
 
   /// A new subscription marks the show 在看 unless unticked; a change
   /// only when ticked.
-  late bool markWatching = subscription == null;
+  late bool markWatching = opened == null;
 
   /// Aired episodes the subscription could cache too.
   late final List<Episode> earlier = widget.controller.earlierEpisodes(
@@ -195,7 +198,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
     widget.subject,
   );
   late bool cacheEarlier =
-      subscription == null && widget.controller.preferences.cacheEarlier;
+      opened == null && widget.controller.preferences.cacheEarlier;
   final cancel = RequestCancellation();
 
   /// What the show's releases offer, as one search finds them.
@@ -431,11 +434,18 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
         ..sort((a, b) => b.episode!.sort.compareTo(a.episode!.sort));
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.controller,
+    builder: (context, _) => _dialog(context),
+  );
+
+  Widget _dialog(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final units = ByteUnitsScope.of(context);
-    final subscription = this.subscription;
+    final subscription = widget.controller.subscriptions[widget.subject.id];
+    // Ended while open, such as by a check finding the show gone.
+    final ended = opened != null && subscription == null;
     final issue = subscription == null
         ? null
         : widget.controller.issueOf(subscription);
@@ -662,14 +672,23 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
     return AlertDialog(
       // A short window scrolls the filter, preview and events.
       scrollable: true,
-      title: Text(subscription == null ? '订阅更新' : '已订阅'),
+      title: Text(
+        ended
+            ? '已退订'
+            : subscription == null
+            ? '订阅更新'
+            : '已订阅',
+      ),
       content: SizedBox(
         width: 540,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('新一话播出后，自动缓存第一个符合筛选的文件', style: small),
+            Text(
+              ended ? '这部番的订阅已取消，缓存的剧集保留' : '新一话播出后，自动缓存第一个符合筛选的文件',
+              style: small,
+            ),
             if (issue != null) ...[
               const SizedBox(height: Gap.md),
               DecoratedBox(
@@ -829,9 +848,9 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
           ),
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: Text(subscription == null || !changed ? '关闭' : '不保存'),
+          child: Text(ended || subscription == null || !changed ? '关闭' : '不保存'),
         ),
-        if (subscription == null || changed)
+        if (!ended && (subscription == null || changed))
           FilledButton(
             onPressed: saving
                 ? null

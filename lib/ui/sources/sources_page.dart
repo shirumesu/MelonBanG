@@ -7,6 +7,7 @@ import '../../domain/sources.dart';
 import '../../features/acquisition/source_registry.dart';
 import '../../features/danmaku/danmaku_controller.dart';
 import '../../features/network/connectivity.dart';
+import '../acquisition/resource_widgets.dart' show resourceDateLabel;
 import '../core/action_feedback.dart';
 import '../core/external_link.dart';
 import '../core/motion.dart';
@@ -50,6 +51,9 @@ class _SourcesPageState extends State<SourcesPage> {
   bool _narrowDetail = false;
   bool _searched = false;
   List<SourceSubject> _subjects = [];
+
+  /// What a BT index's manual search found; null before one.
+  List<TorrentRelease>? _releases;
   List<SourceEpisode> _episodes = [];
   SourceSubject? _subject;
   SourceEpisode? _episode;
@@ -178,10 +182,26 @@ class _SourcesPageState extends State<SourcesPage> {
       _narrowDetail = true;
       _searched = false;
       _subjects = [];
+      _releases = null;
       _episodes = [];
       _subject = null;
       _episode = null;
       _resolved = null;
+    });
+  }
+
+  /// Searches BT index [id] as resource search would, to try it out.
+  void _torrentSearch(String id) {
+    if (_search.busy) return;
+    final generation = ++_generation;
+    _search.run(() async {
+      final query = _query.text.trim();
+      if (query.isEmpty) return '请输入关键词';
+      final rows = await registry.searchTorrents(id, query);
+      if (mounted && generation == _generation) {
+        setState(() => _releases = rows);
+      }
+      return null;
     });
   }
 
@@ -654,6 +674,7 @@ class _SourcesPageState extends State<SourcesPage> {
           const SectionTitle(title: '账户', top: Gap.lg),
           widget.pikpakAccount,
         ],
+        if (instance?.kind == SourceKind.torrent) ..._torrentTrial(id),
         if (online) ...[
           const SectionTitle(title: '手动搜索', top: Gap.lg),
           Row(
@@ -768,6 +789,84 @@ class _SourcesPageState extends State<SourcesPage> {
         ],
       ],
     );
+  }
+
+  /// A keyword searched on BT index [id]: how many releases it lists and
+  /// the first few, each opening its page.
+  List<Widget> _torrentTrial(String id) {
+    final small = Theme.of(context).textTheme.bodySmall;
+    final releases = _releases;
+    return [
+      const SectionTitle(title: '手动搜索', top: Gap.lg),
+      Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _query,
+              decoration: const InputDecoration(hintText: '输入关键词，如番名和集数'),
+              onSubmitted: (_) => _torrentSearch(id),
+            ),
+          ),
+          const SizedBox(width: Gap.sm),
+          FeedbackButton(
+            feedback: _search,
+            label: '搜索',
+            runningLabel: '搜索中',
+            successLabel: '已搜索',
+            icon: Icons.search,
+            onPressed: () => _torrentSearch(id),
+          ),
+        ],
+      ),
+      FeedbackIssue(feedback: _search, onRetry: () => _torrentSearch(id)),
+      if (releases != null && !_search.busy && _search.issue == null) ...[
+        Padding(
+          padding: const EdgeInsets.only(top: Gap.sm),
+          child: Text(
+            releases.isEmpty
+                ? '没有找到，换个关键词试试'
+                : releases.length > 5
+                ? '找到 ${releases.length} 条，下面是前 5 条'
+                : '找到 ${releases.length} 条',
+            style: small,
+          ),
+        ),
+        if (releases.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: Gap.sm),
+            child: MelonPanel(
+              padding: EdgeInsets.zero,
+              child: Column(
+                children: [
+                  for (final release in releases.take(5))
+                    ListTile(
+                      dense: true,
+                      minTileHeight: 44,
+                      title: Text(
+                        release.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        [
+                          resourceDateLabel(release),
+                          ?release.sizeLabel,
+                        ].join('  '),
+                      ),
+                      trailing: release.detailUrl == null
+                          ? null
+                          : const Icon(Icons.open_in_new, size: 16),
+                      onTap: switch (release.detailUrl) {
+                        final url? => () => openExternal(context, url),
+                        null => null,
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    ];
   }
 
   Widget _episodeChoices() => MelonPanel(

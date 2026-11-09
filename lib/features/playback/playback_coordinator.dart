@@ -898,6 +898,7 @@ class PlaybackCoordinator extends ChangeNotifier {
             release,
             method: wanted == 'pikpak' ? CacheMethod.pikpak : CacheMethod.bt,
             episodeId: next.id,
+            cancel: cancel,
           );
         case OnlineTarget(:final ref?):
           await downloads.addOnline(
@@ -923,18 +924,38 @@ class PlaybackCoordinator extends ChangeNotifier {
 
   /// The next aired main episode and how it would play: its cache, else
   /// the source a click on it would pick, opened in the preparing player.
-  Future<AutoplayTarget?> _prepareAutoplay(PlaybackSession session) async {
-    final cancellation = _selectionCancel;
+  Future<AutoplayTarget?> _prepareAutoplay(
+    PlaybackSession session,
+    RequestCancellation lookup,
+  ) async {
+    // Stops when another selection starts or autoplay is cancelled.
+    final cancellation = RequestCancellation();
+    final stopSelection = _selectionCancel.listen(cancellation.cancel);
+    final stopLookup = lookup.listen(cancellation.cancel);
+    try {
+      return await _autoplayTarget(session, cancellation);
+    } finally {
+      stopSelection();
+      stopLookup();
+    }
+  }
+
+  Future<AutoplayTarget?> _autoplayTarget(
+    PlaybackSession session,
+    RequestCancellation cancellation,
+  ) async {
     final id = session.subjectId, currentId = session.episodeId;
     if (id == null || currentId == null) return null;
     final item = subject?.id == id
         ? subject!
         : await tracking.subject(id, forPlayback: true);
+    cancellation.throwIfCancelled();
     final next = _nextAired(item, currentId);
     if (next == null) return null;
     final chosen =
         await _cached(item, next, cancel: cancellation, strict: false) ??
         (await _pick(item, next, cancel: cancellation)).candidate;
+    cancellation.throwIfCancelled();
     if (chosen == null) {
       return AutoplayTarget(
         episode: next,

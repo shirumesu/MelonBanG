@@ -72,23 +72,10 @@ class Playback extends ChangeNotifier {
         _buffering.add(buffering);
       }),
     );
-    _subscriptions.add(
-      player.stream.error
-          // media_kit forwards FFmpeg's TCP EOF log as an error, including
-          // at the end of an HTTP response. It does not mean playback failed.
-          .where((message) => message != 'tcp: ffurl_read returned 0xdfb9b0bb')
-          .listen((value) {
-            error ??= playerFailure(value);
-            notifyListeners();
-            _errors.add(value);
-          }),
-    );
+    _subscriptions.add(player.stream.error.listen(_playerError));
     _subscriptions.add(
       player.stream.completed.listen((done) {
-        if (done && !opening && error == null) {
-          unawaited(saveProgress(ended: true));
-          unawaited(_prepareAutoplay());
-        }
+        if (done) _ended();
       }),
     );
     _subscriptions.add(
@@ -200,7 +187,15 @@ class Playback extends ChangeNotifier {
   bool _scoredSubtitle = false, _scoredAudio = false;
   int danmakuRevision = 0, _autoplayTicket = 0;
   String? _completedSession;
-  Future<AutoplayTarget?> Function(PlaybackSession session)? resolveNext;
+
+  /// Finds what plays after [session]; [cancel] stops the lookup once
+  /// autoplay is cancelled.
+  Future<AutoplayTarget?> Function(
+    PlaybackSession session,
+    RequestCancellation cancel,
+  )?
+  resolveNext;
+  RequestCancellation? _autoplayLookup;
   AutoplayTarget? autoplayTarget;
   Episode? autoplayEndEpisode;
   String? autoplayMessage;
@@ -314,6 +309,69 @@ class Playback extends ChangeNotifier {
     });
   }
 
+  /// Saves the finished episode and looks for the next; an error still
+  /// being judged decides first, as a broken stream also ends.
+  void _ended() {
+    if (opening || error != null || _errorCheck != null) return;
+    unawaited(saveProgress(ended: true));
+    unawaited(_prepareAutoplay());
+  }
+
+  /// The error line waiting for [_judgeError], which tells a failed video
+  /// from one mpv logged an error for and kept playing.
+  Timer? _errorCheck;
+
+  void _playerError(String line) {
+    // media_kit forwards FFmpeg's TCP EOF log as an error, including at the
+    // end of an HTTP response. It does not mean playback failed.
+    if (line == 'tcp: ffurl_read returned 0xdfb9b0bb') return;
+    // A subtitle or audio file beside the video that cannot be read leaves
+    // the video playing without it.
+    if (line.startsWith('Can not open external file')) {
+      showNotice('有外挂字幕或音轨没能加载');
+      return;
+    }
+    if (error != null || _errorCheck != null || _player == null) return;
+    final sessionId = session?.id;
+    final paused = !opening && !player.state.playing;
+    _errorCheck = Timer(
+      const Duration(seconds: 2),
+      () => unawaited(_judgeError(line, sessionId, paused)),
+    );
+  }
+
+  /// Fails playback with [line] unless, two seconds on, the video still
+  /// plays with frames shown, or still sits paused where the user left it.
+  Future<void> _judgeError(String line, String? sessionId, bool paused) async {
+    _errorCheck = null;
+    final player = _player;
+    if (_closed || player == null || session?.id != sessionId) return;
+    var fatal = true;
+    final platform = player.platform;
+    if (platform is NativePlayer) {
+      final idle = await platform.getProperty('idle-active') == 'yes';
+      final fps = double.tryParse(
+        await platform.getProperty('estimated-vf-fps'),
+      );
+      final state = player.state;
+      fatal =
+          idle ||
+          !(state.playing
+              ? fps != null && fps.isFinite && fps > 0
+              : paused && !opening && !state.buffering);
+    }
+    if (_closed || _player != player || session?.id != sessionId) return;
+    if (error != null) return;
+    if (!fatal) {
+      if (player.state.playing) showNotice('播放时出了点小问题，不影响观看');
+      if (player.state.completed) _ended();
+      return;
+    }
+    error = playerFailure(line);
+    notifyListeners();
+    _errors.add(line);
+  }
+
   bool get danmakuEnabled => danmaku.preferences.enabled;
 
   /// The open file's OP and ED, found in its embedded chapters.
@@ -396,6 +454,8 @@ class Playback extends ChangeNotifier {
     // The previous file's overload says nothing about this one.
     overloaded = null;
     _dropSeconds.clear();
+    _errorCheck?.cancel();
+    _errorCheck = null;
     opening = true;
     error = null;
     notifyListeners();
@@ -489,7 +549,9 @@ class Playback extends ChangeNotifier {
       downloads.releaseStreamsExcept(next.streamId);
       await player.play();
       unawaited(_readChapters(next.id));
-      if (!_closed && !next.standalone) {
+      // A stream without an episode still loads the danmaku it carries,
+      // and its other sources say why they match nothing.
+      if (!_closed) {
         unawaited(
           danmaku.autoMatch(
             player.state.duration.inMilliseconds / 1000,
@@ -990,8 +1052,9 @@ class Playback extends ChangeNotifier {
     }
     _completedSession = current.id;
     final ticket = ++_autoplayTicket;
+    final lookup = _autoplayLookup = RequestCancellation();
     try {
-      final target = await resolveNext!(current);
+      final target = await resolveNext!(current, lookup);
       if (_closed || ticket != _autoplayTicket || session?.id != current.id) {
         return;
       }
@@ -1027,12 +1090,16 @@ class Playback extends ChangeNotifier {
       }
       autoplayMessage = '自动连播已停止：${errorMessage(e)}';
       notifyListeners();
+    } finally {
+      if (_autoplayLookup == lookup) _autoplayLookup = null;
     }
   }
 
   void cancelAutoplay({bool notify = true}) {
     final changed = autoplayTarget != null;
     _autoplayTicket++;
+    _autoplayLookup?.cancel();
+    _autoplayLookup = null;
     _autoplayTimer?.cancel();
     _autoplayTimer = null;
     autoplayTarget = null;
@@ -1087,6 +1154,8 @@ class Playback extends ChangeNotifier {
     _timer?.cancel();
     _outputTimer?.cancel();
     _cacheWaitDecay?.cancel();
+    _errorCheck?.cancel();
+    _errorCheck = null;
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
@@ -1107,6 +1176,7 @@ class Playback extends ChangeNotifier {
     _rateWrite?.cancel();
     _cacheWaitDecay?.cancel();
     _outputTimer?.cancel();
+    _errorCheck?.cancel();
     cancelAutoplay();
     await preferences.setDouble('player-rate', _savedRate);
     danmaku.removeListener(_danmakuChanged);

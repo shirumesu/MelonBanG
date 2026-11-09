@@ -658,7 +658,13 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: playing ? null : () => widget.onEpisode(episode),
+            // An episode not yet aired plays only from a cache, perhaps of
+            // an early broadcast; otherwise its resources may have one.
+            onTap: playing
+                ? null
+                : released || caches.isNotEmpty
+                ? () => widget.onEpisode(episode)
+                : () => widget.onFindResources(episode),
             child: Stack(
               children: [
                 Center(

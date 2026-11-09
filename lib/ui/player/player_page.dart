@@ -108,6 +108,9 @@ class PlayerPageState extends State<PlayerPage> {
   final preparingFocus = FocusNode();
   final menuCloseFocus = FocusNode();
   final danmakuMenuFocus = FocusNode();
+
+  /// The video and the danmaku settings, outside which a tap closes them.
+  final menuTapGroup = Object();
   final danmakuDraft = TextEditingController();
   final danmakuInput = FocusNode();
 
@@ -348,9 +351,17 @@ class PlayerPageState extends State<PlayerPage> {
     reveal();
   }
 
-  void closeMenu() {
+  /// Closes the danmaku settings. Focus returns to their button for the
+  /// keyboard, else to the video, where Space plays and pauses; a tap
+  /// outside the player leaves it where the tap put it.
+  void closeMenu({bool refocus = true}) {
+    if (!danmakuMenu) return;
     setState(() => danmakuMenu = false);
-    danmakuMenuFocus.requestFocus();
+    if (refocus) {
+      FocusManager.instance.highlightMode == FocusHighlightMode.traditional
+          ? danmakuMenuFocus.requestFocus()
+          : focus.requestFocus();
+    }
     reveal();
   }
 
@@ -499,6 +510,12 @@ class PlayerPageState extends State<PlayerPage> {
     if (event.logicalKey == LogicalKeyboardKey.period ||
         event.logicalKey == LogicalKeyboardKey.comma) {
       unawaited(stepFrame(event.logicalKey == LogicalKeyboardKey.period));
+    } else if ((event.logicalKey == LogicalKeyboardKey.space ||
+            event.logicalKey == LogicalKeyboardKey.enter ||
+            event.logicalKey == LogicalKeyboardKey.numpadEnter) &&
+        FocusManager.instance.primaryFocus != focus) {
+      // A focused control takes Space and Enter as a press.
+      return KeyEventResult.ignored;
     } else if (event.logicalKey == LogicalKeyboardKey.space ||
         event.logicalKey == LogicalKeyboardKey.keyK) {
       playback.cancelAutoplay();
@@ -734,301 +751,225 @@ class PlayerPageState extends State<PlayerPage> {
       // The prompts and popovers over the video read the picture behind
       // their glass once between them.
       return BackdropGroup(
-        child: Focus(
-          focusNode: focus,
-          autofocus: true,
-          onKeyEvent: handleKey,
-          onFocusChange: (focused) {
-            // A key released elsewhere never reaches us; stop the 3× there.
-            if (!focused) endBoost();
-          },
-          child: MouseRegion(
-            onHover: (_) => reveal(),
-            cursor: controls || danmakuMenu
-                ? SystemMouseCursors.basic
-                : SystemMouseCursors.none,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                GestureDetector(
-                  onTap: () {
-                    playback.cancelAutoplay();
-                    if (danmakuMenu) {
-                      closeMenu();
-                      return;
-                    }
-                    focus.requestFocus();
-                    if (playback.uri != null &&
-                        !playback.opening &&
-                        widget.failure == null) {
-                      showFeedback(player.state.playing ? '暂停' : '播放');
-                      unawaited(playback.playOrPause());
-                    }
-                    reveal();
-                  },
-                  onDoubleTap: fullscreen,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      // Super-resolution renders at the shown size.
-                      final ratio = MediaQuery.devicePixelRatioOf(context);
-                      playback.showAt(
-                        Size(
-                          constraints.maxWidth * ratio,
-                          constraints.maxHeight * ratio,
-                        ),
-                      );
-                      return Video(
-                        controller: playback.video,
-                        controls: NoVideoControls,
-                        fit: playback.aspect == 'fill'
-                            ? BoxFit.fill
-                            : BoxFit.contain,
-                        aspectRatio: switch (playback.aspect.split(':')) {
-                          [final width, final height] =>
-                            double.parse(width) / double.parse(height),
-                          _ => null,
-                        },
-                        subtitleViewConfiguration:
-                            const SubtitleViewConfiguration(visible: false),
-                      );
+        // A tap on the video closes the danmaku settings itself, without
+        // also playing or pausing; one beside it closes them as well.
+        child: TapRegion(
+          groupId: menuTapGroup,
+          child: Focus(
+            focusNode: focus,
+            autofocus: true,
+            onKeyEvent: handleKey,
+            onFocusChange: (focused) {
+              // A key released elsewhere never reaches us; stop the 3× there.
+              if (!focused) endBoost();
+            },
+            child: MouseRegion(
+              onHover: (_) => reveal(),
+              cursor: controls || danmakuMenu
+                  ? SystemMouseCursors.basic
+                  : SystemMouseCursors.none,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      playback.cancelAutoplay();
+                      if (danmakuMenu) {
+                        closeMenu();
+                        return;
+                      }
+                      focus.requestFocus();
+                      if (playback.uri != null &&
+                          !playback.opening &&
+                          widget.failure == null) {
+                        showFeedback(player.state.playing ? '暂停' : '播放');
+                        unawaited(playback.playOrPause());
+                      }
+                      reveal();
                     },
-                  ),
-                ),
-                DanmakuLayer(
-                  playback: playback,
-                  onJump: (seconds) {
-                    focus.requestFocus();
-                    showFeedback('跳到 ${formatTime(seconds)}');
-                    unawaited(seekTo(seconds));
-                  },
-                ),
-                StreamBuilder<bool>(
-                  stream: player.stream.buffering,
-                  initialData: player.state.buffering,
-                  builder: (_, snapshot) =>
-                      (playback.opening || snapshot.data == true) &&
-                          failure == null
-                      // Fades in after a moment, so a brief stall does not
-                      // flash the spinner.
-                      ? MotionAppear(
-                          offset: 0,
-                          delay: 250,
-                          child: ValueListenableBuilder(
-                            valueListenable: widget.downloads.snapshot,
-                            builder: (context, downloads, _) =>
-                                _BufferingStatus(
-                                  opening: playback.opening,
-                                  task: switch (playback.session) {
-                                    PlaybackSession(
-                                      :final downloadId?,
-                                      streamId: _?,
-                                    ) =>
-                                      downloads.task(downloadId),
-                                    _ => null,
-                                  },
-                                ),
+                    onDoubleTap: fullscreen,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        // Super-resolution renders at the shown size.
+                        final ratio = MediaQuery.devicePixelRatioOf(context);
+                        playback.showAt(
+                          Size(
+                            constraints.maxWidth * ratio,
+                            constraints.maxHeight * ratio,
                           ),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-                if (failure != null)
-                  Center(
-                    child: MotionAppear(
-                      offset: 10,
-                      milliseconds: 280,
-                      child: _FailureCard(
-                        reason: failure,
-                        onRetry: widget.failure == null
-                            ? null
-                            : widget.onRetryFailure,
-                        onChoose: widget.subject == null
-                            ? null
-                            : () => findResources(
-                                widget.failure?.episode ?? episode,
-                              ),
-                      ),
+                        );
+                        return Video(
+                          controller: playback.video,
+                          controls: NoVideoControls,
+                          fit: playback.aspect == 'fill'
+                              ? BoxFit.fill
+                              : BoxFit.contain,
+                          aspectRatio: switch (playback.aspect.split(':')) {
+                            [final width, final height] =>
+                              double.parse(width) / double.parse(height),
+                            _ => null,
+                          },
+                          subtitleViewConfiguration:
+                              const SubtitleViewConfiguration(visible: false),
+                        );
+                      },
                     ),
                   ),
-                StreamBuilder<bool>(
-                  stream: player.stream.playing,
-                  initialData: player.state.playing,
-                  builder: (_, playing) => StreamBuilder<bool>(
+                  DanmakuLayer(
+                    playback: playback,
+                    onJump: (seconds) {
+                      focus.requestFocus();
+                      showFeedback('跳到 ${formatTime(seconds)}');
+                      unawaited(seekTo(seconds));
+                    },
+                  ),
+                  StreamBuilder<bool>(
                     stream: player.stream.buffering,
                     initialData: player.state.buffering,
-                    builder: (_, buffering) {
-                      final paused =
-                          playing.data == false &&
-                          buffering.data != true &&
-                          !playback.opening &&
-                          failure == null &&
-                          !playback.frameStepping &&
-                          !danmakuMenu;
-                      return Center(
-                        child: IgnorePointer(
-                          ignoring: !paused,
-                          child: AnimatedOpacity(
-                            opacity: paused ? 1 : 0,
-                            duration: motionDuration(context, 150),
-                            child: AnimatedScale(
-                              scale: paused ? 1 : .85,
-                              duration: motionDuration(context, 150),
-                              child: Material(
-                                color: Colors.black45,
-                                shape: const CircleBorder(),
-                                clipBehavior: Clip.antiAlias,
-                                child: IconButton(
-                                  tooltip: '播放 (Space)',
-                                  iconSize: 40,
-                                  padding: const EdgeInsets.all(14),
-                                  color: Colors.white,
-                                  onPressed: () {
-                                    playback.cancelAutoplay();
-                                    unawaited(playback.resume());
-                                  },
-                                  icon: const Icon(Icons.play_arrow_rounded),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                // In the middle, just above the paused play button.
-                Positioned.fill(
-                  key: const ValueKey('player-feedback'),
-                  bottom: 144,
-                  child: IgnorePointer(
-                    child: Center(
-                      // Settles in from slightly smaller and keeps its text
-                      // while fading out; a new message resizes it smoothly.
-                      child: AnimatedOpacity(
-                        opacity: toast ? 1 : 0,
-                        duration: motionDuration(context, toast ? 150 : 200),
-                        child: AnimatedScale(
-                          scale: toast ? 1 : .94,
-                          duration: motionDuration(context, 220),
-                          curve: Curves.easeOutCubic,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: Gap.lg,
-                              vertical: Gap.sm,
-                            ),
-                            decoration: const BoxDecoration(
-                              color: Color(0xb3000000),
-                              borderRadius: controlBorderRadius,
-                            ),
-                            child: AnimatedSize(
-                              duration: motionDuration(context, 180),
-                              curve: Curves.easeOutCubic,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (shownBoost) ...[
-                                    const Icon(
-                                      Icons.fast_forward_rounded,
-                                      size: 18,
-                                      color: Colors.white,
-                                    ),
-                                    const SizedBox(width: Gap.sm),
-                                  ],
-                                  Text(
-                                    shownFeedback,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.white,
-                                      fontFeatures: [
-                                        FontFeature.tabularFigures(),
-                                      ],
-                                    ),
+                    builder: (_, snapshot) =>
+                        (playback.opening || snapshot.data == true) &&
+                            failure == null
+                        // Fades in after a moment, so a brief stall does not
+                        // flash the spinner.
+                        ? MotionAppear(
+                            offset: 0,
+                            delay: 250,
+                            child: ValueListenableBuilder(
+                              valueListenable: widget.downloads.snapshot,
+                              builder: (context, downloads, _) =>
+                                  _BufferingStatus(
+                                    opening: playback.opening,
+                                    task: switch (playback.session) {
+                                      PlaybackSession(
+                                        :final downloadId?,
+                                        streamId: _?,
+                                      ) =>
+                                        downloads.task(downloadId),
+                                      _ => null,
+                                    },
                                   ),
-                                ],
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                  if (failure != null)
+                    Center(
+                      child: MotionAppear(
+                        offset: 10,
+                        milliseconds: 280,
+                        child: _FailureCard(
+                          reason: failure,
+                          onRetry: widget.failure == null
+                              ? null
+                              : widget.onRetryFailure,
+                          onChoose: widget.subject == null
+                              ? null
+                              : () => findResources(
+                                  widget.failure?.episode ?? episode,
+                                ),
+                          onBack: widget.onBack,
+                          onExitFullScreen: immersive
+                              ? () => unawaited(exitImmersive())
+                              : null,
+                        ),
+                      ),
+                    ),
+                  StreamBuilder<bool>(
+                    stream: player.stream.playing,
+                    initialData: player.state.playing,
+                    builder: (_, playing) => StreamBuilder<bool>(
+                      stream: player.stream.buffering,
+                      initialData: player.state.buffering,
+                      builder: (_, buffering) {
+                        final paused =
+                            playing.data == false &&
+                            buffering.data != true &&
+                            !playback.opening &&
+                            failure == null &&
+                            !playback.frameStepping &&
+                            !danmakuMenu;
+                        return Center(
+                          child: IgnorePointer(
+                            ignoring: !paused,
+                            child: AnimatedOpacity(
+                              opacity: paused ? 1 : 0,
+                              duration: motionDuration(context, 150),
+                              child: AnimatedScale(
+                                scale: paused ? 1 : .85,
+                                duration: motionDuration(context, 150),
+                                child: Material(
+                                  color: Colors.black45,
+                                  shape: const CircleBorder(),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: IconButton(
+                                    tooltip: '播放 (Space)',
+                                    iconSize: 40,
+                                    padding: const EdgeInsets.all(14),
+                                    color: Colors.white,
+                                    onPressed: () {
+                                      playback.cancelAutoplay();
+                                      unawaited(playback.resume());
+                                    },
+                                    icon: const Icon(Icons.play_arrow_rounded),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     ),
                   ),
-                ),
-                Positioned(
-                  key: const ValueKey('player-title'),
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: IgnorePointer(
-                    child: AnimatedOpacity(
-                      opacity: controls || danmakuMenu ? 1 : 0,
-                      duration: motionDuration(context),
-                      curve: Curves.easeOutCubic,
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(
-                          pageGutter,
-                          Gap.lg,
-                          pageGutter,
-                          Gap.xxl,
-                        ),
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [Color(0x99000000), Colors.transparent],
-                          ),
-                        ),
-                        child: _Title(
-                          title:
-                              widget.subject?.title ??
-                              playback.session?.title ??
-                              '播放器',
-                          episode: episode,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                if (!immersive)
-                  Positioned(
-                    key: const ValueKey('player-panel-handle'),
-                    top: 0,
-                    right: 0,
-                    bottom: 0,
-                    // Folded, it stays out of sight until the pointer comes
-                    // near the right edge, anywhere along its height; clicks
-                    // there still reach the video.
-                    child: MouseRegion(
-                      opaque: false,
-                      onEnter: (_) => setState(() => handleHovered = true),
-                      onExit: (_) => setState(() => handleHovered = false),
-                      child: SizedBox(
-                        width: panel ? null : _handleReach,
-                        child: Align(
-                          alignment: Alignment.centerRight,
-                          child: IgnorePointer(
-                            ignoring: panel && !controls && !danmakuMenu,
-                            child: AnimatedOpacity(
-                              opacity:
-                                  (panel
-                                      ? controls || danmakuMenu
-                                      : handleHovered)
-                                  ? 1
-                                  : 0,
-                              duration: motionDuration(context),
-                              curve: Curves.easeOutCubic,
-                              child: MouseRegion(
-                                onEnter: (_) {
-                                  controlsHovered = true;
-                                  reveal();
-                                },
-                                onExit: (_) {
-                                  controlsHovered = false;
-                                  reveal();
-                                },
-                                child: _PanelHandle(
-                                  open: panel,
-                                  onPressed: () =>
-                                      widget.panelOpen.value = !panel,
+                  // In the middle, just above the paused play button.
+                  Positioned.fill(
+                    key: const ValueKey('player-feedback'),
+                    bottom: 144,
+                    child: IgnorePointer(
+                      child: Center(
+                        // Settles in from slightly smaller and keeps its text
+                        // while fading out; a new message resizes it smoothly.
+                        child: AnimatedOpacity(
+                          opacity: toast ? 1 : 0,
+                          duration: motionDuration(context, toast ? 150 : 200),
+                          child: AnimatedScale(
+                            scale: toast ? 1 : .94,
+                            duration: motionDuration(context, 220),
+                            curve: Curves.easeOutCubic,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: Gap.lg,
+                                vertical: Gap.sm,
+                              ),
+                              decoration: const BoxDecoration(
+                                color: Color(0xb3000000),
+                                borderRadius: controlBorderRadius,
+                              ),
+                              child: AnimatedSize(
+                                duration: motionDuration(context, 180),
+                                curve: Curves.easeOutCubic,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (shownBoost) ...[
+                                      const Icon(
+                                        Icons.fast_forward_rounded,
+                                        size: 18,
+                                        color: Colors.white,
+                                      ),
+                                      const SizedBox(width: Gap.sm),
+                                    ],
+                                    Text(
+                                      shownFeedback,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white,
+                                        fontFeatures: [
+                                          FontFeature.tabularFigures(),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -1037,236 +978,325 @@ class PlayerPageState extends State<PlayerPage> {
                       ),
                     ),
                   ),
-                Positioned(
-                  key: const ValueKey('player-controls'),
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: ExcludeFocus(
-                    excluding: !controls && !danmakuMenu,
+                  Positioned(
+                    key: const ValueKey('player-title'),
+                    top: 0,
+                    left: 0,
+                    right: 0,
                     child: IgnorePointer(
-                      ignoring: !controls && !danmakuMenu,
                       child: AnimatedOpacity(
                         opacity: controls || danmakuMenu ? 1 : 0,
                         duration: motionDuration(context),
                         curve: Curves.easeOutCubic,
-                        child: MouseRegion(
-                          onEnter: (_) {
-                            controlsHovered = true;
-                            reveal();
-                          },
-                          onExit: (_) {
-                            controlsHovered = false;
-                            reveal();
-                          },
-                          child: Focus(
-                            canRequestFocus: false,
-                            onFocusChange: (value) {
-                              controlsFocused = value;
-                              reveal();
-                            },
-                            child: PlayerControls(
-                              playback: playback,
-                              fullScreen: widget.fullScreen,
-                              windowFullScreen: widget.windowFullScreen,
-                              danmakuMenuOpen: danmakuMenu,
-                              danmakuMenuFocus: danmakuMenuFocus,
-                              onDanmakuMenu: toggleMenu,
-                              dragging: dragging,
-                              onDragStart: (value) {
-                                playback.cancelAutoplay();
-                                seekTicket++;
-                                setState(() => dragging = value);
-                                hideTimer?.cancel();
-                              },
-                              onDragChanged: (value) =>
-                                  setState(() => dragging = value),
-                              onDragEnd: seekTo,
-                              onFeedback: showFeedback,
-                              onStepFrame: (forward) =>
-                                  unawaited(stepFrame(forward)),
-                              danmakuDraft: danmakuDraft,
-                              danmakuHint: danmakuHint,
-                              danmakuInput: danmakuInput,
-                              onDanmakuInputDone: () {
-                                focus.requestFocus();
-                                reveal();
-                              },
-                              danmakuMenu: (visibility) => ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  maxHeight: math.max(
-                                    120,
-                                    constraints.maxHeight - 160,
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(
+                            pageGutter,
+                            Gap.lg,
+                            pageGutter,
+                            Gap.xxl,
+                          ),
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Color(0x99000000), Colors.transparent],
+                            ),
+                          ),
+                          child: _Title(
+                            title:
+                                widget.subject?.title ??
+                                playback.session?.title ??
+                                '播放器',
+                            episode: episode,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (!immersive)
+                    Positioned(
+                      key: const ValueKey('player-panel-handle'),
+                      top: 0,
+                      right: 0,
+                      bottom: 0,
+                      // Folded, it stays out of sight until the pointer comes
+                      // near the right edge, anywhere along its height; clicks
+                      // there still reach the video.
+                      child: MouseRegion(
+                        opaque: false,
+                        onEnter: (_) => setState(() => handleHovered = true),
+                        onExit: (_) => setState(() => handleHovered = false),
+                        child: SizedBox(
+                          width: panel ? null : _handleReach,
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: IgnorePointer(
+                              ignoring: panel && !controls && !danmakuMenu,
+                              child: AnimatedOpacity(
+                                opacity:
+                                    (panel
+                                        ? controls || danmakuMenu
+                                        : handleHovered)
+                                    ? 1
+                                    : 0,
+                                duration: motionDuration(context),
+                                curve: Curves.easeOutCubic,
+                                child: MouseRegion(
+                                  onEnter: (_) {
+                                    controlsHovered = true;
+                                    reveal();
+                                  },
+                                  onExit: (_) {
+                                    controlsHovered = false;
+                                    reveal();
+                                  },
+                                  child: _PanelHandle(
+                                    open: panel,
+                                    onPressed: () =>
+                                        widget.panelOpen.value = !panel,
                                   ),
                                 ),
-                                child: DanmakuQuickSettings(
-                                  visibility: visibility,
-                                  closeFocusNode: menuCloseFocus,
-                                  preferences: playback.danmaku.preferences,
-                                  onClose: closeMenu,
-                                  // The panel is hidden in immersive modes.
-                                  onOpenSources: immersive
-                                      ? null
-                                      : () => showPanel(PlayerPanelTab.danmaku),
-                                ),
                               ),
-                              onPrevious: switch (previousEpisode) {
-                                null => null,
-                                final previous => () => widget.onEpisode(
-                                  previous,
-                                ),
-                              },
-                              onNext: switch (nextEpisode) {
-                                null => null,
-                                final next => () => widget.onEpisode(next),
-                              },
-                              onPopupChanged: (value) {
-                                controlsPopup = value;
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  Positioned(
+                    key: const ValueKey('player-controls'),
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: ExcludeFocus(
+                      excluding: !controls && !danmakuMenu,
+                      child: IgnorePointer(
+                        ignoring: !controls && !danmakuMenu,
+                        child: AnimatedOpacity(
+                          opacity: controls || danmakuMenu ? 1 : 0,
+                          duration: motionDuration(context),
+                          curve: Curves.easeOutCubic,
+                          child: MouseRegion(
+                            onEnter: (_) {
+                              controlsHovered = true;
+                              reveal();
+                            },
+                            onExit: (_) {
+                              controlsHovered = false;
+                              reveal();
+                            },
+                            child: Focus(
+                              canRequestFocus: false,
+                              onFocusChange: (value) {
+                                controlsFocused = value;
                                 reveal();
                               },
-                              onReveal: reveal,
-                              onFullscreen: fullscreen,
-                              onWindowFullScreen: windowFullscreen,
+                              child: PlayerControls(
+                                playback: playback,
+                                fullScreen: widget.fullScreen,
+                                windowFullScreen: widget.windowFullScreen,
+                                danmakuMenuOpen: danmakuMenu,
+                                danmakuMenuFocus: danmakuMenuFocus,
+                                danmakuMenuGroup: menuTapGroup,
+                                onDanmakuMenuOutside: () =>
+                                    closeMenu(refocus: false),
+                                onDanmakuMenu: toggleMenu,
+                                dragging: dragging,
+                                onDragStart: (value) {
+                                  playback.cancelAutoplay();
+                                  seekTicket++;
+                                  setState(() => dragging = value);
+                                  hideTimer?.cancel();
+                                },
+                                onDragChanged: (value) =>
+                                    setState(() => dragging = value),
+                                onDragEnd: seekTo,
+                                onFeedback: showFeedback,
+                                onStepFrame: (forward) =>
+                                    unawaited(stepFrame(forward)),
+                                danmakuDraft: danmakuDraft,
+                                danmakuHint: danmakuHint,
+                                danmakuInput: danmakuInput,
+                                onDanmakuInputDone: () {
+                                  focus.requestFocus();
+                                  reveal();
+                                },
+                                danmakuMenu: (visibility) => ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxHeight: math.max(
+                                      120,
+                                      constraints.maxHeight - 160,
+                                    ),
+                                  ),
+                                  child: DanmakuQuickSettings(
+                                    visibility: visibility,
+                                    closeFocusNode: menuCloseFocus,
+                                    preferences: playback.danmaku.preferences,
+                                    onClose: closeMenu,
+                                    // The panel is hidden in immersive modes.
+                                    onOpenSources: immersive
+                                        ? null
+                                        : () =>
+                                              showPanel(PlayerPanelTab.danmaku),
+                                  ),
+                                ),
+                                onPrevious: switch (previousEpisode) {
+                                  null => null,
+                                  final previous => () => widget.onEpisode(
+                                    previous,
+                                  ),
+                                },
+                                onNext: switch (nextEpisode) {
+                                  null => null,
+                                  final next => () => widget.onEpisode(next),
+                                },
+                                onPopupChanged: (value) {
+                                  controlsPopup = value;
+                                  reveal();
+                                },
+                                onReveal: reveal,
+                                onFullscreen: fullscreen,
+                                onWindowFullScreen: windowFullscreen,
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                // Above the controls, whose gradient reaches over them.
-                if (playback.openingEnding case final marks?)
-                  StreamBuilder<Duration>(
-                    stream: player.stream.position,
-                    initialData: player.state.position,
-                    builder: (_, position) {
-                      final now = position.data!.inMilliseconds / 1000;
-                      // Offered until a few seconds before the song ends.
-                      bool inside(ChapterSpan? span) =>
-                          span != null &&
-                          now >= span.start &&
-                          now < span.end - 3;
-                      final (label, target) = inside(marks.opening)
-                          ? ('跳过片头', marks.opening!.end)
-                          : inside(marks.ending)
-                          ? ('跳过片尾', marks.ending!.end)
-                          : (null, 0.0);
-                      final upcoming = playback.upcomingSkip;
-                      if ((label == null && upcoming == null) ||
-                          failure != null) {
-                        return const SizedBox.shrink();
-                      }
-                      return AnimatedPositioned(
-                        duration: motionDuration(context),
-                        curve: Curves.easeOutCubic,
-                        right: pageGutter,
-                        bottom: controls ? _transportInset : pageGutter,
-                        // Keeps the controls, and so its place, while the
-                        // pointer is on it.
-                        child: MouseRegion(
-                          onEnter: (_) {
-                            controlsHovered = true;
-                            reveal();
-                          },
-                          onExit: (_) {
-                            controlsHovered = false;
-                            reveal();
-                          },
-                          child: MotionAppear(
-                            key: ValueKey(upcoming ?? label),
-                            offset: 8,
-                            milliseconds: 260,
-                            child: upcoming != null
-                                ? _Countdown(
-                                    title: '即将跳过$upcoming',
-                                    detail:
-                                        '跳到 ${formatTime(playback.skipTarget!)}',
-                                    seconds: playback.skipCountdown,
-                                    // Five seconds of the media count down.
-                                    remaining: ((playback.skipAt - now) / 5)
-                                        .clamp(0, 1),
-                                    confirm: '立即跳过',
-                                    onConfirm: () {
-                                      playback.skipNow();
-                                      focus.requestFocus();
-                                    },
-                                    onCancel: () {
-                                      playback.cancelSkip();
-                                      focus.requestFocus();
-                                    },
-                                  )
-                                : _SkipButton(
-                                    label: label!,
-                                    onPressed: () {
-                                      showFeedback(label);
-                                      unawaited(seekTo(target));
-                                    },
-                                  ),
+                  // Above the controls, whose gradient reaches over them.
+                  if (playback.openingEnding case final marks?)
+                    StreamBuilder<Duration>(
+                      stream: player.stream.position,
+                      initialData: player.state.position,
+                      builder: (_, position) {
+                        final now = position.data!.inMilliseconds / 1000;
+                        // Offered until a few seconds before the song ends.
+                        bool inside(ChapterSpan? span) =>
+                            span != null &&
+                            now >= span.start &&
+                            now < span.end - 3;
+                        final (label, target) = inside(marks.opening)
+                            ? ('跳过片头', marks.opening!.end)
+                            : inside(marks.ending)
+                            ? ('跳过片尾', marks.ending!.end)
+                            : (null, 0.0);
+                        final upcoming = playback.upcomingSkip;
+                        if ((label == null && upcoming == null) ||
+                            failure != null) {
+                          return const SizedBox.shrink();
+                        }
+                        return AnimatedPositioned(
+                          duration: motionDuration(context),
+                          curve: Curves.easeOutCubic,
+                          right: pageGutter,
+                          bottom: controls ? _transportInset : pageGutter,
+                          // Keeps the controls, and so its place, while the
+                          // pointer is on it.
+                          child: MouseRegion(
+                            onEnter: (_) {
+                              controlsHovered = true;
+                              reveal();
+                            },
+                            onExit: (_) {
+                              controlsHovered = false;
+                              reveal();
+                            },
+                            child: MotionAppear(
+                              key: ValueKey(upcoming ?? label),
+                              offset: 8,
+                              milliseconds: 260,
+                              child: upcoming != null
+                                  ? _Countdown(
+                                      title: '即将跳过$upcoming',
+                                      detail:
+                                          '跳到 ${formatTime(playback.skipTarget!)}',
+                                      seconds: playback.skipCountdown,
+                                      // Five seconds of the media count down.
+                                      remaining: ((playback.skipAt - now) / 5)
+                                          .clamp(0, 1),
+                                      confirm: '立即跳过',
+                                      onConfirm: () {
+                                        playback.skipNow();
+                                        focus.requestFocus();
+                                      },
+                                      onCancel: () {
+                                        playback.cancelSkip();
+                                        focus.requestFocus();
+                                      },
+                                    )
+                                  : _SkipButton(
+                                      label: label!,
+                                      onPressed: () {
+                                        showFeedback(label);
+                                        unawaited(seekTo(target));
+                                      },
+                                    ),
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                if (playback.overloaded case final mode? when failure == null)
-                  AnimatedPositioned(
-                    duration: motionDuration(context),
-                    curve: Curves.easeOutCubic,
-                    left: pageGutter,
-                    right: pageGutter,
-                    bottom: controls ? _transportInset : pageGutter,
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: MotionAppear(
-                        offset: 8,
-                        milliseconds: 260,
-                        // Stays while the pointer is on it.
-                        child: MouseRegion(
-                          onEnter: (_) => overloadTimer?.cancel(),
-                          onExit: (_) => dismissOverloadLater(),
-                          child: _OverloadCard(
-                            quality: mode == 'quality',
-                            onChoose: (mode) =>
-                                unawaited(playback.setSuperResolution(mode)),
-                            onClose: playback.dismissOverload,
+                        );
+                      },
+                    ),
+                  if (playback.overloaded case final mode? when failure == null)
+                    AnimatedPositioned(
+                      duration: motionDuration(context),
+                      curve: Curves.easeOutCubic,
+                      left: pageGutter,
+                      right: pageGutter,
+                      bottom: controls ? _transportInset : pageGutter,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: MotionAppear(
+                          offset: 8,
+                          milliseconds: 260,
+                          // Stays while the pointer is on it.
+                          child: MouseRegion(
+                            onEnter: (_) => overloadTimer?.cancel(),
+                            onExit: (_) => dismissOverloadLater(),
+                            child: _OverloadCard(
+                              quality: mode == 'quality',
+                              onChoose: (mode) =>
+                                  unawaited(playback.setSuperResolution(mode)),
+                              onClose: playback.dismissOverload,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                if (playback.autoplayTarget != null ||
-                    playback.autoplayMessage != null)
-                  Positioned(
-                    right: pageGutter,
-                    bottom: _transportInset,
-                    child: MotionAppear(
-                      offset: 8,
-                      milliseconds: 260,
-                      child: switch (playback.autoplayTarget) {
-                        final target? => _Countdown(
-                          title: '即将播放${target.episode.label}',
-                          detail: target.sourceLabel,
-                          seconds: playback.autoplaySeconds,
-                          // Five seconds tick one at a time; the ring runs
-                          // through each toward the next.
-                          remaining: (playback.autoplaySeconds - 1) / 5,
-                          ease: 1000,
-                          confirm: '立即播放',
-                          onConfirm: playback.playAutoplay,
-                          onCancel: playback.cancelAutoplay,
-                        ),
-                        null => _Notice(
-                          message: playback.autoplayMessage!,
-                          action: playback.autoplayEndEpisode == null
-                              ? null
-                              : '查找资源',
-                          onAction: () =>
-                              findResources(playback.autoplayEndEpisode),
-                          onClose: playback.dismissAutoplayMessage,
-                        ),
-                      },
+                  if (playback.autoplayTarget != null ||
+                      playback.autoplayMessage != null)
+                    Positioned(
+                      right: pageGutter,
+                      bottom: _transportInset,
+                      child: MotionAppear(
+                        offset: 8,
+                        milliseconds: 260,
+                        child: switch (playback.autoplayTarget) {
+                          final target? => _Countdown(
+                            title: '即将播放${target.episode.label}',
+                            detail: target.sourceLabel,
+                            seconds: playback.autoplaySeconds,
+                            // Five seconds tick one at a time; the ring runs
+                            // through each toward the next.
+                            remaining: (playback.autoplaySeconds - 1) / 5,
+                            ease: 1000,
+                            confirm: '立即播放',
+                            onConfirm: playback.playAutoplay,
+                            onCancel: playback.cancelAutoplay,
+                          ),
+                          null => _Notice(
+                            message: playback.autoplayMessage!,
+                            action: playback.autoplayEndEpisode == null
+                                ? null
+                                : '查找资源',
+                            onAction: () =>
+                                findResources(playback.autoplayEndEpisode),
+                            onClose: playback.dismissAutoplayMessage,
+                          ),
+                        },
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1320,11 +1350,21 @@ class _Title extends StatelessWidget {
   }
 }
 
-/// Why playback stopped, with retrying the same source or choosing another.
+/// Why playback stopped, with retrying the same source or choosing another;
+/// with neither, as for a chosen file, it leads back. In fullscreen, where
+/// no title bar leads back, it also leaves fullscreen, as the preparing
+/// view does.
 class _FailureCard extends StatelessWidget {
-  const _FailureCard({required this.reason, this.onRetry, this.onChoose});
+  const _FailureCard({
+    required this.reason,
+    required this.onBack,
+    this.onRetry,
+    this.onChoose,
+    this.onExitFullScreen,
+  });
   final String reason;
-  final VoidCallback? onRetry, onChoose;
+  final VoidCallback onBack;
+  final VoidCallback? onRetry, onChoose, onExitFullScreen;
 
   @override
   Widget build(BuildContext context) {
@@ -1357,31 +1397,43 @@ class _FailureCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: Colors.white, fontSize: 13),
           ),
-          if (onRetry != null || onChoose != null) ...[
-            const SizedBox(height: Gap.lg),
-            Wrap(
-              spacing: Gap.sm,
-              runSpacing: Gap.sm,
-              alignment: WrapAlignment.center,
-              children: [
-                if (onRetry != null)
-                  FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: overlayInk,
-                    ),
-                    onPressed: onRetry,
-                    child: const Text('重试'),
+          const SizedBox(height: Gap.lg),
+          Wrap(
+            spacing: Gap.sm,
+            runSpacing: Gap.sm,
+            alignment: WrapAlignment.center,
+            children: [
+              if (onRetry != null)
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: overlayInk,
                   ),
-                if (onChoose != null)
-                  OutlinedButton(
-                    style: buttonStyle,
-                    onPressed: onChoose,
-                    child: const Text('选择其他资源'),
+                  onPressed: onRetry,
+                  child: const Text('重试'),
+                ),
+              if (onChoose != null)
+                OutlinedButton(
+                  style: buttonStyle,
+                  onPressed: onChoose,
+                  child: const Text('选择其他资源'),
+                ),
+              if (onExitFullScreen case final exit?)
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white.withValues(alpha: .7),
                   ),
-              ],
-            ),
-          ],
+                  onPressed: exit,
+                  child: const Text('退出全屏 (Esc)'),
+                )
+              else if (onRetry == null && onChoose == null)
+                OutlinedButton(
+                  style: buttonStyle,
+                  onPressed: onBack,
+                  child: const Text('返回'),
+                ),
+            ],
+          ),
         ],
       ),
     );

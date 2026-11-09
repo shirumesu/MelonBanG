@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../domain/catalog.dart';
 import '../../domain/transfer.dart';
@@ -257,10 +259,46 @@ class _DownloadsPageState extends State<DownloadsPage> {
     );
   }
 
+  /// Holds the keys while selecting: Escape ends it, Delete deletes.
+  final _selectionKeys = FocusNode(debugLabel: 'downloads selection');
+
+  void _startSelection() {
+    setState(() => selecting = true);
+    _selectionKeys.requestFocus();
+  }
+
+  @override
+  void dispose() {
+    _selectionKeys.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => ShownListenableBuilder(
     listenable: _changes,
-    builder: (context) => _page(context, widget.downloads.snapshot.value),
+    builder: (context) {
+      final snapshot = widget.downloads.snapshot.value;
+      void delete() {
+        if (selectedTasks.isNotEmpty || selectedFiles.isNotEmpty) {
+          unawaited(_removeSelected(snapshot));
+        }
+      }
+
+      return CallbackShortcuts(
+        bindings: selecting
+            ? {
+                const SingleActivator(LogicalKeyboardKey.escape): () =>
+                    setState(_endSelection),
+                const SingleActivator(LogicalKeyboardKey.delete): delete,
+                const SingleActivator(LogicalKeyboardKey.backspace): delete,
+              }
+            : const {},
+        child: Focus(
+          focusNode: _selectionKeys,
+          child: _page(context, snapshot),
+        ),
+      );
+    },
   );
 
   Widget _page(BuildContext context, TransferSnapshot snapshot) {
@@ -348,23 +386,30 @@ class _DownloadsPageState extends State<DownloadsPage> {
                           : () => _select(visible, !allSelected),
                       child: Text(allSelected ? '全不选' : '全选'),
                     ),
-                    TextButton(
-                      onPressed: () => setState(_endSelection),
-                      child: const Text('取消'),
+                    Tooltip(
+                      message: '退出批量删除 (Esc)',
+                      child: TextButton(
+                        onPressed: () => setState(_endSelection),
+                        child: const Text('取消'),
+                      ),
                     ),
-                    FilledButton.icon(
-                      onPressed: selectedTasks.isEmpty && selectedFiles.isEmpty
-                          ? null
-                          : () => _removeSelected(snapshot),
-                      icon: const Icon(Icons.delete_outline, size: 18),
-                      label: const Text('删除'),
+                    Tooltip(
+                      message: '删除所选 (Delete)',
+                      child: FilledButton.icon(
+                        onPressed:
+                            selectedTasks.isEmpty && selectedFiles.isEmpty
+                            ? null
+                            : () => _removeSelected(snapshot),
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        label: const Text('删除'),
+                      ),
                     ),
                   ],
                 )
               : tasks.isEmpty
               ? null
               : TextButton.icon(
-                  onPressed: () => setState(() => selecting = true),
+                  onPressed: _startSelection,
                   icon: const Icon(Icons.checklist_rounded, size: 18),
                   label: const Text('批量删除'),
                 ),
@@ -402,6 +447,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ),
           ],
         ),
+        // A transfer that could not start; the others work on.
+        for (final issue in widget.downloads.downloads.failures.values)
+          Padding(
+            padding: const EdgeInsets.only(top: Gap.md),
+            child: InlineIssue('$issue。这类缓存暂时不能下载或播放，重新启动应用后再试'),
+          ),
         for (final group in [
           ('进行中', active, waiting),
           ('已缓存', cached, const <Subscription>[]),

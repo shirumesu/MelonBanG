@@ -438,6 +438,7 @@ class PlaySelectionRepository {
       method: candidate.kind == PlayKind.pikpak
           ? CacheMethod.pikpak
           : CacheMethod.bt,
+      cancel: cancel,
     );
     final id = task.id;
     onTask?.call(id);

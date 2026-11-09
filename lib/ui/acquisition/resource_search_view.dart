@@ -674,7 +674,45 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
               (sourceRegistry.errors.containsKey(rule.id) ||
                   sourceRegistry.status(rule.id) == SourceHealth.update))
             rule,
+      // A BT index waiting on verification is left out of searches, so
+      // nothing else on the page says so; its other failures show among
+      // the sources searched.
+      if (state.terms != null && kind != ResourceFamily.online)
+        for (final rule in sourceRegistry.instancesOf(SourceKind.torrent))
+          if (sourceRegistry.isEnabled(rule.id) &&
+              sourceRegistry.status(rule.id) == SourceHealth.verification)
+            rule,
     ];
+    Widget failingSite(SourceInstance rule) => Padding(
+      padding: const EdgeInsets.only(top: Gap.sm),
+      child: Row(
+        children: [
+          Expanded(
+            child: InlineIssue(
+              '${rule.name}：${sourceRegistry.errors[rule.id] ?? '需要更新应用'}',
+              maxLines: 3,
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () => openExternal(
+              context,
+              rule.website ?? sourceRegistry.currentDomain(rule.id),
+            ),
+            icon: const Icon(Icons.open_in_new, size: 15),
+            label: const Text('打开站点'),
+          ),
+          // Left out of searches until then, so it stays failed.
+          if (sourceRegistry.status(rule.id) == SourceHealth.verification)
+            TextButton(
+              onPressed: () {
+                sourceRegistry.retry(rule.id);
+                search();
+              },
+              child: const Text('重试'),
+            ),
+        ],
+      ),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -793,40 +831,39 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             ),
           ),
         ),
-        for (final rule in failingSites)
+        // Several failing sites share one line that opens to each.
+        if (failingSites.length == 1)
+          failingSite(failingSites.single)
+        else if (failingSites.length > 1) ...[
           Padding(
             padding: const EdgeInsets.only(top: Gap.sm),
             child: Row(
               children: [
                 Expanded(
                   child: InlineIssue(
-                    '${rule.name}：${sourceRegistry.errors[rule.id] ?? '需要更新应用'}',
-                    maxLines: 3,
+                    '${failingSites.length} 个'
+                    '${failingSites.every((rule) => rule.kind == SourceKind.online) ? '在线源' : '资源站'}'
+                    '暂时不可用：'
+                    '${failingSites.take(2).map((rule) => rule.name).join('、')}'
+                    '${failingSites.length > 2 ? ' 等' : ''}',
+                    maxLines: 2,
                   ),
                 ),
-                TextButton.icon(
-                  onPressed: () => openExternal(
-                    context,
-                    rule.website ?? sourceRegistry.currentDomain(rule.id),
-                  ),
-                  icon: const Icon(Icons.open_in_new, size: 15),
-                  label: const Text('打开站点'),
+                TextButton(
+                  onPressed: () => setState(() => failuresOpen = !failuresOpen),
+                  child: Text(failuresOpen ? '收起' : '查看'),
                 ),
-                // Left out of searches until then, so it stays failed.
-                if (sourceRegistry.status(rule.id) == SourceHealth.verification)
-                  TextButton(
-                    onPressed: () {
-                      sourceRegistry.retry(rule.id);
-                      search();
-                    },
-                    child: const Text('重试'),
-                  ),
               ],
             ),
           ),
+          if (failuresOpen) ...failingSites.map(failingSite),
+        ],
       ],
     );
   }
+
+  /// Whether each failing site shows on its own line.
+  bool failuresOpen = false;
 
   Widget _filterBar(BuildContext context, ResourceResults results) {
     final sources = state.sites;

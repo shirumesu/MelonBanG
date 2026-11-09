@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../catalog.dart';
+import '../../core/deleted_files.dart';
 import '../../core/json.dart';
 import '../../core/store.dart';
 import '../../domain/transfer.dart';
@@ -91,7 +92,7 @@ class TaskRecords {
         for (final file in objects(task['files']))
           file..['path'] = p.join(savePath, '${file['relativePath']}'),
       ];
-      if (await deletedOutside(task, directory)) {
+      if (await taskDeletedOutside(task, directory)) {
         await discard(id);
       } else {
         restored.add(task);
@@ -124,24 +125,13 @@ class TaskRecords {
   Future<void> get settled => _writes;
 }
 
-/// A finished task whose files were all deleted outside the app; its record
-/// goes with them. A missing [directory], such as an unplugged drive, deletes
-/// nothing.
-Future<bool> deletedOutside(Json task, String directory) async {
-  final files = objects(task['files']);
-  if (task['complete'] != true ||
-      files.isEmpty ||
-      !await Directory(directory).exists()) {
-    return false;
-  }
-  for (final file in files) {
-    final path = '${file['path']}';
-    if (await File(path).exists() || await File('$path.part').exists()) {
-      return false;
-    }
-  }
-  return true;
-}
+/// A stored finished task whose files were all deleted outside the app; its
+/// record goes with them, as [deletedOutside] decides.
+Future<bool> taskDeletedOutside(Json task, String directory) async =>
+    task['complete'] == true &&
+    await deletedOutside([
+      for (final file in objects(task['files'])) '${file['path']}',
+    ], directory);
 
 DownloadFile downloadFile(Json file) => DownloadFile(
   id: '${file['id']}',

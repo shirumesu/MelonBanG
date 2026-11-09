@@ -179,17 +179,22 @@ class HoverPopoverState extends State<HoverPopover>
 }
 
 /// A panel held open above its control by the page, such as the danmaku
-/// settings; unlike [HoverPopover] it stays until closed.
+/// settings; unlike [HoverPopover] it stays until closed, or until a tap
+/// lands outside it, its control and whatever else shares [tapGroup].
 class AnchoredPanel extends StatefulWidget {
   const AnchoredPanel({
     super.key,
     required this.open,
     required this.panel,
     required this.child,
+    this.tapGroup,
+    this.onTapOutside,
   });
   final bool open;
   final Widget Function(double visibility) panel;
   final Widget child;
+  final Object? tapGroup;
+  final VoidCallback? onTapOutside;
 
   @override
   State<AnchoredPanel> createState() => _AnchoredPanelState();
@@ -235,40 +240,50 @@ class _AnchoredPanelState extends State<AnchoredPanel>
     super.dispose();
   }
 
+  Object get _group => widget.tapGroup ?? this;
+
   @override
-  Widget build(BuildContext context) => OverlayPortal.overlayChildLayoutBuilder(
-    controller: _portal,
-    overlayChildBuilder: (context, info) => CustomSingleChildLayout(
-      delegate: _AboveAnchor(
-        MatrixUtils.transformRect(
-          info.childPaintTransform,
-          Offset.zero & info.childSize,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: Gap.sm),
-        child: IgnorePointer(
-          ignoring: !widget.open,
-          child: AnimatedBuilder(
-            animation: _fade,
-            builder: (context, _) {
-              final value = Curves.easeOutCubic.transform(_fade.value);
-              // The glass fades itself: an Opacity around its backdrop blur
-              // would blur nothing on some renderers.
-              return Transform.translate(
-                offset: Offset(0, 5 * (1 - value)),
-                child: Transform.scale(
-                  scale: .98 + .02 * value,
-                  alignment: Alignment.bottomCenter,
-                  child: SizedBox(width: 312, child: widget.panel(value)),
-                ),
-              );
-            },
+  Widget build(BuildContext context) => TapRegion(
+    groupId: _group,
+    onTapOutside: widget.open && widget.onTapOutside != null
+        ? (_) => widget.onTapOutside!()
+        : null,
+    child: OverlayPortal.overlayChildLayoutBuilder(
+      controller: _portal,
+      overlayChildBuilder: (context, info) => CustomSingleChildLayout(
+        delegate: _AboveAnchor(
+          MatrixUtils.transformRect(
+            info.childPaintTransform,
+            Offset.zero & info.childSize,
           ),
         ),
+        child: TapRegion(groupId: _group, child: _panel()),
+      ),
+      child: widget.child,
+    ),
+  );
+
+  Widget _panel() => Padding(
+    padding: const EdgeInsets.only(bottom: Gap.sm),
+    child: IgnorePointer(
+      ignoring: !widget.open,
+      child: AnimatedBuilder(
+        animation: _fade,
+        builder: (context, _) {
+          final value = Curves.easeOutCubic.transform(_fade.value);
+          // The glass fades itself: an Opacity around its backdrop blur
+          // would blur nothing on some renderers.
+          return Transform.translate(
+            offset: Offset(0, 5 * (1 - value)),
+            child: Transform.scale(
+              scale: .98 + .02 * value,
+              alignment: Alignment.bottomCenter,
+              child: SizedBox(width: 312, child: widget.panel(value)),
+            ),
+          );
+        },
       ),
     ),
-    child: widget.child,
   );
 }
 

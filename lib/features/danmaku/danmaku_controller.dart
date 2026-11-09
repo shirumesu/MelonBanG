@@ -133,6 +133,11 @@ class DanmakuController extends ChangeNotifier {
                 ? null
                 : await repository.savedLocator(current.matchKey!, source.id);
             if (saved != null) return load(saved);
+            // A stream opened on its own names neither an episode nor a
+            // file to match by.
+            if (current.subjectId == null && current.path == null) {
+              throw const DanmakuUnmatched('这个视频没有对应的剧集，可以在这里手动匹配');
+            }
             String? missed;
             if ((provider, current.subjectId) case (
               final DanmakuFollower follower,

@@ -381,7 +381,15 @@ class _Expired implements Exception {
 
 /// One run of a task: its current stream, read again when links expire.
 class _Job {
-  _Job(this.transfer, this.task, this.halt, this.stream);
+  _Job(this.transfer, this.task, this.halt, this.stream) {
+    halt.whenComplete(() {
+      _halted = true;
+      for (final abort in _aborts.toList()) {
+        if (!abort.isCompleted) abort.complete();
+      }
+      _aborts.clear();
+    }).ignore();
+  }
   final OnlineDownloads transfer;
   final Json task;
   final Future<void> halt;
@@ -390,6 +398,11 @@ class _Job {
   Future<void>? _refreshing;
   int _refreshes = 0;
   final _keys = <Uri, Future<Uint8List>>{};
+
+  /// The requests still running, each stopped when the job halts; a long
+  /// HLS download makes thousands, so each leaves once its body is read.
+  final _aborts = <Completer<void>>{};
+  bool _halted = false;
 
   String get savePath => '${task['savePath']}';
   bool get active => transfer._active(task);
@@ -448,26 +461,50 @@ class _Job {
     Map<String, String> headers = const {},
   }) async {
     final abort = Completer<void>();
-    halt.whenComplete(() {
-      if (!abort.isCompleted) abort.complete();
-    }).ignore();
-    final response = await transfer._http.sendAbortable(
-      'GET',
-      uri,
-      abort: abort,
-      timeout: OnlineDownloads._idle,
-      message: '视频源连接超时',
-      headers: {'User-Agent': 'Mozilla/5.0', ...stream.headers, ...headers},
-    );
+    if (_halted) abort.complete();
+    _aborts.add(abort);
+    final http.StreamedResponse response;
+    try {
+      response = await transfer._http.sendAbortable(
+        'GET',
+        uri,
+        abort: abort,
+        timeout: OnlineDownloads._idle,
+        message: '视频源连接超时',
+        headers: {'User-Agent': 'Mozilla/5.0', ...stream.headers, ...headers},
+      );
+    } catch (_) {
+      _aborts.remove(abort);
+      rethrow;
+    }
     if (const {401, 403, 404, 410}.contains(response.statusCode)) {
+      _aborts.remove(abort);
       await response.stream.listen(null).cancel();
       throw _Expired(response.statusCode);
     }
     if (response.statusCode >= 300) {
+      _aborts.remove(abort);
       await response.stream.listen(null).cancel();
       throw HttpException('视频源下载失败（HTTP ${response.statusCode}）');
     }
-    return response;
+    Stream<List<int>> body() async* {
+      try {
+        yield* response.stream;
+      } finally {
+        _aborts.remove(abort);
+      }
+    }
+
+    return http.StreamedResponse(
+      body(),
+      response.statusCode,
+      contentLength: response.contentLength,
+      request: response.request,
+      headers: response.headers,
+      isRedirect: response.isRedirect,
+      persistentConnection: response.persistentConnection,
+      reasonPhrase: response.reasonPhrase,
+    );
   }
 
   Future<Uint8List> _bytes(Uri uri) async {

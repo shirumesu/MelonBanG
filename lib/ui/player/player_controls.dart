@@ -50,6 +50,8 @@ class PlayerControls extends StatelessWidget {
     required this.onDanmakuInputDone,
     required this.danmakuHint,
     this.danmakuMenuFocus,
+    this.danmakuMenuGroup,
+    this.onDanmakuMenuOutside,
     this.onPrevious,
     this.onNext,
   });
@@ -57,6 +59,11 @@ class PlayerControls extends StatelessWidget {
   final bool fullScreen, windowFullScreen, danmakuMenuOpen;
   final VoidCallback onDanmakuMenu;
   final FocusNode? danmakuMenuFocus;
+
+  /// The tap region group the danmaku settings belong to, and what a tap
+  /// outside it does while they are open.
+  final Object? danmakuMenuGroup;
+  final VoidCallback? onDanmakuMenuOutside;
 
   /// The danmaku settings shown above their button while
   /// [danmakuMenuOpen], given how far they have faded in.
@@ -360,6 +367,8 @@ class PlayerControls extends StatelessWidget {
     AnchoredPanel(
       open: danmakuMenuOpen,
       panel: danmakuMenu,
+      tapGroup: danmakuMenuGroup,
+      onTapOutside: onDanmakuMenuOutside,
       child: IconHover(
         child: IconButton(
           focusNode: danmakuMenuFocus,

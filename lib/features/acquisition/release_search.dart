@@ -57,6 +57,7 @@ class ReleaseSearch {
     final listed = {for (final source in sources) source.id: <String>{}};
     final metadata = <String, TorrentRelease>{};
     final pages = <Uri, Future<String>>{};
+    final failures = <String, Object>{};
     bool current() => cancel?.isCancelled != true;
     ReleaseSearchResult snapshot() => ReleaseSearchResult(
       candidates: candidates.values.toList(),
@@ -140,6 +141,7 @@ class ReleaseSearch {
             }
             succeeded = true;
           } catch (e) {
+            failures[source.id] = e;
             state = progress[source.id]!;
             state = state.copyWith(
               failed: state.failed + 1,
@@ -160,6 +162,15 @@ class ReleaseSearch {
                   ? SearchStatus.error
                   : SearchStatus.partial,
             );
+            // The Sources page and sidebar learn how the index did once
+            // every keyword answered.
+            if (completed == state.total && current()) {
+              if (state.failed < state.total) {
+                registry.succeeded(source.id);
+              } else {
+                registry.failed(source.id, failures[source.id]!);
+              }
+            }
             emit();
           }
           if (succeeded && includeMetadata) await enrich(source, name);
@@ -174,6 +185,7 @@ class ReleaseSearch {
     ReleaseCandidate candidate, {
     required CacheMethod method,
     int? episodeId,
+    RequestCancellation? cancel,
   }) async {
     final release = candidate.release;
     episodeId ??= candidate.episodeId;
@@ -187,9 +199,15 @@ class ReleaseSearch {
         releaseGroups: release.releaseGroups,
       );
     }
-    final response = await api.send(Uri.parse(release.locator));
+    final bytes = await api.bytes(
+      Uri.parse(release.locator),
+      // Even a season's batch torrent is a few hundred kilobytes.
+      maxBytes: 8 << 20,
+      tooLarge: '种子文件过大，可能不是种子',
+      cancel: cancel,
+    );
     return downloads.addTorrent(
-      response.bodyBytes,
+      bytes,
       release.title,
       method: method,
       subjectId: candidate.subjectId,

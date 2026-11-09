@@ -44,11 +44,26 @@ class SourceRegistry extends ChangeNotifier {
       (throw StateError('这个来源已下线'));
   String get version => snapshot.version;
   bool get needsUpdate => instances.any((instance) => !instance.supported);
+
+  /// Whether the sidebar flags the Sources page: an online source failing,
+  /// or a BT index failing searches twice in a row, as one feed timing out
+  /// once is common; any source waiting on verification is left out of
+  /// searches until retried.
   bool get warning => health.entries.any(
     (e) =>
         isEnabled(e.key) &&
-        const [SourceHealth.error, SourceHealth.verification].contains(e.value),
+        switch (e.value) {
+          SourceHealth.verification => true,
+          SourceHealth.error =>
+            instances.where((i) => i.id == e.key).firstOrNull?.kind !=
+                    SourceKind.torrent ||
+                (_failedInARow[e.key] ?? 0) >= 2,
+          _ => false,
+        },
   );
+
+  /// Failures of each source since it last worked.
+  final _failedInARow = <String, int>{};
 
   /// Also covers the PikPak transfer, which shares the Sources page switch.
   bool isEnabled(String id) =>
@@ -151,17 +166,38 @@ class SourceRegistry extends ChangeNotifier {
   }
 
   void succeeded(String id) {
+    _failedInARow.remove(id);
+    if (!health.containsKey(id) && !errors.containsKey(id)) return;
     health.remove(id);
     errors.remove(id);
     _notify();
   }
 
   void failed(String id, Object error) {
+    _failedInARow[id] = (_failedInARow[id] ?? 0) + 1;
     health[id] = error is SourceVerificationRequired
         ? SourceHealth.verification
         : SourceHealth.error;
     errors[id] = errorMessage(error);
     _notify();
+  }
+
+  /// Searches BT index [id] for [keyword], as the Sources page tries it,
+  /// noting how it did.
+  Future<List<TorrentRelease>> searchTorrents(
+    String id,
+    String keyword, {
+    RequestCancellation? cancel,
+  }) async {
+    try {
+      final rows = await torrent(id).search(keyword, cancel: cancel);
+      succeeded(id);
+      return rows;
+    } catch (error) {
+      cancel?.throwIfCancelled();
+      failed(id, error);
+      rethrow;
+    }
   }
 
   /// Searches every name concurrently, or in order until [enough] accepts the

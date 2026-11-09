@@ -318,18 +318,35 @@ class SubscriptionController extends ChangeNotifier {
     ..._cachesOf(subject).keys,
   };
 
-  /// The cache task of each episode of [subject], a finished one first.
+  /// The cache task of each episode of [subject], a finished one first;
+  /// kept for each subject until the tasks change.
   Map<int, DownloadTask> _cachesOf(Subject subject) {
+    if (_cachesRevision != downloads.revision) {
+      _cachesRevision = downloads.revision;
+      _caches.clear();
+      _tasks = null;
+    }
+    // The subject as loaded says which files are which episodes.
+    if (_caches[subject.id] case (final known, final found)
+        when identical(known, subject)) {
+      return found;
+    }
     final found = <int, DownloadTask>{};
-    for (final task in downloads.snapshot().forSubject(subject.id)) {
+    _tasks ??= downloads.snapshot();
+    for (final task in _tasks!.forSubject(subject.id)) {
       for (final id in {?task.episodeId, ...episodeFiles(subject, task).keys}) {
         if (found[id] == null || (!found[id]!.complete && task.complete)) {
           found[id] = task;
         }
       }
     }
+    _caches[subject.id] = (subject, found);
     return found;
   }
+
+  int? _cachesRevision;
+  TransferSnapshot? _tasks;
+  final _caches = <int, (Subject, Map<int, DownloadTask>)>{};
 
   /// Wanted episodes without a cache, in broadcast order.
   List<Episode> _pendingEpisodes(Subscription subscription, Subject subject) {
