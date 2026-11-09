@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 
 import '../core/app_chrome.dart';
 import '../core/motion.dart';
@@ -220,6 +221,12 @@ class _SettingsPageState extends State<SettingsPage> {
                                 padding: const EdgeInsets.only(top: Gap.xl),
                                 child: EmptyState(
                                   text: '没有与“${query.text.trim()}”相关的设置',
+                                  detail: '换个说法试试，比如“代理”“字幕组”“缓存”',
+                                  actionLabel: '清除搜索',
+                                  action: () => setState(() {
+                                    query.clear();
+                                    current = null;
+                                  }),
                                 ),
                               ),
                             for (final (index, section) in sections.indexed)
@@ -278,26 +285,39 @@ class _Contents extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(Gap.md, Gap.xs, 0, Gap.md),
           child: Text('设置', style: Theme.of(context).textTheme.titleLarge),
         ),
-        TextField(
-          controller: query,
-          onChanged: (_) => onQuery(),
-          decoration: InputDecoration(
-            hintText: '搜索设置',
-            prefixIcon: const Icon(Icons.search, size: 18),
-            prefixIconConstraints: const BoxConstraints(minWidth: 36),
-            suffixIcon: ListenableBuilder(
-              listenable: query,
-              builder: (context, _) => query.text.isEmpty
-                  ? const SizedBox.shrink()
-                  : IconButton(
-                      tooltip: '清除',
-                      iconSize: 16,
-                      onPressed: () {
-                        query.clear();
-                        onQuery();
-                      },
-                      icon: const Icon(Icons.close),
-                    ),
+        CallbackShortcuts(
+          // Esc clears the search before it leaves the field.
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.escape): () {
+              if (query.text.isEmpty) {
+                FocusScope.of(context).unfocus();
+              } else {
+                query.clear();
+                onQuery();
+              }
+            },
+          },
+          child: TextField(
+            controller: query,
+            onChanged: (_) => onQuery(),
+            decoration: InputDecoration(
+              hintText: '搜索设置',
+              prefixIcon: const Icon(Icons.search, size: 18),
+              prefixIconConstraints: const BoxConstraints(minWidth: 36),
+              suffixIcon: ListenableBuilder(
+                listenable: query,
+                builder: (context, _) => query.text.isEmpty
+                    ? const SizedBox.shrink()
+                    : IconButton(
+                        tooltip: '清除',
+                        iconSize: 16,
+                        onPressed: () {
+                          query.clear();
+                          onQuery();
+                        },
+                        icon: const Icon(Icons.close),
+                      ),
+              ),
             ),
           ),
         ),

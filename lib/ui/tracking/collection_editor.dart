@@ -87,9 +87,10 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
   int get score => draft.collection.score;
   List<String> get tags => draft.collection.tags;
 
+  // A score set before switching to 想看 is not saved, so it is no change.
   bool get changed =>
       status != saved.status ||
-      score != saved.score ||
+      (status != CollectionStatus.wish && score != saved.score) ||
       !listEquals(tags, saved.tags) ||
       draft.collection.comment != saved.comment ||
       draft.completeEpisodes;

@@ -1,5 +1,3 @@
-import 'sources.dart';
-
 /// What the player opens: a downloaded (or streaming) file, or an online
 /// stream. [resumeKey] and the progress keys derived from it are stable.
 class PlaybackSession {
@@ -8,7 +6,6 @@ class PlaybackSession {
     required this.title,
     required this.url,
     this.headers = const {},
-    this.format,
     this.playlist,
     this.audioUrl,
     this.danmaku,
@@ -28,8 +25,7 @@ class PlaybackSession {
   final String id, title, url;
   final Map<String, String> headers;
 
-  /// Online streams only; a [playlist] replaces [url] as the manifest.
-  final StreamFormat? format;
+  /// An online stream's manifest, which replaces [url].
   final String? playlist;
 
   /// An external audio track played with [url]: an online stream's, or the
@@ -70,7 +66,6 @@ class PlaybackSession {
     title: title,
     url: url,
     headers: headers,
-    format: format,
     playlist: playlist,
     audioUrl: audioUrl,
     danmaku: danmaku,

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:pinyin/pinyin.dart' show ChineseHelper;
 
 import '../../core/error_message.dart';
+import '../../domain/catalog.dart';
 import '../../domain/danmaku.dart';
 import '../../domain/sources.dart';
 import '../acquisition/resource_metadata.dart';
@@ -38,7 +39,7 @@ class DanmakuSourceState {
 /// session discards older results.
 class DanmakuController extends ChangeNotifier {
   DanmakuController(this.repository, this.preferences) {
-    preferences.addListener(_refresh);
+    preferences.addListener(_preferencesChanged);
   }
   final DanmakuRepository repository;
   final DanmakuPreferences preferences;
@@ -66,9 +67,14 @@ class DanmakuController extends ChangeNotifier {
   final _sent = StreamController<DanmakuComment>.broadcast();
   Stream<DanmakuComment> get sent => _sent.stream;
 
+  /// The media length automatic matching last ran with in this session;
+  /// null until it has.
+  double? _duration;
+
   /// Starts a session with each provider's saved default enable state.
   void begin(DanmakuTarget target) {
     _target = target;
+    _duration = null;
     _comments.clear();
     _loads.clear();
     sources = [
@@ -84,12 +90,18 @@ class DanmakuController extends ChangeNotifier {
 
   /// Loads every enabled automatic source: the stream's own locator, then a
   /// saved manual match, then the episode following one picked for another
-  /// episode of the subject, then the provider's own matching.
-  Future<void> autoMatch(double duration, {DanmakuTarget? target}) async {
+  /// episode of the subject, then the provider's own matching. [only]
+  /// limits it to one source.
+  Future<void> autoMatch(
+    double duration, {
+    DanmakuTarget? target,
+    String? only,
+  }) async {
     final current = _target;
     if (current == null || (target != null && !identical(target, current))) {
       return;
     }
+    _duration = duration;
     Future<DanmakuEpisode>? episode;
     final query = DanmakuQuery(
       episode: () => episode ??= repository.episode(current),
@@ -105,9 +117,12 @@ class DanmakuController extends ChangeNotifier {
     );
     await Future.wait([
       for (final source in sources)
-        if (source.enabled)
+        if (source.enabled && (only == null || source.id == only))
           _load(source.id, () async {
             final provider = repository.matcher(source.id);
+            if (provider.unconfigured case final reason?) {
+              throw DanmakuUnmatched(reason);
+            }
             Future<_Loaded> load(String locator, {String? followed}) async =>
                 (locator, await provider.load(locator), followed);
             if (current.embedded case (final id, final locator)
@@ -127,7 +142,14 @@ class DanmakuController extends ChangeNotifier {
                   case (final locator, final from)?) {
                 final to = (await query.episode()).number;
                 if (to == from) return load(locator);
-                if (await follower.follow(locator, from, to) case final row?) {
+                DanmakuCandidate? row;
+                try {
+                  row = await follower.follow(locator, from, to);
+                } catch (_) {
+                  // The video picked before may be gone; matching on its
+                  // own can still find this episode.
+                }
+                if (row != null) {
                   return load(row.locator!, followed: row.title);
                 }
                 missed =
@@ -170,7 +192,12 @@ class DanmakuController extends ChangeNotifier {
     if (subjectId == null || rows.every((row) => row.site == null)) {
       return rows;
     }
-    final subject = await repository.catalog.subject(subjectId);
+    final Subject subject;
+    try {
+      subject = await repository.catalog.subject(subjectId);
+    } catch (_) {
+      return rows; // Unchecked rows beat none while the catalogue is away.
+    }
     final episode = subject.episodes
         .where((episode) => episode.id == target!.episodeId)
         .firstOrNull;
@@ -386,13 +413,19 @@ class DanmakuController extends ChangeNotifier {
     _merge(sent: comment);
   }
 
-  /// Whether new sessions load [provider]; the current session follows.
+  /// Whether new sessions load [provider]; the current session follows,
+  /// matching a source switched on that it has not tried yet.
   void setDefault(String provider, bool enabled) {
     preferences.setProvider(provider, enabled);
     final source = sources.where((source) => source.id == provider);
     if (source.firstOrNull case final source? when source.enabled != enabled) {
       source.enabled = enabled;
       _merge();
+      if (enabled && source.status == DanmakuStatus.idle) {
+        if (_duration case final duration?) {
+          unawaited(autoMatch(duration, only: provider));
+        }
+      }
     } else {
       notifyListeners();
     }
@@ -435,7 +468,7 @@ class DanmakuController extends ChangeNotifier {
       if (earliest == -1) break;
       final item = lists[earliest][positions[earliest]++];
       if (!item.own) {
-        final key = ChineseHelper.convertToSimplifiedChinese(item.text);
+        final key = _simplified[item] ??= _simplify(item.text);
         final kept = (recent[key] ??= [])
           ..removeWhere((index) => item.time - merged[index].time > copyWindow);
         final copy = kept
@@ -468,7 +501,34 @@ class DanmakuController extends ChangeNotifier {
   /// copy lands up to this far from its original.
   static const copyWindow = .5;
 
+  /// Each comment's simplified spelling, kept across merges: converting
+  /// thousands of comments again whenever a source loads or is switched
+  /// would stall frames.
+  static final _simplified = Expando<String>();
+
+  /// Character by character, as merging for display compares them; phrase
+  /// conversion costs several times more for the rare word it changes.
+  static String _simplify(String text) {
+    final buffer = StringBuffer();
+    for (final rune in text.runes) {
+      buffer.write(
+        ChineseHelper.convertCharToSimplifiedChinese(String.fromCharCode(rune)),
+      );
+    }
+    return buffer.toString();
+  }
+
+  /// What [visible] depends on, when it last ran; size, opacity and the
+  /// other looks only lay the shown comments out again.
+  Object? _shownBy;
+
+  void _preferencesChanged() {
+    if (preferences.shownBy == _shownBy) return;
+    _refresh();
+  }
+
   void _refresh({DanmakuComment? sent}) {
+    _shownBy = preferences.shownBy;
     final result = preferences.visible(comments);
     visible = result.shown;
     thinned = result.thinned;
@@ -482,7 +542,7 @@ class DanmakuController extends ChangeNotifier {
 
   @override
   void dispose() {
-    preferences.removeListener(_refresh);
+    preferences.removeListener(_preferencesChanged);
     unawaited(_sent.close());
     super.dispose();
   }

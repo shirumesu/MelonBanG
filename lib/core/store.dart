@@ -23,23 +23,9 @@ class AppStore {
       await databaseFactoryFfi.openDatabase(
         path,
         options: OpenDatabaseOptions(
+          // Every released version created the schema at 5; a later change
+          // adds its upgrade from there.
           version: 5,
-          onUpgrade: (db, oldVersion, _) async {
-            if (oldVersion < 2) await _createIndexes(db);
-            if (oldVersion < 3) {
-              await _createImageCache(db);
-            } else if (oldVersion < 4) {
-              await db.execute(
-                'ALTER TABLE cached_images ADD COLUMN accessed INTEGER NOT NULL DEFAULT 0',
-              );
-              await db.execute('UPDATE cached_images SET accessed=saved');
-              await _createImageAccessIndex(db);
-            }
-            // Danmaku source offsets were removed with their controls.
-            if (oldVersion < 5) {
-              await db.execute('DROP TABLE IF EXISTS danmaku_offsets');
-            }
-          },
           onCreate: (db, _) async {
             await db.execute(
               'CREATE TABLE documents (scope TEXT NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(scope,id))',
@@ -196,10 +182,6 @@ class AppStore {
       where: 'scope=? AND id=?',
       whereArgs: [scope, id],
     );
-  }
-
-  Future<void> clear(String scope) async {
-    await database.delete('documents', where: 'scope=?', whereArgs: [scope]);
   }
 
   Future<void> enqueue(String account, String entity, Json body) async {

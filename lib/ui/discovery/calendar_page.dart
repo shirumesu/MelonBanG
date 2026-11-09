@@ -108,7 +108,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        weekday(dates[i]),
+                        i == 0 ? '今天' : weekday(dates[i]),
                         style: TextStyle(
                           color: selectedDate == dates[i]
                               ? Theme.of(context)
@@ -169,11 +169,7 @@ class _CalendarPageState extends State<CalendarPage> {
                   child: InlineIssue('刷新失败，仍显示上次内容', onRetry: widget.onRetry),
                 ),
               if (items.isEmpty && all.isNotEmpty)
-                EmptyState(
-                  text: '筛选后本日没有番剧',
-                  action: () => widget.filter.set(ScheduleFilter.none),
-                  actionLabel: '清除筛选',
-                )
+                _filteredOut(filter, all, now)
               else if (items.isEmpty && widget.loading) ...[
                 const LinearProgressIndicator(),
                 const EmptyState(text: '正在加载时间表…'),
@@ -195,6 +191,22 @@ class _CalendarPageState extends State<CalendarPage> {
           ),
         ),
       ],
+    );
+  }
+
+  /// The day when the filter leaves nothing. Clearing it keeps hiding R18
+  /// shows as the menu's 清除 does, unless only R18 shows air that day.
+  Widget _filteredOut(ScheduleFilter filter, List<Subject> day, DateTime now) {
+    final cleared = ScheduleFilter(
+      adult: filter.adult == AdultFilter.only ? AdultFilter.show : filter.adult,
+    );
+    final onlyAdult = !day.any((item) => cleared.accepts(item, now));
+    return EmptyState(
+      text: onlyAdult ? '本日只有 R18 番剧，已隐藏' : '筛选后本日没有番剧',
+      action: () => widget.filter.set(
+        onlyAdult ? filter.copyWith(adult: AdultFilter.show) : cleared,
+      ),
+      actionLabel: onlyAdult ? '显示 R18' : '清除筛选',
     );
   }
 

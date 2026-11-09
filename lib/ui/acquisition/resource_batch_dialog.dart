@@ -388,7 +388,7 @@ class _BatchDialogState extends State<_BatchDialog> {
                       if (selected.contains(episode.id)) episode,
                   ],
                 )),
-          child: Text(count == 0 ? '下载' : '下载 $count 集'),
+          child: Text(count == 0 ? '下载' : '下载 $count 话'),
         ),
       ],
     );

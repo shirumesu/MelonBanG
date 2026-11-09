@@ -23,12 +23,14 @@ class DanmakuFilter {
   final String _lowered;
   RegExp? expression;
   bool invalid = false;
-  bool matches(String text) =>
+  bool matches(String text) => _matches(text, text.toLowerCase());
+
+  /// [matches] with [lowered], the text in lower case, worked out once for
+  /// every rule.
+  bool _matches(String text, String lowered) =>
       enabled &&
       !invalid &&
-      (isRegex
-          ? expression!.hasMatch(text)
-          : text.toLowerCase().contains(_lowered));
+      (isRegex ? expression!.hasMatch(text) : lowered.contains(_lowered));
   Json toJson() => {'pattern': pattern, 'isRegex': isRegex, 'enabled': enabled};
 }
 
@@ -118,6 +120,22 @@ class DanmakuPreferences extends ChangeNotifier {
   Map<String, bool> providers = {};
   List<DanmakuFilter> filters = [];
   bool sourceEnabled(String provider) => providers[provider] ?? true;
+
+  /// Everything [visible] and the shown switch depend on; equal while only
+  /// the look of comments changes.
+  Object get shownBy => (
+    enabled,
+    scroll,
+    top,
+    bottom,
+    colorful,
+    merge,
+    limit,
+    [
+      for (final rule in filters)
+        '${rule.enabled ? 1 : 0}${rule.isRegex ? 1 : 0}${rule.pattern}',
+    ].join('\u0000'),
+  );
   void update(VoidCallback change) {
     change();
     _save();
@@ -160,14 +178,18 @@ class DanmakuPreferences extends ChangeNotifier {
     final text = value.trim();
     if (text.isEmpty) return;
     final regex = text.length > 2 && text.startsWith('/') && text.endsWith('/');
-    update(
-      () => filters.add(
-        DanmakuFilter(
-          regex ? text.substring(1, text.length - 1) : text,
-          isRegex: regex,
-        ),
-      ),
+    final pattern = regex ? text.substring(1, text.length - 1) : text;
+    // Adding a rule again switches it back on rather than listing it twice.
+    final index = filters.indexWhere(
+      (rule) => rule.pattern == pattern && rule.isRegex == regex,
     );
+    update(() {
+      if (index < 0) {
+        filters.add(DanmakuFilter(pattern, isRegex: regex));
+      } else {
+        filters[index] = DanmakuFilter(pattern, isRegex: regex);
+      }
+    });
   }
 
   /// Comments that pass mode/colour/filter rules, in time order, and how
@@ -183,6 +205,10 @@ class DanmakuPreferences extends ChangeNotifier {
     final counts = <int, int>{};
     // Index in result → the text its merged group shows instead.
     final texts = <int, String>{};
+    final rules = [
+      for (final rule in filters)
+        if (rule.enabled && !rule.invalid) rule,
+    ];
     for (final item in comments) {
       if ((item.mode == DanmakuMode.scroll && !scroll) ||
           (item.mode == DanmakuMode.top && !top) ||
@@ -194,9 +220,12 @@ class DanmakuPreferences extends ChangeNotifier {
         continue;
       }
       if (!colorful && item.color != 0xffffff) continue;
-      if (filters.any((rule) => rule.matches(item.text))) continue;
+      if (rules.isNotEmpty) {
+        final lowered = item.text.toLowerCase();
+        if (rules.any((rule) => rule._matches(item.text, lowered))) continue;
+      }
       if (merge) {
-        final key = _mergeKey(item.text);
+        final key = _mergeKeys[item] ??= _mergeKey(item.text);
         final index = shown[key];
         if (index != null && item.time - result[index].time <= mergeWindow) {
           counts[index] = (counts[index] ?? 1) + 1;
@@ -248,6 +277,10 @@ class DanmakuPreferences extends ChangeNotifier {
   }
 
   static const mergeWindow = 10.0;
+
+  /// Each comment's [_mergeKey], kept while the comment lives: the shown
+  /// comments are worked out again on every source loaded and rule changed.
+  static final _mergeKeys = Expando<String>();
   static final _trailingPunctuation = RegExp(r'[!?.,~。！？，、…～]+$');
 
   /// Text compared for merging: case, width, spacing, trailing punctuation

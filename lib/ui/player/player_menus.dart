@@ -48,7 +48,11 @@ class PlayerVolumeControl extends StatelessWidget {
             : Icons.volume_up_rounded;
         return IconButton(
           onPressed: playback.toggleMute,
-          icon: MotionSwap(value: icon, child: Icon(icon)),
+          // No tooltip: hovering raises the slider instead.
+          icon: MotionSwap(
+            value: icon,
+            child: Icon(icon, semanticLabel: volume == 0 ? '取消静音' : '静音'),
+          ),
         );
       },
     ),
@@ -286,7 +290,10 @@ class SubtitleMenu extends StatelessWidget {
           anchor: (popover) => IconButton(
             isSelected: popover.open,
             onPressed: popover.toggle,
-            icon: const Icon(Icons.closed_caption_outlined),
+            icon: const Icon(
+              Icons.closed_caption_outlined,
+              semanticLabel: '字幕',
+            ),
           ),
           popover: (popover) => ChoiceList(
             popover: popover,

@@ -84,15 +84,30 @@ class MelonDanmaku implements DanmakuMatcher, DanmakuSender {
       headers: {'Authorization': 'Bearer ${await token()}'},
       acceptedStatuses: const {400, 401, 429, 502, 503},
     );
-    final value = object(jsonDecode(utf8.decode(response.bodyBytes)));
-    if (response.statusCode < 300) return value;
+    final status = response.statusCode;
+    final Json value;
+    try {
+      value = object(jsonDecode(utf8.decode(response.bodyBytes)));
+    } on FormatException {
+      // A gateway's error page in front of Melon API.
+      if (status < 300) rethrow;
+      throw DanmakuSendRejected(_refusal(status), null);
+    }
+    if (status < 300) return value;
     final error = object(value['error']);
     final details = error['details'];
     throw DanmakuSendRejected(
-      '${error['message'] ?? '弹幕发送失败（HTTP ${response.statusCode}）'}',
+      '${error['message'] ?? _refusal(status)}',
       details is Map ? _quota(object(details)) : null,
     );
   }
+
+  static String _refusal(int status) => switch (status) {
+    401 => '登录已失效，请重新登录 Bangumi 后发送',
+    429 => '发送太频繁，请稍后再试',
+    502 || 503 => '弹幕服务暂时不可用，请稍后再试',
+    _ => '弹幕发送失败（HTTP $status）',
+  };
 
   static DanmakuQuota _quota(Json value) => DanmakuQuota(
     limit: number(value['limit'] ?? 200).toInt(),

@@ -9,6 +9,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/cancellation.dart';
 import '../../core/error_message.dart';
 import '../../core/proxy.dart';
 import '../../domain/catalog.dart';
@@ -40,12 +41,15 @@ class Playback extends ChangeNotifier {
   Player _create() {
     final player = _player = Player(
       configuration: const PlayerConfiguration(
-        title: 'Melonbang',
+        title: 'MelonBanG',
         libass: true,
       ),
     );
     _shaders = 'off';
     _cacheWait = 0;
+    // A new player counts its dropped frames from zero.
+    _droppedFrames = 0;
+    _dropSeconds.clear();
     unawaited(player.setRate(_savedRate));
     _hwdec = settings.hardwareDecoding;
     _video = VideoController(
@@ -91,6 +95,7 @@ class Playback extends ChangeNotifier {
       player.stream.playing.listen((playing) {
         playing ? _watched.start() : _watched.stop();
         unawaited(saveProgress());
+        _playing.add(playing);
       }),
     );
     if (preferences.getBool(_mutedKey) == true) {
@@ -176,12 +181,15 @@ class Playback extends ChangeNotifier {
   /// Pauses the video, if one is open.
   Future<void> pause() async => _player?.pause();
 
-  /// The open player's position, buffering and errors, across players.
+  /// The open player's position, buffering, playing state and errors,
+  /// across players; listening opens none.
   Stream<Duration> get positions => _positions.stream;
   Stream<bool> get buffering => _buffering.stream;
+  Stream<bool> get playingChanges => _playing.stream;
   Stream<String> get errors => _errors.stream;
   final _positions = StreamController<Duration>.broadcast();
   final _buffering = StreamController<bool>.broadcast();
+  final _playing = StreamController<bool>.broadcast();
   final _errors = StreamController<String>.broadcast();
   final _subscriptions = <StreamSubscription<dynamic>>[];
   Timer? _timer, _volumeWrite, _rateWrite, _autoplayTimer;
@@ -319,6 +327,8 @@ class Playback extends ChangeNotifier {
 
   Future<void> resume() async {
     cancelAutoplay();
+    // Playing on after the end puts its message away.
+    if (autoplayMessage != null) dismissAutoplayMessage();
     if (frameStepping) {
       frameStepping = false;
       danmakuRevision++;
@@ -383,6 +393,9 @@ class Playback extends ChangeNotifier {
     _skippedOpening = _skippedEnding = false;
     _upcoming = upcomingSkip = null;
     _lastPosition = null;
+    // The previous file's overload says nothing about this one.
+    overloaded = null;
+    _dropSeconds.clear();
     opening = true;
     error = null;
     notifyListeners();
@@ -443,12 +456,17 @@ class Playback extends ChangeNotifier {
           languageCodes(settings.audioLanguage),
         );
       }
-      var resume = preferences.getDouble('progress:${next.progressKey}');
-      if (next.subjectId case final subjectId?) {
-        if (next.episodeId case final episodeId?) {
-          final saved = await library.progress(subjectId, episodeId);
-          if (saved != null) resume = saved.completed ? 0 : saved.position;
-        }
+      // An episode's place lives only in the library, as saveProgress keeps
+      // it; a key left here by an earlier version would never move on.
+      double? resume;
+      if ((next.subjectId, next.episodeId) case (
+        final subjectId?,
+        final episodeId?,
+      )) {
+        final saved = await library.progress(subjectId, episodeId);
+        if (saved != null) resume = saved.completed ? 0 : saved.position;
+      } else {
+        resume = preferences.getDouble('progress:${next.progressKey}');
       }
       if (next.startSeconds != null) resume = next.startSeconds;
       // Apply continuation while loading; open() can return before native seek is ready.
@@ -519,10 +537,17 @@ class Playback extends ChangeNotifier {
     if (_lastProgress == signature) return _progressWrites;
     _lastProgress = signature;
     final write = _progressWrites.then((_) async {
-      await preferences.setDouble(
-        'progress:$savedUri',
-        completed ? 0 : position,
-      );
+      // An episode keeps its place in the library. Only a file without one
+      // keeps it here: a standalone stream saves none, and its address,
+      // which changes with each resolve, would pile up keys.
+      if (savedSession.subjectId == null || savedSession.episodeId == null) {
+        if (savedSession.standalone) return;
+        await preferences.setDouble(
+          'progress:$savedUri',
+          completed ? 0 : position,
+        );
+        return;
+      }
       await library.save(savedSession, position, duration, completed);
     });
     // A failed write reaches its caller; later writes still run and retry it.
@@ -571,8 +596,10 @@ class Playback extends ChangeNotifier {
     final dropped = count > _droppedFrames;
     _droppedFrames = count;
     final mode = settings.superResolution;
-    final state = player.state;
-    if (!dropped ||
+    // A player being closed may still report; it must not open another.
+    final state = _player?.state;
+    if (state == null ||
+        !dropped ||
         mode == 'off' ||
         opening ||
         frameStepping ||
@@ -609,7 +636,8 @@ class Playback extends ChangeNotifier {
     _shaders = mode;
     try {
       final shaders = await superResolutionShaders(mode);
-      if (_closed || _shaders != mode) return;
+      // A player closed meanwhile takes its shaders with it.
+      if (_closed || _shaders != mode || _player?.platform != platform) return;
       // Compiling a chain takes seconds, as ANGLE translates each shader for
       // Direct3D on Windows; mpv keeps the results there for later switches.
       await platform.setProperty('gpu-shader-cache-dir', shaders.cache);
@@ -620,6 +648,7 @@ class Playback extends ChangeNotifier {
         shaders.files.join(Platform.isWindows ? ';' : ':'),
       );
     } catch (e) {
+      if (_closed || _player?.platform != platform) return;
       _shaders = 'off';
       _announceSwitch = false;
       showNotice('超分辨率不可用：${errorMessage(e)}');
@@ -989,7 +1018,13 @@ class Playback extends ChangeNotifier {
         }
       });
     } catch (e) {
-      if (ticket != _autoplayTicket) return;
+      // Another episode opening cancels the lookup; that is no failure.
+      if (_closed ||
+          e is RequestCancelled ||
+          ticket != _autoplayTicket ||
+          session?.id != current.id) {
+        return;
+      }
       autoplayMessage = '自动连播已停止：${errorMessage(e)}';
       notifyListeners();
     }
@@ -1003,6 +1038,13 @@ class Playback extends ChangeNotifier {
     autoplayTarget = null;
     autoplaySeconds = 0;
     if (changed && notify) notifyListeners();
+  }
+
+  /// Puts away what autoplay said at the end of the episode.
+  void dismissAutoplayMessage() {
+    autoplayMessage = null;
+    autoplayEndEpisode = null;
+    notifyListeners();
   }
 
   Future<void> playAutoplay() async {
@@ -1032,7 +1074,16 @@ class Playback extends ChangeNotifier {
     await saveProgress();
     session = null;
     uri = null;
+    error = null;
     frameStepping = false;
+    openingEnding = null;
+    _upcoming = upcomingSkip = null;
+    autoplayMessage = null;
+    autoplayEndEpisode = null;
+    overloaded = null;
+    upscale = null;
+    // A resize still waiting on the old output does not report.
+    _outputRevision++;
     _timer?.cancel();
     _outputTimer?.cancel();
     _cacheWaitDecay?.cancel();
@@ -1070,6 +1121,7 @@ class Playback extends ChangeNotifier {
     downloads.releaseStreamsExcept(null);
     await _positions.close();
     await _buffering.close();
+    await _playing.close();
     await _errors.close();
   }
 }

@@ -97,7 +97,13 @@ class Appearance extends ChangeNotifier {
   };
 
   Future<void> refreshSystemAccent() async {
-    final value = await SystemSettings.accentColor();
+    final Color? value;
+    try {
+      value = await SystemSettings.accentColor();
+    } on Exception {
+      // Read on every focus; a failed read keeps the colour last read.
+      return;
+    }
     if (value == systemAccent) return;
     systemAccent = value;
     notifyListeners();

@@ -198,10 +198,10 @@ class _AddGroupState extends State<_AddGroup> {
     final small = Theme.of(context).textTheme.bodySmall;
     return SizedBox(
       width: 220,
-      child: RawAutocomplete<(String, int, bool)>(
+      child: RawAutocomplete<_Option>(
         textEditingController: input,
         focusNode: focus,
-        displayStringForOption: (option) => option.$1,
+        displayStringForOption: (option) => option.name,
         optionsBuilder: (value) {
           final text = value.text.trim();
           final query = text.toLowerCase();
@@ -211,13 +211,14 @@ class _AddGroupState extends State<_AddGroup> {
               .take(8)
               .toList();
           return [
-            ...found,
+            for (final (name, count, cached) in found)
+              _Option(name, count, cached),
             if (text.isNotEmpty &&
                 !found.any((e) => e.$1.toLowerCase() == query))
-              (text, -1, false),
+              _Option(text, -1, false),
           ];
         },
-        onSelected: (option) => add(option.$1),
+        onSelected: (option) => add(option.name),
         fieldViewBuilder: (context, controller, focus, submit) => TextField(
           controller: controller,
           focusNode: focus,
@@ -227,7 +228,12 @@ class _AddGroupState extends State<_AddGroup> {
             prefixIcon: Icon(Icons.add_rounded, size: 18),
             prefixIconConstraints: BoxConstraints(minWidth: 36),
           ),
-          onSubmitted: add,
+          // Enter takes the highlighted suggestion, which the arrow keys
+          // move; with the suggestions closed it adds the typed name.
+          onSubmitted: (text) {
+            submit();
+            if (input.text == text) add(text);
+          },
         ),
         optionsViewBuilder: (context, select, options) => Align(
           alignment: Alignment.topLeft,
@@ -244,7 +250,7 @@ class _AddGroupState extends State<_AddGroup> {
                   shrinkWrap: true,
                   padding: const EdgeInsets.all(6),
                   children: [
-                    if (options.any((e) => e.$2 >= 0))
+                    if (options.any((e) => e.count >= 0))
                       Padding(
                         padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
                         child: Text(
@@ -258,7 +264,7 @@ class _AddGroupState extends State<_AddGroup> {
                           final highlighted =
                               AutocompleteHighlightedOption.of(context) ==
                               index;
-                          final (name, count, cached) = option;
+                          final _Option(:name, :count, :cached) = option;
                           return InkWell(
                             borderRadius: badgeBorderRadius,
                             onTap: () => select(option),
@@ -315,4 +321,14 @@ class _AddGroupState extends State<_AddGroup> {
       ),
     );
   }
+}
+
+/// A suggestion, or the typed name when [count] is negative. Compared by
+/// identity: the autocomplete ignores selecting an option equal to the last
+/// one, which would stop a group removed and typed again from being added.
+class _Option {
+  _Option(this.name, this.count, this.cached);
+  final String name;
+  final int count;
+  final bool cached;
 }

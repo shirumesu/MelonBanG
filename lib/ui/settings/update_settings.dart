@@ -5,9 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/error_message.dart';
 import '../../features/update/app_update.dart';
 import '../../features/update/uninstall.dart';
 import '../../integrations/github/app_releases.dart';
+import '../core/action_feedback.dart';
 import '../core/external_link.dart';
 import '../core/selection_controls.dart';
 import '../core/motion.dart';
@@ -44,10 +46,13 @@ SettingsSection aboutSection({
               subtitle: update.beta
                   ? '测试版能更早用上新功能，但问题可能更多'
                   : '只更新到稳定版；正在用测试版时，等下一个稳定版发布再更新',
-              trailing: MelonChoiceMenu(
-                options: const {false: '稳定版', true: '测试版'},
-                value: update.beta,
-                onSelected: update.setBeta,
+              trailing: SizedBox(
+                width: 180,
+                child: MelonSegmentedControl<bool>(
+                  options: const {false: '稳定版', true: '测试版'},
+                  value: update.beta,
+                  onChanged: update.setBeta,
+                ),
               ),
             ),
           ),
@@ -419,12 +424,11 @@ class _UninstallRow extends StatelessWidget {
           ? '便携版不需要卸载：退出后删除程序所在的文件夹即可'
           : 'AppImage 不需要卸载：退出后删除这个 AppImage 文件即可',
       trailing: OutlinedButton.icon(
-        onPressed: () => launchUrl(
-          Uri.directory(
-            AppUninstall.appImage == null
-                ? AppUninstall.installation
-                : p.dirname(AppUninstall.installation),
-          ),
+        onPressed: () => _openFolder(
+          context,
+          AppUninstall.appImage == null
+              ? AppUninstall.installation
+              : p.dirname(AppUninstall.installation),
         ),
         icon: const Icon(Icons.folder_open_outlined, size: 18),
         label: const Text('打开文件夹'),
@@ -437,6 +441,17 @@ class _UninstallRow extends StatelessWidget {
           : '请先把 MelonBanG 拖到“应用程序”文件夹再打开',
     ),
   };
+
+  Future<void> _openFolder(BuildContext context, String path) async {
+    final messages = ScaffoldMessenger.of(context);
+    try {
+      if (!await launchUrl(Uri.directory(path))) {
+        throw StateError('没有可以打开文件夹的程序');
+      }
+    } catch (error) {
+      showMessage(messages, '打开失败：${errorMessage(error)}');
+    }
+  }
 
   Future<void> _confirmWindows(BuildContext context) async {
     final confirmed = await showMelonDialog<bool>(

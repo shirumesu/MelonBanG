@@ -379,7 +379,10 @@ class _StorageSettingsState extends State<StorageSettings> {
       title: media ? '媒体缓存' : '应用数据',
       subtitle: usageLabel(media ? usage?.mediaBytes : usage?.dataBytes),
       trailing: OutlinedButton.icon(
-        onPressed: busy || widget.storage?.pending != null
+        // Without location management (a data folder given at launch)
+        // there is nothing to move.
+        onPressed:
+            busy || widget.storage == null || widget.storage!.pending != null
             ? null
             : () => choose(media),
         icon: const Icon(Icons.drive_file_move_outline, size: 18),
@@ -470,14 +473,20 @@ class _StorageSetupState extends State<StorageSetup> {
 
   Future<void> measure() async {
     final measured = media;
-    final result = await DiskSpace.of(measured);
+    final DiskSpace result;
+    try {
+      result = await DiskSpace.of(measured);
+    } catch (_) {
+      // Free space is a hint; the folder can be chosen without it.
+      return;
+    }
     if (mounted && measured == media) setState(() => space = result);
   }
 
   Future<void> pick() async {
-    final picked = await getDirectoryPath(confirmButtonText: '选择文件夹');
-    if (picked == null) return;
     try {
+      final picked = await getDirectoryPath(confirmButtonText: '选择文件夹');
+      if (picked == null) return;
       final selected = await storageTarget(picked, media: true);
       if (!mounted) return;
       setState(() {
@@ -500,6 +509,7 @@ class _StorageSetupState extends State<StorageSetup> {
       if (media != widget.storage.media) await widget.storage.choose(media);
       widget.onDone();
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         busy = false;
         error = errorMessage(e);

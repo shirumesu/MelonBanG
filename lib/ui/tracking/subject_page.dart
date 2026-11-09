@@ -211,6 +211,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       _episodeError = null;
       _completeOffer = 0;
       _savingCollection = _summaryExpanded = _infoExpanded = false;
+      _tagsExpanded = false;
       _episodeOverrides.clear();
     } else if (!_savingCollection &&
         oldWidget.subject?.status != widget.subject?.status) {
@@ -674,8 +675,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         )
         .toList();
     final score = item.score ?? 0;
-    final summary =
-        item.summary ?? (_loadingPart('subject') ? '正在加载简介…' : '暂无简介');
+    final summary = item.summary ?? (_loadingPart('base') ? '正在加载简介…' : '暂无简介');
     final info = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1491,7 +1491,8 @@ class _TagAdderState extends State<_TagAdder> {
 
   Future<void> _save(List<String> tags) async {
     final message = await widget.onSave(tags);
-    if (mounted) setState(() => error = message);
+    if (!mounted) return;
+    setState(() => error = message);
     if (message == null) input.clear();
   }
 

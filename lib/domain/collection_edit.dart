@@ -1,5 +1,4 @@
 import '../core/json.dart';
-import 'catalog.dart';
 
 const collectionTagLimit = 10;
 const collectionCommentLimit = 380;
@@ -31,13 +30,8 @@ List<String> normalizeCollectionTags(Iterable<String> values) {
   return tags;
 }
 
-Json collectionMutationFields(Json mutation) => mutation['fields'] is Map
-    ? object(mutation['fields'])
-    : {
-        if (mutation['status'] != null)
-          'type': CollectionStatus.parse('${mutation['status']}').remoteValue,
-        if (mutation['score'] != null) 'rate': mutation['score'],
-      };
+/// The Bangumi fields a queued subject edit changes.
+Json collectionMutationFields(Json mutation) => object(mutation['fields']);
 
 const collectionFieldNames = {
   'type': 'status',

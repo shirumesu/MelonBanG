@@ -29,8 +29,8 @@ abstract final class Background {
     });
   }
 
-  /// Shows a system notification; clicking one about [subjectId] opens it
-  /// on macOS. Windows shows none.
+  /// Shows a system notification about [subjectId]; clicking it on macOS
+  /// calls [listen]'s `onOpenSubject`. Windows shows none.
   static Future<void> notify(
     String title,
     String body, {
@@ -44,7 +44,7 @@ abstract final class Background {
           'subjectId': ?subjectId,
         });
       } else if (Platform.isLinux) {
-        await Process.run('notify-send', ['--app-name=Melonbang', title, body]);
+        await Process.run('notify-send', ['--app-name=MelonBanG', title, body]);
       }
     } catch (_) {
       // A desktop without a notification service shows nothing.

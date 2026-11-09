@@ -261,8 +261,10 @@ Map<String, ResourceTitleInfo> describeReleases(
     ),
 };
 
-void keepDescribed(Map<String, ResourceTitleInfo> described) =>
-    _described.addAll(described);
+void keepDescribed(Map<String, ResourceTitleInfo> described) {
+  if (_described.length + described.length > 4096) _described.clear();
+  _described.addAll(described);
+}
 
 ResourceTitleInfo _describe(String original, Iterable<String> releaseGroups) {
   final title = original.trim();

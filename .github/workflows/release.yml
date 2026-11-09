@@ -126,7 +126,8 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match pubspec version $version." >&2
             exit 1
           fi
-      # The torrent bridge's build hook compiles OpenSSL and libtorrent.
+      # Flutter's Linux toolchain and the libraries the program and its
+      # plugins link; the torrent bridge comes prebuilt.
       - name: Install build packages
         run: |
           sudo apt-get update

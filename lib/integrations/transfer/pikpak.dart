@@ -70,7 +70,6 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
       await _reconcile(task);
       _tasks['${task['id']}'] = task;
     }
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     _schedule();
     _emit();
   }
@@ -334,6 +333,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     if (next == null) return;
     _runningId = '${next['id']}';
     _halt = Completer<void>();
+    _startTicker();
     _worker = _run(next).whenComplete(() {
       _worker = null;
       _runningId = null;
@@ -462,9 +462,15 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     }
     final finishing = File(fetch.partPath).rename(fetch.path);
     fetch.finishing = finishing;
-    await finishing;
+    try {
+      await finishing;
+    } on FileSystemException {
+      // Another program holds the file; the next reader or run renames it.
+      return;
+    } finally {
+      fetch.finishing = null;
+    }
     fetch.file['complete'] = true;
-    fetch.finishing = null;
     _checkComplete(fetch.task);
     await _persist(fetch.task);
     _emit();
@@ -484,6 +490,12 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     }
   }
 
+  /// Counts speeds once a second while anything downloads.
+  void _startTicker() {
+    if (_closed) return;
+    _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+  }
+
   void _tick() {
     if (_closed) return;
     final active = {
@@ -499,7 +511,14 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
       }
     }
     _received.clear();
-    if (!changed) return;
+    if (!changed) {
+      // Idle: no wakeups until the next download starts.
+      if (_worker == null) {
+        _ticker?.cancel();
+        _ticker = null;
+      }
+      return;
+    }
     for (final task in active) {
       _updateProgress(task);
     }
@@ -750,7 +769,12 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     final stream = _nextStream++;
     _streams[stream] = fetch;
     fetch.hold();
-    await resume(id);
+    try {
+      await resume(id);
+    } catch (_) {
+      if (_streams.remove(stream) != null) fetch.release();
+      rethrow;
+    }
     return selected.streaming(
       'http://127.0.0.1:${server.port}/stream/$stream',
       id: stream,
@@ -772,14 +796,14 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     var start = 0, end = size - 1;
     if (range != null) {
       if (range[1]!.isEmpty) {
-        start = max(0, size - int.parse(range[2]!));
+        start = max(0, size - (int.tryParse(range[2]!) ?? size));
       } else {
         start = int.parse(range[1]!);
         if (range[2]!.isNotEmpty) end = min(int.parse(range[2]!), size - 1);
       }
     }
     response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
-    if (start >= size) {
+    if (start >= size || end < start) {
       response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
       response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$size');
       await response.close();
@@ -859,7 +883,12 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
         (value) => value.then<void>((_) {}, onError: (Object _) {}),
       ),
     );
-    await Future.wait(_removing.values);
+    await Future.wait(
+      _removing.values.map(
+        // The caller receives removal failures.
+        (value) => value.then<void>((_) {}, onError: (Object _) {}),
+      ),
+    );
     _streams.clear();
     for (final fetch in _fetches.values) {
       await fetch.close();
@@ -937,6 +966,7 @@ class _Fetch {
       return;
     }
     error = null;
+    transfer._startTicker();
     running = _run().whenComplete(() {
       running = null;
       arrived();
@@ -1189,7 +1219,11 @@ class _Fetch {
 
   /// Writes bytes up to [end] to the reader's socket as they arrive.
   Future<void> send(_Reader reader, int end) async {
-    await finishing;
+    try {
+      await finishing;
+    } on FileSystemException {
+      // The rename failed; the data stays in the part file.
+    }
     final input = await File(file['complete'] == true ? path : partPath).open();
     try {
       var offset = reader.position;

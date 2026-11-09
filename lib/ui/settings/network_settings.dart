@@ -337,7 +337,11 @@ class _ConnectivityState extends State<_Connectivity> {
             : ok == members.length
             ? Text(
                 '全部正常',
-                style: small?.copyWith(color: accentOf(context).accent),
+                // Small text takes primary, tuned to 4.5:1; the raw accent
+                // is for icons and bars.
+                style: small?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                ),
               )
             : null,
       ),

@@ -177,7 +177,11 @@ PlayCandidate _candidate(
     // A site's titles seldom state quality; its rule gives the usual one.
     quality: rule.manualOnly
         ? null
-        : info.quality ?? rule.config['quality'] as String?,
+        : info.quality ??
+              switch (rule.config['quality']) {
+                final String quality => quality,
+                _ => null,
+              },
     languages: info.languages,
     target: target,
     instant: true,

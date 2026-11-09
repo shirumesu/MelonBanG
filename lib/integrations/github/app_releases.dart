@@ -69,17 +69,21 @@ class AppReleases {
       'github.com',
       '/$releaseRepository/releases/download/$tag/$name',
     );
-    final (manifestBytes, signature, changelog) = await (
+    // Release CI makes the notes from this file without its heading. The
+    // raw file host is blocked on some networks where GitHub itself is not;
+    // the update is offered without notes there.
+    final notes = _text(
+      Uri.https(
+        'raw.githubusercontent.com',
+        '/$releaseRepository/$tag/CHANGELOG.md',
+      ),
+    ).then<String?>((text) => text, onError: (Object _) => null);
+    // Future.wait fails with the request's own error, which names its cause.
+    final [manifestBytes, signature] = await Future.wait([
       _download(asset('manifest.json')),
       _download(asset('manifest.json.sig')),
-      // Release CI makes the notes from this file without its heading.
-      _text(
-        Uri.https(
-          'raw.githubusercontent.com',
-          '/$releaseRepository/$tag/CHANGELOG.md',
-        ),
-      ),
-    ).wait;
+    ]);
+    final changelog = await notes;
     if (!_verify(manifestBytes, signature)) {
       throw StateError('发行版 $tag 的更新清单签名无效');
     }
@@ -88,13 +92,16 @@ class AppReleases {
       throw StateError('更新清单与发行版本不一致');
     }
     final package = object(object(manifest['platforms'])[platform]);
+    if (package['urls'] is! List || package['sha256'] is! String) return null;
     return AppRelease(
       latest.toString(),
-      _unseenNotes(
-        changelog.substring(changelog.indexOf('\n') + 1),
-        installed,
-        latest,
-      ),
+      changelog == null
+          ? ''
+          : _unseenNotes(
+              changelog.substring(changelog.indexOf('\n') + 1),
+              installed,
+              latest,
+            ),
       ReleaseFile(
         [for (final url in package['urls'] as List) Uri.parse('$url')],
         '${package['sha256']}',
@@ -155,9 +162,17 @@ bool _verify(Uint8List message, Uint8List signature) {
     ]),
     curve,
   );
-  // OpenSSL writes the signature as a DER sequence of r and s.
-  final values = (ASN1Parser(signature).nextObject() as ASN1Sequence).elements!
-      .cast<ASN1Integer>();
+  // OpenSSL writes the signature as a DER sequence of r and s; anything
+  // else is no valid signature.
+  final List<ASN1Integer> values;
+  try {
+    values = (ASN1Parser(signature).nextObject() as ASN1Sequence).elements!
+        .cast<ASN1Integer>()
+        .toList();
+    if (values.length != 2) return false;
+  } catch (_) {
+    return false;
+  }
   final verifier = ECDSASigner(SHA256Digest())
     ..init(false, PublicKeyParameter<ECPublicKey>(key));
   return verifier.verifySignature(

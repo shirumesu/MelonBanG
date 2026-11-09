@@ -48,7 +48,7 @@ Future<void> main() async {
     ..titleBarStyle = TitleBarStyle.hidden
     // The hidden style hides the macOS window buttons too; keep them.
     ..isWindowControlButtonsVisible = true
-    ..title = 'Melonbang'
+    ..title = 'MelonBanG'
     ..backgroundColor = const Color(0xfff4f5f7).toNative()
     ..minimumSize = const Size(960, 640).toNative()
     ..setSize(const Size(1360, 860).toNative(), false)

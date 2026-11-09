@@ -21,7 +21,7 @@ class RssEngine implements TorrentSourceEngine {
   /// The mirror that answered last; the first one until then.
   String? _base;
   @override
-  String get currentBase => _base ?? instance.baseUrls.first;
+  String get currentBase => _base ?? instance.baseUrls.firstOrNull ?? '';
   Json get _metadata => object(instance.config['metadata']);
 
   Uri _address(Json step, String keyword, [String? base]) =>
@@ -48,7 +48,7 @@ class RssEngine implements TorrentSourceEngine {
       return api.head(uri, end, headers: headers, cancel: cancel);
     }
     final response = await api.send(uri, cancel: cancel, headers: headers);
-    return utf8.decode(response.bodyBytes);
+    return utf8.decode(response.bodyBytes, allowMalformed: true);
   }
 
   @override
@@ -116,31 +116,46 @@ class RssEngine implements TorrentSourceEngine {
         // in their first 15 KB, so only that is read; each group's feed then
         // holds all its releases, past the search feed's 100 (2026-10-21: a
         // whole-subject search of 二十世纪电气目录 lost a group's first two
-        // episodes). Each series publishes as it arrives.
+        // episodes). Each series publishes as it arrives, and one that fails
+        // keeps none of the others from arriving; the first failure is
+        // reported once they all have.
         final series = await _parse(
           mikanSeriesPages,
           await page(uri, end: RegExp(r'an-ul[\s\S]*?</ul>')),
           uri,
         );
+        Object? failure;
+        Future<List<TorrentRelease>> tolerate(
+          Future<List<TorrentRelease>> read,
+        ) => read.catchError((Object error) {
+          cancel?.throwIfCancelled();
+          failure ??= error;
+          return const <TorrentRelease>[];
+        });
         yield* Stream.fromFutures(
-          series.map((address) async {
-            final groups = await _parse(
-              mikanGroups,
-              await page(address, end: RegExp(r'leftbar-nav[\s\S]*?</ul>')),
-              address,
-            );
-            final bangumi = address.pathSegments.last;
-            final releases = await Future.wait([
-              for (final (group, name) in groups)
-                feed(
-                  address.resolve(
-                    '/RSS/Bangumi?bangumiId=$bangumi&subgroupid=$group',
+          series.map(
+            (address) => tolerate(() async {
+              final groups = await _parse(
+                mikanGroups,
+                await page(address, end: RegExp(r'leftbar-nav[\s\S]*?</ul>')),
+                address,
+              );
+              final bangumi = address.pathSegments.last;
+              final releases = await Future.wait([
+                for (final (group, name) in groups)
+                  tolerate(
+                    feed(
+                      address.resolve(
+                        '/RSS/Bangumi?bangumiId=$bangumi&subgroupid=$group',
+                      ),
+                    ).then((body) => _releases(_credited(name), body, address)),
                   ),
-                ).then((body) => _releases(_credited(name), body, address)),
-            ]);
-            return releases.expand((rows) => rows).toList();
-          }),
+              ]);
+              return releases.expand((rows) => rows).toList();
+            }()),
+          ),
         );
+        if (failure case final error?) throw error;
       default:
         throw FormatException('不支持的资源页解析：${step['parser']}');
     }
@@ -225,7 +240,11 @@ List<TorrentRelease> parseRss(String xml, {required Uri base}) {
         ? raw
         : hash != null && RegExp(r'^[0-9a-fA-F]{40}$').hasMatch(hash)
         ? 'magnet:?xt=urn:btih:${hash.toLowerCase()}'
-        : base.resolve(raw).toString();
+        : switch (Uri.tryParse(raw)) {
+            final uri? => base.resolveUri(uri).toString(),
+            null => null,
+          };
+    if (locator == null) continue;
     results.add(
       TorrentRelease(
         title: item.getElement('title')?.innerText.trim() ?? '未命名资源',
@@ -235,11 +254,23 @@ List<TorrentRelease> parseRss(String xml, {required Uri base}) {
             item.getElement('torrent')?.getElement('pubDate')?.innerText,
         sizeBytes: int.tryParse(attachment?.getAttribute('length') ?? ''),
         sizeLabel: field('size'),
-        detailUrl: link == null ? null : base.resolve(link).toString(),
+        detailUrl: _webPage(base, link),
       ),
     );
   }
   return results;
+}
+
+/// [link] resolved against [base] when it is a web page: release pages
+/// open in the browser, and a feed's link may be anything.
+String? _webPage(Uri base, String? link) {
+  final uri = link == null ? null : Uri.tryParse(link);
+  if (uri == null) return null;
+  final page = base.resolveUri(uri);
+  return (page.isScheme('http') || page.isScheme('https')) &&
+          page.host.isNotEmpty
+      ? page.toString()
+      : null;
 }
 
 bool _isTorrentLocator(String? value) {
@@ -268,7 +299,7 @@ List<TorrentRelease> dmhyMetadata(String body, Uri base) {
             .toSet()
             .toList(),
         sizeLabel: cells.length > 4 ? cells[4].text.trim() : null,
-        detailUrl: base.resolve(title.attributes['href']!).toString(),
+        detailUrl: _webPage(base, title.attributes['href']),
       ),
     );
   }
@@ -290,6 +321,7 @@ List<(String, String?)> mikanGroups(String body, Uri _) => [
       in html
           .parse(body)
           .querySelectorAll('.leftbar-nav a.subgroup-name[data-anchor]'))
-    if (link.attributes['data-anchor']!.substring(1) case final id)
+    if (link.attributes['data-anchor']!.replaceFirst('#', '') case final id
+        when id.isNotEmpty)
       (id, id == '202' ? null : link.text.trim()),
 ];

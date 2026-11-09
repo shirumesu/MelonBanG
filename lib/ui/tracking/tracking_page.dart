@@ -28,7 +28,7 @@ class TrackingPage extends StatefulWidget {
   /// Subjects with an episode in the schedule's coming seven days.
   final Set<int> airing;
 
-  /// Signs in again once Bangumi refused to renew the login.
+  /// Signs in, or again once Bangumi refused to renew the login.
   final VoidCallback onAccountAction;
 
   /// Asks the keychain again for the saved login.
@@ -206,9 +206,16 @@ class _TrackingPageState extends State<TrackingPage> {
               child: TextField(
                 key: const PageStorageKey('collection-search'),
                 controller: search,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: '搜索收藏',
-                  prefixIcon: Icon(Icons.search, size: 18),
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  suffixIcon: search.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: '清除搜索',
+                          onPressed: () => updateFilters(search.clear),
+                          icon: const Icon(Icons.close_rounded, size: 16),
+                        ),
                 ),
                 onChanged: (_) => updateFilters(() {}),
               ),
@@ -278,9 +285,20 @@ class _TrackingPageState extends State<TrackingPage> {
         ),
         const SizedBox(height: Gap.lg),
         _accountIssue(personal),
-        if (items.isEmpty)
+        if (collection.isEmpty && !filtered && !personal.signedIn)
           EmptyState(
-            text: collection.isEmpty ? '还没有收藏的番剧' : '没有符合条件的番剧',
+            text: '还没有收藏的番剧',
+            detail: '登录 Bangumi 后同步你在 Bangumi 上的收藏和观看进度',
+            actionLabel: personal.accountBusy ? '登录中…' : '登录 Bangumi',
+            action: personal.accountBusy ? null : widget.onAccountAction,
+          )
+        else if (items.isEmpty)
+          EmptyState(
+            text: collection.isEmpty
+                ? '还没有收藏的番剧'
+                : filtered
+                ? '没有符合条件的番剧'
+                : '还没有${collectionLabels[personal.filter]}的番剧',
             actionLabel: filtered ? '清除筛选' : '搜索番剧',
             action: filtered
                 ? () => updateFilters(() {

@@ -233,16 +233,19 @@ class TencentDanmaku implements DanmakuSearch {
     final base = await api.map(
       Uri.https('dm.video.qq.com', '/barrage/base/$vid'),
     );
-    // Thirty-second segments over the whole episode.
-    final segments = await Future.wait([
+    // Thirty-second segments over the whole episode, a film's hundreds of
+    // them a few at a time.
+    final names = [
       for (final segment in object(base['segment_index']).values)
-        api.map(
-          Uri.https(
-            'dm.video.qq.com',
-            '/barrage/segment/$vid/${object(segment)['segment_name']}',
-          ),
-        ),
-    ]);
+        '${object(segment)['segment_name']}',
+    ];
+    final segments = await fetchParts(
+      names.length,
+      (index) => api.map(
+        Uri.https('dm.video.qq.com', '/barrage/segment/$vid/${names[index]}'),
+      ),
+      width: 8,
+    );
     final rows = [
       for (final segment in segments) ...objects(segment['barrage_list']),
     ];
@@ -261,7 +264,7 @@ String _plain(String text) => text
 List<DanmakuComment> _comments(List<Json> rows) => sortedComments(
   rows.map((row) {
     final style = switch (row['content_style']) {
-      final String text when text.startsWith('{') => object(jsonDecode(text)),
+      final String text when text.startsWith('{') => _style(text),
       _ => const <String, dynamic>{},
     };
     return DanmakuComment.parse(
@@ -273,3 +276,12 @@ List<DanmakuComment> _comments(List<Json> rows) => sortedComments(
     );
   }),
 );
+
+/// A comment's style; a malformed one only loses its colour.
+Json _style(String text) {
+  try {
+    return object(jsonDecode(text));
+  } on FormatException {
+    return const {};
+  }
+}

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../core/motion.dart';
@@ -127,7 +129,7 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
                     Positioned(
                       left: (bubbleX - bubbleWidth / 2).clamp(
                         0,
-                        width - bubbleWidth,
+                        math.max(0, width - bubbleWidth),
                       ),
                       bottom: 24,
                       width: bubbleWidth,

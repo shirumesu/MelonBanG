@@ -160,21 +160,15 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
     final sources = playback.session == null
         ? const <DanmakuSourceState>[]
         : danmaku.sources;
+    final muted = small?.copyWith(
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+    );
     return ListView(
       padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.lg, Gap.xl),
       children: [
         Row(
           children: [
             Text('来源', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(width: Gap.sm),
-            Text(
-              [
-                '共 ${danmaku.comments.length} 条',
-                if (danmaku.duplicates > 0) '已去重 ${danmaku.duplicates} 条',
-                if (danmaku.thinned > 0) '按上限少显示 ${danmaku.thinned} 条',
-              ].join('，'),
-              style: small,
-            ),
             const Spacer(),
             TextButton(
               onPressed: busy || sources.isEmpty
@@ -188,7 +182,32 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
             ),
           ],
         ),
-        if (loading) const LinearProgressIndicator(minHeight: 2),
+        // Its own line: with copies and the limit counted, it outgrows the
+        // panel's width beside the title.
+        if (sources.isNotEmpty)
+          Text(
+            [
+              '共 ${danmaku.comments.length} 条',
+              if (danmaku.duplicates > 0) '已去重 ${danmaku.duplicates} 条',
+              if (danmaku.thinned > 0) '按上限少显示 ${danmaku.thinned} 条',
+            ].join('，'),
+            style: muted,
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: Gap.sm),
+            child: Text('播放视频后在这里查看和更换弹幕来源', style: muted),
+          ),
+        if (sources.isNotEmpty && !danmaku.preferences.enabled)
+          Padding(
+            padding: const EdgeInsets.only(top: Gap.xs),
+            child: Text('弹幕已隐藏，按 D 键重新显示', style: muted),
+          ),
+        if (loading)
+          const Padding(
+            padding: EdgeInsets.only(top: Gap.xs),
+            child: LinearProgressIndicator(minHeight: 2),
+          ),
         if (loadError != null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: Gap.xs),
@@ -205,22 +224,28 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final open = editing == source.id;
-    final status = switch (source.status) {
-      DanmakuStatus.idle => '等待匹配',
-      DanmakuStatus.loading => '匹配中',
-      DanmakuStatus.ready => switch (source.followed) {
-        final title? => '${source.count} 条  沿用 $title',
-        null => '${source.count} 条',
-      },
-      DanmakuStatus.unmatched =>
-        source.candidates.isEmpty
-            ? source.message ?? '未匹配'
-            : '有 ${source.candidates.length} 个可能的匹配',
-      DanmakuStatus.error => source.error ?? '加载失败',
-    };
-    final warn =
-        source.status == DanmakuStatus.unmatched ||
-        source.status == DanmakuStatus.error;
+    final status = !source.enabled
+        ? '已关闭'
+        : switch (source.status) {
+            DanmakuStatus.idle => '等待匹配',
+            DanmakuStatus.loading => '匹配中',
+            DanmakuStatus.ready => switch (source.followed) {
+              final title? => '${source.count} 条  沿用 $title',
+              null => '${source.count} 条',
+            },
+            DanmakuStatus.unmatched =>
+              source.candidates.isEmpty
+                  ? source.message ?? '未匹配'
+                  : '有 ${source.candidates.length} 个可能的匹配',
+            DanmakuStatus.error => source.error ?? '加载失败',
+          };
+    final statusColor = !source.enabled
+        ? scheme.onSurfaceVariant
+        : switch (source.status) {
+            DanmakuStatus.error => issueColor(context),
+            DanmakuStatus.unmatched => scheme.tertiary,
+            _ => null,
+          };
     return Container(
       margin: const EdgeInsets.only(top: Gap.xs),
       decoration: BoxDecoration(
@@ -244,9 +269,7 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
                         status,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: small?.copyWith(
-                          color: warn ? scheme.tertiary : null,
-                        ),
+                        style: small?.copyWith(color: statusColor),
                       ),
                     ],
                   ),
@@ -299,7 +322,7 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
       title: Text(match.title, maxLines: 2, overflow: TextOverflow.ellipsis),
       subtitle: match.subtitle == null || match.subtitle!.isEmpty
           ? null
-          : Text(match.subtitle!),
+          : Text(match.subtitle!, maxLines: 2, overflow: TextOverflow.ellipsis),
       trailing: match.open == null
           ? null
           : const Icon(Icons.chevron_right, size: 18),

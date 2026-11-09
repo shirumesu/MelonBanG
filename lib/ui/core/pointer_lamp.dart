@@ -123,7 +123,9 @@ class _PointerLampState extends State<PointerLamp> {
     final box = context.findRenderObject();
     if (box is! RenderBox || !box.attached || !box.hasSize) return;
     final pointer = LampPointer.instance.position;
-    if (pointer == null) {
+    // Panels of a page kept hidden behind another skip measuring.
+    if (pointer == null ||
+        !TickerMode.getValuesNotifier(context).value.enabled) {
       _glow.set(_glow.at, 0);
       return;
     }

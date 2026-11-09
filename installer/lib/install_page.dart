@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -90,6 +92,12 @@ class _InstallPageState extends State<InstallPage> {
       fail(e.message);
     } on PlatformException catch (e) {
       fail(e.message ?? e.code);
+    } on FileSystemException catch (e) {
+      // Such as a shortcut or an old update folder held open; the page must
+      // not stay on the progress it cannot close.
+      fail('无法写入 ${e.path ?? '安装位置'}，请关闭占用它的程序后重试');
+    } catch (_) {
+      fail('安装没有完成，请重新运行安装程序');
     }
   }
 

@@ -168,7 +168,14 @@ class ApiClient {
     String? code;
     if (response.headers['content-type']?.contains('application/json') ==
         true) {
-      final body = object(jsonDecode(response.body));
+      // A gateway's error page can be labelled JSON; the status still says
+      // what went wrong.
+      final Json body;
+      try {
+        body = object(jsonDecode(response.body));
+      } on FormatException {
+        throw ApiException(response.statusCode, uri.host, reason: reason);
+      }
       final error = body['error'];
       // OAuth endpoints answer {error: code, error_description: text}.
       if (error is String) {
@@ -177,8 +184,8 @@ class ApiClient {
             ? '${body['error_description']}（$error）'
             : error;
       } else {
-        code = object(error)['code'] as String?;
-        reason ??= object(error)['message'] as String?;
+        if (object(error)['code'] case final String value) code = value;
+        if (object(error)['message'] case final String value) reason ??= value;
       }
     }
     throw ApiException(
@@ -228,7 +235,9 @@ class ApiClient {
         _checkResponse(await http.Response.fromStream(streamed), uri);
       }
       final text = StringBuffer();
-      await for (final chunk in streamed.stream.transform(utf8.decoder)) {
+      await for (final chunk in streamed.stream.transform(
+        const Utf8Decoder(allowMalformed: true),
+      )) {
         text.write(chunk);
         if (end.allMatches('$text').isNotEmpty) break;
       }

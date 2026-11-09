@@ -39,9 +39,10 @@ class ThemeRevealState extends State<ThemeReveal>
   }
 
   /// Runs [change], which switches the theme at once rather than fading it
-  /// (the circle is the transition), behind a picture of the window, then opens the new theme from the pointer (or the window's
-  /// top-right corner, where the title bar's switch is, without one). With
-  /// reduced motion it just runs [change].
+  /// (the circle is the transition), behind a picture of the window, then
+  /// opens the new theme from the pointer (or the window's top-right corner,
+  /// where the title bar's switch is, without one). With reduced motion it
+  /// just runs [change].
   Future<void> run(Future<void> Function() change) async {
     final duration = motionDuration(context, 560);
     if (duration == Duration.zero || _old != null) return change();

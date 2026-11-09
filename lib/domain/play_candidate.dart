@@ -56,7 +56,6 @@ class PlayCandidate {
     this.providerLabel,
     this.quality,
     this.languages = const {},
-    this.existing = false,
     this.possibleMatch = false,
     this.health = 0,
     this.order = 0,
@@ -67,7 +66,7 @@ class PlayCandidate {
   final String? quality, providerLabel;
   final Set<String> languages;
   final PlayTarget target;
-  final bool instant, existing, possibleMatch;
+  final bool instant, possibleMatch;
   final int order;
   int health;
 

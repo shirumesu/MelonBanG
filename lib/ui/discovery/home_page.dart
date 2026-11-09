@@ -122,8 +122,11 @@ class HomePage extends StatelessWidget {
       return latest == null || !latest.isBefore(from);
     }
 
+    final listed = watching.where(inRange).toList();
     final continuation = _ContinueSection(
-      watching: watching.where(inRange).toList(),
+      watching: listed,
+      outOfRange: watching.length - listed.length,
+      range: range,
       subscriptions: subscriptions,
       details: resume.watching,
       playable: resume.watchingPlayable,
@@ -904,8 +907,14 @@ class _ContinueSection extends StatefulWidget {
     required this.onExplore,
     required this.onOpenTracking,
     required this.subscriptions,
+    required this.outOfRange,
+    required this.range,
   });
   final List<Subject> watching;
+
+  /// Watched shows [range] leaves out.
+  final int outOfRange;
+  final ContinueRange range;
   final Map<int, SubscriptionMark> subscriptions;
   final Map<int, Subject> details;
   final Map<int, Set<int>> playable;
@@ -997,19 +1006,37 @@ class _ContinueSectionState extends State<_ContinueSection> {
         child: const Text('全部追番'),
       ),
       child: hero == null
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '还没有在追的番剧',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  TextButton(
-                    onPressed: widget.onExplore,
-                    child: const Text('搜索番剧'),
-                  ),
-                ],
+          ? Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Gap.lg),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Shows left out by the range are still being watched;
+                    // saying there are none would read as a lost collection.
+                    Text(
+                      widget.outOfRange > 0
+                          ? '${widget.range.label}没有在追的番剧'
+                          : '还没有在追的番剧',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    if (widget.outOfRange > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: Gap.xs),
+                        child: Text(
+                          '另有 ${widget.outOfRange} 部更早的在看，可在设置中调整首页继续观看的范围',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    TextButton(
+                      onPressed: widget.outOfRange > 0
+                          ? widget.onOpenTracking
+                          : widget.onExplore,
+                      child: Text(widget.outOfRange > 0 ? '全部追番' : '搜索番剧'),
+                    ),
+                  ],
+                ),
               ),
             )
           : LayoutBuilder(

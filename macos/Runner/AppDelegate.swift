@@ -51,7 +51,8 @@ class AppDelegate: FlutterAppDelegate, UNUserNotificationCenterDelegate {
     completionHandler([.banner, .list])
   }
 
-  /// Opens the subscription page on the show a notification is about.
+  /// Brings the window back on the downloads page, where the cached episode
+  /// a notification is about can be played.
   func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     didReceive response: UNNotificationResponse,

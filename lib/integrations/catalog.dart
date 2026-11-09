@@ -60,11 +60,13 @@ class CatalogRepository implements Catalog {
           _rememberCover(cached);
         }
         if (!_closed && !_covers.containsKey(id)) {
+          // Covers seldom change: a day-old answer saves a request per
+          // cover on every launch.
           final response = await _cached(
             'basic-detail:$id',
             (_) async =>
                 (value: {'data': await bangumi.subject(id)}, etag: null),
-            refresh: true,
+            ttl: const Duration(days: 1),
           );
           _rememberCover(object(object(response)['data']));
         }

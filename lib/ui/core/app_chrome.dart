@@ -291,7 +291,11 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
                                   Icons.sell_outlined,
                                   size: 18,
                                 ),
-                                title: Text('按标签搜索 #$typed', maxLines: 1),
+                                title: Text(
+                                  '按标签搜索 #$typed',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                                 onTap: () => widget.onSearch('#$typed'),
                               ),
                             if (options.isNotEmpty)
@@ -323,7 +327,11 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
                                       : Icons.history,
                                   size: 18,
                                 ),
-                                title: Text(option, maxLines: 1),
+                                title: Text(
+                                  option,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                                 onTap: () => widget.onSearch(option),
                               ),
                           ],
@@ -518,7 +526,7 @@ class AppSidebar extends StatelessWidget {
                   '缓存',
                   Icons.download_outlined,
                   downloadCount > 0 ? '$downloadCount' : null,
-                  attentionCount > 0,
+                  attentionCount > 0 ? '有订阅需要处理' : null,
                 ),
                 const Spacer(),
                 _nav(
@@ -527,7 +535,8 @@ class AppSidebar extends StatelessWidget {
                   'sources',
                   '数据源',
                   Icons.hub_outlined,
-                  sourcesWarning ? '●' : null,
+                  null,
+                  sourcesWarning ? '有数据源需要处理' : null,
                 ),
                 _nav(context, keyOf, 'settings', '设置', Icons.settings_outlined),
                 const SizedBox(height: Gap.sm),
@@ -599,7 +608,9 @@ class AppSidebar extends StatelessWidget {
     String label,
     IconData icon, [
     String? count,
-    bool alert = false,
+
+    /// What the dot marking something to deal with says; null for no dot.
+    String? alert,
   ]) {
     final selected = _selected == target;
     final accent = accentOf(context);
@@ -619,7 +630,7 @@ class AppSidebar extends StatelessWidget {
         icon: icon,
         selected: selected,
         onTap: () => onNavigate(target),
-        trailing: count == null && !alert
+        trailing: count == null && alert == null
             ? null
             : Row(
                 mainAxisSize: MainAxisSize.min,
@@ -640,9 +651,12 @@ class AppSidebar extends StatelessWidget {
                         child: Text(count),
                       ),
                     ),
-                  if (alert) ...[
+                  if (alert != null) ...[
                     if (count != null) const SizedBox(width: 6),
-                    Semantics(label: '有订阅需要处理', child: dot),
+                    Tooltip(
+                      message: alert,
+                      child: Semantics(label: alert, child: dot),
+                    ),
                   ],
                 ],
               ),

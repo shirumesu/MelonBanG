@@ -12,8 +12,9 @@ import 'theme.dart';
 
 /// Bangumi BBCode as Bangumi shows it: stickers and images inline, spoilers
 /// blacked out until hovered or tapped, quotes, code, alignment, colour,
-/// size and links, selectable as text. Parsing follows bangumi/frontend's `packages/utils/bbcode`:
-/// a tag that does not close or fails its check stays as plain text.
+/// size and links, selectable as text. Parsing follows bangumi/frontend's
+/// `packages/utils/bbcode`: a tag that does not close or fails its check
+/// stays as plain text.
 class BBCode extends StatefulWidget {
   const BBCode(this.source, {super.key, this.style, this.inAppLink});
   final String source;
@@ -311,7 +312,8 @@ class _Renderer {
               mask: mask,
             ),
             'user' => _link(
-              'https://bgm.tv/user/${value.isEmpty ? _stringChild(node) : value}',
+              'https://bgm.tv/user/'
+              '${Uri.encodeComponent((value.isEmpty ? _stringChild(node)! : value).trim())}',
               [_Text('@${_stringChild(node) ?? value}')],
               style,
               mask: mask,
@@ -860,6 +862,9 @@ class _Parser {
       pos = end + '[/code]'.length;
       return _Code(text);
     }
+    // Posts are anyone's text: tags nested past any real use stay text
+    // rather than recursing until the stack runs out.
+    if (_depth >= 32) throw const _Invalid();
     _depth++;
     final children = parse();
     _depth--;

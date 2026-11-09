@@ -997,6 +997,16 @@ class _DiscussionPaneState extends State<_DiscussionPane> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('吐槽加载失败', style: small),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Gap.lg),
+              child: Text(
+                error!,
+                textAlign: TextAlign.center,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: small,
+              ),
+            ),
             TextButton(
               onPressed: () => load(refresh: true),
               child: const Text('重试'),

@@ -71,7 +71,6 @@ class OnlineDownloads implements OnlineTransfer {
       _updateProgress(task);
       _tasks['${task['id']}'] = task;
     }
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     _schedule();
     _emit();
   }
@@ -152,6 +151,8 @@ class OnlineDownloads implements OnlineTransfer {
     if (next == null) return;
     _runningId = '${next['id']}';
     final halt = _halt = Completer<void>();
+    // Counts speed and saves progress once a second while a task runs.
+    _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     _worker = _run(next, halt.future).whenComplete(() {
       _worker = null;
       _runningId = null;
@@ -218,6 +219,9 @@ class OnlineDownloads implements OnlineTransfer {
       // A failed save is retried by the next one.
       if (++_ticks % 5 == 0) _persist(running).ignore();
       changed = true;
+    } else if (!changed && _worker == null) {
+      _ticker?.cancel();
+      _ticker = null;
     }
     if (changed) _emit();
   }

@@ -114,28 +114,41 @@ class AppUpdate extends ChangeNotifier {
       unavailable = '请先把 MelonBanG 拖到“应用程序”文件夹再打开，才能自动更新';
       return;
     }
-    if (await _readyMarker.exists()) {
-      final pending =
-          '${object(jsonDecode(await _readyMarker.readAsString()))['version']}';
-      if (SemanticVersion.parse(pending)
-              .compareTo(SemanticVersion.parse(version)) >
-          0) {
-        readyVersion = pending;
-        phase = UpdatePhase.ready;
-        return;
-      }
-    }
-    // Left by a finished swap, an interrupted download or an older update.
-    if (await _pending.exists()) await _pending.delete(recursive: true);
-    await for (final entry in Directory.systemTemp.list()) {
-      if (entry is Directory &&
-          p.basename(entry.path).startsWith('melonbang-updater-')) {
-        try {
-          await entry.delete(recursive: true);
-        } on FileSystemException {
-          // The updater that relaunched this app may not have exited yet.
+    // Nothing here may keep the app from starting: an unreadable marker
+    // counts as no update, and what cannot be removed now is removed later.
+    try {
+      if (await _readyMarker.exists()) {
+        final pending = SemanticVersion.tryParse(
+          '${object(jsonDecode(await _readyMarker.readAsString()))['version']}',
+        );
+        if (pending != null &&
+            pending.compareTo(SemanticVersion.parse(version)) > 0) {
+          readyVersion = '$pending';
+          phase = UpdatePhase.ready;
+          return;
         }
       }
+    } on FormatException {
+      // Cleared below.
+    } on FileSystemException {
+      // Cleared below.
+    }
+    try {
+      // Left by a finished swap, an interrupted download or an older update.
+      if (await _pending.exists()) await _pending.delete(recursive: true);
+      await for (final entry in Directory.systemTemp.list()) {
+        if (entry is Directory &&
+            p.basename(entry.path).startsWith('melonbang-updater-')) {
+          try {
+            await entry.delete(recursive: true);
+          } on FileSystemException {
+            // The updater that relaunched this app may not have exited yet.
+          }
+        }
+      }
+    } on FileSystemException {
+      // A file held open, such as by an antivirus scan; the next start
+      // tries again, and a new download replaces the folder.
     }
   }
 
@@ -164,7 +177,14 @@ class AppUpdate extends ChangeNotifier {
   }
 
   Future<void> download() async {
-    final release = this.release!;
+    // A second click, or turning automatic downloads on meanwhile, must not
+    // write the same files twice.
+    final release = this.release;
+    if (release == null ||
+        phase == UpdatePhase.downloading ||
+        phase == UpdatePhase.ready) {
+      return;
+    }
     phase = UpdatePhase.downloading;
     progress = 0;
     error = null;

@@ -670,6 +670,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           (kind == ResourceFamily.all || kind == ResourceFamily.online))
         for (final rule in sourceRegistry.instancesOf(SourceKind.online))
           if (sourceRegistry.isEnabled(rule.id) &&
+              !excludedProviders.contains(rule.id) &&
               (sourceRegistry.errors.containsKey(rule.id) ||
                   sourceRegistry.status(rule.id) == SourceHealth.update))
             rule,
@@ -811,6 +812,15 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                   icon: const Icon(Icons.open_in_new, size: 15),
                   label: const Text('打开站点'),
                 ),
+                // Left out of searches until then, so it stays failed.
+                if (sourceRegistry.status(rule.id) == SourceHealth.verification)
+                  TextButton(
+                    onPressed: () {
+                      sourceRegistry.retry(rule.id);
+                      search();
+                    },
+                    child: const Text('重试'),
+                  ),
               ],
             ),
           ),
@@ -1110,6 +1120,22 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           (provider) => excludedProviders.contains(provider.sourceId),
         );
     final emptyKind = results.matching.isNotEmpty;
+    // Every site turned off on the Sources page: nothing was searched. A
+    // site waiting on verification or an update is on, and shows its own
+    // row above.
+    final noSources =
+        state.terms != null &&
+        !searchBusy &&
+        candidates.isEmpty &&
+        controller.sources.instances.every(
+          (rule) => controller.sources.status(rule.id) == SourceHealth.disabled,
+        );
+    if (noSources) {
+      return const EmptyState(
+        text: '没有可用的资源站',
+        detail: '在「数据源」页开启在线源或 BT 索引后再搜索',
+      );
+    }
     return (results.visible.isEmpty &&
             (allProvidersExcluded || !searchBusy || candidates.isNotEmpty))
         ? EmptyState(

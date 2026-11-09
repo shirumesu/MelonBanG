@@ -11,6 +11,7 @@ import '../core/account_avatar.dart';
 import '../core/motion.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
+import '../player/danmaku_filter_editor.dart';
 import 'preferred_groups.dart';
 import 'settings_page.dart';
 
@@ -81,7 +82,9 @@ SettingsSection accountSection({
                     ),
                   if (signedIn())
                     OutlinedButton.icon(
-                      onPressed: personal.accountBusy ? null : onAccountAction,
+                      onPressed: personal.accountBusy
+                          ? null
+                          : () => _confirmSignOut(context, onAccountAction),
                       icon: const Icon(Icons.logout, size: 18),
                       label: Text(
                         !personal.accountBusy
@@ -118,6 +121,33 @@ SettingsSection accountSection({
       ]),
     ],
   );
+}
+
+Future<void> _confirmSignOut(
+  BuildContext context,
+  VoidCallback onSignOut,
+) async {
+  final confirmed = await showMelonDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('退出 Bangumi 登录？'),
+      content: const SizedBox(
+        width: 400,
+        child: Text('退出后不再同步收藏和观看进度，需要时可以重新在浏览器中授权登录。已缓存的番剧和订阅不受影响。'),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('退出登录'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed == true) onSignOut();
 }
 
 SettingsSection appearanceSection(
@@ -231,44 +261,49 @@ class _AccentPicker extends StatelessWidget {
       final scheme = Theme.of(context).colorScheme;
       return Tooltip(
         message: name,
-        child: InkResponse(
-          onTap: () => appearance.setAccent(id),
-          radius: 20,
-          child: AnimatedContainer(
-            duration: motionDuration(context, 200),
-            curve: Curves.easeOutCubic,
-            width: 30,
-            height: 30,
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: selected ? scheme.onSurface : Colors.transparent,
-                width: 2,
-              ),
-            ),
-            child: DecoratedBox(
+        child: Semantics(
+          button: true,
+          selected: selected,
+          inMutuallyExclusiveGroup: true,
+          child: InkResponse(
+            onTap: () => appearance.setAccent(id),
+            radius: 20,
+            child: AnimatedContainer(
+              duration: motionDuration(context, 200),
+              curve: Curves.easeOutCubic,
+              width: 30,
+              height: 30,
+              padding: const EdgeInsets.all(3),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: color,
-                gradient: color == null
-                    ? const SweepGradient(
-                        colors: [
-                          Color(0xffff6b81),
-                          Color(0xffffb83d),
-                          Color(0xff22b388),
-                          Color(0xff3b82e6),
-                          Color(0xff8b6cf0),
-                          Color(0xffff6b81),
-                        ],
-                      )
-                    : null,
+                border: Border.all(
+                  color: selected ? scheme.onSurface : Colors.transparent,
+                  width: 2,
+                ),
               ),
-              child: AnimatedScale(
-                scale: selected ? 1 : 0,
-                duration: motionDuration(context, 220),
-                curve: selected ? Curves.easeOutBack : Curves.easeIn,
-                child: const Icon(Icons.check, size: 15, color: Colors.white),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: color,
+                  gradient: color == null
+                      ? const SweepGradient(
+                          colors: [
+                            Color(0xffff6b81),
+                            Color(0xffffb83d),
+                            Color(0xff22b388),
+                            Color(0xff3b82e6),
+                            Color(0xff8b6cf0),
+                            Color(0xffff6b81),
+                          ],
+                        )
+                      : null,
+                ),
+                child: AnimatedScale(
+                  scale: selected ? 1 : 0,
+                  duration: motionDuration(context, 220),
+                  curve: selected ? Curves.easeOutBack : Curves.easeIn,
+                  child: const Icon(Icons.check, size: 15, color: Colors.white),
+                ),
               ),
             ),
           ),
@@ -419,10 +454,17 @@ SettingsSection sourcesSection(
               prefs,
               (context) => SettingRow(
                 title: title,
-                trailing: _menu(
-                  const {'bt': 'BT 优先', 'online': '在线优先'},
-                  airing ? prefs.airingPriority : prefs.completedPriority,
-                  airing ? prefs.setAiringPriority : prefs.setCompletedPriority,
+                trailing: SizedBox(
+                  width: 200,
+                  child: MelonSegmentedControl<String>(
+                    options: const {'bt': 'BT 优先', 'online': '在线优先'},
+                    value: airing
+                        ? prefs.airingPriority
+                        : prefs.completedPriority,
+                    onChanged: airing
+                        ? prefs.setAiringPriority
+                        : prefs.setCompletedPriority,
+                  ),
                 ),
               ),
             ),
@@ -734,115 +776,15 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
         ),
       ], title: '显示'),
       SettingsGroup([
-        SettingsItem('弹幕 屏蔽 关键词 正则 过滤', _DanmakuFilters(preferences: prefs)),
+        SettingsItem(
+          '弹幕 屏蔽 关键词 正则 过滤',
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 12, 14),
+            child: DanmakuFilterEditor(preferences: prefs, heading: false),
+          ),
+        ),
       ], title: '屏蔽'),
     ],
-  );
-}
-
-class _DanmakuFilters extends StatefulWidget {
-  const _DanmakuFilters({required this.preferences});
-  final DanmakuPreferences preferences;
-  @override
-  State<_DanmakuFilters> createState() => _DanmakuFiltersState();
-}
-
-class _DanmakuFiltersState extends State<_DanmakuFilters> {
-  final input = TextEditingController();
-
-  @override
-  void dispose() {
-    input.dispose();
-    super.dispose();
-  }
-
-  void add() {
-    widget.preferences.addFilter(input.text);
-    input.clear();
-  }
-
-  @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: widget.preferences,
-    builder: (context, _) {
-      final prefs = widget.preferences;
-      final scheme = Theme.of(context).colorScheme;
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(20, 14, 12, 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: input,
-                    decoration: const InputDecoration(
-                      hintText: '关键词，或用 /…/ 包住的正则表达式',
-                    ),
-                    onSubmitted: (_) => add(),
-                  ),
-                ),
-                const SizedBox(width: Gap.sm),
-                TextButton(onPressed: add, child: const Text('添加')),
-              ],
-            ),
-            if (prefs.filters.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: Gap.md),
-                child: Text(
-                  '还没有屏蔽规则',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-            for (final (index, rule) in prefs.filters.indexed)
-              Padding(
-                padding: const EdgeInsets.only(top: Gap.xs),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        rule.isRegex ? '/${rule.pattern}/' : rule.pattern,
-                        style: TextStyle(
-                          color: rule.invalid
-                              ? scheme.error
-                              : rule.enabled
-                              ? null
-                              : scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                    if (rule.invalid)
-                      Padding(
-                        padding: const EdgeInsets.only(right: Gap.sm),
-                        child: Text(
-                          '正则无效',
-                          style: TextStyle(color: scheme.error, fontSize: 12),
-                        ),
-                      ),
-                    Switch(
-                      value: rule.enabled,
-                      onChanged: (value) => prefs.update(
-                        () => prefs.filters[index] = DanmakuFilter(
-                          rule.pattern,
-                          isRegex: rule.isRegex,
-                          enabled: value,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '删除屏蔽规则',
-                      icon: const Icon(Icons.close, size: 18),
-                      onPressed: () =>
-                          prefs.update(() => prefs.filters.removeAt(index)),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      );
-    },
   );
 }
 
@@ -861,6 +803,7 @@ SettingsSection shortcutsSection() => SettingsSection(
         ('音量', '↑ / ↓'),
         ('静音', 'M'),
         ('弹幕开关', 'D'),
+        ('发弹幕', 'Enter'),
         ('全屏', 'F / F11 / 双击画面'),
         ('退出全屏', 'Esc'),
         ('搜索番剧', 'Ctrl / ⌘ + F'),

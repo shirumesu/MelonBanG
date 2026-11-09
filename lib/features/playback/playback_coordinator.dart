@@ -543,18 +543,15 @@ class PlaybackCoordinator extends ChangeNotifier {
       await shell.openResources(item, episode);
       return;
     }
+    // The search being replaced stops reporting on the preparing player,
+    // whose outcome is now the choice.
+    if (preparing != null) _preparingTicket++;
     final chosen = await shell.chooseCandidate(item, episode);
     if (_closed) return;
     if (chosen != null) {
-      if (shell.showingPlayer) {
-        await playCandidate(chosen, item, episode);
-      } else {
-        await prepare(
-          item,
-          episode,
-          () => playCandidate(chosen, item, episode),
-        );
-      }
+      // Prepared afresh, so a failure shown before gives way to the steps
+      // of opening the chosen source.
+      await prepare(item, episode, () => playCandidate(chosen, item, episode));
     } else if (preparing != null) {
       _failPreparing(_preparingTicket, '没有选择资源');
     }

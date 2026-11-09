@@ -238,15 +238,31 @@ class PikPakClient {
     final name = account!;
     final refreshToken = _tokens!['refresh_token'];
     final operation = () async {
-      final response = await _send(
-        'POST',
-        Uri.https(_auth, '/v1/auth/token'),
-        body: {
-          'client_id': _clientId,
-          'grant_type': 'refresh_token',
-          'refresh_token': refreshToken,
-        },
-      );
+      final Json response;
+      try {
+        response = await _send(
+          'POST',
+          Uri.https(_auth, '/v1/auth/token'),
+          body: {
+            'client_id': _clientId,
+            'grant_type': 'refresh_token',
+            'refresh_token': refreshToken,
+          },
+        );
+      } on PikPakException catch (error) {
+        // A rejected refresh token never works again. Signing out shows it,
+        // and pauses tasks until sign-in, instead of failing every request
+        // while the account still looks signed in.
+        if ((error.reason == 'invalid_grant' || error.code == 4126) &&
+            generation == _generation) {
+          ++_generation;
+          _tokens = null;
+          _scratch = null;
+          // Left in the keychain, it is rejected again next launch.
+          await _write(null).catchError((Object _) {});
+        }
+        rethrow;
+      }
       await _saveTokens(response, name, generation);
     }();
     _refreshing = operation;

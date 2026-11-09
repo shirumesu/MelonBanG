@@ -94,7 +94,8 @@ class DownloadsController {
           '--dest=org.freedesktop.FileManager1',
           '--object-path=/org/freedesktop/FileManager1',
           '--method=org.freedesktop.FileManager1.ShowItems',
-          "['${Uri.file(path)}']",
+          // A quote would end the GVariant string; it is valid escaped.
+          "['${Uri.file(path).toString().replaceAll("'", '%27')}']",
           '',
         ]);
         if (shown.exitCode == 0) return;

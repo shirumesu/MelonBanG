@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "app.melonbang" "\0"
-            VALUE "FileDescription", "melonbang" "\0"
+            VALUE "FileDescription", "MelonBanG" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "melonbang" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 MelonBanG contributors. Licensed under GPL-3.0." "\0"
             VALUE "OriginalFilename", "melonbang.exe" "\0"
-            VALUE "ProductName", "melonbang" "\0"
+            VALUE "ProductName", "MelonBanG" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

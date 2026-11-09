@@ -89,9 +89,6 @@ class ScheduleFilter {
   static const kindOptions = ['TV', 'WEB', '其他'];
   static const regionOptions = ['日本', '中国', '其他'];
 
-  /// Shows nothing away.
-  static const none = ScheduleFilter(adult: AdultFilter.show);
-
   final Set<String> kinds, regions;
   final bool hideLongRunning, hidePastSeasons;
   final AdultFilter adult;

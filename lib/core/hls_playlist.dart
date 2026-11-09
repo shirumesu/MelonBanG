@@ -52,7 +52,7 @@ String _filterPlaylist(String text, Uri base) {
   final blocks = text.split('#EXT-X-DISCONTINUITY');
   final directory = base.resolve('.').path;
   final kept = <String>[];
-  for (final block in blocks) {
+  for (final (index, block) in blocks.indexed) {
     final segments = block
         .split(RegExp(r'\r?\n'))
         .where((line) => line.isNotEmpty && !line.startsWith('#'))
@@ -62,6 +62,18 @@ String _filterPlaylist(String text, Uri base) {
     if (segments.isEmpty ||
         segments.every((segment) => segment.path.startsWith(directory))) {
       kept.add(block.replaceAll('#EXT-X-ENDLIST', '').trim());
+    } else if (index == 0) {
+      // An advertisement before the first discontinuity still follows the
+      // playlist's own tags.
+      kept.add(
+        block
+            .split(RegExp(r'\r?\n'))
+            .takeWhile(
+              (line) => line.startsWith('#') && !line.startsWith('#EXTINF'),
+            )
+            .join('\n')
+            .trim(),
+      );
     }
   }
   final result = kept.join('\n#EXT-X-DISCONTINUITY\n');

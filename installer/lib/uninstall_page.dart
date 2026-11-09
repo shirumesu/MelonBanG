@@ -66,13 +66,19 @@ class _UninstallPageState extends State<UninstallPage> {
       step = _Step.removing;
       progress = 0;
     });
-    final left = await uninstaller.uninstall(
-      wipe: wipe,
-      onProgress: (value, name) => setState(() {
-        progress = value;
-        task = name;
-      }),
-    );
+    List<String> left;
+    try {
+      left = await uninstaller.uninstall(
+        wipe: wipe,
+        onProgress: (value, name) => setState(() {
+          progress = value;
+          task = name;
+        }),
+      );
+    } catch (_) {
+      // The page must not stay on the progress it cannot close.
+      left = [uninstaller.location];
+    }
     setState(() {
       this.left = left;
       step = left.isEmpty ? _Step.done : _Step.failed;

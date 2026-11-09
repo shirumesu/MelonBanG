@@ -50,9 +50,9 @@ class PlaybackLibrary {
     episodeId ??= media.episodeId;
     // A video of a batch plays as the episode its name gives.
     if (episodeId == null && subjectId != null) {
-      if (await catalog.cached(subjectId) case final subject?) {
-        episodeId = episodeFiles(subject, downloads.snapshot().task(id)!)
-            .entries
+      if ((await catalog.cached(subjectId), downloads.snapshot().task(id))
+          case (final subject?, final task?)) {
+        episodeId = episodeFiles(subject, task).entries
             .where((entry) => entry.value.id == media.file.id)
             .firstOrNull
             ?.key;
@@ -105,7 +105,6 @@ class PlaybackLibrary {
     title: title ?? '在线视频',
     url: stream.url,
     headers: stream.headers,
-    format: stream.format,
     playlist: stream.playlist,
     audioUrl: stream.audioUrl,
     danmaku: stream.danmakuProvider == null

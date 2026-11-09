@@ -105,6 +105,7 @@ class PlayerPage extends StatefulWidget {
 
 class PlayerPageState extends State<PlayerPage> {
   final focus = FocusNode();
+  final preparingFocus = FocusNode();
   final menuCloseFocus = FocusNode();
   final danmakuMenuFocus = FocusNode();
   final danmakuDraft = TextEditingController();
@@ -154,7 +155,8 @@ class PlayerPageState extends State<PlayerPage> {
     syncOverload();
     playback.addListener(refresh);
     widget.panelOpen.addListener(refresh);
-    playingSubscription = player.stream.playing.listen((_) => reveal());
+    // Follows every player without opening one while a source is prepared.
+    playingSubscription = playback.playingChanges.listen((_) => reveal());
   }
 
   @override
@@ -169,10 +171,16 @@ class PlayerPageState extends State<PlayerPage> {
       danmakuMenu = false;
       controls = true;
       // Shell changes reparent the player; restore focus after it reattaches.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) focus.requestFocus();
-      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => focusView());
+    } else if ((oldWidget.preparing == null) != (widget.preparing == null)) {
+      // The keys go to whichever of the video and the preparing view shows.
+      WidgetsBinding.instance.addPostFrameCallback((_) => focusView());
     }
+  }
+
+  void focusView() {
+    if (!mounted) return;
+    (widget.preparing == null ? focus : preparingFocus).requestFocus();
   }
 
   void refresh() {
@@ -201,6 +209,7 @@ class PlayerPageState extends State<PlayerPage> {
     boostTimer?.cancel();
     if (boosting) unawaited(playback.boost(false));
     focus.dispose();
+    preparingFocus.dispose();
     menuCloseFocus.dispose();
     danmakuMenuFocus.dispose();
     danmakuDraft.dispose();
@@ -216,7 +225,7 @@ class PlayerPageState extends State<PlayerPage> {
     if (!controls) setState(() => controls = true);
     hideTimer?.cancel();
     hideTimer = Timer(const Duration(seconds: 3), () {
-      if (player.state.playing &&
+      if (playback.playing &&
           dragging == null &&
           !danmakuMenu &&
           !controlsHovered &&
@@ -306,7 +315,8 @@ class PlayerPageState extends State<PlayerPage> {
     return KeyEventResult.handled;
   }
 
-  /// The episode broadcast next, as autoplay chooses it.
+  /// The episode broadcast next. Unlike autoplay this keeps one Bangumi dates
+  /// in the future: an early release may already be cached or online.
   Episode? get nextEpisode => switch (playback.session?.episodeId) {
     final id? => widget.subject?.after(
       id,
@@ -367,7 +377,10 @@ class PlayerPageState extends State<PlayerPage> {
     playback.cancelAutoplay();
     final ticket = ++seekTicket;
     final duration = player.state.duration.inMilliseconds / 1000;
-    final value = seconds.clamp(0.0, duration > 0 ? duration : seconds);
+    // Before the duration is known only the start bounds the seek.
+    final value = duration > 0
+        ? seconds.clamp(0.0, duration)
+        : math.max(0.0, seconds);
     setState(() => dragging = value);
     reveal();
     final target = Duration(milliseconds: (value * 1000).round());
@@ -401,6 +414,31 @@ class PlayerPageState extends State<PlayerPage> {
       focus.requestFocus();
       reveal();
     }
+  }
+
+  /// Leaves fullscreen or window fullscreen, whichever is on.
+  Future<void> exitImmersive() async {
+    if (widget.fullScreen) {
+      await widget.onFullScreenChanged(false);
+    } else if (widget.windowFullScreen) {
+      await widget.onWindowFullScreenChanged(false);
+    }
+  }
+
+  /// The preparing view has no controls; Escape and F still leave or enter
+  /// fullscreen, which an episode autoplayed there would otherwise trap.
+  KeyEventResult handlePreparingKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.escape && immersive) {
+      unawaited(exitImmersive());
+    } else if (key == LogicalKeyboardKey.keyF ||
+        key == LogicalKeyboardKey.f11) {
+      unawaited(widget.onFullScreenChanged(!widget.fullScreen));
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
   }
 
   Future<void> windowFullscreen() async {
@@ -473,11 +511,7 @@ class PlayerPageState extends State<PlayerPage> {
         event.logicalKey == LogicalKeyboardKey.f11) {
       unawaited(fullscreen());
     } else if (event.logicalKey == LogicalKeyboardKey.escape) {
-      if (widget.fullScreen) {
-        unawaited(widget.onFullScreenChanged(false));
-      } else if (widget.windowFullScreen) {
-        unawaited(widget.onWindowFullScreenChanged(false));
-      }
+      unawaited(exitImmersive());
     } else if (event.logicalKey == LogicalKeyboardKey.keyM) {
       final muting = player.state.volume > 0;
       unawaited(playback.toggleMute());
@@ -533,16 +567,24 @@ class PlayerPageState extends State<PlayerPage> {
 
   Widget body(BuildContext context) {
     if (widget.preparing case final preparing?) {
-      return ValueListenableBuilder(
-        valueListenable: widget.downloads.snapshot,
-        builder: (context, snapshot, _) => _PreparingView(
-          preparing: preparing,
-          task: switch (preparing.downloadId) {
-            final id? => snapshot.task(id),
-            null => null,
-          },
-          onRetry: widget.onRetryPreparing,
-          onChoose: widget.onChoosePreparing,
+      return Focus(
+        focusNode: preparingFocus,
+        autofocus: true,
+        onKeyEvent: handlePreparingKey,
+        child: ValueListenableBuilder(
+          valueListenable: widget.downloads.snapshot,
+          builder: (context, snapshot, _) => _PreparingView(
+            preparing: preparing,
+            task: switch (preparing.downloadId) {
+              final id? => snapshot.task(id),
+              null => null,
+            },
+            onRetry: widget.onRetryPreparing,
+            onChoose: widget.onChoosePreparing,
+            onExitFullScreen: immersive
+                ? () => unawaited(exitImmersive())
+                : null,
+          ),
         ),
       );
     }
@@ -1219,6 +1261,7 @@ class PlayerPageState extends State<PlayerPage> {
                               : '查找资源',
                           onAction: () =>
                               findResources(playback.autoplayEndEpisode),
+                          onClose: playback.dismissAutoplayMessage,
                         ),
                       },
                     ),
@@ -1532,12 +1575,17 @@ class _Countdown extends StatelessWidget {
   }
 }
 
-/// A message in the same card, with an optional [action].
+/// A message in the same card, with an optional [action] and closing it.
 class _Notice extends StatelessWidget {
-  const _Notice({required this.message, this.action, required this.onAction});
+  const _Notice({
+    required this.message,
+    this.action,
+    required this.onAction,
+    required this.onClose,
+  });
   final String message;
   final String? action;
-  final VoidCallback onAction;
+  final VoidCallback onAction, onClose;
 
   @override
   Widget build(BuildContext context) => _GlassCard(
@@ -1555,6 +1603,15 @@ class _Notice extends StatelessWidget {
         const SizedBox(width: Gap.xl),
         _GlassCard.button(action, onAction, primary: true),
       ],
+      const SizedBox(width: 4),
+      IconButton(
+        tooltip: '关闭',
+        onPressed: onClose,
+        iconSize: 16,
+        visualDensity: VisualDensity.compact,
+        color: Colors.white70,
+        icon: const Icon(Icons.close_rounded),
+      ),
     ],
   );
 }
@@ -1744,12 +1801,16 @@ class _PreparingView extends StatelessWidget {
     required this.onRetry,
     required this.onChoose,
     this.task,
+    this.onExitFullScreen,
   });
   final PreparingPlayback preparing;
 
   /// The download being started or streamed.
   final DownloadTask? task;
   final VoidCallback? onRetry, onChoose;
+
+  /// Set in fullscreen, where no title bar leads back.
+  final VoidCallback? onExitFullScreen;
 
   @override
   Widget build(BuildContext context) {
@@ -1894,6 +1955,12 @@ class _PreparingView extends StatelessWidget {
                         style: buttonStyle,
                         onPressed: onChoose,
                         child: const Text('选择资源'),
+                      ),
+                    if (onExitFullScreen case final exit?)
+                      TextButton(
+                        style: TextButton.styleFrom(foregroundColor: muted),
+                        onPressed: exit,
+                        child: const Text('退出全屏 (Esc)'),
                       ),
                   ],
                 ),

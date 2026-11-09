@@ -12,6 +12,7 @@ import '../../features/acquisition/title_matching.dart';
 import '../../features/subscriptions/subscription_controller.dart';
 import '../../features/subscriptions/subscription_matcher.dart';
 import '../acquisition/resource_widgets.dart';
+import '../core/action_feedback.dart';
 import '../core/byte_units.dart';
 import '../core/motion.dart';
 import '../core/selection_controls.dart';
@@ -321,6 +322,24 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
       widget.onError(e);
       if (mounted) setState(() => saving = false);
     }
+  }
+
+  /// Ends [subscription], with a way back: its book and events go with it.
+  void _unsubscribe(Subscription subscription) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final controller = widget.controller;
+    final onError = widget.onError;
+    unawaited(
+      _run(() async {
+        await controller.unsubscribe(subscription.subjectId);
+        showMessage(
+          messenger,
+          '已取消订阅 ${subscription.title}，缓存的剧集保留',
+          actionLabel: '撤销',
+          onAction: () => controller.restore(subscription).catchError(onError),
+        );
+      }),
+    );
   }
 
   /// Turns [value] on or off in the filter's selection of [part].
@@ -641,6 +660,8 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
       subtitle: subtitle == null ? null : Text(subtitle),
     );
     return AlertDialog(
+      // A short window scrolls the filter, preview and events.
+      scrollable: true,
       title: Text(subscription == null ? '订阅更新' : '已订阅'),
       content: SizedBox(
         width: 540,
@@ -802,11 +823,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
       actions: [
         if (subscription != null)
           TextButton(
-            onPressed: saving
-                ? null
-                : () => _run(
-                    () => widget.controller.unsubscribe(subscription.subjectId),
-                  ),
+            onPressed: saving ? null : () => _unsubscribe(subscription),
             style: TextButton.styleFrom(foregroundColor: scheme.error),
             child: const Text('取消订阅'),
           ),
@@ -902,8 +919,9 @@ String _span(Duration duration) => switch (duration) {
 String _eventTime(DateTime time) {
   final at = time.toLocal();
   final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final day = DateTime(at.year, at.month, at.day);
+  // Calendar days in UTC, so a daylight saving change does not shift them.
+  final today = DateTime.utc(now.year, now.month, now.day);
+  final day = DateTime.utc(at.year, at.month, at.day);
   final clock =
       '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
   return switch (today.difference(day).inDays) {

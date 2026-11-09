@@ -44,8 +44,15 @@ abstract class HttpRuleEngine implements SourceEngine {
   }) async {
     final bases = <String>{?_base, ...instance.baseUrls};
     Object? issue;
+    SourceVerificationRequired? verification;
     for (final base in bases) {
-      final uri = Uri.parse(base).resolve(template('${step['url']}', values));
+      final Uri uri;
+      try {
+        uri = Uri.parse(base).resolve(template('${step['url']}', values));
+      } on FormatException catch (error) {
+        issue = error;
+        continue;
+      }
       try {
         final response = await api.send(
           uri,
@@ -55,26 +62,31 @@ abstract class HttpRuleEngine implements SourceEngine {
             ...object(step['headers']).map((k, v) => MapEntry(k, '$v')),
           },
         );
-        final body = utf8.decode(response.bodyBytes);
+        // A few stray bytes outside UTF-8 must not fail the whole page.
+        final body = utf8.decode(response.bodyBytes, allowMalformed: true);
         if (_challenge.hasMatch(body) && !body.trimLeft().startsWith('{')) {
           throw SourceVerificationRequired(uri.toString());
         }
         validate(body);
         _base = base;
         return (body, uri);
-      } on SourceVerificationRequired {
-        rethrow;
+      } on SourceVerificationRequired catch (error) {
+        // Another mirror may not challenge.
+        verification ??= error;
       } on ApiException catch (error) {
         if (error.status == 403 || error.status == 429) {
-          throw SourceVerificationRequired(uri.toString());
+          verification ??= SourceVerificationRequired(uri.toString());
+        } else {
+          issue = error;
         }
-        issue = error;
       } catch (error) {
         cancel?.throwIfCancelled();
         issue = error;
       }
     }
-    throw issue ?? StateError('视频源没有可用域名');
+    // A challenge is what the user can act on, ahead of a mirror that is
+    // merely down.
+    throw verification ?? issue ?? StateError('视频源没有可用域名');
   }
 
   /// Applies the rule's decode chain and checks for a direct media address.
@@ -115,7 +127,10 @@ abstract class HttpRuleEngine implements SourceEngine {
             row[field.key] = extract(value, field.value);
           }
           if (row['url'] != null) {
-            row['url'] = uri.resolve('${row['url']}').toString();
+            row['url'] = switch (Uri.tryParse('${row['url']}')) {
+              final link? => uri.resolveUri(link).toString(),
+              null => null,
+            };
           }
           return row;
         })

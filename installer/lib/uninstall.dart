@@ -62,7 +62,11 @@ class Uninstaller {
     final places = await folders();
     for (final folder in [places['desktop']!, places['programs']!]) {
       final link = File(p.join(folder, 'MelonBanG.lnk'));
-      if (await link.exists()) await link.delete();
+      try {
+        if (await link.exists()) await link.delete();
+      } on FileSystemException {
+        // A shortcut left behind only points at nothing.
+      }
     }
 
     final media = mediaIn(await _storage);
@@ -98,20 +102,29 @@ class Uninstaller {
     }
     for (final root in roots) {
       if (left.contains(root)) continue;
-      if (root == location && kept != null) {
-        await for (final entry in Directory(root).list()) {
-          if (!p.equals(entry.path, kept) && !p.isWithin(entry.path, kept)) {
-            await entry.delete(recursive: true);
+      try {
+        if (root == location && kept != null) {
+          await for (final entry in Directory(root).list()) {
+            if (!p.equals(entry.path, kept) && !p.isWithin(entry.path, kept)) {
+              await entry.delete(recursive: true);
+            }
           }
+        } else {
+          await Directory(root).delete(recursive: true);
         }
-      } else {
-        await Directory(root).delete(recursive: true);
+      } on FileSystemException {
+        // A file created meanwhile, or a folder held open by Explorer.
+        left.add(root);
       }
     }
     // Application support sits in a folder named after the company.
     final company = Directory(p.dirname(support));
-    if (wipe && await company.exists() && await company.list().isEmpty) {
-      await company.delete();
+    try {
+      if (wipe && await company.exists() && await company.list().isEmpty) {
+        await company.delete();
+      }
+    } on FileSystemException {
+      // An empty folder left behind.
     }
     if (!left.contains(location)) {
       onProgress(1, '清理安装记录');

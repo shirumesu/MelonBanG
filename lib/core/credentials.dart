@@ -85,8 +85,12 @@ class KeyringCredentials implements Credentials {
         'allowInteraction': allowInteraction,
       });
     } on PlatformException catch (e) {
+      // Linux reports `secret` when the keyring is locked or no Secret
+      // Service runs; the quiet read at startup then waits for an unlock
+      // instead of failing the app.
       if (e.code == 'keychain_-25308' ||
-          (!allowInteraction && e.code == 'keychain_-25293')) {
+          (!allowInteraction &&
+              (e.code == 'keychain_-25293' || e.code == 'secret'))) {
         throw const CredentialInteractionRequired();
       }
       rethrow;
@@ -162,9 +166,17 @@ class WindowsCredentials implements Credentials {
   @override
   Future<String?> read(String key, {bool allowInteraction = true}) async {
     final file = _file(key);
-    return await file.exists()
-        ? utf8.decode(_crypt(await file.readAsBytes(), true))
-        : null;
+    if (!await file.exists()) return null;
+    try {
+      return utf8.decode(_crypt(await file.readAsBytes(), true));
+    } on StateError {
+      // Encrypted by another Windows user or installation, as when the data
+      // folder was restored elsewhere: it can never be read, so it counts as
+      // signed out until the next sign-in replaces it.
+      return null;
+    } on FormatException {
+      return null;
+    }
   }
 
   /// [CachedCredentials] serializes the writes of each key.

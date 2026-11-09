@@ -11,9 +11,20 @@ class BangumiPrivateClient implements SubjectCommunitySource {
   String get userId => account.userId;
   @override
   AccountProfile? get profile => account.profile;
+  static const _fresh = Duration(minutes: 5);
   final _rows = <String, ({DateTime savedAt, List<Json> rows, int total})>{};
   final _episodeComments =
       <String, ({DateTime savedAt, List<TopicPost> posts})>{};
+
+  /// Drops pages past [_fresh], which would only be requested again, so
+  /// browsing many subjects does not keep every page read.
+  void _evictStale() {
+    final now = DateTime.now();
+    _rows.removeWhere((_, page) => now.difference(page.savedAt) >= _fresh);
+    _episodeComments.removeWhere(
+      (_, page) => now.difference(page.savedAt) >= _fresh,
+    );
+  }
 
   Future<dynamic> _request(String path) async {
     final user = account.userId;
@@ -105,8 +116,7 @@ class BangumiPrivateClient implements SubjectCommunitySource {
     final cached = _rows[key];
     if (!refresh &&
         cached != null &&
-        DateTime.now().difference(cached.savedAt) <
-            const Duration(minutes: 5)) {
+        DateTime.now().difference(cached.savedAt) < _fresh) {
       return (rows: cached.rows, total: cached.total);
     }
     final response = object(
@@ -119,6 +129,7 @@ class BangumiPrivateClient implements SubjectCommunitySource {
         ? number(response['total']).toInt()
         : offset + data.length;
     if (offset == 0) _rows.removeWhere((key, _) => key.startsWith(prefix));
+    _evictStale();
     _rows[key] = (savedAt: DateTime.now(), rows: data, total: total);
     return (rows: data, total: total);
   }
@@ -142,8 +153,7 @@ class BangumiPrivateClient implements SubjectCommunitySource {
     final cached = _episodeComments[key];
     if (!refresh &&
         cached != null &&
-        DateTime.now().difference(cached.savedAt) <
-            const Duration(minutes: 5)) {
+        DateTime.now().difference(cached.savedAt) < _fresh) {
       return cached.posts;
     }
     final posts = [
@@ -152,6 +162,7 @@ class BangumiPrivateClient implements SubjectCommunitySource {
       ))
         if (_commentShown(row)) _comment(row),
     ];
+    _evictStale();
     _episodeComments[key] = (savedAt: DateTime.now(), posts: posts);
     return posts;
   }

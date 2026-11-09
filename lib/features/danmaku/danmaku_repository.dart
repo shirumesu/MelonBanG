@@ -94,15 +94,19 @@ Episode _matchingEpisode(DanmakuTarget target, Subject detail) {
   } else {
     // Infer only the danmaku lookup; progress/file associations require explicit identity.
     final filename = p.basenameWithoutExtension('${target.path}');
-    final numbers = [
-      ...RegExp(r'\s-\s(\d+(?:\.\d+)?)(?:v\d+)?(?=\s*(?:\[|\(|$))')
-          .allMatches(filename),
-      ...RegExp(r'\[(\d{1,3}(?:\.\d+)?)(?:v\d+)?\]').allMatches(filename),
-    ];
+    // The same number written both ways still names one episode.
+    final numbers = {
+      for (final match in [
+        ...RegExp(r'\s-\s(\d+(?:\.\d+)?)(?:v\d+)?(?=\s*(?:\[|\(|$))')
+            .allMatches(filename),
+        ...RegExp(r'\[(\d{1,3}(?:\.\d+)?)(?:v\d+)?\]').allMatches(filename),
+      ])
+        double.parse(match[1]!),
+    };
     if (numbers.length != 1) {
       throw const DanmakuUnmatched('缺少章节信息，无法从文件名识别集数');
     }
-    final sort = double.parse(numbers.single[1]!);
+    final sort = numbers.single;
     matches = detail.episodes.where((episode) => episode.sort == sort);
   }
   if (matches.length != 1) throw const DanmakuUnmatched('未找到唯一对应的番剧章节');

@@ -328,7 +328,9 @@ class ResourceSearchStatus extends StatelessWidget {
       for (final provider in providers)
         if (provider.status == SearchStatus.loading) provider.sourceName,
     ];
-    final waiting = pending.isNotEmpty && !settled;
+    // No site has reported yet while the subject's episodes load.
+    final starting = providers.isEmpty;
+    final waiting = starting || (pending.isNotEmpty && !settled);
     final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -338,7 +340,9 @@ class ResourceSearchStatus extends StatelessWidget {
             : const SizedBox(height: 2),
         const SizedBox(height: Gap.sm),
         Text(
-          waiting
+          starting
+              ? '正在准备搜索'
+              : waiting
               ? '正在搜索 ${providers.length - pending.length}/${providers.length} 个资源站'
               : pending.isNotEmpty
               ? '${pending.take(3).join('、')}'
@@ -378,7 +382,8 @@ String resourceDateLabel(TorrentRelease release) {
     }
   }
   if (date == null) return '—';
-  return date.toIso8601String().substring(0, 10);
+  // Feeds stamp UTC; the day is the viewer's.
+  return date.toLocal().toIso8601String().substring(0, 10);
 }
 
 /// Site release groups, else the group the title credits.
@@ -953,12 +958,21 @@ class ResourceEpisodeRow extends StatelessWidget {
                                   tooltip: '显示原标题',
                                 ),
                         ),
-                        Text(
-                          label,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            fontFeatures: [FontFeature.tabularFigures()],
+                        // An upload's part names run long.
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 280),
+                          child: Tooltip(
+                            message: label.length > 16 ? label : '',
+                            child: Text(
+                              label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                fontFeatures: [FontFeature.tabularFigures()],
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: Gap.md),

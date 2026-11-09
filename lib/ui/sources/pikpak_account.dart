@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/error_message.dart';
 import '../../domain/sources.dart';
 import '../core/action_feedback.dart';
+import '../core/external_link.dart';
 import '../core/page_widgets.dart';
 
 /// Sign-in of the PikPak account the PikPak source downloads with.
@@ -34,14 +34,16 @@ class PikPakAccount extends StatefulWidget {
 class _PikPakAccountState extends State<PikPakAccount> {
   final username = TextEditingController();
   final password = TextEditingController();
+  final passwordFocus = FocusNode();
   bool busy = false;
   String? error;
-  Uri? captcha;
+  String? captcha;
 
   @override
   void dispose() {
     username.dispose();
     password.dispose();
+    passwordFocus.dispose();
     super.dispose();
   }
 
@@ -59,7 +61,7 @@ class _PikPakAccountState extends State<PikPakAccount> {
         setState(() {
           if (failure is SourceVerificationRequired) {
             error = 'PikPak 需要网页验证，请完成验证后重试';
-            captcha = Uri.parse(failure.url);
+            captcha = failure.url;
           } else {
             error = errorMessage(failure);
           }
@@ -78,15 +80,10 @@ class _PikPakAccountState extends State<PikPakAccount> {
     password.clear();
   });
 
-  Future<void> openCaptcha(Uri url) async {
-    if (await launchUrl(url, mode: LaunchMode.externalApplication)) return;
-    if (mounted) setState(() => error = '无法打开验证页面，请稍后重试');
-  }
-
   @override
   Widget build(BuildContext context) {
     final account = widget.account;
-    final verificationUrl = captcha ?? widget.verificationUrl;
+    final verificationUrl = captcha ?? widget.verificationUrl?.toString();
     return MelonPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -119,7 +116,9 @@ class _PikPakAccountState extends State<PikPakAccount> {
                     controller: username,
                     enabled: !busy,
                     keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
                     autofillHints: const [AutofillHints.username],
+                    onSubmitted: (_) => passwordFocus.requestFocus(),
                     decoration: const InputDecoration(
                       labelText: 'PikPak 账号',
                       hintText: '邮箱或手机号',
@@ -129,6 +128,7 @@ class _PikPakAccountState extends State<PikPakAccount> {
                   TextField(
                     key: const ValueKey('pikpak-password'),
                     controller: password,
+                    focusNode: passwordFocus,
                     enabled: !busy,
                     obscureText: true,
                     autofillHints: const [AutofillHints.password],
@@ -158,7 +158,9 @@ class _PikPakAccountState extends State<PikPakAccount> {
                   : '在 PikPak 官方页面完成验证后，回到缓存页面继续下载任务。',
             ),
             TextButton.icon(
-              onPressed: busy ? null : () => openCaptcha(verificationUrl),
+              onPressed: busy
+                  ? null
+                  : () => openExternal(context, verificationUrl),
               icon: const Icon(Icons.open_in_new, size: 16),
               label: const Text('打开 PikPak 验证'),
             ),

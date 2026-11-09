@@ -58,12 +58,14 @@ class LibtorrentTransfer implements TorrentTransfer {
     settings = value;
     if (_initializing != null) {
       await _initializing;
+      // Closing disposes the engine meanwhile.
+      if (_closed) return;
       lt.MelonLibtorrent.instance.configureSession(_engineConfig(settings));
       _schedule();
     }
-    for (final task in _tasks.values) {
-      await _persist('${task['id']}', task);
-    }
+    await Future.wait([
+      for (final task in _tasks.values) _persist('${task['id']}', task),
+    ]);
     _emit();
   }
 
@@ -549,9 +551,10 @@ class LibtorrentTransfer implements TorrentTransfer {
     if (existing != null) {
       // Adding a torrent some files of which were deleted fetches them again.
       if (existing['detached'] == true) {
+        await _engine();
+        _requireOpen();
         existing.remove('detached');
         existing['seedStopReason'] = null;
-        await _engine();
         _attach(existing, restoring: true);
         _schedule();
         await _persist('${existing['id']}', existing);
@@ -686,6 +689,7 @@ class LibtorrentTransfer implements TorrentTransfer {
     _requireOpen();
     final task = _task(id);
     await _engine();
+    _requireOpen();
     if (!_handles.containsKey(id)) _attach(task, restoring: true);
     task['manualPaused'] = false;
     task['seedingStopped'] = false;
@@ -727,6 +731,24 @@ class LibtorrentTransfer implements TorrentTransfer {
     _schedule();
     await _discard(task);
     _emit();
+    await _deleteFolder(id, '${task['savePath']}');
+  }
+
+  /// Deletes the folder of task [id]: the engine deletes the files it wrote
+  /// but not the folder, and a task whose torrent already left the session,
+  /// as after [removeFiles], leaves the rest of its files to it. A folder
+  /// still held by the engine on Windows is left for a later removal.
+  Future<void> _deleteFolder(String id, String path) async {
+    if (!p.isWithin(directory, path) || p.basename(path) != id) return;
+    final folder = Directory(path);
+    for (var attempt = 1; attempt <= 20; attempt++) {
+      try {
+        if (await folder.exists()) await folder.delete(recursive: true);
+        return;
+      } on FileSystemException {
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      }
+    }
   }
 
   /// Deletes a task's record and its metadata.
@@ -797,8 +819,10 @@ class LibtorrentTransfer implements TorrentTransfer {
     final selected = media(id, fileId: fileId);
     if (!selected.incomplete) return selected;
     await resume(id);
+    final handle = _handles[id];
+    if (handle == null || _closed) throw StateError('下载任务不存在');
     final stream = lt.MelonLibtorrent.instance.startStream(
-      _handles[id]!,
+      handle,
       fileIndex: int.parse(selected.file.id),
     );
     _streams[stream.id] = id;
@@ -808,6 +832,8 @@ class LibtorrentTransfer implements TorrentTransfer {
 
   @override
   void releaseStreamsExcept(int? keep) {
+    // The engine may be disposed already, or being disposed.
+    if (_closed) return;
     for (final id in _streams.keys.toList()) {
       if (id == keep) continue;
       lt.MelonLibtorrent.instance.stopStream(id);

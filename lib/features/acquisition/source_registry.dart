@@ -39,7 +39,9 @@ class SourceRegistry extends ChangeNotifier {
   List<SourceInstance> instancesOf(SourceKind kind) =>
       instances.where((instance) => instance.kind == kind).toList();
   SourceInstance instance(String id) =>
-      instances.firstWhere((instance) => instance.id == id);
+      instances.where((instance) => instance.id == id).firstOrNull ??
+      // A saved entry can name a source a rule update removed.
+      (throw StateError('这个来源已下线'));
   String get version => snapshot.version;
   bool get needsUpdate => instances.any((instance) => !instance.supported);
   bool get warning => health.entries.any(
@@ -69,7 +71,7 @@ class SourceRegistry extends ChangeNotifier {
   Future<void> setEnabled(String id, bool enabled) async {
     await preferences.setBool('source-enabled-$id', enabled);
     if (enabled && health[id] == SourceHealth.verification) health.remove(id);
-    _clearReads();
+    _clearReads(source: id);
     _notify();
   }
 
@@ -79,7 +81,9 @@ class SourceRegistry extends ChangeNotifier {
 
   SourceEngine engine(String id) => _engines.putIfAbsent(id, () {
     final rule = instance(id);
-    return engines[rule.engine]!(rule);
+    final create = engines[rule.engine];
+    if (create == null) throw StateError('这个来源需要更新应用');
+    return create(rule);
   });
   OnlineSourceEngine online(String id) => engine(id) as OnlineSourceEngine;
   TorrentSourceEngine torrent(String id) => engine(id) as TorrentSourceEngine;
@@ -89,11 +93,15 @@ class SourceRegistry extends ChangeNotifier {
   Future<void> initialize() async {
     final cached = preferences.getString('online-source-rules');
     if (cached != null) {
-      final value = object(jsonDecode(cached));
-      // A snapshot cached by an older engine lacks rules this client runs.
-      if (value['clientEngine'] == sourceEngineVersion) {
-        snapshot = SourceSnapshot.fromJson(value);
-        ruleOrigin = '本地缓存';
+      try {
+        final value = object(jsonDecode(cached));
+        // A snapshot cached by an older engine lacks rules this client runs.
+        if (value['clientEngine'] == sourceEngineVersion) {
+          snapshot = SourceSnapshot.fromJson(value);
+          ruleOrigin = '本地缓存';
+        }
+      } on FormatException {
+        // A damaged cache falls back to the bundled rules until refreshed.
       }
     }
     unawaited(refreshRules().catchError((Object _) {}));
@@ -131,6 +139,15 @@ class SourceRegistry extends ChangeNotifier {
       _notify();
       rethrow;
     }
+  }
+
+  /// Searches a source that asked for verification again, once the user
+  /// has passed it.
+  void retry(String id) {
+    if (health[id] != SourceHealth.verification) return;
+    health.remove(id);
+    _clearReads(source: id);
+    _notify();
   }
 
   void succeeded(String id) {
@@ -318,12 +335,19 @@ class SourceRegistry extends ChangeNotifier {
     }
   }
 
-  void _clearReads() {
-    for (final read in _reads.values) {
-      read.cancel.cancel();
+  /// Drops reads of [source], or of every source; keys are
+  /// `version:kind:source:…`.
+  void _clearReads({String? source}) {
+    // The version is a server-given string, so the prefix is matched whole.
+    bool matches(String key) =>
+        source == null ||
+        key.startsWith('$version:search:$source:') ||
+        key.startsWith('$version:episodes:$source:');
+    for (final MapEntry(:key, value: read) in _reads.entries) {
+      if (matches(key)) read.cancel.cancel();
     }
-    _reads.clear();
-    _cache.clear();
+    _reads.removeWhere((key, _) => matches(key));
+    _cache.removeWhere((key, _) => matches(key));
   }
 
   @override

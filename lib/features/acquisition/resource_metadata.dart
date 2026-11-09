@@ -1,6 +1,5 @@
-import 'package:pinyin/pinyin.dart';
-
 import '../../domain/catalog.dart';
+import '../../domain/resource_title.dart';
 
 String resourceEpisodeKeyword(Episode? episode) {
   if (episode == null) return '';
@@ -40,8 +39,7 @@ List<String> resourceNames(Subject subject) {
   final seen = <String>{};
   return values
       .where((value) {
-        final key = ChineseHelper.convertToSimplifiedChinese(value.trim())
-            .toLowerCase();
+        final key = simplifiedChinese(value.trim()).toLowerCase();
         return key.isNotEmpty && value != '未命名' && seen.add(key);
       })
       .map((value) => value.trim())

@@ -110,3 +110,38 @@ DanmakuMode? danmakuMode(int value) => switch (value) {
 /// Mandarin, Cantonese and other dubs, which platforms list as their own
 /// series and are not the catalogue's.
 final dubbedTitle = RegExp(r'普通话|国语|粤语|中配|配音版');
+
+/// Parts 0 to [count] − 1 of an episode's comments, [width] at a time, in
+/// order. A failed part is left out, so one lost file does not cost the
+/// rest; the last failure is thrown only when every part failed.
+Future<List<T>> fetchParts<T>(
+  int count,
+  Future<T> Function(int index) part, {
+  int width = 4,
+}) async {
+  final results = List<T?>.filled(count, null);
+  final done = List<bool>.filled(count, false);
+  Object? failure;
+  StackTrace? trace;
+  for (var start = 0; start < count; start += width) {
+    await Future.wait([
+      for (var index = start; index < count && index < start + width; index++)
+        () async {
+          try {
+            results[index] = await part(index);
+            done[index] = true;
+          } catch (error, stack) {
+            failure = error;
+            trace = stack;
+          }
+        }(),
+    ]);
+  }
+  if (count > 0 && !done.contains(true)) {
+    Error.throwWithStackTrace(failure!, trace!);
+  }
+  return [
+    for (var index = 0; index < count; index++)
+      if (done[index]) results[index] as T,
+  ];
+}

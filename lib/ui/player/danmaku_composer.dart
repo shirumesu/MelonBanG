@@ -96,10 +96,7 @@ class _DanmakuComposerState extends State<DanmakuComposer> {
         e is StateError ? errorMessage(e) : '弹幕发送失败：${errorMessage(e)}',
       );
     } finally {
-      if (mounted) {
-        setState(() => _sending = false);
-        _countDown();
-      }
+      if (mounted) setState(() => _sending = false);
     }
   }
 
@@ -108,6 +105,9 @@ class _DanmakuComposerState extends State<DanmakuComposer> {
     final danmaku = widget.playback.danmaku;
     final blocked = danmaku.sendBlocked;
     final wait = _wait;
+    // The wait can come from sending or from the quota read when a source
+    // loads; either way it counts down here.
+    if (wait > 0 && !(_tick?.isActive ?? false)) _countDown();
     return ConstrainedBox(
       constraints: const BoxConstraints(
         minWidth: DanmakuComposer.minWidth,
@@ -174,7 +174,8 @@ class _DanmakuComposerState extends State<DanmakuComposer> {
                 Padding(
                   padding: const EdgeInsets.all(3),
                   child: Tooltip(
-                    message: wait > 0 ? '$wait 秒后才能再发送' : '发送 (Enter)',
+                    message:
+                        blocked ?? (wait > 0 ? '$wait 秒后才能再发送' : '发送 (Enter)'),
                     child: Material(
                       color: sendable ? Colors.white : Colors.transparent,
                       shape: const StadiumBorder(),

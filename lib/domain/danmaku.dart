@@ -50,10 +50,10 @@ class DanmakuComment {
 }
 
 /// `#rrggbb`, or null.
-int? hexColor(Object? value) =>
-    value is String && RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(value)
+int? hexColor(Object? value) => value is String && _hexColor.hasMatch(value)
     ? int.parse(value.substring(1), radix: 16)
     : null;
+final _hexColor = RegExp(r'^#[0-9a-fA-F]{6}$');
 
 /// Collapses equal comments of a source (colour ignored) and sorts by time.
 List<DanmakuComment> sortedComments(Iterable<DanmakuComment?> input) {

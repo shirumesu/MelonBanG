@@ -46,19 +46,30 @@ Map<String, String> torrentIdentities(Iterable<String> locators) => {
   for (final locator in locators) locator: torrentIdentity(locator),
 };
 
-void keepIdentities(Map<String, String> identities) =>
-    _identities.addAll(identities);
+void keepIdentities(Map<String, String> identities) {
+  if (_identities.length + identities.length > 8192) _identities.clear();
+  _identities.addAll(identities);
+}
 
 String _identity(String locator) {
-  final uri = Uri.parse(locator);
+  final uri = Uri.tryParse(locator);
+  if (uri == null) return locator;
   if (uri.scheme == 'magnet') {
     try {
       return magnetInfoHash(uri);
     } on FormatException {
       /* Keep unusual locators distinct. */
+    } on ArgumentError {
+      // Decoding a site's malformed percent-encoding.
+      return locator;
     }
   }
-  final filename = uri.pathSegments.lastOrNull ?? '';
+  final String filename;
+  try {
+    filename = uri.pathSegments.lastOrNull ?? '';
+  } on ArgumentError {
+    return locator;
+  }
   if (filename.endsWith('.torrent')) {
     final hash = filename.substring(0, filename.length - 8).toLowerCase();
     if (hash.length == 40 &&

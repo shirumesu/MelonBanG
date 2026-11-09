@@ -49,9 +49,12 @@ class PlaybackMenu extends StatelessWidget {
         child: IconButton(
           isSelected: popover.open,
           onPressed: popover.toggle,
-          icon: const GestureIcon(
-            IconGesture.turn,
-            child: PlayerGlyph(PlayerGlyphKind.settings),
+          icon: Semantics(
+            label: '播放设置',
+            child: const GestureIcon(
+              IconGesture.turn,
+              child: PlayerGlyph(PlayerGlyphKind.settings),
+            ),
           ),
         ),
       ),

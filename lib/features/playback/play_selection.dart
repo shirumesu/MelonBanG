@@ -116,8 +116,12 @@ class PlaySelectionRepository {
     );
     // Searches still running once the result is settled are dropped.
     final searches = RequestCancellation();
-    final unlink = cancel?.listen(searches.cancel);
     final settled = Completer<void>();
+    // Cancelling stops waiting at once, PikPak lookups included.
+    final unlink = cancel?.listen(() {
+      searches.cancel();
+      if (!settled.isCompleted) settled.complete();
+    });
     Timer? grace;
     void add(Iterable<PlayCandidate> values) {
       if (searches.isCancelled) return;
@@ -186,7 +190,6 @@ class PlaySelectionRepository {
             languages: info.languages,
             target: DownloadTarget(task.id, media.file.id, task),
             instant: true,
-            existing: true,
           ),
         ]);
       } on StateError {
@@ -439,8 +442,14 @@ class PlaySelectionRepository {
     final id = task.id;
     onTask?.call(id);
     // A magnet plays once its metadata names the files; that takes as long
-    // as the swarm takes, so wait for it rather than for a fixed time.
+    // as the swarm takes, so wait for it rather than for a fixed time. A
+    // swarm that never answers sends no change, so cancelling must end the
+    // wait by itself: playback queues behind it.
     final changes = StreamIterator(downloads.changes.stream);
+    final cancelled = Completer<bool>();
+    final unlink = cancel?.listen(() {
+      if (!cancelled.isCompleted) cancelled.complete(true);
+    });
     try {
       while (true) {
         cancel?.throwIfCancelled();
@@ -454,10 +463,13 @@ class PlaySelectionRepository {
               e is MultipleVideos) {
             rethrow;
           }
-          await changes.moveNext();
+          if (!await Future.any([changes.moveNext(), cancelled.future])) {
+            throw StateError('下载已停止');
+          }
         }
       }
     } finally {
+      unlink?.call();
       await changes.cancel();
     }
   }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/bittorrent_settings.dart';
 import '../../features/appearance/appearance.dart';
+import '../core/action_feedback.dart';
 import '../core/byte_units.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
@@ -184,6 +185,9 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
       error = null;
     });
     if (errors.isNotEmpty) return;
+    // Typed numbers join the draft, which a change of byte units shows
+    // again and the next commit starts from.
+    draft = values;
     final settings = BitTorrentSettings.fromJson(values);
     // Saves apply in order, so a later change never lands before an
     // earlier one.
@@ -376,8 +380,19 @@ class _BitTorrentSettingsPanelState extends State<BitTorrentSettingsPanel> {
               : Theme.of(context).colorScheme.error,
           trailing: TextButton(
             onPressed: () {
+              final previous = BitTorrentSettings.fromJson({...draft});
               setState(() => load(const BitTorrentSettings()));
               commit();
+              showMessage(
+                ScaffoldMessenger.maybeOf(context),
+                '已恢复推荐值',
+                actionLabel: '撤销',
+                onAction: () {
+                  if (!mounted) return;
+                  setState(() => load(previous));
+                  commit();
+                },
+              );
             },
             child: const Text('恢复推荐值'),
           ),

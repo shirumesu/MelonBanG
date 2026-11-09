@@ -48,49 +48,60 @@ class BilibiliEngine implements OnlineSourceEngine {
     _cookie = 'buvid3=${data['b_3']}; buvid4=${data['b_4']}';
   }
 
-  SourceSubject season(Json row, {bool direct = false}) => SourceSubject(
-    id: 'ss${row['season_id']}',
-    title: html.parseFragment(row['title'] as String).text!,
-    line: '官方番剧',
-    year: switch (row['pubtime']) {
-      final int timestamp => DateTime.fromMillisecondsSinceEpoch(
-        timestamp * 1000,
-      ).year,
-      _ => null,
-    },
-    episodeTotal: row['ep_size'] as int?,
-    direct: direct,
-    data: {'seasonId': row['season_id']},
-  );
-
-  SourceSubject video(Json row, {bool direct = false}) {
-    final author = row['author'] ?? object(row['owner'])['name'];
-    // Search rows give "m:ss"; the view API gives seconds.
-    final duration = switch (row['duration']) {
-      final String clock =>
-        clock.split(':').fold(0, (a, b) => a * 60 + int.parse(b)),
-      final seconds => seconds as int,
-    };
+  /// Null for a row missing its season.
+  SourceSubject? season(Json row, {bool direct = false}) {
+    if (row['season_id'] == null) return null;
     return SourceSubject(
-      id: row['bvid'] as String,
-      title: html.parseFragment(row['title'] as String).text!,
-      line: '投稿 · $author',
-      description: _clock(duration),
-      choosePart: true,
-      durationSeconds: duration,
-      publishedAt: DateTime.fromMillisecondsSinceEpoch(
-        (row['pubdate'] as int) * 1000,
-      ),
-      // Only search rows carry the uploader's comma-separated tags.
-      tags: [
-        for (final tag in '${row['tag'] ?? ''}'.split(','))
-          if (tag.trim().isNotEmpty) tag.trim(),
-      ],
-      // Search rows count comments as `video_review`; the view API in `stat`.
-      danmakuCount:
-          (row['video_review'] ?? object(row['stat'])['danmaku']) as int,
+      id: 'ss${row['season_id']}',
+      title: _text(row['title']),
+      line: '官方番剧',
+      year: switch (row['pubtime']) {
+        final int timestamp => DateTime.fromMillisecondsSinceEpoch(
+          timestamp * 1000,
+        ).year,
+        _ => null,
+      },
+      episodeTotal: _integer(row['ep_size']),
       direct: direct,
+      data: {'seasonId': row['season_id']},
     );
+  }
+
+  /// Null for a row missing its video.
+  SourceSubject? video(Json row, {bool direct = false}) {
+    if (row['bvid'] case final String id when id.isNotEmpty) {
+      final author = row['author'] ?? object(row['owner'])['name'] ?? '';
+      // Search rows give "m:ss"; the view API gives seconds.
+      final duration = switch (row['duration']) {
+        final String clock =>
+          clock.split(':').fold(0, (a, b) => a * 60 + (int.tryParse(b) ?? 0)),
+        final value => _integer(value),
+      };
+      return SourceSubject(
+        id: id,
+        title: _text(row['title']),
+        line: '投稿 · $author',
+        description: duration == null ? null : _clock(duration),
+        choosePart: true,
+        durationSeconds: duration,
+        publishedAt: switch (_integer(row['pubdate'])) {
+          final seconds? => DateTime.fromMillisecondsSinceEpoch(seconds * 1000),
+          null => null,
+        },
+        // Only search rows carry the uploader's comma-separated tags.
+        tags: [
+          for (final tag in '${row['tag'] ?? ''}'.split(','))
+            if (tag.trim().isNotEmpty) tag.trim(),
+        ],
+        // Search rows count comments as `video_review`; the view API in
+        // `stat`.
+        danmakuCount: _integer(
+          row['video_review'] ?? object(row['stat'])['danmaku'],
+        ),
+        direct: direct,
+      );
+    }
+    return null;
   }
 
   @override
@@ -106,12 +117,12 @@ class BilibiliEngine implements OnlineSourceEngine {
         final data = await request('/x/web-interface/view', {
           'bvid': locator,
         }, cancel: cancel);
-        return [video(object(data['data']), direct: true)];
+        return [?video(object(data['data']), direct: true)];
       }
       final data = await request('/pgc/view/web/season', {
         locator.startsWith('ss') ? 'season_id' : 'ep_id': locator.substring(2),
       }, cancel: cancel);
-      return [season(object(data['result']), direct: true)];
+      return [?season(object(data['result']), direct: true)];
     }
     final results = await Future.wait([
       for (final type in ['media_bangumi', 'video'])
@@ -123,9 +134,9 @@ class BilibiliEngine implements OnlineSourceEngine {
     ]);
     return [
       for (final row in objects(object(results[0]['data'])['result']))
-        season(row),
+        ?season(row),
       for (final row in objects(object(results[1]['data'])['result']))
-        video(row),
+        ?video(row),
     ];
   }
 
@@ -145,7 +156,10 @@ class BilibiliEngine implements OnlineSourceEngine {
         for (final page in objects(data['pages']))
           SourceEpisode(
             label: 'P${page['page']} · ${page['part']}',
-            description: _clock(page['duration'] as int),
+            description: switch (_integer(page['duration'])) {
+              final seconds? => _clock(seconds),
+              null => null,
+            },
             line: line,
             ref: StreamRef(instance.id, {
               'bvid': data['bvid'],
@@ -191,7 +205,7 @@ class BilibiliEngine implements OnlineSourceEngine {
     // The season player API caps guests at 480p; official free episodes play
     // through the video player API, whose `try_look` lifts guests to 1080p.
     final value = await request('/x/player/playurl', {
-      'bvid': ref.data['bvid'] as String,
+      'bvid': '${ref.data['bvid']}',
       'cid': '${ref.data['cid']}',
       'fnval': '4048',
       'qn': '80',
@@ -204,14 +218,16 @@ class BilibiliEngine implements OnlineSourceEngine {
     final dash = object(object(value['data'])['dash']);
     final videos =
         objects(dash['video'])
-            .where((track) => (track['codecs'] as String).startsWith('avc1'))
+            .where((track) => _mediaUrls(track).isNotEmpty)
+            .where((track) => '${track['codecs']}'.startsWith('avc1'))
             .toList()
           ..sort(
             (a, b) => number(b['bandwidth']).compareTo(number(a['bandwidth'])),
           );
     final audios =
         objects(dash['audio'])
-            .where((track) => (track['codecs'] as String).startsWith('mp4a'))
+            .where((track) => _mediaUrls(track).isNotEmpty)
+            .where((track) => '${track['codecs']}'.startsWith('mp4a'))
             .toList()
           ..sort(
             (a, b) => number(b['bandwidth']).compareTo(number(a['bandwidth'])),
@@ -237,15 +253,25 @@ class BilibiliEngine implements OnlineSourceEngine {
 /// The track's Bilibili-hosted `upos-` mirror; the primary URL is often a
 /// third-party PCDN edge whose TLS handshakes fail intermittently.
 String _mediaUrl(Json track) {
-  final urls = [
-    track['baseUrl'] as String,
-    ...(track['backupUrl'] as List).cast<String>(),
-  ];
+  final urls = _mediaUrls(track);
   return urls.firstWhere(
-    (url) => Uri.parse(url).host.startsWith('upos-'),
+    (url) => Uri.tryParse(url)?.host.startsWith('upos-') ?? false,
     orElse: () => urls.first,
   );
 }
+
+List<String> _mediaUrls(Json track) => [
+  for (final url in [
+    track['baseUrl'],
+    if (track['backupUrl'] case final List backups) ...backups,
+  ])
+    if (url is String && url.isNotEmpty) url,
+];
+
+/// Search rows mark the matched words in `<em>`.
+String _text(Object? value) => html.parseFragment('${value ?? ''}').text ?? '';
+
+int? _integer(Object? value) => value is num ? value.toInt() : null;
 
 /// "1:02:03" or "2:03".
 String _clock(int seconds) {

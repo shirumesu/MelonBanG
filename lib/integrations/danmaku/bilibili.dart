@@ -312,30 +312,28 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
     } catch (_) {
       /* Segmented comments can remain available independently. */
     }
-    final segments = (duration / 360).ceil().clamp(1, 100);
-    Object? failure;
-    for (var i = 1; i <= segments; i += 4) {
-      await Future.wait(
-        List.generate((segments - i + 1).clamp(0, 4), (offset) async {
-          try {
-            final response = await api.send(
-              Uri.https('api.bilibili.com', '/x/v2/dm/web/seg.so', {
-                'type': '1',
-                'oid': '$cid',
-                'segment_index': '${i + offset}',
-              }),
-              headers: _engine.mediaHeaders,
-            );
-            final bytes = response.bodyBytes;
-            comments.addAll(await compute(_parseSegment, bytes));
-          } catch (e) {
-            failure = e;
-          }
-        }),
-      );
-    }
-    if (comments.isEmpty && failure != null) {
-      throw StateError('B 站弹幕获取失败：${errorMessage(failure!)}');
+    // Six-minute segments over the whole episode.
+    try {
+      final segments = await fetchParts((duration / 360).ceil().clamp(1, 100), (
+        index,
+      ) async {
+        final response = await api.send(
+          Uri.https('api.bilibili.com', '/x/v2/dm/web/seg.so', {
+            'type': '1',
+            'oid': '$cid',
+            'segment_index': '${index + 1}',
+          }),
+          headers: _engine.mediaHeaders,
+        );
+        return compute(_parseSegment, response.bodyBytes);
+      });
+      for (final segment in segments) {
+        comments.addAll(segment);
+      }
+    } catch (e) {
+      if (comments.isEmpty) {
+        throw StateError('B 站弹幕获取失败：${errorMessage(e)}');
+      }
     }
     return compute(sortedComments, comments);
   }

@@ -328,8 +328,9 @@ class _MelonAppState extends State<MelonApp>
   void goBack() {
     final leavingPlayer = route == 'player';
     leavePlayer();
-    // A player left while it was still preparing has nothing to return to.
-    while (history.lastOrNull?.route == 'player' && playback.uri == null) {
+    // Leaving the player always unloads its video, so a remembered player
+    // has nothing to return to; playback.uri may not be cleared yet.
+    while (history.lastOrNull?.route == 'player') {
       history.removeLast();
     }
     if (history.isEmpty) {
@@ -747,8 +748,16 @@ class _MelonAppState extends State<MelonApp>
       if (ready) await coordinator.close();
     } finally {
       try {
-        await service.close();
-        if (ready && !uninstalling) {
+        // A service stuck closing would leave a blank window that never
+        // quits; an update is not applied over services still running.
+        var closed = false;
+        try {
+          await service.close().timeout(const Duration(seconds: 20));
+          closed = true;
+        } on TimeoutException {
+          // Quits anyway.
+        }
+        if (closed && ready && !uninstalling) {
           await service.update.applyOnExit(restart: restartForUpdate);
         }
       } finally {
@@ -797,7 +806,9 @@ class _MelonAppState extends State<MelonApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     Background.yieldResources(
-      state == AppLifecycleState.hidden && !(ready && playback.playing),
+      (state == AppLifecycleState.hidden ||
+              state == AppLifecycleState.paused) &&
+          !(ready && playback.playing),
     );
   }
 
@@ -930,7 +941,7 @@ class _MelonAppState extends State<MelonApp>
     final theme = appTheme(dark, accent: themeAccent);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Melonbang',
+      title: 'MelonBanG',
       // A reveal replaces the fades between themes.
       themeAnimationDuration: instantTheme
           ? Duration.zero
@@ -1223,7 +1234,13 @@ class _MelonAppState extends State<MelonApp>
         ),
         final issue => Padding(
           padding: const EdgeInsets.all(pageGutter),
-          child: EmptyState(text: '缓存任务恢复失败', detail: issue),
+          // Restoring runs once per process, so a retry starts the app again.
+          child: EmptyState(
+            text: '缓存任务恢复失败',
+            detail: issue,
+            action: relaunch,
+            actionLabel: '重新启动',
+          ),
         ),
       };
     },

@@ -596,9 +596,7 @@ class _ProfileView extends StatelessWidget {
   }
 
   Widget _work(BuildContext context, Subject subject) {
-    final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
-    final url = subject.coverUrl;
     return InkWell(
       borderRadius: controlBorderRadius,
       onTap: () => onOpenSubject(subject),
@@ -611,15 +609,11 @@ class _ProfileView extends StatelessWidget {
               child: SizedBox(
                 width: 40,
                 height: 56,
-                child: url == null
-                    ? ColoredBox(color: scheme.surfaceContainerHigh)
-                    : CachedImage(
-                        url: url,
-                        cacheWidth: imageDecodeWidth(context, 40),
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) =>
-                            ColoredBox(color: scheme.surfaceContainerHigh),
-                      ),
+                child: SubjectCover(
+                  url: subject.coverUrl,
+                  title: subject.title,
+                  id: subject.id,
+                ),
               ),
             ),
             const SizedBox(width: 10),

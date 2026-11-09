@@ -84,9 +84,20 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   void _loadSubject(int id) {
     if (!_requested.add(id)) return;
-    widget.subjectOf(id).then((subject) {
-      if (mounted) setState(() => subjects[id] = subject);
-    }, onError: (_) {});
+    widget
+        .subjectOf(id)
+        .then(
+          (subject) {
+            if (mounted) setState(() => subjects[id] = subject);
+          },
+          onError: (_) {
+            // Offline: a rebuild a minute on asks again.
+            Future<void>.delayed(
+              const Duration(minutes: 1),
+              () => _requested.remove(id),
+            );
+          },
+        );
     widget.hasProgress(id).then((value) {
       if (value && mounted) setState(() => played.add(id));
     }, onError: (_) {});
@@ -115,6 +126,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
       context: context,
       builder: (_) => RemoveDownloadDialog(
         title: '删除这个视频？',
+        action: '删除',
         message: [
           '将删除本机文件：${file.name}',
           if (task.seeds) '删除后这个合集不再做种，其余视频仍可观看。',
@@ -149,6 +161,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
       context: context,
       builder: (_) => RemoveDownloadDialog(
         title: '删除所选缓存？',
+        action: '删除',
         message: [
           '将删除所选的 $count 项及其本机缓存文件。',
           if (files.keys.any((id) => tasks[id]!.seeds)) '删除合集中的部分视频后，该合集不再做种。',
@@ -157,14 +170,23 @@ class _DownloadsPageState extends State<DownloadsPage> {
     );
     if (remove != true || !mounted) return;
     setState(_endSelection);
-    await _perform(() async {
-      for (final id in whole) {
-        await widget.downloads.remove(id);
+    // One that fails leaves the others to be deleted, and is reported.
+    Object? failure;
+    Future<void> attempt(Future<void> Function() action) async {
+      try {
+        await action();
+      } catch (e) {
+        failure ??= e;
       }
-      for (final MapEntry(key: id, value: fileIds) in files.entries) {
-        await widget.downloads.removeFiles(id, fileIds);
-      }
-    });
+    }
+
+    for (final id in whole) {
+      await attempt(() => widget.downloads.remove(id));
+    }
+    for (final MapEntry(key: id, value: fileIds) in files.entries) {
+      await attempt(() => widget.downloads.removeFiles(id, fileIds));
+    }
+    if (failure case final error?) widget.onError(error);
   }
 
   void _endSelection() {
@@ -255,6 +277,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
       return category && status;
     }).toList();
     final speed = tasks.fold<int>(0, (sum, t) => sum + t.downloadSpeed);
+    final allSelected =
+        visible.isNotEmpty &&
+        visible.every((task) => selectedTasks.contains(task.id));
     // A subject's tasks, however they were cached, form one entry.
     final entries = <List<DownloadTask>>[];
     final bySubject = <int, List<DownloadTask>>{};
@@ -272,7 +297,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
     bool complete(List<DownloadTask> entry) => entry.every((t) => t.complete);
     // Subscriptions needing the user lead their group.
     final subscriptions = widget.subscriptions;
-    bool warns(List<DownloadTask> entry) =>
+    final warned = <int?, bool>{};
+    bool warns(List<DownloadTask> entry) => warned[entry.first.subjectId] ??=
         switch (subscriptions.subscriptions[entry.first.subjectId]) {
           final subscription? => subscriptions.issueOf(subscription) != null,
           null => false,
@@ -314,6 +340,13 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     Text(
                       '已选 ${selectedTasks.length + selectedFiles.length} 项',
                       style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    // Of the tasks the filters show.
+                    TextButton(
+                      onPressed: visible.isEmpty
+                          ? null
+                          : () => _select(visible, !allSelected),
+                      child: Text(allSelected ? '全不选' : '全选'),
                     ),
                     TextButton(
                       onPressed: () => setState(_endSelection),
@@ -590,9 +623,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             if (done == tasks.length)
-                              Text('$episodes 集', style: small)
+                              Text('$episodes 话', style: small)
                             else if (done > 0)
-                              MelonBadge('已缓存 $episodes 集', color: sky),
+                              MelonBadge('已缓存 $episodes 话', color: sky),
                             if (ongoing > 0) MelonBadge('进行中 $ongoing'),
                             if (failed > 0)
                               MelonBadge('需要重试 $failed', color: scheme.error),
@@ -959,7 +992,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         const SizedBox(height: 4),
         _stats(context, [
           '已上传 ${ByteUnitsScope.of(context).format(task.uploadedBytes)}',
-          '做种 ${(task.seedSeconds / 60).floor()} 分钟',
+          '做种 ${_seedTime(task.seedSeconds)}',
         ]),
       ],
       const SizedBox(height: 8),
@@ -1069,6 +1102,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
           ),
       ],
     );
+  }
+
+  /// `45 分钟`, `3 小时 20 分钟`.
+  static String _seedTime(double seconds) {
+    final minutes = seconds ~/ 60;
+    if (minutes < 60) return '$minutes 分钟';
+    final rest = minutes % 60;
+    return '${minutes ~/ 60} 小时${rest == 0 ? '' : ' $rest 分钟'}';
   }
 
   Widget _stats(BuildContext context, List<String> values) => Wrap(

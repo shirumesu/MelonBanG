@@ -72,7 +72,7 @@ class _SearchPageState extends State<SearchPage> {
                   ? '筛选结果'
                   : '全部番剧',
               // Bangumi counts at most 1000 matches.
-              subtitle: results.isEmpty && busy
+              subtitle: results.isEmpty && (busy || error != null)
                   ? null
                   : search.total >= 1000
                   ? '1000+ 部'

@@ -146,7 +146,9 @@ class IqiyiDanmaku implements DanmakuSearch {
   Future<List<DanmakuComment>> load(String locator) async {
     final fields = Uri.splitQueryString(locator);
     final tvid = positiveId(fields['tvid'] ?? locator);
-    if (tvid == null) throw const FormatException('请输入爱奇艺的 tvid');
+    if (tvid == null || tvid.length < 4) {
+      throw const FormatException('请输入爱奇艺的 tvid');
+    }
     final seconds = int.tryParse(fields['duration'] ?? '');
     // One file per five minutes; without a known length, read on until one
     // is missing.
@@ -164,16 +166,20 @@ class IqiyiDanmaku implements DanmakuSearch {
     }
 
     final parts = <String?>[];
-    if (seconds != null) {
+    if (seconds != null && seconds > 0) {
       parts.addAll(
-        await Future.wait([
-          for (var index = 1; index <= (seconds / 300).ceil(); index++)
-            part(index),
-        ]),
+        await fetchParts((seconds / 300).ceil(), (index) => part(index + 1)),
       );
     } else {
       for (var index = 1; index <= 40; index++) {
-        final text = await part(index);
+        final String? text;
+        try {
+          text = await part(index);
+        } catch (_) {
+          // What was read so far still makes an episode's comments.
+          if (parts.isEmpty) rethrow;
+          break;
+        }
         if (text == null) break;
         parts.add(text);
       }
@@ -189,7 +195,12 @@ List<DanmakuComment> _comments(List<String> texts) =>
 
 /// A bullet file's comments.
 Iterable<DanmakuComment?> _parse(String text) sync* {
-  final document = XmlDocument.parse(text);
+  final XmlDocument document;
+  try {
+    document = XmlDocument.parse(text);
+  } on XmlException {
+    return; // One broken file loses only its five minutes.
+  }
   for (final bullet in document.findAllElements('bulletInfo')) {
     String field(String name) =>
         bullet.getElement(name)?.innerText.trim() ?? '';

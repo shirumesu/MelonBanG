@@ -319,10 +319,13 @@ class _RenderSlide extends RenderProxyBox {
   void _tick(Duration stamp) {
     _frame = null;
     _start ??= stamp;
-    _t = math.min(
-      1,
-      (stamp - _start!).inMicroseconds / duration.inMicroseconds,
-    );
+    // Reduced motion turned on mid-glide ends it.
+    _t = duration <= Duration.zero
+        ? 1
+        : math.min(
+            1,
+            (stamp - _start!).inMicroseconds / duration.inMicroseconds,
+          );
     markNeedsPaint();
     if (_t < 1) _frame = SchedulerBinding.instance.scheduleFrameCallback(_tick);
   }

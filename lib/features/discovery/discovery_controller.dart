@@ -51,21 +51,27 @@ class DiscoveryController extends ChangeNotifier {
   String? calendarError;
   SearchResults search = const SearchResults();
   bool searching = false;
-  int _searchTicket = 0;
+  int _searchTicket = 0, _homeTicket = 0, _calendarTicket = 0;
 
   /// Loads trending and today's schedule, showing cached values first.
   /// Returns a message when either failed.
+  /// A newer load replaces an older one still running, whose results and
+  /// failures are dropped.
   Future<String?> loadHome({bool refresh = false}) async {
+    final ticket = ++_homeTicket;
+    bool current() => ticket == _homeTicket;
     trendingLoading = todayLoading = true;
     trendingError = todayError = null;
     if (todayDate != null && todayDate != catalog.scheduleDate) today = [];
     notifyListeners();
     void showTrending(List<Subject> value) {
+      if (!current()) return;
       trending = value;
       notifyListeners();
     }
 
     void showToday(SchedulePage value) {
+      if (!current()) return;
       today = value.items;
       todayDate = value.date;
       notifyListeners();
@@ -77,10 +83,12 @@ class DiscoveryController extends ChangeNotifier {
           .trending(refresh: refresh, limit: 8, onCached: showTrending)
           .then(showTrending)
           .catchError((Object e) {
+            if (!current()) return;
             trendingFailed = true;
             trendingError = errorMessage(e);
           })
           .whenComplete(() {
+            if (!current()) return;
             trendingLoading = false;
             notifyListeners();
           }),
@@ -88,14 +96,17 @@ class DiscoveryController extends ChangeNotifier {
           .today(refresh: refresh, onCached: showToday)
           .then(showToday)
           .catchError((Object e) {
+            if (!current()) return;
             todayFailed = true;
             todayError = errorMessage(e);
           })
           .whenComplete(() {
+            if (!current()) return;
             todayLoading = false;
             notifyListeners();
           }),
     ]);
+    if (!current()) return null;
     if (trendingFailed && todayFailed) {
       return trending.isNotEmpty || today.isNotEmpty
           ? '刷新失败，仍显示上次内容'
@@ -115,10 +126,12 @@ class DiscoveryController extends ChangeNotifier {
   /// Loads the weekly calendar, showing cached days first; a failure stays
   /// in [calendarError] for the calendar page to show.
   Future<void> loadCalendar() async {
+    final ticket = ++_calendarTicket;
     calendarLoading = true;
     calendarError = null;
     notifyListeners();
     void show(List<ScheduleDay> value) {
+      if (ticket != _calendarTicket) return;
       calendar = value;
       notifyListeners();
     }
@@ -126,10 +139,12 @@ class DiscoveryController extends ChangeNotifier {
     try {
       show(await catalog.calendar(onCached: show));
     } catch (e) {
-      calendarError = errorMessage(e);
+      if (ticket == _calendarTicket) calendarError = errorMessage(e);
     } finally {
-      calendarLoading = false;
-      notifyListeners();
+      if (ticket == _calendarTicket) {
+        calendarLoading = false;
+        notifyListeners();
+      }
     }
   }
 

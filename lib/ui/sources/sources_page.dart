@@ -88,7 +88,8 @@ class _SourcesPageState extends State<SourcesPage> {
       id,
       name,
       kind,
-      status: label(status),
+      // The switch cannot turn it back on, so say who turned it off.
+      status: instance?.disabled == true ? '维护者已停用' : label(status),
       color: color(status),
       problem: switch (status) {
         SourceHealth.error ||
@@ -253,7 +254,7 @@ class _SourcesPageState extends State<SourcesPage> {
       final selected = all
           .where((entry) => entry.id == (_selected ?? all.first.id))
           .firstOrNull;
-      _engineIssue.issue = registry.needsUpdate ? '部分视频源需要更新应用后才能使用' : null;
+      _engineIssue.issue = registry.needsUpdate ? '部分来源需要更新应用后才能使用' : null;
       return LayoutBuilder(
         builder: (context, constraints) {
           final narrow = constraints.maxWidth < 820;
@@ -618,12 +619,12 @@ class _SourcesPageState extends State<SourcesPage> {
       key: PageStorageKey('data-source:$id'),
       padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
       children: [
+        if (narrow) _back(),
+        SectionTitle(title: entry.name, top: 0, trailing: _badge(entry)),
         FeedbackIssue(
           feedback: _runtimeIssue,
           onRetry: manual ? () => _manualSearch(id) : null,
         ),
-        if (narrow) _back(),
-        SectionTitle(title: entry.name, top: 0, trailing: _badge(entry)),
         MelonPanel(
           padding: const EdgeInsets.symmetric(
             horizontal: Gap.lg,

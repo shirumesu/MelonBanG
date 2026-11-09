@@ -100,7 +100,7 @@ class SubscriptionController extends ChangeNotifier {
 
   /// Subscriptions to check at once, before their turn.
   final _soon = <int>{};
-  DateTime? _scheduledAt, _ticked, _watchedAt;
+  DateTime? _scheduledAt, _scheduleTriedAt, _ticked, _watchedAt;
   Timer? _timer;
   StreamSubscription<TransferSnapshot>? _downloadChanges;
   bool _pumping = false, _closed = false, _started = false;
@@ -121,6 +121,7 @@ class SubscriptionController extends ChangeNotifier {
     _timer = Timer.periodic(const Duration(minutes: 1), (_) => _tick());
     // Launching counts as waking: everything due is checked now.
     _soon.addAll(subscriptions.keys);
+    _scheduleTriedAt = DateTime.now();
     unawaited(_refreshSchedule().whenComplete(_tick));
   }
 
@@ -185,8 +186,12 @@ class SubscriptionController extends ChangeNotifier {
       _watchedAt = now;
       unawaited(_endUnwatched());
     }
-    if (_scheduledAt == null ||
-        now.difference(_scheduledAt!) > const Duration(hours: 1)) {
+    // Offline, the schedule is asked for every ten minutes, not every tick.
+    if ((_scheduledAt == null ||
+            now.difference(_scheduledAt!) > const Duration(hours: 1)) &&
+        (_scheduleTriedAt == null ||
+            now.difference(_scheduleTriedAt!) > const Duration(minutes: 10))) {
+      _scheduleTriedAt = now;
       unawaited(_refreshSchedule());
     }
     unawaited(_pump());
@@ -431,6 +436,8 @@ class SubscriptionController extends ChangeNotifier {
       )) {
         throw StateError('资源站都没有响应，稍后会再试');
       }
+      // Ended while the sites answered: nothing more is cached for it.
+      if (!identical(subscriptions[id], subscription)) return;
       subscription.failures = 0;
       subscription.issue = null;
       await _apply(subscription, subject, result.candidates);
@@ -483,6 +490,9 @@ class SubscriptionController extends ChangeNotifier {
       known: {for (final entry in subscription.ledger.values) entry.identity},
     );
     for (final judgement in judged) {
+      if (!identical(subscriptions[subscription.subjectId], subscription)) {
+        return;
+      }
       final episode = judgement.episode;
       if (judgement.download && episode != null) {
         final previous = subscription.ledger[episode.id];
@@ -719,6 +729,18 @@ class SubscriptionController extends ChangeNotifier {
     subscription
       ..issue = null
       ..failures = 0;
+    await _save(subscription);
+    notifyListeners();
+    _soon.add(id);
+    unawaited(_pump());
+  }
+
+  /// Brings back [subscription] as [unsubscribe] left it, its book and
+  /// events too.
+  Future<void> restore(Subscription subscription) async {
+    final id = subscription.subjectId;
+    if (subscriptions.containsKey(id)) return;
+    subscriptions[id] = subscription;
     await _save(subscription);
     notifyListeners();
     _soon.add(id);

@@ -52,9 +52,17 @@ Future<String> _copy(Directory folder, String name) async {
   final file = File(p.join(folder.path, name));
   if (!await file.exists()) {
     final data = await rootBundle.load('assets/shaders/$name');
-    final partial = File('${file.path}.partial');
+    // Each copy writes its own partial file: turning the shaders on and
+    // switching chains at once may copy the same shader twice.
+    final partial = File('${file.path}.${identityHashCode(data)}.partial');
     await partial.writeAsBytes(data.buffer.asUint8List(), flush: true);
-    await partial.rename(file.path);
+    try {
+      await partial.rename(file.path);
+    } on FileSystemException {
+      // The other copy got there first, and mpv may already read it.
+      await partial.delete().catchError((Object _) => partial);
+      if (!await file.exists()) rethrow;
+    }
   }
   return file.path;
 }

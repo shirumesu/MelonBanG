@@ -146,13 +146,18 @@ class AccountRepository implements Account {
       } else if (request.uri.queryParameters['code'] case final String code) {
         if (!authorization.isCompleted) authorization.complete(code);
         request.response.headers.contentType = ContentType.html;
-        request.response.write('<meta charset="utf-8">登录完成，可以返回 Melonbang。');
+        request.response.write('<meta charset="utf-8">登录完成，可以返回 MelonBanG。');
       } else {
         if (!authorization.isCompleted) {
           authorization.completeError(StateError('登录未授权'));
         }
+        request.response.headers.contentType = ContentType.html;
+        request.response.write(
+          '<meta charset="utf-8">没有完成授权，可以返回 MelonBanG 重新登录。',
+        );
       }
-      await request.response.close();
+      // The browser may have gone already; the sign-in does not depend on it.
+      await request.response.close().catchError((Object _) {});
     });
     try {
       // Attach the timeout before opening the browser so cancellation is observed.
