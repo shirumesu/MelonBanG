@@ -9,12 +9,16 @@ import '../../domain/transfer.dart';
 
 /// Simplified, width-folded title without punctuation, plus its season.
 (String, int) normalizeSourceTitle(String input) {
-  final (title, season) = _normalize(input);
+  final (title, season) = _normalize(input, ending: true);
   return (title, season ?? 1);
 }
 
-/// [normalizeSourceTitle] with the season only when the title states one.
-(String, int?) _normalize(String input) {
+/// [normalizeSourceTitle] with the season only when the title states one:
+/// 第2季, 第3期, Season 2, 2nd Season or S2. With [ending], a catalogue name
+/// may also state it by a final number or Roman numeral (`边缘行者 2`,
+/// `転生したら剣でしたII`); a site's titles end with episode numbers, so
+/// theirs are not read that way.
+(String, int?) _normalize(String input, {bool ending = false}) {
   var title = simplifiedChinese(
     String.fromCharCodes(
       input.runes.map(
@@ -26,12 +30,14 @@ import '../../domain/transfer.dart';
       ),
     ),
   ).toLowerCase();
-  final season = RegExp(
-    r'第\s*([一二三四五六七八九十\d]+)\s*[季期]|season\s*(\d+)',
-    caseSensitive: false,
-  ).firstMatch(title);
+  final season =
+      _statedSeason.firstMatch(title) ??
+      (ending ? _endingSeason.firstMatch(title) : null);
   if (season != null) title = title.replaceRange(season.start, season.end, '');
-  final raw = season?[1] ?? season?[2];
+  final raw = season
+      ?.groups([for (var i = 1; i <= season.groupCount; i++) i])
+      .nonNulls
+      .first;
   return (
     title.replaceAll(RegExp(r'[^a-z0-9\u3040-\u30ff\u3400-\u9fff]'), ''),
     raw == null
@@ -48,10 +54,24 @@ import '../../domain/transfer.dart';
                 '八': 8,
                 '九': 9,
                 '十': 10,
+                'ii': 2,
+                'ⅱ': 2,
+                'iii': 3,
+                'ⅲ': 3,
+                'iv': 4,
+                'ⅳ': 4,
               }[raw] ??
               1,
   );
 }
+
+final _statedSeason = RegExp(
+  r'第\s*([一二三四五六七八九十\d]+)\s*[季期]|season\s*(\d+)'
+  r'|(\d+)(?:st|nd|rd|th)\s*season|(?<![a-z0-9])s(\d{1,2})(?![a-z0-9])',
+);
+final _endingSeason = RegExp(
+  r'(?<=\s)(\d{1,2})\s*$|(?<![a-z])(ii|iii|iv|ⅱ|ⅲ|ⅳ)\s*$',
+);
 
 /// Dice similarity of the best catalogue name, penalizing season mismatch and
 /// adjusted by year and episode count. Calibrated thresholds: .84 automatic,
@@ -243,10 +263,14 @@ bool siteMatches(
         ? uploadMatches(subject, episode, site, names)
         : sourceMatchScore(subject, site, names) >= .55);
 
-/// Openings/endings, soundtracks and songs, audio tracks, recaps, tutorials and
-/// merchandise reuse a title without holding an episode.
+/// Openings/endings, soundtracks and songs, audio tracks, recaps, tutorials,
+/// merchandise, audiobooks, radio shows, live-action adaptations, ambience
+/// and foreigners' reactions reuse a title without holding an episode.
+/// Uploaders also disguise full episodes as `reaction`, so that word alone
+/// says nothing.
 final _notEpisode = RegExp(
-  r'NCOP|NCED|OST|原声|主题曲|片头曲|片尾曲|歌曲|音乐集|音轨|看完|解说|盘点|混剪|预告|教程|攻略|手办',
+  r'NCOP|NCED|OST|原声|主题曲|片头曲|片尾曲|歌曲|音乐集|音轨|看完|解说|盘点|混剪|预告|教程|攻略|手办'
+  r'|有声|广播|真人版|白噪音|老外看',
   caseSensitive: false,
 );
 
@@ -319,6 +343,99 @@ int uploadNamesEpisode(String title, Episode episode) {
     other = true;
   }
   return other ? 2 : 1;
+}
+
+/// The episode of [subject] each part of an upload titled [title] holds,
+/// in order. A part's name states it (`第6话`, `EP06`, `06`, `(6)`,
+/// `第三季1`), else a lone part's is the one the title states, else, when no
+/// part's name states one, each part is the episode at its position (`P3`
+/// holds the third). A name stating another season, a special or a range
+/// holds none. Like [releaseEpisode], a sequel's number may count across
+/// seasons.
+List<Episode?> uploadPartEpisodes(
+  Subject subject,
+  String title,
+  List<String> parts,
+) {
+  var stated = [for (final name in parts) _statedEpisode(name, bare: true)];
+  if (parts.length == 1 && stated.single == null) {
+    stated = [_statedEpisode(title, bare: false)];
+  }
+  if (parts.length > 1 && stated.every((e) => e == null)) {
+    stated = [for (var i = 1; i <= parts.length; i++) (null, i.toDouble())];
+  }
+  final episodes = subject.episodes.where((e) => !e.numberedApart);
+  final sequel = episodes.any(
+    (e) => e.absolute != null && e.absolute != e.sort,
+  );
+  final season = _subjectSeason(subject) ?? (sequel ? null : 1);
+  return [
+    for (final found in stated)
+      if (found case (final named, final number)
+          when named == null || season == null || named == season)
+        (sequel
+                ? episodes.where((e) => e.absolute == number).firstOrNull
+                : null) ??
+            episodes.where((e) => e.sort == number).firstOrNull
+      else
+        null,
+  ];
+}
+
+/// The season and episode number [text] states, or null for none, a range
+/// (`第1~5话`, `全12集`) or a special. With [bare], a text that is only a
+/// number (`06`, `(6)`, `6_合并`, `1 4K`) states it too; an upload's title
+/// carries `4K` and `1080P`, so it must say 第6话 or EP06.
+(int?, double)? _statedEpisode(String text, {required bool bare}) {
+  final season = resourceSeason(text);
+  final name = simplifiedChinese(text)
+      .toUpperCase()
+      .replaceAll(_seasonPhrase, ' ')
+      .trim();
+  if (_partSpecial.hasMatch(name) || _partRange.hasMatch(name)) return null;
+  final match =
+      _partNumber.firstMatch(name) ??
+      (bare ? _bareNumber.firstMatch(name) : null);
+  if (match == null) return null;
+  final raw = match
+      .groups([for (var i = 1; i <= match.groupCount; i++) i])
+      .nonNulls
+      .first;
+  final number = double.tryParse(raw) ?? _chineseNumber(raw);
+  return number == null || number == 0 ? null : (season, number);
+}
+
+final _seasonPhrase = RegExp(
+  r'第\s*[一二三四五六七八九十\d]+\s*[季期]|(?<![A-Z0-9])S\d{1,2}(?![0-9E])',
+);
+final _partSpecial = RegExp(
+  r'(?<![A-Z])(?:SP|OVA|OAD|PV|NCOP|NCED)(?![A-Z])|特别篇|番外|预告',
+);
+final _partRange = RegExp(
+  r'\d{1,3}\s*[-–~～至到]\s*\d{1,3}\s*[集话]|全\s*\d{1,3}\s*[集话]',
+);
+final _partNumber = RegExp(
+  r'第\s*(\d{1,3}(?:\.5)?|[一二三四五六七八九十]{1,3})\s*[集话回]'
+  r'|(?<![A-Z])EP?\s*(\d{1,3})(?!\d)',
+);
+final _bareNumber = RegExp(r'^[\s(\[【「『《〖]*(\d{1,3})(?=$|[\s)\]】」』》〗_.·-])');
+
+/// 一 to 九十九.
+double? _chineseNumber(String text) {
+  const digits = '一二三四五六七八九';
+  final tens = text.indexOf('十');
+  int? digit(String c) => c.isEmpty
+      ? null
+      : digits.contains(c) && c.length == 1
+      ? digits.indexOf(c) + 1
+      : -1;
+  if (tens < 0) {
+    final value = digit(text);
+    return value == null || value < 0 ? null : value.toDouble();
+  }
+  final high = digit(text.substring(0, tens)) ?? 1;
+  final low = digit(text.substring(tens + 1)) ?? 0;
+  return high < 0 || low < 0 ? null : (high * 10 + low).toDouble();
 }
 
 /// Each character with its toneless readings, so homophones compare equal.

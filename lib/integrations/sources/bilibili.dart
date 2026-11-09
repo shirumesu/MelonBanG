@@ -48,13 +48,28 @@ class BilibiliEngine implements OnlineSourceEngine {
     _cookie = 'buvid3=${data['b_3']}; buvid4=${data['b_4']}';
   }
 
-  /// Null for a row missing its season.
+  /// Null for a row missing its season. A dub is a season of its own, titled
+  /// `… 中配版`; its line says so. Search rows badge each members-only
+  /// episode, which a guest cannot play.
   SourceSubject? season(Json row, {bool direct = false}) {
     if (row['season_id'] == null) return null;
+    final title = _text(row['title']);
+    final dub = RegExp(r'\s*中配版?$').firstMatch(title);
+    final members = objects(row['eps'])
+        .where(
+          (e) => objects(e['badges']).any((badge) => badge['text'] == '会员'),
+        )
+        .length;
+    final free = objects(row['eps']).length - members;
     return SourceSubject(
       id: 'ss${row['season_id']}',
-      title: _text(row['title']),
-      line: '官方番剧',
+      title: dub == null ? title : title.substring(0, dub.start),
+      line: dub == null ? '官方番剧' : '官方番剧 · 中配',
+      description: members == 0
+          ? null
+          : free == 0
+          ? '全部为大会员专享'
+          : '访客可看 $free 集，其余为大会员专享',
       year: switch (row['pubtime']) {
         final int timestamp => DateTime.fromMillisecondsSinceEpoch(
           timestamp * 1000,
@@ -124,19 +139,37 @@ class BilibiliEngine implements OnlineSourceEngine {
       }, cancel: cancel);
       return [?season(object(data['result']), direct: true)];
     }
-    final results = await Future.wait([
-      for (final type in ['media_bangumi', 'video'])
-        request('/x/web-interface/search/type', {
-          'search_type': type,
-          'keyword': name,
-          'page': '1',
-        }, cancel: cancel),
+    Future<List<Json>> search(
+      String type, [
+      Map<String, String>? filter,
+    ]) async {
+      final value = await request('/x/web-interface/search/type', {
+        'search_type': type,
+        'keyword': name,
+        'page': '1',
+        'page_size': '50',
+        ...?filter,
+      }, cancel: cancel);
+      return objects(object(value['data'])['result']);
+    }
+
+    // A common name buries the show's uploads under other topics (萤火虫
+    // finds cars), so the animation zone is searched apart too.
+    final [seasons, animation, all] = await Future.wait([
+      search('media_bangumi'),
+      search('video', {'tids': '1'}),
+      search('video'),
     ]);
+    final uploads = {
+      for (final row in [...animation, ...all]) '${row['bvid']}': row,
+    }.values;
+    // Commentary, music, art and game zones seldom hold an episode, though
+    // uploaders file episodes under many others.
+    bool aside(Json row) => _asideZones.contains('${row['typeid']}');
     return [
-      for (final row in objects(object(results[0]['data'])['result']))
-        ?season(row),
-      for (final row in objects(object(results[1]['data'])['result']))
-        ?video(row),
+      for (final row in seasons) ?season(row),
+      for (final row in uploads.where((row) => !aside(row))) ?video(row),
+      for (final row in uploads.where(aside)) ?video(row),
     ];
   }
 
@@ -156,6 +189,7 @@ class BilibiliEngine implements OnlineSourceEngine {
         for (final page in objects(data['pages']))
           SourceEpisode(
             label: 'P${page['page']} · ${page['part']}',
+            part: '${page['part']}',
             description: switch (_integer(page['duration'])) {
               final seconds? => _clock(seconds),
               null => null,
@@ -172,21 +206,35 @@ class BilibiliEngine implements OnlineSourceEngine {
           ),
       ];
     }
+    return seasonEpisodes(subject, cancel: cancel);
+  }
+
+  /// A season's episodes. Members-only ones (status 13) do not play for a
+  /// guest, so they are left out unless [members], as their comments still
+  /// load.
+  Future<List<SourceEpisode>> seasonEpisodes(
+    SourceSubject subject, {
+    bool members = false,
+    RequestCancellation? cancel,
+  }) async {
+    await guest(cancel);
     final value = await request('/pgc/view/web/season', {
       'season_id': '${subject.data['seasonId']}',
     }, cancel: cancel);
+    final line = subject.line!;
     return [
-      for (final episode in objects(object(value['result'])['episodes']))
+      for (final episode in objects(
+        object(value['result'])['episodes'],
+      ).where((episode) => members || episode['status'] != 13))
         SourceEpisode(
           label:
               '第${episode['title']}话 · ${episode['long_title']}${episode['badge'] == '' ? '' : ' · ${episode['badge']}'}',
-          line: '官方番剧',
+          line: line,
           ref: StreamRef(instance.id, {
             'epId': episode['id'],
             'bvid': episode['bvid'],
             'cid': episode['cid'],
-            'members': episode['status'] == 13,
-            'line': '官方番剧',
+            'line': line,
             'url': '${instance.website}/bangumi/play/ep${episode['id']}',
           }),
         ),
@@ -198,9 +246,6 @@ class BilibiliEngine implements OnlineSourceEngine {
     StreamRef ref, {
     RequestCancellation? cancel,
   }) async {
-    if (ref.data['members'] == true) {
-      throw StateError('Bilibili 此集为会员专享，访客无法播放完整正片');
-    }
     await guest(cancel);
     // The season player API caps guests at 480p; official free episodes play
     // through the video player API, whose `try_look` lifts guests to 1080p.
@@ -249,6 +294,27 @@ class BilibiliEngine implements OnlineSourceEngine {
     );
   }
 }
+
+/// Search zones (`typeid`) of commentary (动漫杂谈), music, radio, voice
+/// acting, painting, games, news and official extras.
+const _asideZones = {
+  '253',
+  '130',
+  '28',
+  '31',
+  '59',
+  '193',
+  '29',
+  '243',
+  '267',
+  '257',
+  '162',
+  '17',
+  '172',
+  '136',
+  '51',
+  '152',
+};
 
 /// The track's Bilibili-hosted `upos-` mirror; the primary URL is often a
 /// third-party PCDN edge whose TLS handshakes fail intermittently.

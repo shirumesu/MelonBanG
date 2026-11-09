@@ -104,14 +104,18 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
           subject.line,
           ?subject.year?.toString(),
           if (subject.episodeTotal case final total?) '$total 话',
-          ?subject.description,
+          // A season's notes speak of playback, not comments.
+          if (subject.choosePart) ?subject.description,
           if (subject.danmakuCount case final count?) _comments(count),
         ].join('  '),
         site: subject,
         open: subject.choosePart
             ? () => _video(subject.id)
             : () async => [
-                for (final episode in await _engine.episodes(subject))
+                for (final episode in await _engine.seasonEpisodes(
+                  subject,
+                  members: true,
+                ))
                   DanmakuCandidate(
                     title: episode.label,
                     locator: 'ep${episode.ref.data['epId']}',

@@ -446,22 +446,40 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   ];
 
   /// Entries of an upload or site subject by line; each plays as the
-  /// searched episode or, for a whole-subject search, the one its label
-  /// names.
+  /// searched episode or, for a whole-subject search, the one it names. An
+  /// upload's parts naming the searched episode come first.
   Map<String, List<_Part>> linesOf(
     PlayCandidate parent,
     List<SourceEpisode> rows,
   ) {
     final upload = (parent.target as OnlineTarget).chooseFrom!;
+    final subject = this.subject;
+    final held = subject == null
+        ? null
+        : upload.choosePart
+        ? uploadPartEpisodes(subject, upload.title, [
+            for (final row in rows) row.part!,
+          ])
+        : [
+            for (final row in rows)
+              subject.episodes
+                  .where((e) => sourceEpisodeMatches(row.label, e))
+                  .firstOrNull,
+          ];
+    final order = [for (var i = 0; i < rows.length; i++) i];
+    if (searched case final episode? when held != null) {
+      order.sort((a, b) {
+        int rank(int i) => held[i]?.id == episode.id ? 0 : 1;
+        return rank(a) - rank(b) != 0 ? rank(a) - rank(b) : a - b;
+      });
+    }
     final lines = <String, List<_Part>>{};
-    for (final row in rows) {
+    for (final i in order) {
+      final row = rows[i];
       (lines[row.line] ??= []).add((
         onlinePartCandidate(parent, upload, row),
         row,
-        searched ??
-            subject?.episodes
-                .where((e) => sourceEpisodeMatches(row.label, e))
-                .firstOrNull,
+        searched ?? held?[i],
       ));
     }
     return lines;

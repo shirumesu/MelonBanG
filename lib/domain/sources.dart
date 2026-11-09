@@ -152,9 +152,14 @@ final class SourceEpisode {
     required this.line,
     required this.ref,
     this.description,
+    this.part,
   });
   final String label, line;
   final String? description;
+
+  /// The name an uploader gave this part of an upload, which may state the
+  /// episode it holds (`第6话`, `06`, `(6)`).
+  final String? part;
   final StreamRef ref;
 }
 
