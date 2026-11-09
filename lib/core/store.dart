@@ -14,6 +14,11 @@ class AppStore {
   final Database database;
   static Future<AppStore> open(String path) async {
     sqfliteFfiInit();
+    // Dart binds each native SQLite call on its first use by opening the
+    // library file again. A bundle replaced while the app runs (a rebuild,
+    // an upgrade in place) then loads a second, uninitialized SQLite, and
+    // closing the database through it at quit crashes; close once now.
+    await (await databaseFactoryFfi.openDatabase(inMemoryDatabasePath)).close();
     return AppStore._(
       await databaseFactoryFfi.openDatabase(
         path,
