@@ -1,5 +1,7 @@
 #include "flutter_window.h"
 
+#include <flutter/standard_method_codec.h>
+
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
@@ -25,6 +27,25 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  system_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "org.melonbang/system",
+          &flutter::StandardMethodCodec::GetInstance());
+  system_channel_->SetMethodCallHandler(
+      [hwnd = GetHandle()](
+          const flutter::MethodCall<flutter::EncodableValue>& call,
+          std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+              result) {
+        if (call.method_name() == "quit") {
+          result->Success();
+          // Closed from the message loop, after this call returns: the
+          // window's WM_CLOSE destroys the view and the engine, which cannot
+          // happen while Dart is running, and then leaves the loop.
+          ::PostMessage(hwnd, WM_CLOSE, 0, 0);
+        } else {
+          result->NotImplemented();
+        }
+      });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -40,6 +61,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  system_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

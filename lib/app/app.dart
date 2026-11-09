@@ -755,13 +755,14 @@ class _MelonAppState extends State<MelonApp>
         if (relaunching) await relaunchAfterExit();
         tray?.hide();
         exiting = true;
-        if (Platform.isMacOS) {
-          // The macOS runner stays open without windows; it quits itself.
-          await Background.quit().catchError((Object _) {});
-        } else {
-          // Closing continues the runner's own WM_CLOSE on Windows, which
-          // destroys its view before leaving the message loop.
+        if (Platform.isLinux) {
           window.close();
+        } else {
+          // The macOS runner stays open without windows and quits itself;
+          // the Windows runner posts its own WM_CLOSE, which destroys its
+          // view before leaving the message loop. window.close() would send
+          // that WM_CLOSE inside this Dart call and hang on the engine.
+          await Background.quit().catchError((Object _) {});
         }
       }
     }

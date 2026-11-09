@@ -90,9 +90,11 @@ abstract final class Background {
         int Function(int, int, Pointer<Void>, int)
       >('SetProcessInformation');
 
-  /// Quits the macOS runner, once the services are closed.
+  /// Quits the macOS or Windows runner, once the services are closed. The
+  /// runner quits after this call returns, since closing the window shuts
+  /// the engine down, which cannot happen while Dart runs.
   static Future<void> quit() async {
-    if (!Platform.isMacOS) return;
+    if (!Platform.isMacOS && !Platform.isWindows) return;
     await _channel.invokeMethod<void>('quit');
   }
 }
