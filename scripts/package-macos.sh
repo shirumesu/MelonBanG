@@ -51,8 +51,21 @@ ditto build/macos/Build/Products/Release/melonbang.app "$app"
 resources=$app/Contents/Resources
 cp LICENSE THIRD_PARTY.md "$resources/"
 mkdir "$resources/licenses"
+# Prints a dependency's LICENSE path wherever pub resolved the package.
+package_license() {
+  python3 - "$1" <<'PY'
+import json, pathlib, sys, urllib.parse
+config = pathlib.Path('.dart_tool/package_config.json')
+for package in json.loads(config.read_text())['packages']:
+    if package['name'] == sys.argv[1]:
+        uri = urllib.parse.urlparse(package['rootUri'])
+        root = (pathlib.Path(urllib.parse.unquote(uri.path)) if uri.scheme == 'file'
+                else (config.parent / package['rootUri']).resolve())
+        print(root / 'LICENSE')
+PY
+}
 for plugin in media_kit_video libtorrent_flutter; do
-  cp "vendor/$plugin/LICENSE" "$resources/licenses/$plugin.txt"
+  cp "$(package_license "$plugin")" "$resources/licenses/$plugin.txt"
 done
 
 # A local build carries whatever identity Signing.local.xcconfig names, with

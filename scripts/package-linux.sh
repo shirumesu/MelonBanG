@@ -56,8 +56,21 @@ app=$staging/MelonBanG.AppDir
 cp -a build/linux/x64/release/bundle "$app"
 mkdir -p "$app/licenses" "$app/lib/fallback"
 cp LICENSE THIRD_PARTY.md "$app/licenses/"
+# Prints a dependency's LICENSE path wherever pub resolved the package.
+package_license() {
+  python3 - "$1" <<'PY'
+import json, pathlib, sys, urllib.parse
+config = pathlib.Path('.dart_tool/package_config.json')
+for package in json.loads(config.read_text())['packages']:
+    if package['name'] == sys.argv[1]:
+        uri = urllib.parse.urlparse(package['rootUri'])
+        root = (pathlib.Path(urllib.parse.unquote(uri.path)) if uri.scheme == 'file'
+                else (config.parent / package['rootUri']).resolve())
+        print(root / 'LICENSE')
+PY
+}
 for plugin in media_kit_video libtorrent_flutter; do
-  cp "vendor/$plugin/LICENSE" "$app/licenses/$plugin.txt"
+  cp "$(package_license "$plugin")" "$app/licenses/$plugin.txt"
 done
 
 # Pinned: a later list may start or stop excluding a library.

@@ -17,11 +17,13 @@ There is no Node.js or Electron process and no external transcoding service.
 | Transparent Akkarin (`assets/images/akkarin.png`) | Artwork placeholder | Fan illustration from [Moegirlpedia Commons](https://zh.moegirl.org.cn/File:Transparent_Akkarin.jpg); license not stated by the host |
 
 The pinned package versions are in `pubspec.lock`. Flutter's generated asset
-bundle includes the registered Dart package license notices. The local
-media_kit_video override retains its upstream license and documents its native
-patches in `vendor/media_kit_video/PATCHES.md`. The macOS native libraries override
-uses upstream checksum-pinned Swift Package Manager artifacts, documented in
-`vendor/media_kit_libs_macos_video/PATCHES.md`.
+bundle includes the registered Dart package license notices. media_kit_video and
+the macOS and Windows native libraries packages come from the `melonbang` branch of
+[shirumesu/media-kit](https://github.com/shirumesu/media-kit/tree/melonbang), pinned
+to a commit in `pubspec.yaml`: upstream main plus one commit per patch, each
+explaining the fix. They keep the upstream MIT license. The macOS libraries use
+upstream checksum-pinned Swift Package Manager artifacts; the Windows x64 libraries
+use mpv's own weekly build, pinned by name and MD5.
 
 The local libtorrent_flutter override includes its license and recovery patch in
 `vendor/libtorrent_flutter/PATCHES.md`. Windows CMake pins the native vcpkg registry

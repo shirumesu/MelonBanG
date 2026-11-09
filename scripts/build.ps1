@@ -46,8 +46,13 @@ try {
   Copy-Item -LiteralPath (Join-Path $projectDirectory 'THIRD_PARTY.md') -Destination $releaseDirectory
   $licensesDirectory = Join-Path $releaseDirectory 'licenses'
   New-Item -ItemType Directory -Force $licensesDirectory | Out-Null
+  # Each package's LICENSE, wherever pub resolved it (git, hosted or path).
+  $packageConfigDirectory = [Uri]::new((Join-Path $projectDirectory '.dart_tool') + [IO.Path]::DirectorySeparatorChar)
+  $packageConfig = Get-Content -LiteralPath (Join-Path $projectDirectory '.dart_tool/package_config.json') -Raw | ConvertFrom-Json
   foreach ($pluginName in @('media_kit_video', 'libtorrent_flutter')) {
-    Copy-Item -LiteralPath (Join-Path $projectDirectory "vendor/$pluginName/LICENSE") -Destination (Join-Path $licensesDirectory "$pluginName.txt")
+    $package = $packageConfig.packages | Where-Object name -EQ $pluginName
+    $packageRoot = [Uri]::new($packageConfigDirectory, $package.rootUri).LocalPath
+    Copy-Item -LiteralPath (Join-Path $packageRoot 'LICENSE') -Destination (Join-Path $licensesDirectory "$pluginName.txt")
   }
   $nativeShare = Join-Path $projectDirectory 'build/windows/x64/vcpkg_installed/x64-windows-static-md/share'
   Get-ChildItem -LiteralPath $nativeShare -Directory | ForEach-Object {

@@ -341,23 +341,29 @@ packages:
   media_kit_libs_macos_video:
     dependency: "direct main"
     description:
-      path: "vendor/media_kit_libs_macos_video"
-      relative: true
-    source: path
+      path: "libs/macos/media_kit_libs_macos_video"
+      ref: "2cf310858c6c8fb782a84f41e0c4034b13c2ff99"
+      resolved-ref: "2cf310858c6c8fb782a84f41e0c4034b13c2ff99"
+      url: "https://github.com/shirumesu/media-kit.git"
+    source: git
     version: "1.1.5"
   media_kit_libs_windows_video:
     dependency: "direct main"
     description:
-      path: "vendor/media_kit_libs_windows_video"
-      relative: true
-    source: path
-    version: "1.0.11"
+      path: "libs/windows/media_kit_libs_windows_video"
+      ref: "2cf310858c6c8fb782a84f41e0c4034b13c2ff99"
+      resolved-ref: "2cf310858c6c8fb782a84f41e0c4034b13c2ff99"
+      url: "https://github.com/shirumesu/media-kit.git"
+    source: git
+    version: "1.0.12"
   media_kit_video:
     dependency: "direct main"
     description:
-      path: "vendor/media_kit_video"
-      relative: true
-    source: path
+      path: media_kit_video
+      ref: "2cf310858c6c8fb782a84f41e0c4034b13c2ff99"
+      resolved-ref: "2cf310858c6c8fb782a84f41e0c4034b13c2ff99"
+      url: "https://github.com/shirumesu/media-kit.git"
+    source: git
     version: "2.0.1"
   meta:
     dependency: transitive
