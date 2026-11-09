@@ -69,7 +69,7 @@ for package in json.loads(config.read_text())['packages']:
         print(root / 'LICENSE')
 PY
 }
-for plugin in media_kit_video libtorrent_flutter; do
+for plugin in media_kit_video melon_libtorrent; do
   cp "$(package_license "$plugin")" "$app/licenses/$plugin.txt"
 done
 

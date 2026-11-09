@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:libtorrent_flutter/libtorrent_flutter.dart' as lt;
+import 'package:melon_libtorrent/melon_libtorrent.dart' as lt;
 import 'package:path/path.dart' as p;
 
 import '../../core/error_message.dart';
@@ -58,7 +58,7 @@ class LibtorrentTransfer implements TorrentTransfer {
     settings = value;
     if (_initializing != null) {
       await _initializing;
-      lt.LibtorrentFlutter.instance.configureSession(_engineConfig(settings));
+      lt.MelonLibtorrent.instance.configureSession(_engineConfig(settings));
       _schedule();
     }
     for (final task in _tasks.values) {
@@ -137,13 +137,16 @@ class LibtorrentTransfer implements TorrentTransfer {
   Future<void> _engine() => _initializing ??= () async {
     await Directory(directory).create(recursive: true);
     await Directory(p.join(directory, 'metadata')).create(recursive: true);
-    await lt.LibtorrentFlutter.init(
+    await lt.MelonLibtorrent.init(
       defaultSavePath: directory,
       fetchTrackers: false,
+      userAgent: 'Melonbang/1.0',
+      peerFingerprint: '-MB1000-',
+      handshakeClientVersion: 'Melonbang/1.0',
     );
-    lt.LibtorrentFlutter.instance.configureSession(_engineConfig(settings));
+    lt.MelonLibtorrent.instance.configureSession(_engineConfig(settings));
     _lastTick = _clock.elapsedMilliseconds;
-    _subscription = lt.LibtorrentFlutter.instance.torrentUpdates.listen(
+    _subscription = lt.MelonLibtorrent.instance.torrentUpdates.listen(
       _update,
     );
   }();
@@ -198,7 +201,7 @@ class LibtorrentTransfer implements TorrentTransfer {
         'complete': !checking && info.isFinished,
       });
       if (!wasComplete && task['complete'] == true) {
-        lt.LibtorrentFlutter.instance.saveResume(
+        lt.MelonLibtorrent.instance.saveResume(
           entry.value,
           _resumePath(task),
         );
@@ -230,7 +233,7 @@ class LibtorrentTransfer implements TorrentTransfer {
       if (info.hasMetadata && refreshFiles) {
         filesRead = true;
         _fileReadAt[id] = now;
-        _files[id] = lt.LibtorrentFlutter.instance
+        _files[id] = lt.MelonLibtorrent.instance
             .getFiles(entry.value)
             .map(
               (file) => <String, dynamic>{
@@ -259,7 +262,7 @@ class LibtorrentTransfer implements TorrentTransfer {
             'metadata',
             '${task['fingerprint']}.torrent',
           );
-          if (lt.LibtorrentFlutter.instance.saveMetadata(entry.value, path)) {
+          if (lt.MelonLibtorrent.instance.saveMetadata(entry.value, path)) {
             task['metadataPath'] = path;
           }
         }
@@ -331,7 +334,7 @@ class LibtorrentTransfer implements TorrentTransfer {
 
   void _schedule() {
     if (_handles.isEmpty) return;
-    final engine = lt.LibtorrentFlutter.instance;
+    final engine = lt.MelonLibtorrent.instance;
     var downloading = 0, seeding = 0;
     final ordered = [
       ..._tasks.values.where((task) => _streams.containsValue(task['id'])),
@@ -393,7 +396,7 @@ class LibtorrentTransfer implements TorrentTransfer {
 
   void _attach(Json task, {bool restoring = false}) {
     final id = '${task['id']}';
-    final engine = lt.LibtorrentFlutter.instance;
+    final engine = lt.MelonLibtorrent.instance;
     final metadata = task['metadataPath'];
     final localMetadata = metadata != null && File('$metadata').existsSync();
     final resume = restoring && File(_resumePath(task)).existsSync();
@@ -621,7 +624,7 @@ class LibtorrentTransfer implements TorrentTransfer {
     final task = _task(id);
     if (task['complete'] != true) throw StateError('文件尚未下载完成');
     if (_handles.remove(id) case final handle?) {
-      lt.LibtorrentFlutter.instance.removeTorrent(handle);
+      lt.MelonLibtorrent.instance.removeTorrent(handle);
     }
     _forget(id);
     final files = _files[id]!;
@@ -712,12 +715,12 @@ class LibtorrentTransfer implements TorrentTransfer {
     if (task == null) return;
     for (final stream
         in _streams.entries.where((entry) => entry.value == id).toList()) {
-      lt.LibtorrentFlutter.instance.stopStream(stream.key);
+      lt.MelonLibtorrent.instance.stopStream(stream.key);
       _streams.remove(stream.key);
     }
     final handle = _handles.remove(id);
     if (handle != null) {
-      lt.LibtorrentFlutter.instance.removeTorrent(handle, deleteFiles: true);
+      lt.MelonLibtorrent.instance.removeTorrent(handle, deleteFiles: true);
     }
     _files.remove(id);
     _forget(id);
@@ -794,7 +797,7 @@ class LibtorrentTransfer implements TorrentTransfer {
     final selected = media(id, fileId: fileId);
     if (!selected.incomplete) return selected;
     await resume(id);
-    final stream = lt.LibtorrentFlutter.instance.startStream(
+    final stream = lt.MelonLibtorrent.instance.startStream(
       _handles[id]!,
       fileIndex: int.parse(selected.file.id),
     );
@@ -807,7 +810,7 @@ class LibtorrentTransfer implements TorrentTransfer {
   void releaseStreamsExcept(int? keep) {
     for (final id in _streams.keys.toList()) {
       if (id == keep) continue;
-      lt.LibtorrentFlutter.instance.stopStream(id);
+      lt.MelonLibtorrent.instance.stopStream(id);
       _streams.remove(id);
     }
     _schedule();
@@ -896,7 +899,7 @@ class LibtorrentTransfer implements TorrentTransfer {
         for (final MapEntry(key: id, value: handle) in _handles.entries) {
           final task = _tasks[id]!;
           if (task['status'] != 'checking') {
-            lt.LibtorrentFlutter.instance.saveResume(handle, _resumePath(task));
+            lt.MelonLibtorrent.instance.saveResume(handle, _resumePath(task));
           }
         }
         await Future.wait([
@@ -906,9 +909,9 @@ class LibtorrentTransfer implements TorrentTransfer {
       await _writes;
     } finally {
       await _subscription?.cancel();
-      if (_initializing != null && lt.LibtorrentFlutter.isInitialized) {
+      if (_initializing != null && lt.MelonLibtorrent.isInitialized) {
         _handles.clear();
-        await lt.LibtorrentFlutter.instance.dispose();
+        await lt.MelonLibtorrent.instance.dispose();
       }
       await _changes.close();
     }

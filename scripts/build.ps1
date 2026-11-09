@@ -49,7 +49,7 @@ try {
   # Each package's LICENSE, wherever pub resolved it (git, hosted or path).
   $packageConfigDirectory = [Uri]::new((Join-Path $projectDirectory '.dart_tool') + [IO.Path]::DirectorySeparatorChar)
   $packageConfig = Get-Content -LiteralPath (Join-Path $projectDirectory '.dart_tool/package_config.json') -Raw | ConvertFrom-Json
-  foreach ($pluginName in @('media_kit_video', 'libtorrent_flutter')) {
+  foreach ($pluginName in @('media_kit_video', 'melon_libtorrent')) {
     $package = $packageConfig.packages | Where-Object name -EQ $pluginName
     $packageRoot = [Uri]::new($packageConfigDirectory, $package.rootUri).LocalPath
     Copy-Item -LiteralPath (Join-Path $packageRoot 'LICENSE') -Destination (Join-Path $licensesDirectory "$pluginName.txt")

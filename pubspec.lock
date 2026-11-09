@@ -291,13 +291,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.0"
-  libtorrent_flutter:
-    dependency: "direct main"
-    description:
-      path: "vendor/libtorrent_flutter"
-      relative: true
-    source: path
-    version: "2.0.0"
   lints:
     dependency: transitive
     description:
@@ -365,6 +358,15 @@ packages:
       url: "https://github.com/shirumesu/media-kit.git"
     source: git
     version: "2.0.1"
+  melon_libtorrent:
+    dependency: "direct main"
+    description:
+      path: "."
+      ref: "63f7c57a91536bed9ae28ccb8d401294c2868529"
+      resolved-ref: "63f7c57a91536bed9ae28ccb8d401294c2868529"
+      url: "https://github.com/shirumesu/melon_libtorrent.git"
+    source: git
+    version: "0.1.0"
   meta:
     dependency: transitive
     description:
