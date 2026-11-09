@@ -9,7 +9,7 @@ There is no Node.js or Electron process and no external transcoding service.
 | Flutter | Window and scene rendering | [BSD-3-Clause](https://github.com/flutter/flutter/blob/master/LICENSE) |
 | media_kit / media_kit_video | Dart player API and texture integration | [MIT](https://github.com/media-kit/media-kit/blob/main/LICENSE) |
 | libmpv / bundled video libraries | Native media decoding and ASS subtitles | [media-kit native build sources and notices](https://github.com/media-kit/libmpv) |
-| melon_libtorrent 0.1.0 | Dart FFI bindings, native torrent bridge and streaming server | [GPL-3.0](https://github.com/shirumesu/melon_libtorrent/blob/main/LICENSE); fork of [libtorrent_flutter](https://pub.dev/packages/libtorrent_flutter) 2.0.0 |
+| melon_libtorrent 0.1.1 | Dart FFI bindings, native torrent bridge and streaming server | [GPL-3.0](https://github.com/shirumesu/melon_libtorrent/blob/main/LICENSE); fork of [libtorrent_flutter](https://pub.dev/packages/libtorrent_flutter) 2.0.0 |
 | libtorrent | BitTorrent protocol implementation | [Upstream licenses](https://github.com/arvidn/libtorrent/blob/RC_2_1/LICENSE) |
 | SQLite | Local database | [Public domain](https://sqlite.org/copyright.html) |
 | Resource Han Rounded 0.990 (CN Regular, Bold) | Bundled interface typeface | [SIL OFL 1.1](https://github.com/CyanoHao/Resource-Han-Rounded); full text in `assets/fonts/OFL.txt` |
@@ -28,8 +28,8 @@ use mpv's own weekly build, pinned by name and MD5.
 [melon_libtorrent](https://pub.dev/packages/melon_libtorrent) grew out of this
 app's copy of libtorrent_flutter; its README lists the changes. Each platform uses the
 bridge library prebuilt for the package's GitHub Release and verified against the
-SHA-256 pinned in the package: libtorrent 2.1.2 and OpenSSL 3.6.5 (2.1.1 and 3.6.4 from
-vcpkg on Windows), linked statically into one bundled library, with Boost used for its
+SHA-256 pinned in the package: libtorrent 2.1.2 and OpenSSL 3.6.5 on every platform
+(from vcpkg on Windows), linked statically into one bundled library, with Boost used for its
 headers only. Native license notices ship in the package's `licenses` folder and are
 included in Flutter's license bundle.
 See [OpenSSL's license](https://www.openssl.org/source/license.html) and

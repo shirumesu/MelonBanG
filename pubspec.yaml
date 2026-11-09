@@ -43,7 +43,7 @@ dependencies:
   xml: ^7.0.1
   crypto: ^3.0.7
   sqflite_common_ffi: ^2.4.2+1
-  melon_libtorrent: ^0.1.0
+  melon_libtorrent: ^0.1.1
   ffi: ^2.2.0
   protobuf: ^6.0.0
   html: ^0.15.7

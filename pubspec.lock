@@ -362,10 +362,10 @@ packages:
     dependency: "direct main"
     description:
       name: melon_libtorrent
-      sha256: cbcd3eb56942cf09bceb99e3a4ffd071db1015bfa820217bb265e86036b75e8a
+      sha256: "4d50da1646623cf47f8878585a09b629f9655313277574b60ef1b82f285f9590"
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.0"
+    version: "0.1.1"
   meta:
     dependency: transitive
     description:
