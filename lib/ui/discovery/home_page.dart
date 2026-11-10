@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../domain/catalog.dart';
 import '../../features/discovery/continue_range.dart';
 import '../../features/discovery/discovery_controller.dart';
+import '../../features/discovery/schedule_filter.dart';
 import '../../features/playback/playback_library.dart';
 import '../../features/playback/resume_controller.dart';
 import '../../features/tracking/tracking_controller.dart';
@@ -40,10 +41,14 @@ class HomePage extends StatelessWidget {
     required this.onOpenSubject,
     required this.onPlayEpisode,
     required this.onOpenTracking,
+    required this.scheduleFilter,
     this.range = ContinueRange.all,
     this.subscriptions = const {},
   });
   final DiscoveryController discovery;
+
+  /// The schedule page's filter, which 今日更新 follows.
+  final SchedulePreference scheduleFilter;
   final TrackingController personal;
   final ResumeController resume;
   final VoidCallback onExplore, onCalendar, onRefresh, onOpenTracking;
@@ -59,7 +64,7 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([discovery, personal, resume]),
+    listenable: Listenable.merge([discovery, personal, resume, scheduleFilter]),
     builder: (context, _) => LayoutBuilder(builder: _layout),
   );
 
@@ -91,8 +96,15 @@ class HomePage extends StatelessWidget {
         onOpen: onOpenSubject,
       );
     }
+    final now = DateTime.now();
+    final filter = scheduleFilter.value;
+    final listedToday = [
+      for (final item in today)
+        if (filter.accepts(item, now)) item,
+    ];
     final timeline = TodayTimeline(
-      items: today,
+      items: listedToday,
+      hidden: today.length - listedToday.length,
       loading: discovery.todayLoading,
       error: discovery.todayError,
       watchingIds: {for (final item in watching) item.id},
@@ -108,7 +120,7 @@ class HomePage extends StatelessWidget {
     }
     // A show airs within the range while the schedule lists it or an episode
     // of it airs on or after the range's first day; one not known yet stays.
-    final from = range.from(DateTime.now());
+    final from = range.from(now);
     bool inRange(Subject item) {
       if (from == null || airings[item.id] != null) return true;
       final dates = [

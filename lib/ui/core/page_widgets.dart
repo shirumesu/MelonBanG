@@ -233,9 +233,14 @@ class HeadedPanel extends StatelessWidget {
                 const SizedBox(width: 6),
                 Text(title, style: text.titleSmall),
                 const SizedBox(width: Gap.sm),
-                if (detail case final detail?)
-                  Text(detail, style: text.bodySmall),
-                const Spacer(),
+                Expanded(
+                  child: Text(
+                    detail ?? '',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.bodySmall,
+                  ),
+                ),
                 ?action,
               ],
             ),

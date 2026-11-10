@@ -3,7 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../core/json.dart' show coverAddress;
+import '../../core/json.dart' show coverAddress, coverOriginal;
 import '../../domain/catalog.dart';
 import '../tracking/collection_labels.dart';
 import 'cached_image.dart';
@@ -572,11 +572,15 @@ class SubjectCover extends StatefulWidget {
     this.title = '',
     this.id = 0,
     this.fit = BoxFit.cover,
+    this.viewable = false,
   });
   final Object? url;
   final String title;
   final int id;
   final BoxFit fit;
+
+  /// Whether a click or Enter on the cover opens it large.
+  final bool viewable;
 
   @override
   State<SubjectCover> createState() => _SubjectCoverState();
@@ -660,33 +664,231 @@ class _SubjectCoverState extends State<SubjectCover> {
           ? SizedBox.expand(key: ValueKey('placeholder:$id'), child: fallback)
           : LayoutBuilder(
               key: ValueKey('$id:$address'),
-              builder: (context, constraints) => CachedImage(
-                url: address,
-                cacheWidth: imageDecodeWidth(
-                  context,
-                  constraints.maxWidth.isFinite ? constraints.maxWidth : 512,
-                ),
-                fit: widget.fit,
-                onMissing: (address) {
-                  setState(() => _unusable.add(address));
-                  _resolve();
-                },
-                frameBuilder: (context, child, frame, synchronous) => Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    fallback,
-                    AnimatedOpacity(
-                      opacity: frame == null ? 0 : 1,
-                      duration: synchronous
-                          ? Duration.zero
-                          : motionDuration(context),
-                      child: child,
-                    ),
-                  ],
-                ),
-                errorBuilder: (_, _, _) => fallback,
-              ),
+              builder: (context, constraints) {
+                final image = CachedImage(
+                  url: address,
+                  cacheWidth: imageDecodeWidth(
+                    context,
+                    constraints.maxWidth.isFinite ? constraints.maxWidth : 512,
+                  ),
+                  fit: widget.fit,
+                  onMissing: (address) {
+                    setState(() => _unusable.add(address));
+                    _resolve();
+                  },
+                  frameBuilder: (context, child, frame, synchronous) => Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      fallback,
+                      AnimatedOpacity(
+                        opacity: frame == null ? 0 : 1,
+                        duration: synchronous
+                            ? Duration.zero
+                            : motionDuration(context),
+                        child: child,
+                      ),
+                    ],
+                  ),
+                  errorBuilder: (_, _, _) => fallback,
+                );
+                return widget.viewable
+                    ? _ViewableCover(
+                        address: address,
+                        title: title,
+                        child: image,
+                      )
+                    : image;
+              },
             ),
     );
   }
+}
+
+/// A cover that opens large on a click or Enter: it lightens a little under
+/// the pointer and takes a ring when reached from the keyboard.
+class _ViewableCover extends StatefulWidget {
+  const _ViewableCover({
+    required this.address,
+    required this.title,
+    required this.child,
+  });
+  final String address, title;
+  final Widget child;
+
+  @override
+  State<_ViewableCover> createState() => _ViewableCoverState();
+}
+
+class _ViewableCoverState extends State<_ViewableCover> {
+  bool hovered = false, focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final ring =
+        focused &&
+        FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
+    return Tooltip(
+      message: '查看大图',
+      child: InkWell(
+        onTap: () =>
+            showCover(context, address: widget.address, title: widget.title),
+        onHover: (value) => setState(() => hovered = value),
+        onFocusChange: (value) => setState(() => focused = value),
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        borderRadius: posterBorderRadius,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            widget.child,
+            IgnorePointer(
+              child: AnimatedContainer(
+                duration: motionDuration(context, 120),
+                curve: Curves.easeOut,
+                decoration: BoxDecoration(
+                  borderRadius: posterBorderRadius,
+                  color: hovered
+                      ? Colors.white.withValues(alpha: .06)
+                      : Colors.transparent,
+                  border: ring
+                      ? Border.all(
+                          color: Theme.of(context).colorScheme.primary,
+                          width: 2,
+                        )
+                      : null,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shows the cover at [address] large. A Bangumi cover opens as uploaded,
+/// over the 400 px rendition the pages already hold until it has loaded.
+Future<void> showCover(
+  BuildContext context, {
+  required String address,
+  String title = '',
+}) => showMelonDialog<void>(
+  context: context,
+  builder: (context) => _CoverViewer(address: address, title: title),
+);
+
+class _CoverViewer extends StatelessWidget {
+  const _CoverViewer({required this.address, required this.title});
+  final String address, title;
+
+  @override
+  Widget build(BuildContext context) {
+    final window = MediaQuery.sizeOf(context);
+    // As tall as the window allows; the width follows the picture's shape.
+    final height = math.min(window.height - 2 * Gap.xl, 960.0);
+    final original = coverOriginal(address);
+    // The box until the picture's own shape is known.
+    Widget blank([Widget? child]) =>
+        AspectRatio(aspectRatio: .72, child: child ?? const SizedBox.expand());
+    return Dialog(
+      clipBehavior: Clip.antiAlias,
+      insetPadding: const EdgeInsets.all(Gap.xl),
+      child: Semantics(
+        label: title.isEmpty ? '封面' : '$title 封面',
+        image: true,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            InteractiveViewer(
+              maxScale: 4,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    height: height,
+                    child: CachedImage(
+                      url: address,
+                      fit: BoxFit.contain,
+                      frameBuilder: (_, child, frame, _) =>
+                          frame == null ? blank() : child,
+                      errorBuilder: (_, _, _) =>
+                          blank(CoverPlaceholder(label: title)),
+                    ),
+                  ),
+                  if (original != address)
+                    Positioned.fill(
+                      child: CachedImage(
+                        url: original,
+                        fit: BoxFit.contain,
+                        frameBuilder: (context, child, frame, synchronous) =>
+                            Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                AnimatedOpacity(
+                                  opacity: frame == null ? 0 : 1,
+                                  duration: synchronous
+                                      ? Duration.zero
+                                      : motionDuration(context, 240),
+                                  curve: Curves.easeOut,
+                                  child: child,
+                                ),
+                                if (frame == null)
+                                  const Align(
+                                    alignment: Alignment.bottomCenter,
+                                    child: LinearProgressIndicator(
+                                      minHeight: 2,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                        errorBuilder: (_, _, _) => const Align(
+                          alignment: Alignment.bottomCenter,
+                          child: _CoverNote('原图加载失败'),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Positioned(
+              top: Gap.sm,
+              right: Gap.sm,
+              child: IconButton(
+                tooltip: '关闭图片',
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black.withValues(alpha: .45),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close, size: 18),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A line over the large cover, readable on any picture.
+class _CoverNote extends StatelessWidget {
+  const _CoverNote(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.all(Gap.md),
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: .55),
+        borderRadius: badgeBorderRadius,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Gap.sm, vertical: 4),
+        child: Text(
+          text,
+          style: const TextStyle(fontSize: 12, color: Colors.white),
+        ),
+      ),
+    ),
+  );
 }

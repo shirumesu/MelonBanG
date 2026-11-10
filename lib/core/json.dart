@@ -31,3 +31,12 @@ String? coverAddress(Object? value) {
       ? address
       : 'https://lain.bgm.tv/r/400/pic/cover/l/${cover[1]}';
 }
+
+/// The cover at [address] as it was uploaded, for viewing it large; an
+/// address that is not a Bangumi cover stays as it is.
+String coverOriginal(String address) {
+  final cover = _bangumiCover.firstMatch(address);
+  return cover == null
+      ? address
+      : 'https://lain.bgm.tv/pic/cover/l/${cover[1]}';
+}

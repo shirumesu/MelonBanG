@@ -1335,6 +1335,7 @@ class _MelonAppState extends State<MelonApp>
           onCalendar: () => navigate('calendar'),
           onRefresh: refreshHome,
           onOpenSubject: openSubject,
+          scheduleFilter: scheduleFilter,
           range: continueRange.value,
           subscriptions: {
             for (final subscription

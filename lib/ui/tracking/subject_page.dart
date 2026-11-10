@@ -893,6 +893,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                     url: item.coverUrl,
                     title: item.title,
                     id: item.id,
+                    viewable: true,
                   ),
                 ),
               ),

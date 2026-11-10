@@ -51,8 +51,12 @@ class TodayTimeline extends StatefulWidget {
     required this.onOpen,
     required this.onCalendar,
     required this.onRetry,
+    this.hidden = 0,
   });
   final List<Subject> items;
+
+  /// How many of today's shows the schedule's filter leaves out of [items].
+  final int hidden;
   final bool loading;
   final String? error;
   final Set<int> watchingIds;
@@ -105,19 +109,26 @@ class _TodayTimelineState extends State<TodayTimeline> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (widget.loading) ...[
+            if (widget.loading && widget.hidden == 0) ...[
               const SizedBox(width: 160, child: LinearProgressIndicator()),
               const SizedBox(height: Gap.md),
             ],
             Text(
-              widget.loading
+              widget.hidden > 0
+                  ? '筛选后今日没有番剧'
+                  : widget.loading
                   ? '正在加载今日放送…'
                   : widget.error != null
                   ? '暂时无法加载今日放送'
                   : '今日暂无放送数据',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            if (!widget.loading && widget.error != null)
+            if (widget.hidden > 0)
+              TextButton(
+                onPressed: widget.onCalendar,
+                child: const Text('到时间表调整筛选'),
+              )
+            else if (!widget.loading && widget.error != null)
               TextButton(onPressed: widget.onRetry, child: const Text('重试')),
           ],
         ),
@@ -153,7 +164,11 @@ class _TodayTimelineState extends State<TodayTimeline> {
     return HeadedPanel(
       icon: Icons.calendar_today_outlined,
       title: '今日更新',
-      detail: items.isEmpty ? null : '已更新 $airedCount/${items.length}',
+      detail: [
+        if (items.isNotEmpty) '已更新 $airedCount/${items.length}',
+        if (widget.hidden > 0)
+          items.isEmpty ? '隐藏 ${widget.hidden} 部' : '（隐藏 ${widget.hidden} 部）',
+      ].join(),
       action: TextButton(
         onPressed: widget.onCalendar,
         child: const Text('时间表'),
