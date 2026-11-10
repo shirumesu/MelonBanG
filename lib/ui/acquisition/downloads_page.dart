@@ -303,9 +303,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   Widget _page(BuildContext context, TransferSnapshot snapshot) {
     final tasks = snapshot.tasks;
+    final subscriptions = widget.subscriptions;
     final visible = tasks.where((t) {
-      final category =
-          filter == '全部' || (filter == '已缓存' ? t.complete : !t.complete);
+      final category = switch (filter) {
+        '进行中' => !t.complete,
+        '已缓存' => t.complete,
+        '订阅中' => subscriptions.subscriptions.containsKey(t.subjectId),
+        _ => true,
+      };
       final status = switch (statusFilter) {
         '已暂停' => t.status == DownloadStatus.paused,
         '失败' => t.status == DownloadStatus.failed,
@@ -334,7 +339,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
     }
     bool complete(List<DownloadTask> entry) => entry.every((t) => t.complete);
     // Subscriptions needing the user lead their group.
-    final subscriptions = widget.subscriptions;
     final warned = <int?, bool>{};
     bool warns(List<DownloadTask> entry) => warned[entry.first.subjectId] ??=
         switch (subscriptions.subscriptions[entry.first.subjectId]) {
@@ -347,13 +351,19 @@ class _DownloadsPageState extends State<DownloadsPage> {
     ];
     final active = leading(entries.where((e) => !complete(e)));
     final cached = leading(entries.where(complete));
-    // Subscribed shows yet to cache anything wait among the active ones.
+    // Subscribed shows yet to cache anything have a group of their own;
+    // the 订阅中 filter shows them with the subscribed shows' caches.
     final waiting = [
-      if (filter != '已缓存' && statusFilter == '全部状态')
+      if ((filter == '全部' || filter == '订阅中') && statusFilter == '全部状态')
         for (final subscription in subscriptions.subscriptions.values)
           if (!tasks.any((task) => task.subjectId == subscription.subjectId))
             subscription,
     ];
+    final groups = [
+      ('进行中', active, const <Subscription>[]),
+      ('订阅中', const <List<DownloadTask>>[], waiting),
+      ('已缓存', cached, const <Subscription>[]),
+    ].where((group) => group.$2.isNotEmpty || group.$3.isNotEmpty).toList();
     // Entries joining a group once the page shows some fade in, such as a
     // task that finished moving to 已缓存.
     final hadEntries = shown.values.any((ids) => ids.isNotEmpty);
@@ -420,9 +430,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             SizedBox(
-              width: 290,
+              width: 386,
               child: MelonSegmentedControl<String>(
-                options: const {'全部': '全部', '进行中': '进行中', '已缓存': '已缓存'},
+                options: const {
+                  '全部': '全部',
+                  '进行中': '进行中',
+                  '订阅中': '订阅中',
+                  '已缓存': '已缓存',
+                },
                 value: filter,
                 onChanged: (value) => setState(() => filter = value),
               ),
@@ -453,17 +468,13 @@ class _DownloadsPageState extends State<DownloadsPage> {
             padding: const EdgeInsets.only(top: Gap.md),
             child: InlineIssue('$issue。这类缓存暂时不能下载或播放，重新启动应用后再试'),
           ),
-        for (final group in [
-          ('进行中', active, waiting),
-          ('已缓存', cached, const <Subscription>[]),
-        ]) ...[
-          if (group.$2.isNotEmpty || group.$3.isNotEmpty)
-            if (filter == '全部')
-              SectionTitle(
-                title: '${group.$1} ${group.$2.length + group.$3.length}',
-              )
-            else
-              const SizedBox(height: Gap.lg),
+        if (filter != '全部' && groups.isNotEmpty)
+          const SizedBox(height: Gap.lg),
+        for (final group in groups) ...[
+          if (filter == '全部')
+            SectionTitle(
+              title: '${group.$1} ${group.$2.length + group.$3.length}',
+            ),
           for (final subscription in group.$3)
             Padding(
               key: ValueKey('subscription:${subscription.subjectId}'),
