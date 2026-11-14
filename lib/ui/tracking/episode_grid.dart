@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../../domain/catalog.dart';
 import '../core/motion.dart';
+import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
 
@@ -503,6 +504,68 @@ class EpisodeNumber extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// [EpisodeGrid]'s cells in grey while the episodes load: as many as the
+/// subject is known to have, up to the rows the collapsed grid shows, in
+/// its columns, then the legend's line. Until [shown], only the space.
+class EpisodeGridSkeleton extends StatelessWidget {
+  const EpisodeGridSkeleton({super.key, this.count, this.shown = true});
+
+  /// The subject's episode count; a dozen when unknown.
+  final int? count;
+  final bool shown;
+
+  @override
+  Widget build(BuildContext context) {
+    const gap = _EpisodeGridState._gap, height = _EpisodeGridState._height;
+    final small = Theme.of(context).textTheme.bodySmall;
+    return Semantics(
+      label: shown ? '正在加载剧集' : null,
+      child: ExcludeSemantics(
+        child: Opacity(
+          opacity: shown ? 1 : 0,
+          child: MotionPulse(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = math.max(
+                  1,
+                  ((constraints.maxWidth + gap) /
+                          (_EpisodeGridState._minWidth + gap))
+                      .floor(),
+                );
+                final width =
+                    (constraints.maxWidth - gap * (columns - 1)) / columns -
+                    .01;
+                final cells = (count ?? 12).clamp(
+                  1,
+                  _EpisodeGridState._rows * columns,
+                );
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: gap,
+                      runSpacing: gap,
+                      children: [
+                        for (var i = 0; i < cells; i++)
+                          SkeletonBlock(width: width, height: height),
+                      ],
+                    ),
+                    const SizedBox(height: Gap.sm + 2),
+                    SkeletonLine(
+                      style: small?.copyWith(fontSize: 11),
+                      width: 180,
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

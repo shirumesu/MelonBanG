@@ -9,6 +9,7 @@ import '../core/bbcode.dart';
 import '../core/cached_image.dart';
 import '../core/external_link.dart';
 import '../core/motion.dart';
+import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -352,6 +353,102 @@ Widget _portrait(BuildContext context, String? url, double size) {
   );
 }
 
+/// The profile below the header in grey while it loads, once the wait has
+/// lasted [busyDelay]: the summary's lines, then the heading and tiles of
+/// the anime, in [_ProfileView]'s paddings and the tiles' grid.
+class _ProfileSkeleton extends StatelessWidget {
+  const _ProfileSkeleton();
+
+  @override
+  Widget build(BuildContext context) => DelayedBusy(
+    busy: true,
+    builder: (context, shown) => Semantics(
+      label: shown ? '正在加载资料' : null,
+      child: ExcludeSemantics(
+        child: Opacity(
+          opacity: shown ? 1 : 0,
+          child: MotionPulse(child: _body(context)),
+        ),
+      ),
+    ),
+  );
+
+  Widget _body(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+          child: Column(
+            children: [
+              for (final share in const [1.0, .96, .9, .55])
+                SkeletonLine(
+                  style: text.bodyMedium?.copyWith(height: 1.6),
+                  widthFactor: share,
+                ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, Gap.sm),
+          child: SkeletonLine(style: text.titleSmall, width: 72),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // SliverGridDelegateWithMaxCrossAxisExtent's columns.
+              final columns = (constraints.maxWidth / 300).ceil();
+              final width = constraints.maxWidth / columns;
+              return Wrap(
+                children: [
+                  for (var i = 0; i < columns * 2; i++)
+                    SizedBox(
+                      width: width,
+                      height: 68,
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Row(
+                          children: [
+                            const SkeletonBlock(
+                              width: 40,
+                              height: 56,
+                              radius: badgeBorderRadius,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SkeletonLine(
+                                    style: const TextStyle(fontSize: 13),
+                                    widthFactor: const [.7, .5, .6][i % 3],
+                                  ),
+                                  SkeletonLine(
+                                    style: text.bodySmall?.copyWith(
+                                      fontSize: 11,
+                                    ),
+                                    width: 32,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// One character's or person's profile, voice parts and anime.
 class _ProfileView extends StatelessWidget {
   const _ProfileView({
@@ -395,12 +492,7 @@ class _ProfileView extends StatelessWidget {
                 ),
               )
             else if (data == null)
-              const SliverPadding(
-                padding: EdgeInsets.all(32),
-                sliver: SliverToBoxAdapter(
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              )
+              const SliverToBoxAdapter(child: _ProfileSkeleton())
             else ...[
               if (data.summary case final summary?)
                 SliverPadding(
@@ -490,6 +582,33 @@ class _ProfileView extends StatelessWidget {
               if (page.name != page.title)
                 SelectableText(page.name, style: text.bodySmall),
               const SizedBox(height: Gap.sm),
+              if (data == null)
+                for (final share in const [.5, .7, .4])
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: DelayedBusy(
+                      busy: true,
+                      builder: (context, shown) => Row(
+                        children: [
+                          SizedBox(
+                            width: 72,
+                            child: SkeletonLine(
+                              style: text.bodySmall,
+                              width: 40,
+                              shown: shown,
+                            ),
+                          ),
+                          Expanded(
+                            child: SkeletonLine(
+                              style: text.bodySmall,
+                              widthFactor: share,
+                              shown: shown,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
               for (final fact in [...?data?.facts.take(6)])
                 Padding(
                   padding: const EdgeInsets.only(bottom: 2),

@@ -468,8 +468,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
             padding: const EdgeInsets.only(top: Gap.md),
             child: InlineIssue('$issue。这类缓存暂时不能下载或播放，重新启动应用后再试'),
           ),
-        if (filter != '全部' && groups.isNotEmpty)
-          const SizedBox(height: Gap.lg),
+        if (filter != '全部' && groups.isNotEmpty) const SizedBox(height: Gap.lg),
         for (final group in groups) ...[
           if (filter == '全部')
             SectionTitle(
@@ -1278,6 +1277,93 @@ class _SubjectTitleLinkState extends State<_SubjectTitleLink> {
       onEnter: (_) => setState(() => hovered = true),
       onExit: (_) => setState(() => hovered = false),
       child: GestureDetector(onTap: widget.onOpen, child: text),
+    );
+  }
+}
+
+/// The cache page in grey while its tasks are restored, once that has taken
+/// [busyDelay]: the title, the filters' places, then entries in the cards'
+/// shape (cover, title, status badge, 开始观看 and the chevron).
+class DownloadsSkeleton extends StatelessWidget {
+  const DownloadsSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) => DelayedBusy(
+    busy: true,
+    builder: (context, shown) => PageScroll(
+      children: [
+        const SectionTitle(title: '缓存'),
+        if (shown)
+          Semantics(
+            label: '正在恢复缓存任务',
+            child: ExcludeSemantics(
+              child: MotionAppear(
+                offset: 0,
+                milliseconds: 200,
+                child: MotionPulse(child: _body(context)),
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+
+  Widget _body(BuildContext context) {
+    final title = const TextStyle(fontSize: 14, fontWeight: FontWeight.w700);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Wrap(
+          spacing: 12,
+          runSpacing: Gap.md,
+          children: [
+            SkeletonBlock(width: 386, height: 44, radius: controlBorderRadius),
+            SkeletonBlock(width: 108, height: 36, radius: controlBorderRadius),
+          ],
+        ),
+        const SizedBox(height: Gap.lg),
+        for (final share in const [.45, .62, .38])
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: MelonPanel(
+              padding: const EdgeInsets.all(Gap.lg),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SkeletonBlock(
+                    width: 58,
+                    height: 78,
+                    radius: posterBorderRadius,
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SkeletonLine(style: title, widthFactor: share),
+                        const SizedBox(height: Gap.sm),
+                        const SkeletonBlock(width: 64, height: 24),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const SkeletonBlock(
+                    width: 112,
+                    height: 36,
+                    radius: controlBorderRadius,
+                  ),
+                  const SizedBox(width: Gap.sm),
+                  const SkeletonBlock(
+                    width: 24,
+                    height: 24,
+                    radius: BorderRadius.all(Radius.circular(12)),
+                  ),
+                  const SizedBox(width: Gap.sm),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

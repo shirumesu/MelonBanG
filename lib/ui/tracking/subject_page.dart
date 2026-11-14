@@ -512,13 +512,18 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   @override
   Widget build(BuildContext context) {
     final item = widget.subject;
-    if (item == null) return const Center(child: CircularProgressIndicator());
+    // Opened from a card, the page always has one; the title bar shows the
+    // rare load without.
+    if (item == null) return const SizedBox.shrink();
     return PageScroll(
       children: [
         const SizedBox(height: Gap.md),
         LayoutBuilder(
           builder: (context, constraints) {
-            final hero = _hero(item);
+            final hero = DelayedBusy(
+              busy: _loadingPart('base') || _episodesLoading,
+              builder: (context, skeleton) => _hero(item, skeleton: skeleton),
+            );
             final cards = [_collectionCard(item), ?_statsCard(item)];
             if (constraints.maxWidth >= _wideLayout) {
               return Row(
@@ -624,7 +629,9 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     );
   }
 
-  Widget _hero(Subject item) {
+  /// The main panel; [skeleton] once the parts still loading have taken
+  /// [busyDelay], when grey lines hold their places.
+  Widget _hero(Subject item, {required bool skeleton}) {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     final episodes = item.episodes;
@@ -675,7 +682,8 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         )
         .toList();
     final score = item.score ?? 0;
-    final summary = item.summary ?? (_loadingPart('base') ? '正在加载简介…' : '暂无简介');
+    final summaryLoading = item.summary == null && _loadingPart('base');
+    final summary = item.summary ?? '暂无简介';
     final info = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -777,7 +785,11 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (_episodesLoading)
-                    Text('正在加载剧集…', style: text.bodySmall)
+                    SkeletonLine(
+                      style: text.bodySmall,
+                      width: 96,
+                      shown: skeleton,
+                    )
                   else
                     MotionCount(
                       value: watched,
@@ -848,21 +860,35 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           curve: Curves.easeOutCubic,
           alignment: Alignment.topLeft,
           // Selectable folded too: copying it shouldn't need unfolding.
-          child: SelectionArea(
-            child: _summaryExpanded
-                ? Text(
-                    summary,
-                    style: const TextStyle(fontSize: 13, height: 1.75),
-                  )
-                : Text(
-                    summary.replaceAll(RegExp(r'\s+'), ' '),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13, height: 1.75),
-                  ),
-          ),
+          child: summaryLoading
+              ? Column(
+                  children: [
+                    for (final share in const [1.0, .94, .58])
+                      SkeletonLine(
+                        style: const TextStyle(fontSize: 13, height: 1.75),
+                        widthFactor: share,
+                        shown: skeleton,
+                      ),
+                  ],
+                )
+              : SelectionArea(
+                  child: _summaryExpanded
+                      ? Text(
+                          summary,
+                          style: const TextStyle(fontSize: 13, height: 1.75),
+                        )
+                      : Text(
+                          summary.replaceAll(RegExp(r'\s+'), ' '),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13, height: 1.75),
+                        ),
+                ),
         ),
-        if (summary.length > 90)
+        // Most summaries run past three lines: their 展开简介's place.
+        if (summaryLoading)
+          const SizedBox(height: 30)
+        else if (summary.length > 90)
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton(
@@ -918,7 +944,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           },
         ),
         const Divider(height: 28),
-        _episodeSection(episodes, next),
+        _episodeSection(episodes, next, skeleton: skeleton),
       ],
     );
     final wash = accentOf(context).accent;
@@ -952,7 +978,11 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     );
   }
 
-  Widget _episodeSection(List<Episode> episodes, Episode? next) {
+  Widget _episodeSection(
+    List<Episode> episodes,
+    Episode? next, {
+    required bool skeleton,
+  }) {
     final text = Theme.of(context).textTheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -979,9 +1009,9 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         ),
         const SizedBox(height: Gap.sm),
         if (_episodesLoading)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Text('正在加载剧集…'),
+          EpisodeGridSkeleton(
+            count: widget.subject?.episodeTotal,
+            shown: skeleton,
           )
         else if (episodes.isEmpty)
           Padding(

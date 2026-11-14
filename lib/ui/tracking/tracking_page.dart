@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../domain/catalog.dart';
 import '../../features/playback/resume_controller.dart';
 import '../../features/tracking/tracking_controller.dart';
 import '../core/action_feedback.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
@@ -182,6 +185,38 @@ class _TrackingPageState extends State<TrackingPage> {
       return position[a.id]!.compareTo(position[b.id]!);
     });
     final filtered = search.text.isNotEmpty || airingOnly || seasons.isNotEmpty;
+    // Until the saved collection is read, or while the first pull fills an
+    // empty one, an empty grid is not yet known to be empty.
+    final waiting =
+        collection.isEmpty &&
+        (!personal.loaded || (personal.signedIn && personal.syncing));
+    return DelayedBusy(
+      busy: waiting,
+      builder: (context, skeleton) => _scroll(
+        context,
+        personal: personal,
+        collection: collection,
+        items: items,
+        filtered: filtered,
+        years: years,
+        seasonCounts: seasonCounts,
+        skeleton: skeleton,
+        waiting: waiting,
+      ),
+    );
+  }
+
+  Widget _scroll(
+    BuildContext context, {
+    required TrackingController personal,
+    required List<Subject> collection,
+    required List<Subject> items,
+    required bool filtered,
+    required Map<String, List<String>> years,
+    required Map<String, int> seasonCounts,
+    required bool skeleton,
+    required bool waiting,
+  }) {
     return PageScroll(
       children: [
         const SizedBox(height: 8),
@@ -281,11 +316,21 @@ class _TrackingPageState extends State<TrackingPage> {
               icon: Icons.sort,
               tooltip: '追番排序',
             ),
+            if (personal.signedIn)
+              SyncStatus(
+                syncing: personal.syncing,
+                syncedAt: personal.syncedAt,
+                updated: personal.updated.length,
+              ),
           ],
         ),
         const SizedBox(height: Gap.lg),
         _accountIssue(personal),
-        if (collection.isEmpty && !filtered && !personal.signedIn)
+        if (skeleton)
+          const PosterGridSkeleton(tracking: true)
+        else if (waiting)
+          const SizedBox.shrink()
+        else if (collection.isEmpty && !filtered && !personal.signedIn)
           EmptyState(
             text: '还没有收藏的番剧',
             detail: '登录 Bangumi 后同步你在 Bangumi 上的收藏和观看进度',
@@ -316,9 +361,123 @@ class _TrackingPageState extends State<TrackingPage> {
               tracking: true,
               statusBadge: false,
               personalScore: order == _Order.personal,
+              marked: personal.updated,
+              markedAt: personal.syncedAt,
             ),
           ),
       ],
     );
   }
+}
+
+/// The pull from Bangumi, quietly at the end of the filters: a turning
+/// sync mark once it has run [busyDelay], then for a few seconds what it
+/// changed. A quick pull that changed nothing says nothing.
+class SyncStatus extends StatefulWidget {
+  const SyncStatus({
+    super.key,
+    required this.syncing,
+    required this.syncedAt,
+    required this.updated,
+  });
+  final bool syncing;
+  final DateTime? syncedAt;
+
+  /// How many subjects the last pull changed.
+  final int updated;
+
+  @override
+  State<SyncStatus> createState() => _SyncStatusState();
+}
+
+class _SyncStatusState extends State<SyncStatus>
+    with SingleTickerProviderStateMixin {
+  late final _turn = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  );
+
+  /// The result line, while it shows.
+  String? _result;
+  Timer? _hide;
+
+  /// Whether the turning mark showed for the running pull.
+  bool _shown = false;
+
+  @override
+  void didUpdateWidget(SyncStatus oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final finished = widget.syncedAt != oldWidget.syncedAt;
+    if (!finished || widget.syncedAt == null) return;
+    // Within the five minutes a page shown later still rings the posters.
+    if (!_shown && widget.updated == 0) return;
+    _hide?.cancel();
+    _result = widget.updated == 0 ? '已同步' : '已同步 · ${widget.updated} 部有更新';
+    _hide = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _result = null);
+    });
+  }
+
+  @override
+  void dispose() {
+    _hide?.cancel();
+    _turn.dispose();
+    super.dispose();
+  }
+
+  /// Turns while [spinning], then ends its turn so the mark comes to rest
+  /// upright.
+  void _spin(bool spinning) {
+    if (MediaQuery.disableAnimationsOf(context)) return;
+    if (spinning) {
+      if (!_turn.isAnimating) _turn.repeat();
+    } else if (_turn.isAnimating) {
+      _turn.forward().then((_) => _turn.value = 0, onError: (_) {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => DelayedBusy(
+    busy: widget.syncing,
+    builder: (context, spinning) {
+      if (spinning) _shown = true;
+      if (!widget.syncing && !spinning) _shown = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _spin(spinning);
+      });
+      final small = Theme.of(context).textTheme.bodySmall;
+      final (IconData icon, String? label) = spinning
+          ? (Icons.sync_rounded, '正在同步 Bangumi')
+          : (Icons.check_rounded, _result);
+      return Semantics(
+        liveRegion: true,
+        child: AnimatedOpacity(
+          opacity: label == null ? 0 : 1,
+          duration: motionDuration(context, 200),
+          child: label == null
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.only(left: Gap.xs),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      RotationTransition(
+                        turns: _turn,
+                        child: Icon(
+                          icon,
+                          size: 14,
+                          color: spinning
+                              ? small?.color
+                              : accentOf(context).accent,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(label, style: small),
+                    ],
+                  ),
+                ),
+        ),
+      );
+    },
+  );
 }

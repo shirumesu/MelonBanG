@@ -307,16 +307,26 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   }
 
   Future<void> downloadOne(PlayCandidate candidate, {Episode? episode}) async {
-    if (await download(candidate, episode: episode)) offerDownloads(1);
+    if (await download(candidate, episode: episode)) {
+      offerDownloads(1, episode: episode ?? searched);
+    }
   }
 
-  /// Confirms [count] added downloads, with the way to the cache page.
-  void offerDownloads(int count) {
+  /// Confirms [count] added downloads by the show and, for one, its
+  /// [episode], so the message says what went to the cache page, with the
+  /// way there.
+  void offerDownloads(int count, {Episode? episode}) {
     final open = widget.onOpenDownloads;
     if (open == null || count == 0 || !mounted) return;
+    final title = subject?.title;
     showMessage(
       ScaffoldMessenger.of(context),
-      count == 1 ? '已加入缓存' : '已将 $count 话加入缓存',
+      switch ((title, count)) {
+        (null, 1) => '已加入缓存',
+        (null, _) => '已将 $count 话加入缓存',
+        (final title?, 1) => '$title ${episode?.label ?? ''}已加入缓存',
+        (final title?, _) => '已将$title $count 话加入缓存',
+      },
       actionLabel: '查看缓存',
       onAction: open,
     );
@@ -1231,7 +1241,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           )
         // Rows in the table's shape hold the place of results to come.
         : results.visible.isEmpty && candidates.isEmpty
-        ? const MotionAppear(offset: 0, delay: 150, child: _ResultsSkeleton())
+        ? const MotionAppear(offset: 0, delay: 300, child: _ResultsSkeleton())
         : const SizedBox.shrink();
   }
 

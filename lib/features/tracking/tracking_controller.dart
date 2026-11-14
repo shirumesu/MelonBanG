@@ -21,6 +21,28 @@ class TrackingController extends ChangeNotifier {
   /// Why the last pull from Bangumi failed; the saved collection stays.
   String? pullError;
   DateTime? _pulledAt;
+
+  /// Whether the saved collection has been read once; until then an empty
+  /// one is not known to be empty.
+  bool loaded = false;
+
+  /// Whether a pull from Bangumi is running.
+  bool get syncing => _pulls > 0;
+  int _pulls = 0;
+
+  /// The subjects the last pull added or changed (status, progress or
+  /// score); empty after the first pull of an empty collection, which adds
+  /// everything. Kept a few minutes, for a page shown later to mark them.
+  Set<int> get updated =>
+      _syncedAt != null &&
+          DateTime.now().difference(_syncedAt!) < const Duration(minutes: 5)
+      ? _updated
+      : const {};
+  Set<int> _updated = const {};
+
+  /// When the last pull succeeded; it tells marks of one pull from the next.
+  DateTime? get syncedAt => _syncedAt;
+  DateTime? _syncedAt;
   CollectionStatus filter = CollectionStatus.watching;
   bool accountBusy = false;
 
@@ -51,8 +73,14 @@ class TrackingController extends ChangeNotifier {
     if (ticket != _ticket || user != account.userId) return;
     profile = account.profile;
     collection = items;
+    loaded = true;
     notifyListeners();
   }
+
+  static Map<int, Object> _marks(List<Subject> items) => {
+    for (final item in items)
+      item.id: (item.status, item.watchedEpisodes, item.collection?.score),
+  };
 
   /// Pulls the remote collection when signed in, unless the last pull is
   /// under half a minute old; a failure is kept in [pullError].
@@ -65,15 +93,35 @@ class TrackingController extends ChangeNotifier {
       return;
     }
     final user = account.userId;
+    final before = _marks(collection);
     String? error;
+    _pulls++;
+    notifyListeners();
     try {
       await tracking.refresh();
       _pulledAt = DateTime.now();
+      // Read here too, not only on the change event, to tell what changed.
+      await refresh();
     } catch (e) {
       error = errorMessage(e);
+    } finally {
+      _pulls--;
     }
-    if (user != account.userId) return;
+    if (user != account.userId) {
+      notifyListeners();
+      return;
+    }
     pullError = error;
+    if (error == null) {
+      final after = _marks(collection);
+      _updated = before.isEmpty
+          ? const {}
+          : {
+              for (final MapEntry(:key, :value) in after.entries)
+                if (before[key] != value) key,
+            };
+      _syncedAt = DateTime.now();
+    }
     notifyListeners();
   }
 

@@ -68,60 +68,66 @@ class FeedbackButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: feedback,
-    builder: (context, _) {
-      final current = feedback.busy
-          ? runningLabel
-          : feedback.succeeded
-          ? successLabel
-          : label;
-      final glyph = SizedBox.square(
-        dimension: 18,
-        child: AnimatedSwitcher(
-          duration: motionDuration(context, 150),
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeOut,
-          child: feedback.busy
-              ? MediaQuery.disableAnimationsOf(context)
-                    ? const Icon(
-                        Icons.hourglass_empty_rounded,
-                        key: ValueKey('busy'),
-                        size: 18,
-                      )
-                    : const Padding(
-                        key: ValueKey('busy'),
-                        padding: EdgeInsets.all(1),
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-              : Icon(
-                  feedback.succeeded ? Icons.check_rounded : icon,
-                  key: ValueKey(feedback.succeeded),
-                  size: 18,
-                ),
-        ),
-      );
-      final primary = Theme.of(context).colorScheme.primary;
-      return Semantics(
-        liveRegion: true,
-        child: iconOnly
-            ? IconButton(
-                tooltip: current,
-                onPressed: feedback.busy ? null : onPressed,
-                color: feedback.succeeded ? primary : null,
-                disabledColor: primary,
-                icon: glyph,
-              )
-            : TextButton.icon(
-                onPressed: feedback.busy ? null : onPressed,
-                style: TextButton.styleFrom(disabledForegroundColor: primary),
-                icon: glyph,
-                label: _FeedbackLabel(
-                  labels: [label, runningLabel, successLabel],
-                  current: current,
-                ),
-              ),
-      );
-    },
+    builder: (context, _) => DelayedBusy(
+      busy: feedback.busy,
+      builder: (context, spinning) => _button(context, spinning),
+    ),
   );
+
+  /// The button; [spinning] once the action has run long enough to show.
+  Widget _button(BuildContext context, bool spinning) {
+    final current = spinning
+        ? runningLabel
+        : feedback.succeeded
+        ? successLabel
+        : label;
+    final glyph = SizedBox.square(
+      dimension: 18,
+      child: AnimatedSwitcher(
+        duration: motionDuration(context, 150),
+        switchInCurve: Curves.easeOut,
+        switchOutCurve: Curves.easeOut,
+        child: spinning
+            ? MediaQuery.disableAnimationsOf(context)
+                  ? const Icon(
+                      Icons.hourglass_empty_rounded,
+                      key: ValueKey('busy'),
+                      size: 18,
+                    )
+                  : const Padding(
+                      key: ValueKey('busy'),
+                      padding: EdgeInsets.all(1),
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+            : Icon(
+                feedback.succeeded ? Icons.check_rounded : icon,
+                key: ValueKey(feedback.succeeded),
+                size: 18,
+              ),
+      ),
+    );
+    final primary = Theme.of(context).colorScheme.primary;
+    return Semantics(
+      liveRegion: true,
+      child: iconOnly
+          ? IconButton(
+              tooltip: current,
+              onPressed: feedback.busy || spinning ? null : onPressed,
+              color: feedback.succeeded ? primary : null,
+              disabledColor: primary,
+              icon: glyph,
+            )
+          : TextButton.icon(
+              onPressed: feedback.busy || spinning ? null : onPressed,
+              style: TextButton.styleFrom(disabledForegroundColor: primary),
+              icon: glyph,
+              label: _FeedbackLabel(
+                labels: [label, runningLabel, successLabel],
+                current: current,
+              ),
+            ),
+    );
+  }
 }
 
 class _FeedbackLabel extends StatelessWidget {

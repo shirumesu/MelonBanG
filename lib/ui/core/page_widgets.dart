@@ -602,6 +602,51 @@ class SkeletonBlock extends StatelessWidget {
   );
 }
 
+/// A line of text in [style] still loading: as tall as that line, so the
+/// text takes its place without a jump, with a grey bar three quarters of
+/// the font size high across [width], or [widthFactor] of the line. Until
+/// [shown], only the space.
+class SkeletonLine extends StatelessWidget {
+  const SkeletonLine({
+    super.key,
+    required this.style,
+    this.width,
+    this.widthFactor = 1,
+    this.shown = true,
+  });
+  final TextStyle? style;
+  final double? width;
+  final double widthFactor;
+  final bool shown;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = (style ?? DefaultTextStyle.of(context).style).fontSize ?? 14;
+    // Without [width], as wide as the parent allows, which must be bounded.
+    return SizedBox(
+      width: width ?? double.infinity,
+      child: Stack(
+        children: [
+          // The invisible glyph sets the line's height in this font.
+          Opacity(opacity: 0, child: Text('国', style: style)),
+          if (shown)
+            Positioned.fill(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: width != null
+                    ? SkeletonBlock(width: width, height: size * .75)
+                    : FractionallySizedBox(
+                        widthFactor: widthFactor,
+                        child: SkeletonBlock(height: size * .75),
+                      ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Fades the edges of a scrolling [child] into [color] wherever more
 /// content lies beyond, so a list cut off by its panel reads as one that
 /// scrolls. Drawn over the list rather than masking it, which would need an

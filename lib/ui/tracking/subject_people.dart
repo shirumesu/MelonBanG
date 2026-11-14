@@ -61,7 +61,7 @@ class SubjectPeoplePanel extends StatelessWidget {
           if (people.isEmpty && !loading)
             PartFailure(message: '$heading加载失败', onRetry: onRetry)
           else if (people.isEmpty)
-            Text('正在加载$heading…', style: Theme.of(context).textTheme.bodySmall)
+            _PeopleSkeleton(characters: characters)
           else
             LayoutBuilder(
               builder: (context, constraints) {
@@ -398,6 +398,129 @@ class SubjectPeoplePanel extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The panel's people in grey while they load, once the wait has lasted
+/// [busyDelay], in its columns: two rows of character cards (portrait,
+/// name, role, voice actor), or three of staff rows (position, name).
+class _PeopleSkeleton extends StatelessWidget {
+  const _PeopleSkeleton({required this.characters});
+  final bool characters;
+
+  @override
+  Widget build(BuildContext context) => DelayedBusy(
+    busy: true,
+    builder: (context, shown) => !shown
+        ? const SizedBox.shrink()
+        : Semantics(
+            label: characters ? '正在加载角色' : '正在加载制作团队',
+            child: ExcludeSemantics(
+              child: MotionAppear(
+                offset: 0,
+                milliseconds: 200,
+                child: MotionPulse(child: LayoutBuilder(builder: _people)),
+              ),
+            ),
+          ),
+  );
+
+  Widget _people(BuildContext context, BoxConstraints constraints) {
+    final text = Theme.of(context).textTheme;
+    final columns = (constraints.maxWidth / (characters ? 210 : 230))
+        .floor()
+        .clamp(1, 4);
+    final gap = characters ? Gap.md : Gap.xl;
+    final width = (constraints.maxWidth - (columns - 1) * gap) / columns - .01;
+    const shares = [.62, .48, .7, .55];
+    return Wrap(
+      spacing: gap,
+      runSpacing: characters ? Gap.md : 0,
+      children: [
+        for (var i = 0; i < columns * (characters ? 2 : 3); i++)
+          SizedBox(
+            width: width,
+            child: characters
+                ? _card(context, text, shares[i % 4])
+                : _staff(context, text, shares[(i + 1) % 4]),
+          ),
+      ],
+    );
+  }
+
+  Widget _card(BuildContext context, TextTheme text, double share) =>
+      DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          borderRadius: controlBorderRadius,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(Gap.md),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SkeletonBlock(
+                width: 44,
+                height: 60,
+                radius: BorderRadius.all(Radius.circular(8)),
+              ),
+              const SizedBox(width: Gap.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SkeletonLine(style: text.titleSmall, widthFactor: share),
+                    SkeletonLine(style: text.bodySmall, width: 28),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const SkeletonBlock(
+                          width: 18,
+                          height: 18,
+                          radius: BorderRadius.all(Radius.circular(9)),
+                        ),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: SkeletonLine(
+                            style: text.bodySmall,
+                            widthFactor: share * .8,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _staff(BuildContext context, TextTheme text, double share) =>
+      Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 92,
+              child: SkeletonLine(style: text.bodySmall, width: 40),
+            ),
+            const SizedBox(width: Gap.sm),
+            Expanded(
+              child: SkeletonLine(
+                style: const TextStyle(fontSize: 13),
+                widthFactor: share,
+              ),
+            ),
+          ],
+        ),
+      );
 }
 
 /// A part of a page that failed to load, with retrying it.

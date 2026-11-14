@@ -174,10 +174,9 @@ class _CalendarPageState extends State<CalendarPage> {
                 ),
               if (items.isEmpty && all.isNotEmpty)
                 _filteredOut(filter, all, now)
-              else if (items.isEmpty && widget.loading) ...[
-                const LinearProgressIndicator(),
-                const EmptyState(text: '正在加载时间表…'),
-              ] else if (items.isEmpty)
+              else if (items.isEmpty && widget.loading)
+                const BroadcastTimelineSkeleton()
+              else if (items.isEmpty)
                 EmptyState(
                   text: widget.error != null ? '暂时无法加载时间表' : '本日暂无新番放送',
                   detail: widget.error,

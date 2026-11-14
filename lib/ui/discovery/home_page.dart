@@ -79,23 +79,30 @@ class HomePage extends StatelessWidget {
       380.0,
       constraints.maxHeight - Gap.lg - _showcaseHeight - Gap.xxl - Gap.xl,
     );
-    final Widget showcase;
-    if (trendingLoading && trending.isEmpty) {
-      showcase = _ShowcaseSkeleton(wide: wide);
-    } else if (trending.isEmpty) {
-      showcase = EmptyState(
-        text: error == null ? '暂时没有热门番剧' : '暂时无法加载番剧',
-        detail: error,
-        action: onRefresh,
-      );
-    } else {
-      showcase = _TrendingShowcase(
-        key: const PageStorageKey('trending-showcase'),
-        items: trending,
-        wide: wide,
-        onOpen: onOpenSubject,
-      );
-    }
+    // The startup's skeleton stands in until the home page first builds;
+    // its own then follows at once.
+    final arriving = !_homeArrived;
+    final showcaseLoading = trendingLoading && trending.isEmpty;
+    final showcase = DelayedBusy(
+      busy: showcaseLoading,
+      immediate: arriving,
+      builder: (context, shown) => shown
+          ? _ShowcaseSkeleton(wide: wide)
+          : showcaseLoading
+          ? const SizedBox(height: _showcaseHeight)
+          : trending.isEmpty
+          ? EmptyState(
+              text: error == null ? '暂时没有热门番剧' : '暂时无法加载番剧',
+              detail: error,
+              action: onRefresh,
+            )
+          : _TrendingShowcase(
+              key: const PageStorageKey('trending-showcase'),
+              items: trending,
+              wide: wide,
+              onOpen: onOpenSubject,
+            ),
+    );
     final now = DateTime.now();
     final filter = scheduleFilter.value;
     final listedToday = [
@@ -106,6 +113,7 @@ class HomePage extends StatelessWidget {
       items: listedToday,
       hidden: today.length - listedToday.length,
       loading: discovery.todayLoading,
+      skeletonAtOnce: arriving,
       error: discovery.todayError,
       watchingIds: {for (final item in watching) item.id},
       onOpen: onOpenSubject,
@@ -135,6 +143,7 @@ class HomePage extends StatelessWidget {
 
     final listed = watching.where(inRange).toList();
     final continuation = _ContinueSection(
+      loaded: personal.loaded,
       watching: listed,
       outOfRange: watching.length - listed.length,
       range: range,
@@ -150,7 +159,6 @@ class HomePage extends StatelessWidget {
       onExplore: onExplore,
       onOpenTracking: onOpenTracking,
     );
-    final arriving = !_homeArrived;
     if (arriving) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _homeArrived = true);
     }
@@ -200,6 +208,94 @@ class HomePage extends StatelessWidget {
           arrive(1, SizedBox(height: 420, child: continuation)),
           const SizedBox(height: Gap.xxl),
           arrive(2, SizedBox(height: 460, child: timeline)),
+        ],
+      ],
+    );
+  }
+}
+
+/// The home page in grey while the app starts, in [HomePage]'s layout: the
+/// showcase's skeleton, then 继续观看 still empty beside today's timeline
+/// in rows. [HomePage] carries the same skeletons on at once.
+class HomeSkeleton extends StatelessWidget {
+  const HomeSkeleton({
+    super.key,
+    required this.onOpenTracking,
+    required this.onCalendar,
+  });
+  final VoidCallback onOpenTracking, onCalendar;
+
+  @override
+  Widget build(BuildContext context) => DelayedBusy(
+    busy: true,
+    builder: (context, shown) => !shown
+        ? const SizedBox.shrink()
+        : MotionAppear(
+            offset: 0,
+            milliseconds: 200,
+            child: LayoutBuilder(builder: _layout),
+          ),
+  );
+
+  Widget _layout(BuildContext context, BoxConstraints constraints) {
+    final wide = constraints.maxWidth - 2 * pageGutter >= 860;
+    final lowerHeight = math.max(
+      380.0,
+      constraints.maxHeight - Gap.lg - _showcaseHeight - Gap.xxl - Gap.xl,
+    );
+    final continuation = HeadedPanel(
+      icon: Icons.play_circle_outline,
+      title: '继续观看',
+      action: TextButton(onPressed: onOpenTracking, child: const Text('全部追番')),
+      child: const SizedBox.shrink(),
+    );
+    final timeline = TodayTimeline(
+      items: const [],
+      loading: true,
+      skeletonAtOnce: true,
+      error: null,
+      watchingIds: const {},
+      onOpen: (_) {},
+      onCalendar: onCalendar,
+      onRetry: () {},
+    );
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        pageGutter,
+        Gap.lg,
+        pageGutter,
+        Gap.xl,
+      ),
+      children: [
+        if (!wide)
+          SectionTitle(
+            title: '本季热度',
+            icon: Icons.local_fire_department_outlined,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            top: 0,
+          ),
+        _ShowcaseSkeleton(wide: wide),
+        const SizedBox(height: Gap.xxl),
+        if (wide)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: SizedBox(height: lowerHeight, child: continuation),
+              ),
+              const SizedBox(width: Gap.lg),
+              SizedBox(
+                width: homeSideColumnWidth,
+                height: lowerHeight,
+                child: timeline,
+              ),
+            ],
+          )
+        else ...[
+          SizedBox(height: 420, child: continuation),
+          const SizedBox(height: Gap.xxl),
+          SizedBox(height: 460, child: timeline),
         ],
       ],
     );
@@ -906,6 +1002,7 @@ int _bySeen(_Watch a, _Watch b) => switch ((a.seen, b.seen)) {
 
 class _ContinueSection extends StatefulWidget {
   const _ContinueSection({
+    required this.loaded,
     required this.watching,
     required this.details,
     required this.playable,
@@ -921,6 +1018,10 @@ class _ContinueSection extends StatefulWidget {
     required this.outOfRange,
     required this.range,
   });
+
+  /// Whether the saved collection has been read; until then the panel
+  /// stays empty rather than say nothing is being watched.
+  final bool loaded;
   final List<Subject> watching;
 
   /// Watched shows [range] leaves out.
@@ -1005,7 +1106,9 @@ class _ContinueSectionState extends State<_ContinueSection> {
         onPressed: widget.onOpenTracking,
         child: const Text('全部追番'),
       ),
-      child: hero == null
+      child: hero == null && !widget.loaded
+          ? const SizedBox.shrink()
+          : hero == null
           ? Padding(
               padding: const EdgeInsets.symmetric(horizontal: Gap.lg),
               child: Center(

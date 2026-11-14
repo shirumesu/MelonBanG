@@ -707,19 +707,22 @@ class AppSidebar extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (count != null)
-                    MotionSwap(
-                      value: count,
-                      scale: .6,
-                      child: AnimatedDefaultTextStyle(
-                        duration: motionDuration(context, 200),
-                        style: appFont.copyWith(
-                          fontSize: 11,
-                          color: selected
-                              ? accent.onNavigation
-                              : Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.w800,
+                    _CountBump(
+                      count: count,
+                      child: MotionSwap(
+                        value: count,
+                        scale: .6,
+                        child: AnimatedDefaultTextStyle(
+                          duration: motionDuration(context, 200),
+                          style: appFont.copyWith(
+                            fontSize: 11,
+                            color: selected
+                                ? accent.onNavigation
+                                : Theme.of(context).colorScheme.primary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                          child: Text(count),
                         ),
-                        child: Text(count),
                       ),
                     ),
                   if (alert != null) ...[
@@ -734,6 +737,79 @@ class AppSidebar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Swells a sidebar count for a moment when it grows, such as a download
+/// just added from another page, so the eye finds where it went.
+class _CountBump extends StatefulWidget {
+  const _CountBump({required this.count, required this.child});
+  final String count;
+  final Widget child;
+
+  @override
+  State<_CountBump> createState() => _CountBumpState();
+}
+
+class _CountBumpState extends State<_CountBump>
+    with SingleTickerProviderStateMixin {
+  late final _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  );
+  late final _scale = TweenSequence<double>([
+    TweenSequenceItem(
+      tween: Tween(
+        begin: 1.0,
+        end: 1.4,
+      ).chain(CurveTween(curve: Curves.easeOut)),
+      weight: 35,
+    ),
+    TweenSequenceItem(
+      tween: Tween(
+        begin: 1.4,
+        end: 1.0,
+      ).chain(CurveTween(curve: Curves.easeIn)),
+      weight: 65,
+    ),
+  ]).animate(_controller);
+
+  /// When the first count showed: counts restored as the app starts
+  /// appear without a swell.
+  static DateTime? _firstShown;
+
+  @override
+  void initState() {
+    super.initState();
+    final first = _firstShown ??= DateTime.now();
+    // A count appearing later went from none to one or more.
+    if (DateTime.now().difference(first) > const Duration(seconds: 3)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _bump());
+    }
+  }
+
+  @override
+  void didUpdateWidget(_CountBump oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final before = int.tryParse(oldWidget.count) ?? 0;
+    final after = int.tryParse(widget.count) ?? 0;
+    if (after > before) _bump();
+  }
+
+  void _bump() {
+    if (mounted && !MediaQuery.disableAnimationsOf(context)) {
+      _controller.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      ScaleTransition(scale: _scale, child: widget.child);
 }
 
 /// The highlight a [MotionSelection] glides under the selected

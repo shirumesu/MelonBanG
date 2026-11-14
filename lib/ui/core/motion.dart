@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,94 @@ Duration motionDuration(BuildContext context, [int milliseconds = 180]) =>
     MediaQuery.disableAnimationsOf(context)
     ? Duration.zero
     : Duration(milliseconds: milliseconds);
+
+/// How long a wait goes unmarked, so a quick answer shows no loader.
+const busyDelay = Duration(milliseconds: 300);
+
+/// How long a loader stays once shown, so it never flickers.
+const busyMinimum = Duration(milliseconds: 500);
+
+/// Builds with whether a loader shows for [busy]: only once it has lasted
+/// [busyDelay], then for [busyMinimum] at least, even past the end of the
+/// wait. Until then, the caller shows what it had or the space the content
+/// will take.
+class DelayedBusy extends StatefulWidget {
+  const DelayedBusy({
+    super.key,
+    required this.busy,
+    required this.builder,
+    this.immediate = false,
+  });
+  final bool busy;
+  final Widget Function(BuildContext context, bool shown) builder;
+
+  /// Shows the loader from the first frame, for a wait that continues one
+  /// already shown elsewhere, as the home page's after the startup's.
+  final bool immediate;
+
+  @override
+  State<DelayedBusy> createState() => _DelayedBusyState();
+}
+
+class _DelayedBusyState extends State<DelayedBusy> {
+  bool _shown = false;
+  DateTime? _shownAt;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.busy) return;
+    if (widget.immediate) {
+      _shown = true;
+      _shownAt = DateTime.now();
+    } else {
+      _wait();
+    }
+  }
+
+  @override
+  void didUpdateWidget(DelayedBusy oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.busy == oldWidget.busy) return;
+    if (widget.busy) {
+      // Busy again while a loader is held: it simply stays.
+      _timer?.cancel();
+      if (!_shown) _wait();
+    } else {
+      _timer?.cancel();
+      if (!_shown) return;
+      final left = busyMinimum - DateTime.now().difference(_shownAt!);
+      if (left <= Duration.zero) {
+        _shown = false;
+      } else {
+        _timer = Timer(left, () {
+          if (mounted && !widget.busy) setState(() => _shown = false);
+        });
+      }
+    }
+  }
+
+  void _wait() {
+    _timer?.cancel();
+    _timer = Timer(busyDelay, () {
+      if (!mounted || !widget.busy) return;
+      setState(() {
+        _shown = true;
+        _shownAt = DateTime.now();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _shown);
+}
 
 /// Unfolds its child along [axis] while fading it in; folded away, the child
 /// leaves the tree.

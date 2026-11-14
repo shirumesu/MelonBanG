@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/json.dart' show coverAddress, coverOriginal;
@@ -80,6 +81,8 @@ class SubjectPosterGrid extends StatefulWidget {
     this.tracking = false,
     this.statusBadge = true,
     this.personalScore = false,
+    this.marked = const {},
+    this.markedAt,
   });
   final List<Subject> items;
   final ValueChanged<Subject> onOpen;
@@ -87,6 +90,11 @@ class SubjectPosterGrid extends StatefulWidget {
 
   /// Shows the user's own score instead of the public one.
   final bool personalScore;
+
+  /// Subjects a refresh just changed, ringed for a moment; [markedAt] tells
+  /// one refresh's marks from the next.
+  final Set<int> marked;
+  final DateTime? markedAt;
 
   @override
   State<SubjectPosterGrid> createState() => _SubjectPosterGridState();
@@ -147,10 +155,77 @@ class _SubjectPosterGridState extends State<SubjectPosterGrid> {
               tracking: widget.tracking,
               statusBadge: widget.statusBadge,
               personalScore: widget.personalScore,
+              mark: widget.marked.contains(items[i].id)
+                  ? widget.markedAt
+                  : null,
             ),
           ),
         );
       },
+    );
+  }
+}
+
+/// Grey posters in [SubjectPosterGrid]'s layout while the first ones load,
+/// shown once the wait has lasted [busyDelay]; [tracking] adds the
+/// progress at the end of each line, as the collection's grid has.
+class PosterGridSkeleton extends StatelessWidget {
+  const PosterGridSkeleton({super.key, this.tracking = false, this.rows = 2});
+  final bool tracking;
+  final int rows;
+
+  @override
+  Widget build(BuildContext context) => DelayedBusy(
+    busy: true,
+    builder: (context, shown) => !shown
+        ? const SizedBox.shrink()
+        : Semantics(
+            label: '正在加载番剧',
+            child: ExcludeSemantics(
+              child: MotionAppear(
+                offset: 0,
+                milliseconds: 200,
+                child: MotionPulse(child: LayoutBuilder(builder: _grid)),
+              ),
+            ),
+          ),
+  );
+
+  Widget _grid(BuildContext context, BoxConstraints constraints) {
+    const spacing = Offset(16, 20);
+    final columns = (constraints.maxWidth / 184).floor().clamp(1, 8);
+    final width = (constraints.maxWidth - (columns - 1) * spacing.dx) / columns;
+    return Wrap(
+      spacing: spacing.dx,
+      runSpacing: spacing.dy,
+      children: [
+        for (var i = 0; i < columns * rows; i++)
+          SizedBox(
+            width: width,
+            height: width / .65,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Expanded(
+                  child: SkeletonBlock(radius: posterBorderRadius),
+                ),
+                const SizedBox(height: Gap.sm),
+                // PosterMeta: the score, then the progress at the end.
+                SizedBox(
+                  height: 16,
+                  child: Row(
+                    children: [
+                      const SkeletonBlock(width: 36, height: 12),
+                      const Spacer(),
+                      if (tracking)
+                        SkeletonBlock(width: 40 + i * 13 % 3 * 6, height: 10),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
@@ -256,10 +331,15 @@ class SubjectPoster extends StatefulWidget {
     required this.tracking,
     this.statusBadge = true,
     this.personalScore = false,
+    this.mark,
   });
   final Subject item;
   final ValueChanged<Subject> onOpen;
   final bool tracking, statusBadge, personalScore;
+
+  /// Set when a refresh just changed the subject: a ring lights the cover
+  /// for a moment, once per value.
+  final Object? mark;
 
   @override
   State<SubjectPoster> createState() => _SubjectPosterState();
@@ -336,6 +416,8 @@ class _SubjectPosterState extends State<SubjectPoster> {
                         ),
                       ),
                     ),
+                  if (widget.mark case final mark?)
+                    UpdateRing(mark: mark, id: item.id),
                   IgnorePointer(
                     child: AnimatedContainer(
                       duration: motionDuration(context, pressed ? 80 : 120),
@@ -367,6 +449,109 @@ class _SubjectPosterState extends State<SubjectPoster> {
             personalScore: widget.personalScore,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// A ring in the accent lighting a cover a refresh just changed: it comes
+/// up quickly, holds, then fades, about 2.6s in all, once for each [mark].
+/// On a page out of view it waits until the page shows.
+class UpdateRing extends StatefulWidget {
+  const UpdateRing({super.key, required this.mark, required this.id});
+  final Object mark;
+
+  /// The subject lit, which a mark lights once.
+  final int id;
+
+  @override
+  State<UpdateRing> createState() => _UpdateRingState();
+}
+
+class _UpdateRingState extends State<UpdateRing>
+    with SingleTickerProviderStateMixin {
+  /// Marks already shown, so a rebuild or a poster scrolled back into view
+  /// does not light again.
+  static final _shown = <(Object, int)>{};
+
+  late final _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2600),
+  );
+  late final _opacity = TweenSequence<double>([
+    TweenSequenceItem(
+      tween: Tween(
+        begin: 0.0,
+        end: 1.0,
+      ).chain(CurveTween(curve: Curves.easeOut)),
+      weight: 12,
+    ),
+    TweenSequenceItem(tween: ConstantTween(1.0), weight: 38),
+    TweenSequenceItem(
+      tween: Tween(
+        begin: 1.0,
+        end: 0.0,
+      ).chain(CurveTween(curve: Curves.easeIn)),
+      weight: 50,
+    ),
+  ]).animate(_controller);
+
+  ValueListenable<TickerModeData>? _shownPage;
+  bool _pending = true;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final shown = TickerMode.getValuesNotifier(context);
+    if (shown != _shownPage) {
+      _shownPage?.removeListener(_play);
+      _shownPage = shown..addListener(_play);
+    }
+    _play();
+  }
+
+  @override
+  void didUpdateWidget(UpdateRing oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.mark == widget.mark) return;
+    _pending = true;
+    _play();
+  }
+
+  /// Lights the ring once the page shows: a muted ticker keeps time, so
+  /// one started out of view would be over before it was seen.
+  void _play() {
+    if (!_pending || !(_shownPage?.value.enabled ?? false)) return;
+    _pending = false;
+    if (_shown.add((widget.mark, widget.id))) _controller.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _shownPage?.removeListener(_play);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = accentOf(context).accent;
+    return IgnorePointer(
+      child: FadeTransition(
+        opacity: _opacity,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: posterBorderRadius,
+            border: Border.all(color: accent, width: 2.5),
+            boxShadow: [
+              BoxShadow(
+                color: accent.withValues(alpha: .45),
+                blurRadius: 10,
+                blurStyle: BlurStyle.inner,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

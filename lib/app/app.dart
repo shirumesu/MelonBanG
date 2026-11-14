@@ -171,13 +171,13 @@ class _MelonAppState extends State<MelonApp>
         _ => false,
       };
 
-  /// Whether the title-bar progress shows: a subject only until its detail
-  /// is shown, after which its sections show what they still load; never
-  /// for resources, whose page shows each site's progress.
+  /// Whether the title-bar progress shows: for a subject only while the
+  /// page has none to show, since its parts hold grey lines while they load;
+  /// never for resources, whose page shows each site's progress.
   bool get busy =>
       loading &&
       route != 'resources' &&
-      (route != 'subject' || subjects.waiting);
+      (route != 'subject' || subjects.subject == null);
 
   @override
   void initState() {
@@ -1253,16 +1253,7 @@ class _MelonAppState extends State<MelonApp>
     builder: (context, _) {
       if (service.downloadsAvailable.value) return content();
       return switch (service.downloadIssue.value) {
-        null => const Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('正在恢复缓存任务…'),
-            ],
-          ),
-        ),
+        null => const DownloadsSkeleton(),
         final issue => Padding(
           padding: const EdgeInsets.all(pageGutter),
           // Restoring runs once per process, so a retry starts the app again.
@@ -1303,18 +1294,48 @@ class _MelonAppState extends State<MelonApp>
     }
     if (!ready) {
       return startError == null
-          ? Center(
-              child: ValueListenableBuilder<String>(
-                valueListenable: service.startupStatus,
-                builder: (context, status, _) => Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const CircularProgressIndicator(),
-                    const SizedBox(height: 16),
-                    Text(status),
-                  ],
+          ? Stack(
+              fit: StackFit.expand,
+              children: [
+                if (target == 'home')
+                  HomeSkeleton(
+                    onOpenTracking: () => navigate('tracking'),
+                    onCalendar: () => navigate('calendar'),
+                  ),
+                // What the start is doing, named only once it takes a while,
+                // such as moving the data to a new folder.
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: Gap.xl),
+                    child: MotionAppear(
+                      delay: 1000,
+                      child: ValueListenableBuilder<String>(
+                        valueListenable: service.startupStatus,
+                        builder: (context, status, _) => Semantics(
+                          liveRegion: true,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const SizedBox.square(
+                                dimension: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
+                                ),
+                              ),
+                              const SizedBox(width: Gap.sm),
+                              Text(
+                                status,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             )
           : EmptyState(
               text: '应用服务未能启动',

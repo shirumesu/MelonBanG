@@ -97,7 +97,7 @@ class _SearchPageState extends State<SearchPage> {
             _Filters(query: query, onQuery: widget.onQuery),
             const SizedBox(height: Gap.lg),
             if (results.isEmpty && busy)
-              const _PosterSkeletons()
+              const PosterGridSkeleton()
             else if (results.isEmpty && error != null)
               EmptyState(
                 text: '暂时无法搜索',
@@ -156,50 +156,6 @@ class _SearchPageState extends State<SearchPage> {
       ),
     );
   }
-}
-
-/// Two rows of grey posters in [SubjectPosterGrid]'s layout while the first
-/// results load.
-class _PosterSkeletons extends StatelessWidget {
-  const _PosterSkeletons();
-
-  @override
-  Widget build(BuildContext context) => Semantics(
-    label: '正在加载番剧',
-    child: ExcludeSemantics(
-      child: MotionPulse(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            const spacing = Offset(16, 20);
-            final columns = (constraints.maxWidth / 184).floor().clamp(1, 8);
-            final width =
-                (constraints.maxWidth - (columns - 1) * spacing.dx) / columns;
-            return Wrap(
-              spacing: spacing.dx,
-              runSpacing: spacing.dy,
-              children: [
-                for (var i = 0; i < columns * 2; i++)
-                  SizedBox(
-                    width: width,
-                    height: width / .65,
-                    child: const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: SkeletonBlock(radius: posterBorderRadius),
-                        ),
-                        SizedBox(height: Gap.sm),
-                        SkeletonBlock(width: 64, height: 16),
-                      ],
-                    ),
-                  ),
-              ],
-            );
-          },
-        ),
-      ),
-    ),
-  );
 }
 
 /// Bangumi's public tags and air time narrowing the results; each menu

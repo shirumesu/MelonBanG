@@ -52,8 +52,12 @@ class TodayTimeline extends StatefulWidget {
     required this.onCalendar,
     required this.onRetry,
     this.hidden = 0,
+    this.skeletonAtOnce = false,
   });
   final List<Subject> items;
+
+  /// Shows the skeleton from the first frame, following the startup's.
+  final bool skeletonAtOnce;
 
   /// How many of today's shows the schedule's filter leaves out of [items].
   final int hidden;
@@ -103,21 +107,18 @@ class _TodayTimelineState extends State<TodayTimeline> {
         );
       });
     }
+    final waiting = items.isEmpty && widget.loading && widget.hidden == 0;
     final Widget body;
-    if (items.isEmpty) {
+    if (waiting) {
+      body = const SizedBox.shrink();
+    } else if (items.isEmpty) {
       body = Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (widget.loading && widget.hidden == 0) ...[
-              const SizedBox(width: 160, child: LinearProgressIndicator()),
-              const SizedBox(height: Gap.md),
-            ],
             Text(
               widget.hidden > 0
                   ? '筛选后今日没有番剧'
-                  : widget.loading
-                  ? '正在加载今日放送…'
                   : widget.error != null
                   ? '暂时无法加载今日放送'
                   : '今日暂无放送数据',
@@ -173,7 +174,90 @@ class _TodayTimelineState extends State<TodayTimeline> {
         onPressed: widget.onCalendar,
         child: const Text('时间表'),
       ),
-      child: body,
+      child: DelayedBusy(
+        busy: waiting,
+        immediate: widget.skeletonAtOnce,
+        builder: (context, shown) =>
+            shown ? const _TodayTimelineSkeleton() : body,
+      ),
+    );
+  }
+}
+
+/// [_TimelineEntry] rows in grey while today's shows load: the time, the
+/// rail and its dot, the cover and two lines, at the rows' height.
+class _TodayTimelineSkeleton extends StatelessWidget {
+  const _TodayTimelineSkeleton();
+
+  static const _shares = [.7, .5, .85, .6, .75, .55, .8];
+
+  @override
+  Widget build(BuildContext context) {
+    final rail = Theme.of(context).colorScheme.outlineVariant;
+    return Semantics(
+      label: '正在加载今日放送',
+      child: ExcludeSemantics(
+        child: MotionAppear(
+          offset: 0,
+          milliseconds: 200,
+          child: MotionPulse(
+            child: ListView(
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: Gap.sm),
+              children: [
+                for (final (i, share) in _shares.indexed)
+                  SizedBox(
+                    height: _TodayTimelineState.rowHeight,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: Gap.md),
+                      child: Row(
+                        children: [
+                          const SizedBox(
+                            width: 40,
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: SkeletonBlock(width: 32, height: 10),
+                            ),
+                          ),
+                          _TimelineRail(
+                            above: i == 0 ? null : rail,
+                            below: i == _shares.length - 1 ? null : rail,
+                            dot: const SkeletonBlock(
+                              width: 10,
+                              height: 10,
+                              radius: BorderRadius.all(Radius.circular(5)),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          const SkeletonBlock(
+                            width: 34,
+                            height: 46,
+                            radius: badgeBorderRadius,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                FractionallySizedBox(
+                                  widthFactor: share,
+                                  child: const SkeletonBlock(height: 10),
+                                ),
+                                const SizedBox(height: 8),
+                                const SkeletonBlock(width: 34, height: 8),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -426,6 +510,114 @@ class BroadcastTimeline extends StatelessWidget {
       );
     },
   );
+}
+
+/// [BroadcastTimeline] entries in grey while the schedule loads, shown
+/// once the wait has lasted [busyDelay]: the time, the rail with its dot
+/// and branch, and a panel holding the cover, two lines and 详情.
+class BroadcastTimelineSkeleton extends StatelessWidget {
+  const BroadcastTimelineSkeleton({super.key});
+
+  static const _shares = [.55, .4, .7, .5];
+
+  @override
+  Widget build(BuildContext context) => DelayedBusy(
+    busy: true,
+    builder: (context, shown) => !shown
+        ? const SizedBox.shrink()
+        : Semantics(
+            label: '正在加载时间表',
+            child: ExcludeSemantics(
+              child: MotionAppear(
+                offset: 0,
+                milliseconds: 200,
+                child: MotionPulse(child: _entries(context)),
+              ),
+            ),
+          ),
+  );
+
+  Widget _entries(BuildContext context) {
+    final line = Theme.of(context).colorScheme.outlineVariant;
+    return Column(
+      children: [
+        for (final (i, share) in _shares.indexed)
+          Stack(
+            children: [
+              Positioned(
+                left: 66.5,
+                top: i == 0 ? 68 : 0,
+                bottom: i == _shares.length - 1 ? 80 : 0,
+                child: Container(width: 2, color: line),
+              ),
+              Positioned(
+                left: 68,
+                top: 67.5,
+                width: 19,
+                height: 1,
+                child: ColoredBox(color: line),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 48,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: SkeletonBlock(width: 32, height: 10),
+                      ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 14),
+                      child: SkeletonBlock(
+                        width: 11,
+                        height: 11,
+                        radius: BorderRadius.all(Radius.circular(5.5)),
+                      ),
+                    ),
+                    Expanded(
+                      child: MelonPanel(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          children: [
+                            const SkeletonBlock(
+                              width: 80,
+                              height: 108,
+                              radius: posterBorderRadius,
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  FractionallySizedBox(
+                                    widthFactor: share,
+                                    child: const SkeletonBlock(height: 12),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const SkeletonBlock(width: 64, height: 9),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const SkeletonBlock(
+                              width: 64,
+                              height: 36,
+                              radius: controlBorderRadius,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
 }
 
 class _BroadcastEntry extends StatefulWidget {

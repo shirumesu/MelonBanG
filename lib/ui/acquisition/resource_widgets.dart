@@ -142,7 +142,10 @@ class ResourceDownloadButton extends StatelessWidget {
   final DownloadTask? task;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      DelayedBusy(busy: adding, builder: _build);
+
+  Widget _build(BuildContext context, bool spinning) {
     final scheme = Theme.of(context).colorScheme;
     final task = this.task;
     final foreground = failed
@@ -152,7 +155,7 @@ class ResourceDownloadButton extends StatelessWidget {
         : scheme.onSurface;
     final percent = task == null ? 0 : (task.progress * 100).floor();
     final (Widget icon, String label, String tooltip) = switch (task) {
-      _ when adding => (
+      _ when spinning => (
         Padding(
           padding: const EdgeInsets.all(2),
           child: CircularProgressIndicator(strokeWidth: 2, color: foreground),
@@ -202,7 +205,7 @@ class ResourceDownloadButton extends StatelessWidget {
         width: resourceDownloadWidth(labelled: showLabel),
         background: scheme.surfaceContainerHigh,
         foreground: foreground,
-        onTap: adding || task != null ? null : onPressed,
+        onTap: adding || spinning || task != null ? null : onPressed,
       ),
     );
   }
@@ -221,10 +224,13 @@ class ResourcePlayButton extends StatelessWidget {
   final bool instant, playing, showLabel;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      DelayedBusy(busy: playing, builder: _build);
+
+  Widget _build(BuildContext context, bool spinning) {
     final scheme = Theme.of(context).colorScheme;
     return _ResourceAction(
-      icon: playing
+      icon: spinning
           ? Padding(
               padding: const EdgeInsets.all(2),
               child: CircularProgressIndicator(
@@ -233,7 +239,7 @@ class ResourcePlayButton extends StatelessWidget {
               ),
             )
           : Icon(Icons.play_arrow_rounded, size: 18, color: scheme.onPrimary),
-      label: showLabel ? (playing ? '打开中' : '观看') : null,
+      label: showLabel ? (spinning ? '打开中' : '观看') : null,
       tooltip: instant || playing ? '观看' : '观看，同时下载到本机',
       width: resourcePlayWidth(labelled: showLabel),
       background: scheme.primary,
@@ -260,7 +266,10 @@ class ResourceBatchButton extends StatelessWidget {
   final bool added, loading, showLabel;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      DelayedBusy(busy: loading, builder: _build);
+
+  Widget _build(BuildContext context, bool spinning) {
     final scheme = Theme.of(context).colorScheme;
     final foreground = onPressed == null
         ? scheme.onSurface.withValues(alpha: .38)
@@ -268,7 +277,7 @@ class ResourceBatchButton extends StatelessWidget {
         ? scheme.primary
         : scheme.onSurface;
     return _ResourceAction(
-      icon: loading
+      icon: spinning
           ? Padding(
               padding: const EdgeInsets.all(2),
               child: CircularProgressIndicator(
@@ -292,7 +301,7 @@ class ResourceBatchButton extends StatelessWidget {
       width: resourceActionsWidth(wide: showLabel),
       background: scheme.surfaceContainerHigh,
       foreground: foreground,
-      onTap: loading ? null : onPressed,
+      onTap: loading || spinning ? null : onPressed,
     );
   }
 }
