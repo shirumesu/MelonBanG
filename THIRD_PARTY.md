@@ -61,3 +61,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+## Service logos
+
+`assets/images/services` holds the app icons of PikPak and Bilibili, shown
+beside their sign-ins in Settings to name the services. They are trademarks
+of their owners, used only to identify those services; MelonBanG is not
+affiliated with either.

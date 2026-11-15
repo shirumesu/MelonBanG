@@ -1,24 +1,154 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/json.dart';
+import '../../core/settings.dart';
 import '../../domain/catalog.dart';
 
 class PlaybackPreferences extends ChangeNotifier {
-  PlaybackPreferences(this.storage);
-  final SharedPreferences storage;
-  String get subtitleLanguage =>
-      storage.getString('player-subtitle-language') ?? 'chs';
-  String get audioLanguage =>
-      storage.getString('player-audio-language') ?? 'auto';
-  bool get autoplay => storage.getBool('player-autoplay') ?? true;
-  bool get autoMarkWatched =>
-      storage.getBool('player-auto-mark-watched') ?? true;
-  String get airingPriority =>
-      storage.getString('player-airing-priority') ?? 'bt';
-  String get completedPriority =>
-      storage.getString('player-completed-priority') ?? 'online';
+  PlaybackPreferences(this.settings) {
+    // The group counts change with every search and show nowhere live.
+    settings.watch([
+      for (final setting in all)
+        if (setting != seenGroupsSetting) setting.key,
+    ], notifyListeners);
+  }
+  final Settings settings;
+
+  static const subtitleLanguageSetting = StringSetting(
+    'player-subtitle-language',
+    'chs',
+    sync: SettingSync.synced,
+    label: '播放 › 字幕语言',
+    valueLabels: {'chs': '简体中文', 'cht': '繁体中文', 'ja': '日语', 'auto': '自动'},
+  );
+  static const audioLanguageSetting = StringSetting(
+    'player-audio-language',
+    'auto',
+    sync: SettingSync.synced,
+    label: '播放 › 音轨语言',
+    valueLabels: {'ja': '日语', 'zh': '中文', 'auto': '自动'},
+  );
+  static const autoplaySetting = BoolSetting(
+    'player-autoplay',
+    true,
+    sync: SettingSync.synced,
+    label: '播放 › 自动连播',
+  );
+  static const autoMarkWatchedSetting = BoolSetting(
+    'player-auto-mark-watched',
+    true,
+    sync: SettingSync.synced,
+    label: '播放 › 自动标记为看过',
+  );
+  static const airingPrioritySetting = StringSetting(
+    'player-airing-priority',
+    'bt',
+    sync: SettingSync.synced,
+    label: '资源选择 › 放送中的番',
+    valueLabels: {'bt': 'BT 优先', 'online': '在线优先'},
+  );
+  static const completedPrioritySetting = StringSetting(
+    'player-completed-priority',
+    'online',
+    sync: SettingSync.synced,
+    label: '资源选择 › 已完结的番',
+    valueLabels: {'bt': 'BT 优先', 'online': '在线优先'},
+  );
+  static const preferredGroupsSetting = StringSetting(
+    'player-preferred-groups',
+    '',
+    sync: SettingSync.synced,
+    label: '资源选择 › 偏好字幕组',
+  );
+  static const onlyPreferredGroupsSetting = BoolSetting(
+    'player-only-preferred-groups',
+    false,
+    sync: SettingSync.synced,
+    label: '资源选择 › 只显示偏好字幕组',
+  );
+
+  /// Counts of groups searches found: statistics of this device.
+  static const seenGroupsSetting = JsonSetting(
+    'resource-seen-groups',
+    fallback: <String, dynamic>{},
+    sync: SettingSync.local,
+  );
+
+  /// Decoding depends on this device's graphics card and driver.
+  static const hardwareDecodingSetting = StringSetting(
+    'player-hwdec',
+    'auto',
+    sync: SettingSync.local,
+  );
+
+  /// Shaders a weaker graphics card cannot keep up with.
+  static const superResolutionSetting = StringSetting(
+    'player-super-resolution',
+    'off',
+    sync: SettingSync.local,
+  );
+  static const superResolutionChainSetting = StringSetting(
+    'player-super-resolution-chain',
+    'fast',
+    sync: SettingSync.local,
+  );
+  static const skipOpeningSetting = BoolSetting(
+    'player-skip-opening',
+    false,
+    sync: SettingSync.synced,
+    label: '播放 › 自动跳过片头',
+  );
+  static const skipEndingSetting = BoolSetting(
+    'player-skip-ending',
+    false,
+    sync: SettingSync.synced,
+    label: '播放 › 自动跳过片尾',
+  );
+  static const rememberSourceSetting = BoolSetting(
+    'player-remember-source',
+    true,
+    sync: SettingSync.synced,
+    label: '资源选择 › 记住每部番的来源',
+  );
+  static const cacheNextSetting = BoolSetting(
+    'player-cache-next',
+    true,
+    sync: SettingSync.synced,
+    label: '订阅与缓存 › 播放时缓存下一话',
+  );
+  static const skipExtrasSetting = BoolSetting(
+    'player-skip-extras',
+    true,
+    sync: SettingSync.synced,
+    label: '播放 › 跳过总集篇和特番',
+  );
+
+  static const all = <Setting<Object?>>[
+    subtitleLanguageSetting,
+    audioLanguageSetting,
+    autoplaySetting,
+    autoMarkWatchedSetting,
+    airingPrioritySetting,
+    completedPrioritySetting,
+    preferredGroupsSetting,
+    onlyPreferredGroupsSetting,
+    seenGroupsSetting,
+    hardwareDecodingSetting,
+    superResolutionSetting,
+    superResolutionChainSetting,
+    skipOpeningSetting,
+    skipEndingSetting,
+    rememberSourceSetting,
+    cacheNextSetting,
+    skipExtrasSetting,
+  ];
+
+  String get subtitleLanguage => settings.get(subtitleLanguageSetting);
+  String get audioLanguage => settings.get(audioLanguageSetting);
+  bool get autoplay => settings.get(autoplaySetting);
+  bool get autoMarkWatched => settings.get(autoMarkWatchedSetting);
+  String get airingPriority => settings.get(airingPrioritySetting);
+  String get completedPriority => settings.get(completedPrioritySetting);
 
   /// Whether [subject] plays online before BT, by whether every episode
   /// has aired.
@@ -30,23 +160,20 @@ class PlaybackPreferences extends ChangeNotifier {
   /// was once typed; names themselves may hold spaces (`Nekomoe kissaten`).
   List<String> get preferredGroups => [
     for (final name
-        in (storage.getString('player-preferred-groups') ?? '').split(
-          RegExp('[,，;；、]'),
-        ))
+        in settings.get(preferredGroupsSetting).split(RegExp('[,，;；、]')))
       if (name.trim().isNotEmpty) name.trim(),
   ];
 
   /// A resource search starts with the preferred groups selected.
-  bool get onlyPreferredGroups =>
-      storage.getBool('player-only-preferred-groups') ?? false;
+  bool get onlyPreferredGroups => settings.get(onlyPreferredGroupsSetting);
 
   /// Release groups resource searches have found, with how many releases,
   /// suggested when adding a preferred group.
   Map<String, int> get seenGroups => {
-    for (final MapEntry(:key, :value) in (jsonDecode(
-      storage.getString('resource-seen-groups') ?? '{}',
-    ) as Map<String, dynamic>).entries)
-      key: value as int,
+    for (final MapEntry(:key, :value) in object(
+      settings.get(seenGroupsSetting),
+    ).entries)
+      if (value is num) key: value.toInt(),
   };
 
   /// Counts the groups credited on a search's releases, keeping the 300 seen
@@ -58,79 +185,66 @@ class PlaybackPreferences extends ChangeNotifier {
     }
     final kept = counts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    await storage.setString(
-      'resource-seen-groups',
-      jsonEncode(Map.fromEntries(kept.take(300))),
-    );
+    await settings.set(seenGroupsSetting, Map.fromEntries(kept.take(300)));
   }
 
   /// mpv `hwdec`: `auto`, `auto-copy` (decoded frames copied back to memory,
   /// for drivers whose direct output misbehaves) or `no`.
-  String get hardwareDecoding => storage.getString('player-hwdec') ?? 'auto';
+  String get hardwareDecoding => settings.get(hardwareDecodingSetting);
 
   /// Anime4K shaders: `off`, `fast` or `quality`.
-  String get superResolution =>
-      storage.getString('player-super-resolution') ?? 'off';
+  String get superResolution => settings.get(superResolutionSetting);
 
   /// The chain super-resolution turns back on with.
-  String get superResolutionChain =>
-      storage.getString('player-super-resolution-chain') ?? 'fast';
-  bool get skipOpening => storage.getBool('player-skip-opening') ?? false;
-  bool get skipEnding => storage.getBool('player-skip-ending') ?? false;
+  String get superResolutionChain => settings.get(superResolutionChainSetting);
+  bool get skipOpening => settings.get(skipOpeningSetting);
+  bool get skipEnding => settings.get(skipEndingSetting);
 
   /// Each subject keeps the source last played, ahead of the global
   /// priority, until another one is played.
-  bool get rememberSource => storage.getBool('player-remember-source') ?? true;
+  bool get rememberSource => settings.get(rememberSourceSetting);
 
   /// Playing an episode starts caching the next aired one from the same
   /// source family.
-  bool get cacheNext => storage.getBool('player-cache-next') ?? true;
+  bool get cacheNext => settings.get(cacheNextSetting);
 
   /// Autoplay, the next episode and caching it pass over recaps and
   /// programmes about the show (总集篇, 特番).
-  bool get skipExtras => storage.getBool('player-skip-extras') ?? true;
+  bool get skipExtras => settings.get(skipExtrasSetting);
   Future<void> setHardwareDecoding(String value) =>
-      _string('player-hwdec', value);
+      settings.set(hardwareDecodingSetting, value);
   Future<void> setSuperResolution(String value) async {
     if (value != 'off') {
-      await storage.setString('player-super-resolution-chain', value);
+      await settings.set(superResolutionChainSetting, value);
     }
-    await _string('player-super-resolution', value);
+    await settings.set(superResolutionSetting, value);
   }
 
   Future<void> setSkipOpening(bool value) =>
-      _bool('player-skip-opening', value);
-  Future<void> setSkipEnding(bool value) => _bool('player-skip-ending', value);
+      settings.set(skipOpeningSetting, value);
+  Future<void> setSkipEnding(bool value) =>
+      settings.set(skipEndingSetting, value);
   Future<void> setRememberSource(bool value) =>
-      _bool('player-remember-source', value);
-  Future<void> setCacheNext(bool value) => _bool('player-cache-next', value);
-  Future<void> setSkipExtras(bool value) => _bool('player-skip-extras', value);
-  Future<void> _bool(String key, bool value) async {
-    await storage.setBool(key, value);
-    notifyListeners();
-  }
-
+      settings.set(rememberSourceSetting, value);
+  Future<void> setCacheNext(bool value) =>
+      settings.set(cacheNextSetting, value);
+  Future<void> setSkipExtras(bool value) =>
+      settings.set(skipExtrasSetting, value);
   Future<void> setSubtitleLanguage(String value) =>
-      _string('player-subtitle-language', value);
+      settings.set(subtitleLanguageSetting, value);
   Future<void> setAudioLanguage(String value) =>
-      _string('player-audio-language', value);
+      settings.set(audioLanguageSetting, value);
   Future<void> setAiringPriority(String value) =>
-      _string('player-airing-priority', value);
+      settings.set(airingPrioritySetting, value);
   Future<void> setCompletedPriority(String value) =>
-      _string('player-completed-priority', value);
+      settings.set(completedPrioritySetting, value);
   Future<void> setPreferredGroups(List<String> value) =>
-      _string('player-preferred-groups', value.join(', '));
+      settings.set(preferredGroupsSetting, value.join(', '));
   Future<void> setOnlyPreferredGroups(bool value) =>
-      _bool('player-only-preferred-groups', value);
-  Future<void> _string(String key, String value) async {
-    await storage.setString(key, value);
-    notifyListeners();
-  }
-
-  Future<void> setAutoplay(bool value) => _bool('player-autoplay', value);
-
+      settings.set(onlyPreferredGroupsSetting, value);
+  Future<void> setAutoplay(bool value) => settings.set(autoplaySetting, value);
   Future<void> setAutoMarkWatched(bool value) =>
-      _bool('player-auto-mark-watched', value);
+      settings.set(autoMarkWatchedSetting, value);
 }
 
 String languageCodes(String preference) => switch (preference) {

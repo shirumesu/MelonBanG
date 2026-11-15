@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../integrations/bangumi/account.dart';
 import '../integrations/bangumi/community.dart';
@@ -15,6 +14,7 @@ import '../core/error_message.dart';
 import '../core/network.dart';
 import '../core/proxy.dart';
 import '../core/service_configuration.dart';
+import '../core/settings.dart';
 import '../core/store.dart';
 import '../core/storage_locations.dart';
 import '../features/tracking/tracking_repository.dart';
@@ -34,6 +34,8 @@ import '../features/playback/playback_library.dart';
 import '../features/playback/resource_search.dart';
 import '../features/playback/resume_controller.dart';
 import '../features/subscriptions/subscription_controller.dart';
+import '../features/sync/library_sync.dart';
+import '../features/sync/settings_sync.dart';
 import '../features/tracking/subject_controller.dart';
 import '../features/tracking/tracking_controller.dart';
 import '../features/update/app_update.dart';
@@ -58,13 +60,15 @@ class AppServices {
   AppServices({
     required this.configuration,
     required this.proxy,
-    required this.preferences,
+    required this.settings,
   });
 
   /// Routes HTTP and online playback; installed before any client exists.
   final NetworkProxy proxy;
   final ServiceConfiguration configuration;
-  final SharedPreferences preferences;
+
+  /// Every saved setting; see the catalog.
+  final Settings settings;
   final api = ApiClient();
   late final Credentials credentials;
 
@@ -103,6 +107,12 @@ class AppServices {
   late final AppUpdate update;
   late final ConnectivityCheck connectivity;
   late final AppUninstall uninstall;
+
+  /// Keeps the synced settings the same on the account's other devices.
+  late final SettingsSync sync;
+
+  /// The subscriptions and per-show records, when their sync is on.
+  late final LibrarySync librarySync;
 
   /// The search shown on the resources page.
   late final ResourceSearchController resources;
@@ -172,7 +182,7 @@ class AppServices {
     await pikpak.initialize();
     final mediaDirectory =
         storage?.media ?? p.join(dataDirectory!, 'downloads');
-    bt = LibtorrentTransfer(store, mediaDirectory);
+    bt = LibtorrentTransfer(store, settings, mediaDirectory);
     pikpakTransfer = PikPakTransfer(store, mediaDirectory, pikpak);
     // Sources are set up below; tasks resolve entries only once running.
     final online = OnlineDownloads(
@@ -185,7 +195,7 @@ class AppServices {
     _dispose.add(downloads.close);
     await bt.loadPreferences();
     library = PlaybackLibrary(store, downloads, catalog);
-    update = AppUpdate(api, preferences);
+    update = AppUpdate(api, settings);
     await update.initialize();
     danmaku = DanmakuController(
       DanmakuRepository(store, catalog, [
@@ -200,11 +210,11 @@ class AppServices {
         TencentDanmaku(api),
         IqiyiDanmaku(api),
       ]),
-      DanmakuPreferences(preferences),
+      DanmakuPreferences(settings),
     );
     sources = SourceRegistry(
       api,
-      preferences,
+      settings,
       SourceRulesClient(api),
       sourceEngines(api, bilibili: bilibili),
     );
@@ -238,7 +248,7 @@ class AppServices {
       tracking: tracking,
       library: library,
       preferences: SubscriptionPreferences(
-        preferences,
+        settings,
         subtitleLanguage: () => playback.settings.subtitleLanguage,
       ),
       preferredGroups: () => playback.settings.preferredGroups,
@@ -252,7 +262,7 @@ class AppServices {
       sources,
       pikpakTransfer,
     );
-    playback = Playback(library, downloads, danmaku, preferences, proxy);
+    playback = Playback(library, downloads, danmaku, settings, proxy);
     selection.remember = () => playback.settings.rememberSource;
     // A subscribed show picks as its subscription does; others as a new
     // subscription would start, the preferred groups after the named ones.
@@ -284,8 +294,31 @@ class AppServices {
     _dispose.add(downloadList.close);
     resume = ResumeController(library, tracking);
     await account.initialize();
+    librarySync = LibrarySync(
+      settings: settings,
+      store: store,
+      subscriptions: subscriptions,
+      selection: selection,
+      danmaku: danmaku.repository,
+      playback: library,
+    );
+    sync = SettingsSync(
+      api: api,
+      settings: settings,
+      token: account.accessToken,
+      userId: () => account.profile == null ? null : account.userId,
+      accountChanges: account.changes,
+      parts: [librarySync],
+    );
+    _dispose.add(() async => sync.dispose());
     tracking.start();
     await subscriptions.start();
+    if (!settings.get(LibrarySync.joinedSetting)) {
+      await sync.forgetBaseOf(librarySync);
+      await settings.set(LibrarySync.joinedSetting, true);
+    }
+    // After the subscriptions are read: before, there would seem to be none.
+    sync.start();
     _restoringDownloads = downloads.initialize();
     unawaited(
       _restoringDownloads!.then(

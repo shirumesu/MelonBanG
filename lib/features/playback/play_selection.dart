@@ -63,9 +63,26 @@ class PlaySelectionRepository {
   Future<void> forget(int subjectId) async {
     _remembered[subjectId] = null;
     await store.remove(_rememberedScope, '$subjectId');
+    rememberedChanges.add(null);
   }
 
-  static const _rememberedScope = 'source_preferences';
+  static const rememberedScope = 'source_preferences';
+  static const _rememberedScope = rememberedScope;
+
+  /// Fires when the source remembered for a show changes here.
+  final rememberedChanges = StreamController<void>.broadcast(sync: true);
+
+  /// Takes the source another device remembered for [subjectId], or
+  /// forgets it for null.
+  Future<void> adoptRemembered(int subjectId, Json? value) async {
+    if (value == null) {
+      _remembered[subjectId] = null;
+      await store.remove(_rememberedScope, '$subjectId');
+      return;
+    }
+    _remembered[subjectId] = RememberedSource.fromJson(value);
+    await store.put(_rememberedScope, '$subjectId', value);
+  }
 
   /// Cached files, online entries and torrents for [episode], or for the
   /// whole subject without one, ranked for playback. With [includeCloud],
@@ -481,8 +498,10 @@ class PlaySelectionRepository {
     continuity[subjectId] = candidate.continuityKey;
     if (!remember() || candidate.kind == PlayKind.local) return;
     final source = RememberedSource.of(candidate);
+    final previous = _remembered[subjectId];
     _remembered[subjectId] = source;
     await store.put(_rememberedScope, '$subjectId', source.toJson());
+    if (previous?.key != source.key) rememberedChanges.add(null);
   }
 
   void failed(PlayCandidate candidate) {

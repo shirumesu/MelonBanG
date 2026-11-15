@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../../core/error_message.dart';
 import '../../core/json.dart';
+import '../../core/settings.dart';
 import '../../core/store.dart';
 import '../../domain/torrent_identity.dart';
 import '../../domain/bittorrent_settings.dart';
@@ -16,9 +17,47 @@ import 'records.dart';
 /// BT through libtorrent: queueing, seeding policy and streaming of
 /// incomplete files.
 class LibtorrentTransfer implements TorrentTransfer {
-  LibtorrentTransfer(this.store, String directory)
-    : directory = p.normalize(p.absolute(directory));
+  LibtorrentTransfer(this.store, this.preferences, String directory)
+    : directory = p.normalize(p.absolute(directory)) {
+    // Seeding changed on another device.
+    preferences.watch([settingsSetting.key], () {
+      if (!preferences.changedBySync || _closed) return;
+      unawaited(
+        _apply(
+          BitTorrentSettings.fromJson(object(preferences.get(settingsSetting))),
+        ).catchError((Object _) {}),
+      );
+    });
+  }
   final AppStore store;
+  final Settings preferences;
+
+  /// The download policy. Seeding follows the account; speeds, queues and
+  /// the network side fit this computer and its connection, so they stay.
+  static const settingsSetting = JsonSetting(
+    'bittorrent',
+    fallback: <String, dynamic>{},
+    sync: SettingSync.synced,
+    label: 'BT 设置',
+    localFields: {
+      'downloadKiB',
+      'uploadKiB',
+      'activeDownloads',
+      'activeSeeds',
+      'connectionsPerTask',
+      'listenPort',
+      'resumeOnStartup',
+      'dht',
+      'upnp',
+      'ipv6',
+      'forceEncryption',
+    },
+    fieldLabels: {
+      'seedMode': '下载与做种 › 做种',
+      'seedRatio': '下载与做种 › 分享率',
+      'seedMinutes': '下载与做种 › 做种时长',
+    },
+  );
   @override
   final String directory;
   @override
@@ -54,7 +93,19 @@ class LibtorrentTransfer implements TorrentTransfer {
   Future<void> saveSettings(BitTorrentSettings value) async {
     await ready;
     _requireOpen();
-    await store.put('settings', 'bittorrent', value.toJson());
+    await preferences.set(settingsSetting, value.toJson());
+    await _apply(value);
+  }
+
+  /// Runs the engine and the tasks by [value].
+  Future<void> _apply(BitTorrentSettings value) async {
+    // Before restoring, the tasks read the value as they start.
+    if (_restoring == null) {
+      settings = value;
+      return;
+    }
+    await _restoring;
+    if (_closed) return;
     settings = value;
     if (_initializing != null) {
       await _initializing;
@@ -75,8 +126,15 @@ class LibtorrentTransfer implements TorrentTransfer {
   Future<void> loadPreferences() => _loadingPreferences ??= _loadPreferences();
 
   Future<void> _loadPreferences() async {
+    // Kept in the database before settings had one home; moved once.
+    if (!preferences.isSet(settingsSetting)) {
+      if (await store.get('settings', 'bittorrent') case final saved?) {
+        await preferences.set(settingsSetting, saved);
+      }
+    }
+    await store.remove('settings', 'bittorrent');
     settings = BitTorrentSettings.fromJson(
-      await store.get('settings', 'bittorrent') ?? {},
+      object(preferences.get(settingsSetting)),
     );
   }
 
@@ -148,9 +206,7 @@ class LibtorrentTransfer implements TorrentTransfer {
     );
     lt.MelonLibtorrent.instance.configureSession(_engineConfig(settings));
     _lastTick = _clock.elapsedMilliseconds;
-    _subscription = lt.MelonLibtorrent.instance.torrentUpdates.listen(
-      _update,
-    );
+    _subscription = lt.MelonLibtorrent.instance.torrentUpdates.listen(_update);
   }();
 
   void _update(Map<int, lt.TorrentInfo> snapshot) {
@@ -203,10 +259,7 @@ class LibtorrentTransfer implements TorrentTransfer {
         'complete': !checking && info.isFinished,
       });
       if (!wasComplete && task['complete'] == true) {
-        lt.MelonLibtorrent.instance.saveResume(
-          entry.value,
-          _resumePath(task),
-        );
+        lt.MelonLibtorrent.instance.saveResume(entry.value, _resumePath(task));
       }
       if (info.errorMsg.isNotEmpty) {
         task['status'] = 'failed';

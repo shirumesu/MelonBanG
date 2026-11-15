@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -37,6 +38,12 @@ class PlaybackResume {
 class PlaybackLibrary {
   PlaybackLibrary(this.store, this.downloads, this.catalog);
   final AppStore store;
+
+  static const progressScope = 'playback_progress';
+
+  /// Fires as an episode's place is saved here, every few seconds while it
+  /// plays.
+  final progressChanges = StreamController<void>.broadcast(sync: true);
   final DownloadRepository downloads;
   final Catalog catalog;
   Future<PlaybackSession> fromDownload(
@@ -324,5 +331,6 @@ class PlaybackLibrary {
         'completed': ended,
       },
     );
+    progressChanges.add(null);
   }
 }

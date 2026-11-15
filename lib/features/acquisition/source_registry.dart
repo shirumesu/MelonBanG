@@ -2,12 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/error_message.dart';
 import '../../core/hls_playlist.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
+import '../../core/settings.dart';
 import '../../domain/sources.dart';
 
 class _SourceRead {
@@ -19,9 +19,44 @@ class _SourceRead {
 /// Maintained sources of this run: the rule snapshot, per-source enablement
 /// and health, engine instances and shared, briefly cached reads.
 class SourceRegistry extends ChangeNotifier {
-  SourceRegistry(this.api, this.preferences, this.rules, this.engines);
+  SourceRegistry(this.api, this.settings, this.rules, this.engines) {
+    // Turned on or off on another device.
+    settings.watchPrefix(enabledFamily.prefix, () {
+      if (!settings.changedBySync) return;
+      for (final key in settings.changed) {
+        final id = enabledFamily.idOf(key);
+        if (id == null) continue;
+        if (isEnabled(id) && health[id] == SourceHealth.verification) {
+          health.remove(id);
+        }
+        _clearReads(source: id);
+      }
+      _notify();
+    });
+  }
   final ApiClient api;
-  final SharedPreferences preferences;
+  final Settings settings;
+
+  /// Each source's switch on the Sources page; `pikpak` also covers the
+  /// PikPak transfer.
+  static final enabledFamily = SettingFamily<bool>(
+    'source-enabled-',
+    (key) => BoolSetting(key, true, sync: SettingSync.synced),
+    sync: SettingSync.synced,
+    label: (id) => '数据源 › $id',
+  );
+
+  /// The rule snapshot last downloaded and its ETag: a cache.
+  static const rulesSetting = StringSetting(
+    'online-source-rules',
+    '',
+    sync: SettingSync.local,
+  );
+  static const rulesEtagSetting = StringSetting(
+    'online-source-etag',
+    '',
+    sync: SettingSync.local,
+  );
   final SourceRules rules;
   final Map<String, SourceEngineFactory> engines;
   final health = <String, SourceHealth>{};
@@ -66,8 +101,7 @@ class SourceRegistry extends ChangeNotifier {
   final _failedInARow = <String, int>{};
 
   /// Also covers the PikPak transfer, which shares the Sources page switch.
-  bool isEnabled(String id) =>
-      preferences.getBool('source-enabled-$id') ?? true;
+  bool isEnabled(String id) => settings.get(enabledFamily.of(id));
   bool usable(SourceInstance instance) =>
       isEnabled(instance.id) &&
       !instance.disabled &&
@@ -84,7 +118,7 @@ class SourceRegistry extends ChangeNotifier {
   }
 
   Future<void> setEnabled(String id, bool enabled) async {
-    await preferences.setBool('source-enabled-$id', enabled);
+    await settings.set(enabledFamily.of(id), enabled);
     if (enabled && health[id] == SourceHealth.verification) health.remove(id);
     _clearReads(source: id);
     _notify();
@@ -106,8 +140,8 @@ class SourceRegistry extends ChangeNotifier {
       _engines[id]?.currentBase ?? instance(id).baseUrls.firstOrNull ?? '';
 
   Future<void> initialize() async {
-    final cached = preferences.getString('online-source-rules');
-    if (cached != null) {
+    final cached = settings.get(rulesSetting);
+    if (cached.isNotEmpty) {
       try {
         final value = object(jsonDecode(cached));
         // A snapshot cached by an older engine lacks rules this client runs.
@@ -129,19 +163,19 @@ class SourceRegistry extends ChangeNotifier {
       final result = await rules.fetch(
         etag: ruleOrigin == '安装包内置'
             ? null
-            : preferences.getString('online-source-etag'),
+            : switch (settings.get(rulesEtagSetting)) {
+                '' => null,
+                final etag => etag,
+              },
       );
       if (_closed) return;
       updateIssue = null;
       if (result != null) {
-        await preferences.setString(
-          'online-source-rules',
-          jsonEncode(result.snapshot.json),
-        );
+        await settings.set(rulesSetting, jsonEncode(result.snapshot.json));
         if (result.etag != null) {
-          await preferences.setString('online-source-etag', result.etag!);
+          await settings.set(rulesEtagSetting, result.etag!);
         } else {
-          await preferences.remove('online-source-etag');
+          await settings.remove(rulesEtagSetting);
         }
         snapshot = result.snapshot;
         ruleOrigin = 'Melon API';

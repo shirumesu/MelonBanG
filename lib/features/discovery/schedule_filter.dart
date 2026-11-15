@@ -1,7 +1,6 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../core/settings.dart';
 
 import '../../core/json.dart';
 import '../../domain/catalog.dart';
@@ -141,22 +140,29 @@ class ScheduleFilter {
 
 /// The saved [ScheduleFilter]; R18 shows are hidden until changed.
 class SchedulePreference extends ChangeNotifier {
-  SchedulePreference(this._preferences);
-  final SharedPreferences _preferences;
-  static const _key = 'scheduleFilter';
-
-  ScheduleFilter get value {
-    final saved = _preferences.getString(_key);
-    if (saved == null) return const ScheduleFilter();
-    try {
-      return ScheduleFilter.fromJson(object(jsonDecode(saved)));
-    } on FormatException {
-      return const ScheduleFilter();
-    }
+  SchedulePreference(this._settings) {
+    _settings.watch([setting.key], notifyListeners);
   }
+  final Settings _settings;
 
-  Future<void> set(ScheduleFilter value) async {
-    await _preferences.setString(_key, jsonEncode(value.toJson()));
-    notifyListeners();
-  }
+  static const setting = JsonSetting(
+    'scheduleFilter',
+    sync: SettingSync.synced,
+    label: '时间表 › 筛选',
+    fieldLabels: {
+      'kinds': '时间表 › 类型',
+      'regions': '时间表 › 地区',
+      'hideLongRunning': '时间表 › 隐藏长篇',
+      'hidePastSeasons': '时间表 › 隐藏往季',
+      'adult': '时间表 › R18',
+    },
+  );
+
+  ScheduleFilter get value => switch (_settings.get(setting)) {
+    final Map<String, dynamic> saved => ScheduleFilter.fromJson(saved),
+    _ => const ScheduleFilter(),
+  };
+
+  Future<void> set(ScheduleFilter value) =>
+      _settings.set(setting, value.toJson());
 }

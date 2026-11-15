@@ -416,10 +416,8 @@ class _StorageSettingsState extends State<StorageSettings> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SettingRow(
-          title: '图片与资料缓存',
-          subtitle:
-              '${usageLabel(cacheBytes)}，超过 120 天自动清理，图片最多 100 MiB；'
-              '清理不影响已下载的视频、追番、订阅和观看进度',
+          title: '缓存数据',
+          subtitle: usageLabel(cacheBytes),
           trailing: FeedbackButton(
             feedback: cleanup,
             label: '清理缓存',
@@ -427,6 +425,14 @@ class _StorageSettingsState extends State<StorageSettings> {
             successLabel: '已清理',
             icon: Icons.cleaning_services_outlined,
             onPressed: clearCache,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+          child: Text(
+            '图片与番剧资料，超过 120 天自动清理，图片最多 100 MiB；'
+            '清理不影响已下载的视频、追番、订阅和观看进度',
+            style: small,
           ),
         ),
         Padding(

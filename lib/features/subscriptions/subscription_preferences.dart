@@ -1,9 +1,6 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../core/json.dart';
+import '../../core/settings.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/transfer.dart';
 import 'subscription.dart';
@@ -11,54 +8,101 @@ import 'subscription.dart';
 export 'subscription.dart' show RevisionPolicy;
 
 /// What closing the window does while subscriptions run.
-enum CloseAction {
+enum CloseAction implements Labeled {
   background('留在后台'),
   quit('退出');
 
   const CloseAction(this.label);
+  @override
   final String label;
 }
 
 /// When a subscription ends by itself; what it cached stays.
-enum AutoUnsubscribe {
+enum AutoUnsubscribe implements Labeled {
   never('永不'),
   unwatched('超过三周未观看'),
   finished('完结后');
 
   const AutoUnsubscribe(this.label);
+  @override
   final String label;
 }
 
 /// Settings shared by every subscription, and the filter the next one
 /// starts from.
 class SubscriptionPreferences extends ChangeNotifier {
-  SubscriptionPreferences(this._preferences, {required this.subtitleLanguage});
-  final SharedPreferences _preferences;
+  SubscriptionPreferences(this._settings, {required this.subtitleLanguage}) {
+    _settings.watch([for (final setting in all) setting.key], notifyListeners);
+  }
+  final Settings _settings;
 
   /// The player's subtitle language, which the first filter selects.
   final String Function() subtitleLanguage;
 
+  /// Staying in the tray is up to each computer.
+  static const closeActionSetting = EnumSetting(
+    'closeAction',
+    CloseAction.values,
+    CloseAction.background,
+    sync: SettingSync.local,
+  );
+  static const methodSetting = EnumSetting(
+    'subscriptionMethod',
+    [CacheMethod.bt, CacheMethod.pikpak],
+    CacheMethod.bt,
+    sync: SettingSync.synced,
+    label: '订阅与缓存 › 缓存到',
+  );
+  static const revisionsSetting = EnumSetting(
+    'subscriptionRevisions',
+    RevisionPolicy.values,
+    RevisionPolicy.skip,
+    sync: SettingSync.synced,
+    label: '订阅与缓存 › 修正版',
+  );
+  static const autoUnsubscribeSetting = EnumSetting(
+    'subscriptionAutoEnd',
+    AutoUnsubscribe.values,
+    AutoUnsubscribe.finished,
+    sync: SettingSync.synced,
+    label: '订阅与缓存 › 自动取消订阅',
+  );
+
+  /// The last answer of the subscribe dialog's checkbox on this device.
+  static const cacheEarlierSetting = BoolSetting(
+    'subscriptionEarlier',
+    false,
+    sync: SettingSync.local,
+  );
+
+  /// What a new subscription starts from: the filter last subscribed with.
+  static const filterSetting = JsonSetting(
+    'subscriptionFilter',
+    sync: SettingSync.synced,
+    label: '订阅 › 新订阅的默认筛选',
+  );
+  static const all = <Setting<Object?>>[
+    closeActionSetting,
+    methodSetting,
+    revisionsSetting,
+    autoUnsubscribeSetting,
+    cacheEarlierSetting,
+    filterSetting,
+  ];
+
   /// Null until the first close asks.
-  CloseAction? get closeAction => _choice(CloseAction.values, 'closeAction');
+  CloseAction? get closeAction =>
+      closeActionSetting.readOrNull(_settings.storage);
 
-  CacheMethod get method =>
-      _choice(const [
-        CacheMethod.bt,
-        CacheMethod.pikpak,
-      ], 'subscriptionMethod') ??
-      CacheMethod.bt;
+  CacheMethod get method => _settings.get(methodSetting);
 
-  RevisionPolicy get revisions =>
-      _choice(RevisionPolicy.values, 'subscriptionRevisions') ??
-      RevisionPolicy.skip;
+  RevisionPolicy get revisions => _settings.get(revisionsSetting);
 
-  AutoUnsubscribe get autoUnsubscribe =>
-      _choice(AutoUnsubscribe.values, 'subscriptionAutoEnd') ??
-      AutoUnsubscribe.finished;
+  AutoUnsubscribe get autoUnsubscribe => _settings.get(autoUnsubscribeSetting);
 
   /// Whether a new subscription also caches the episodes aired before it,
   /// as the last one offered did.
-  bool get cacheEarlier => _preferences.getBool('subscriptionEarlier') ?? false;
+  bool get cacheEarlier => _settings.get(cacheEarlierSetting);
 
   /// The filter last subscribed with, without the groups it named: those
   /// were that show's, and another show's groups differ. Naming groups
@@ -66,10 +110,9 @@ class SubscriptionPreferences extends ChangeNotifier {
   /// first, 1080p in the player's [subtitleLanguage] by the preferred
   /// groups, or by any group while none are set.
   SubscriptionFilter defaultFilter(List<String> preferredGroups) {
-    final saved = _preferences.getString('subscriptionFilter');
-    if (saved != null) {
+    if (_settings.get(filterSetting) case final Map<String, dynamic> saved) {
       try {
-        final filter = SubscriptionFilter.fromJson(object(jsonDecode(saved)));
+        final filter = SubscriptionFilter.fromJson(saved);
         return filter.copyWith(
           groups: const {},
           preferred:
@@ -94,28 +137,15 @@ class SubscriptionPreferences extends ChangeNotifier {
   }
 
   Future<void> setCloseAction(CloseAction value) =>
-      _set('closeAction', value.name);
+      _settings.set(closeActionSetting, value);
   Future<void> setMethod(CacheMethod value) =>
-      _set('subscriptionMethod', value.name);
+      _settings.set(methodSetting, value);
   Future<void> setRevisions(RevisionPolicy value) =>
-      _set('subscriptionRevisions', value.name);
+      _settings.set(revisionsSetting, value);
   Future<void> setAutoUnsubscribe(AutoUnsubscribe value) =>
-      _set('subscriptionAutoEnd', value.name);
-  Future<void> setCacheEarlier(bool value) async {
-    await _preferences.setBool('subscriptionEarlier', value);
-    notifyListeners();
-  }
-
+      _settings.set(autoUnsubscribeSetting, value);
+  Future<void> setCacheEarlier(bool value) =>
+      _settings.set(cacheEarlierSetting, value);
   Future<void> setDefaultFilter(SubscriptionFilter value) =>
-      _set('subscriptionFilter', jsonEncode(value.toJson()));
-
-  T? _choice<T extends Enum>(List<T> values, String key) {
-    final name = _preferences.getString(key);
-    return values.where((value) => value.name == name).firstOrNull;
-  }
-
-  Future<void> _set(String key, String value) async {
-    await _preferences.setString(key, value);
-    notifyListeners();
-  }
+      _settings.set(filterSetting, value.toJson());
 }

@@ -5,11 +5,11 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/error_message.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
+import '../../core/settings.dart';
 import '../../integrations/github/app_releases.dart';
 import 'uninstall.dart';
 
@@ -20,7 +20,7 @@ enum UpdatePhase { idle, checking, available, downloading, ready, failed }
 /// app has exited: `updater.exe` on Windows, a shell script on macOS and for
 /// the Linux AppImage.
 class AppUpdate extends ChangeNotifier {
-  AppUpdate(this.api, this.preferences) : releases = AppReleases(api);
+  AppUpdate(this.api, this.settings) : releases = AppReleases(api);
   static const version = String.fromEnvironment('MELONBANG_VERSION');
   static final _platform = Platform.isMacOS
       ? 'macos-arm64'
@@ -28,7 +28,7 @@ class AppUpdate extends ChangeNotifier {
       ? 'linux-x64'
       : 'windows-x64';
   final ApiClient api;
-  final SharedPreferences preferences;
+  final Settings settings;
   final AppReleases releases;
 
   UpdatePhase phase = UpdatePhase.idle;
@@ -43,26 +43,43 @@ class AppUpdate extends ChangeNotifier {
   /// Why this copy cannot update itself; null when it can.
   String? unavailable;
 
-  bool get autoCheck => preferences.getBool('update-auto-check') ?? true;
-  bool get autoDownload => preferences.getBool('update-auto-download') ?? true;
+  /// Updates are per installation: never synced.
+  static const autoCheckSetting = BoolSetting(
+    'update-auto-check',
+    true,
+    sync: SettingSync.local,
+  );
+  static const autoDownloadSetting = BoolSetting(
+    'update-auto-download',
+    true,
+    sync: SettingSync.local,
+  );
+  static const betaSetting = BoolSetting(
+    'update-beta',
+    false,
+    sync: SettingSync.local,
+  );
+
+  bool get autoCheck => settings.get(autoCheckSetting);
+  bool get autoDownload => settings.get(autoDownloadSetting);
 
   /// Whether alpha and beta versions are offered; off by default.
-  bool get beta => preferences.getBool('update-beta') ?? false;
+  bool get beta => settings.get(betaSetting);
 
   Future<void> setAutoCheck(bool value) async {
-    await preferences.setBool('update-auto-check', value);
+    await settings.set(autoCheckSetting, value);
     notifyListeners();
   }
 
   Future<void> setAutoDownload(bool value) async {
-    await preferences.setBool('update-auto-download', value);
+    await settings.set(autoDownloadSetting, value);
     notifyListeners();
     // A version found earlier starts downloading now.
     if (value && phase == UpdatePhase.available) await download();
   }
 
   Future<void> setBeta(bool value) async {
-    await preferences.setBool('update-beta', value);
+    await settings.set(betaSetting, value);
     // Leaving the beta channel drops a downloaded prerelease, which would
     // otherwise still install on exit.
     if (!value &&

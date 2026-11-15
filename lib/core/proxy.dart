@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'system_settings.dart';
+import 'settings.dart';
 
 enum ProxyMode {
   off('不使用代理'),
@@ -108,17 +108,26 @@ class ProxyServer {
 /// so changing the setting applies to the next connection without
 /// recreating clients. BitTorrent peers connect directly.
 class NetworkProxy extends ChangeNotifier {
-  NetworkProxy(this.preferences);
-  final SharedPreferences preferences;
+  NetworkProxy(this.settings);
+  final Settings settings;
 
-  ProxyMode get mode =>
-      ProxyMode.values.asNameMap()[preferences.getString(
-        'network-proxy-mode',
-      )] ??
-      ProxyMode.off;
+  /// This device's network: never synced. The address can hold a password.
+  static const modeSetting = EnumSetting(
+    'network-proxy-mode',
+    ProxyMode.values,
+    ProxyMode.off,
+    sync: SettingSync.local,
+  );
+  static const addressSetting = StringSetting(
+    'network-proxy-address',
+    '',
+    sync: SettingSync.local,
+  );
+
+  ProxyMode get mode => settings.get(modeSetting);
 
   /// The custom proxy address as typed.
-  String get address => preferences.getString('network-proxy-address') ?? '';
+  String get address => settings.get(addressSetting);
 
   SystemProxy system = const SystemProxy();
 
@@ -149,7 +158,7 @@ class NetworkProxy extends ChangeNotifier {
   }
 
   Future<void> setMode(ProxyMode value) async {
-    await preferences.setString('network-proxy-mode', value.name);
+    await settings.set(modeSetting, value);
     if (value == ProxyMode.system) await refreshSystem();
     notifyListeners();
   }
@@ -157,7 +166,7 @@ class NetworkProxy extends ChangeNotifier {
   /// Saves a custom address; throws a [FormatException] for an invalid one.
   Future<void> setAddress(String value) async {
     ProxyServer.parse(value);
-    await preferences.setString('network-proxy-address', value.trim());
+    await settings.set(addressSetting, value.trim());
     notifyListeners();
   }
 

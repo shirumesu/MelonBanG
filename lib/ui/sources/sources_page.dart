@@ -7,6 +7,8 @@ import '../../domain/sources.dart';
 import '../../features/acquisition/source_registry.dart';
 import '../../features/danmaku/danmaku_controller.dart';
 import '../../features/network/connectivity.dart';
+import '../../integrations/sources/bilibili_account.dart';
+import '../../integrations/transfer/pikpak.dart';
 import '../acquisition/resource_widgets.dart' show resourceDateLabel;
 import '../core/action_feedback.dart';
 import '../core/external_link.dart';
@@ -25,22 +27,26 @@ class SourcesPage extends StatefulWidget {
     required this.registry,
     required this.danmaku,
     required this.connectivity,
-    required this.pikpakAccount,
-    required this.bilibiliAccount,
+    required this.pikpak,
+    required this.bilibili,
     required this.onPlay,
     required this.onOpenUpdates,
+    required this.onOpenAccounts,
   });
   final SourceRegistry registry;
   final DanmakuController danmaku;
   final ConnectivityCheck connectivity;
-  final Widget pikpakAccount;
 
-  /// The Bilibili sign-in, shown with the Bilibili video source and danmaku.
-  final Widget bilibiliAccount;
+  /// The accounts some sources use; signing in is in Settings › 账户与同步.
+  final PikPakTransfer pikpak;
+  final BilibiliAccount bilibili;
   final Future<void> Function(ResolvedStream) onPlay;
 
   /// Opens the app's update settings.
   final VoidCallback onOpenUpdates;
+
+  /// Opens Settings › 账户与同步.
+  final VoidCallback onOpenAccounts;
   @override
   State<SourcesPage> createState() => _SourcesPageState();
 }
@@ -586,7 +592,7 @@ class _SourcesPageState extends State<SourcesPage> {
         ),
         if (provider.id == 'bilibili') ...[
           const SectionTitle(title: '账户', top: Gap.lg),
-          widget.bilibiliAccount,
+          _bilibiliAccount(),
         ],
         if (sender) ...[
           const SectionTitle(title: '发送', top: Gap.lg),
@@ -613,6 +619,33 @@ class _SourcesPageState extends State<SourcesPage> {
       ],
     );
   }
+
+  /// Who the source signs in as, and the way to Settings, where signing in
+  /// and out happens.
+  Widget _account(String status, {required bool signedIn}) => MelonPanel(
+    padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.md, Gap.md),
+    child: Row(
+      children: [
+        Expanded(child: Text(status)),
+        const SizedBox(width: Gap.md),
+        TextButton(
+          onPressed: widget.onOpenAccounts,
+          child: Text(signedIn ? '在设置中管理' : '去设置登录'),
+        ),
+      ],
+    ),
+  );
+
+  Widget _bilibiliAccount() => ListenableBuilder(
+    listenable: widget.bilibili,
+    builder: (context, _) => _account(
+      widget.bilibili.signedIn
+          ? '已登录 ${widget.bilibili.name ?? 'B 站账号'}'
+                '${widget.bilibili.membership == null ? '' : ' · ${widget.bilibili.membership}'}'
+          : widget.bilibili.lapsed ?? '未登录 · 登录后弹幕更全，大会员还能播放会员集',
+      signedIn: widget.bilibili.signedIn,
+    ),
+  );
 
   /// Nothing while the source is simply on.
   Widget? _badge(_Entry entry) => entry.quiet
@@ -680,11 +713,19 @@ class _SourcesPageState extends State<SourcesPage> {
         ),
         if (instance == null) ...[
           const SectionTitle(title: '账户', top: Gap.lg),
-          widget.pikpakAccount,
+          _account(
+            widget.pikpak.needsAuthorization
+                ? 'PikPak 登录凭据待解锁'
+                : switch (widget.pikpak.accountName) {
+                    final name? => '已登录 $name',
+                    null => '未登录 · 登录后可用 PikPak 云端离线下载',
+                  },
+            signedIn: widget.pikpak.accountName != null,
+          ),
         ],
         if (instance?.engine == 'bilibili-web') ...[
           const SectionTitle(title: '账户', top: Gap.lg),
-          widget.bilibiliAccount,
+          _bilibiliAccount(),
         ],
         if (instance?.kind == SourceKind.torrent) ..._torrentTrial(id),
         if (online) ...[

@@ -1,26 +1,28 @@
 import 'dart:ui' show Brightness, Color;
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/settings.dart';
 import '../../core/system_settings.dart';
 
-enum ThemeChoice {
+enum ThemeChoice implements Labeled {
   light('浅色'),
   dark('深色'),
   system('跟随系统');
 
   const ThemeChoice(this.label);
+  @override
   final String label;
 }
 
 /// How sizes and speeds are counted: KiB and MiB step by 1024, KB and MB
 /// by 1000.
-enum ByteUnits {
+enum ByteUnits implements Labeled {
   binary('KiB、MiB', 1024, ['KiB', 'MiB', 'GiB', 'TiB']),
   decimal('KB、MB', 1000, ['KB', 'MB', 'GB', 'TB']);
 
   const ByteUnits(this.label, this.base, this.names);
+  @override
   final String label;
   final int base;
   final List<String> names;
@@ -59,22 +61,53 @@ const accentPresets = <AccentPreset>[
 /// reread when the window regains focus, since it can change while the app
 /// runs.
 class Appearance extends ChangeNotifier {
-  Appearance(this.preferences);
-  final SharedPreferences preferences;
+  Appearance(this.settings) {
+    settings.watch([for (final setting in all) setting.key], notifyListeners);
+  }
+  final Settings settings;
 
-  ThemeChoice get mode =>
-      ThemeChoice.values.asNameMap()[preferences.getString('theme-mode')] ??
-      ThemeChoice.light;
+  static const modeSetting = EnumSetting(
+    'theme-mode',
+    ThemeChoice.values,
+    ThemeChoice.light,
+    sync: SettingSync.synced,
+    label: '外观 › 主题模式',
+  );
+  static const accentSetting = StringSetting(
+    'theme-accent',
+    'mint',
+    sync: SettingSync.synced,
+    label: '外观 › 主题色',
+  );
+  static const coverColorSetting = BoolSetting(
+    'theme-cover-color',
+    false,
+    sync: SettingSync.synced,
+    label: '外观 › 封面取色',
+  );
+  static const byteUnitsSetting = EnumSetting(
+    'byte-units',
+    ByteUnits.values,
+    ByteUnits.decimal,
+    sync: SettingSync.synced,
+    label: '外观 › 容量单位',
+  );
+  static const all = <Setting<Object?>>[
+    modeSetting,
+    accentSetting,
+    coverColorSetting,
+    byteUnitsSetting,
+  ];
+
+  ThemeChoice get mode => settings.get(modeSetting);
 
   /// A preset id, or `system` for the system accent colour.
-  String get accent => preferences.getString('theme-accent') ?? 'mint';
+  String get accent => settings.get(accentSetting);
 
   /// Subject details and the player take their cover's colour.
-  bool get coverColor => preferences.getBool('theme-cover-color') ?? false;
+  bool get coverColor => settings.get(coverColorSetting);
 
-  ByteUnits get byteUnits =>
-      ByteUnits.values.asNameMap()[preferences.getString('byte-units')] ??
-      ByteUnits.decimal;
+  ByteUnits get byteUnits => settings.get(byteUnitsSetting);
 
   /// The system accent colour, once read; null where there is none.
   Color? systemAccent;
@@ -109,24 +142,16 @@ class Appearance extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setMode(ThemeChoice value) async {
-    await preferences.setString('theme-mode', value.name);
-    notifyListeners();
-  }
+  Future<void> setMode(ThemeChoice value) => settings.set(modeSetting, value);
 
   Future<void> setAccent(String value) async {
-    await preferences.setString('theme-accent', value);
     if (value == 'system') await refreshSystemAccent();
-    notifyListeners();
+    await settings.set(accentSetting, value);
   }
 
-  Future<void> setCoverColor(bool value) async {
-    await preferences.setBool('theme-cover-color', value);
-    notifyListeners();
-  }
+  Future<void> setCoverColor(bool value) =>
+      settings.set(coverColorSetting, value);
 
-  Future<void> setByteUnits(ByteUnits value) async {
-    await preferences.setString('byte-units', value.name);
-    notifyListeners();
-  }
+  Future<void> setByteUnits(ByteUnits value) =>
+      settings.set(byteUnitsSetting, value);
 }

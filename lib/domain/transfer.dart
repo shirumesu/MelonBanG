@@ -1,15 +1,17 @@
 import 'dart:typed_data';
 
+import '../core/labeled.dart';
 import 'sources.dart';
 
 /// How a task's bytes are fetched: a release over BT or through PikPak, or
 /// an online source's stream.
-enum CacheMethod {
+enum CacheMethod implements Labeled {
   bt('BT'),
   pikpak('PikPak'),
   online('在线');
 
   const CacheMethod(this.label);
+  @override
   final String label;
 }
 

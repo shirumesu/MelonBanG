@@ -7,11 +7,11 @@ import 'dart:ui' show Size;
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/cancellation.dart';
 import '../../core/error_message.dart';
 import '../../core/proxy.dart';
+import '../../core/settings.dart';
 import '../../domain/catalog.dart';
 import '../../domain/playback_session.dart';
 import '../danmaku/danmaku_controller.dart';
@@ -32,9 +32,32 @@ class Playback extends ChangeNotifier {
     settings = PlaybackPreferences(preferences);
     danmaku.addListener(_danmakuChanged);
     settings.addListener(_settingsChanged);
-    _savedRate = preferences.getDouble('player-rate') ?? 1;
-    _lastAudibleVolume = preferences.getDouble(_volumeKey) ?? 80;
+    _savedRate = preferences.get(rateSetting);
+    _lastAudibleVolume = preferences.get(volumeSetting);
   }
+
+  /// The player's last rate, volume and mute, and where a file without an
+  /// episode stopped: kept on this device only.
+  static const rateSetting = DoubleSetting(
+    'player-rate',
+    1,
+    sync: SettingSync.local,
+  );
+  static const volumeSetting = DoubleSetting(
+    'player-volume',
+    80,
+    sync: SettingSync.local,
+  );
+  static const mutedSetting = BoolSetting(
+    'player-muted',
+    false,
+    sync: SettingSync.local,
+  );
+  static final progressFamily = SettingFamily<double>(
+    'progress:',
+    (key) => DoubleSetting(key, 0, sync: SettingSync.local),
+    sync: SettingSync.local,
+  );
 
   /// Opens mpv and its video output, which hold a decoder, buffers and GPU
   /// textures; [unload] closes them again.
@@ -85,7 +108,7 @@ class Playback extends ChangeNotifier {
         _playing.add(playing);
       }),
     );
-    if (preferences.getBool(_mutedKey) == true) {
+    if (preferences.get(mutedSetting)) {
       unawaited(player.setVolume(0));
     } else {
       unawaited(player.setVolume(_lastAudibleVolume));
@@ -97,8 +120,8 @@ class Playback extends ChangeNotifier {
         // Sliders emit continuously; persist once the value settles.
         _volumeWrite?.cancel();
         _volumeWrite = Timer(const Duration(milliseconds: 400), () {
-          unawaited(preferences.setDouble(_volumeKey, _lastAudibleVolume));
-          unawaited(preferences.setBool(_mutedKey, volume == 0));
+          unawaited(preferences.set(volumeSetting, _lastAudibleVolume));
+          unawaited(preferences.set(mutedSetting, volume == 0));
         });
       }),
     );
@@ -110,7 +133,7 @@ class Playback extends ChangeNotifier {
         _rateWrite?.cancel();
         _rateWrite = Timer(
           const Duration(milliseconds: 400),
-          () => unawaited(preferences.setDouble('player-rate', rate)),
+          () => unawaited(preferences.set(rateSetting, rate)),
         );
       }),
     );
@@ -148,7 +171,7 @@ class Playback extends ChangeNotifier {
   final PlaybackLibrary library;
   final DownloadRepository downloads;
   final DanmakuController danmaku;
-  final SharedPreferences preferences;
+  final Settings preferences;
 
   /// Online media goes through the app's proxy; local streams never do.
   final NetworkProxy proxy;
@@ -200,7 +223,6 @@ class Playback extends ChangeNotifier {
   Episode? autoplayEndEpisode;
   String? autoplayMessage;
   int autoplaySeconds = 0;
-  static const _volumeKey = 'player-volume', _mutedKey = 'player-muted';
   PlaybackSession? session;
   String? uri;
   String? error, notice;
@@ -526,7 +548,8 @@ class Playback extends ChangeNotifier {
         final saved = await library.progress(subjectId, episodeId);
         if (saved != null) resume = saved.completed ? 0 : saved.position;
       } else {
-        resume = preferences.getDouble('progress:${next.progressKey}');
+        final key = progressFamily.of(next.progressKey);
+        resume = preferences.isSet(key) ? preferences.get(key) : null;
       }
       if (next.startSeconds != null) resume = next.startSeconds;
       // Apply continuation while loading; open() can return before native seek is ready.
@@ -604,9 +627,9 @@ class Playback extends ChangeNotifier {
       // which changes with each resolve, would pile up keys.
       if (savedSession.subjectId == null || savedSession.episodeId == null) {
         if (savedSession.standalone) return;
-        await preferences.setDouble(
-          'progress:$savedUri',
-          completed ? 0 : position,
+        await preferences.set(
+          progressFamily.of(savedUri),
+          completed ? 0.0 : position,
         );
         return;
       }
@@ -1178,7 +1201,7 @@ class Playback extends ChangeNotifier {
     _outputTimer?.cancel();
     _errorCheck?.cancel();
     cancelAutoplay();
-    await preferences.setDouble('player-rate', _savedRate);
+    await preferences.set(rateSetting, _savedRate);
     danmaku.removeListener(_danmakuChanged);
     settings.removeListener(_settingsChanged);
     await _openQueue;

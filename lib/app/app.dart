@@ -4,14 +4,15 @@ import 'dart:io';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app_services.dart';
 import 'app_tray.dart';
+import 'settings_catalog.dart';
 import '../core/background.dart';
 import '../core/error_message.dart';
 import '../core/network.dart';
+import '../core/settings.dart';
 import '../features/acquisition/resource_metadata.dart';
 import '../domain/catalog.dart';
 import '../domain/play_candidate.dart';
@@ -25,6 +26,7 @@ import '../features/playback/resume_controller.dart';
 import '../features/discovery/continue_range.dart';
 import '../features/discovery/schedule_filter.dart';
 import '../features/subscriptions/subscription_controller.dart';
+import '../features/sync/settings_sync.dart';
 import '../features/tracking/subject_controller.dart';
 import '../features/tracking/tracking_controller.dart';
 import '../features/update/app_update.dart';
@@ -45,14 +47,14 @@ import '../ui/discovery/calendar_page.dart';
 import '../ui/discovery/home_page.dart';
 import '../ui/discovery/search_page.dart';
 import '../ui/player/player_page.dart';
+import '../ui/settings/account_settings.dart';
 import '../ui/settings/bittorrent_settings.dart';
 import '../ui/settings/network_settings.dart';
 import '../ui/settings/settings_page.dart';
 import '../ui/settings/settings_sections.dart';
+import '../ui/settings/sync_conflicts.dart';
 import '../ui/settings/storage_settings.dart';
 import '../ui/settings/update_settings.dart';
-import '../ui/sources/bilibili_account.dart';
-import '../ui/sources/pikpak_account.dart';
 import '../ui/sources/sources_page.dart';
 import '../ui/subscriptions/subscription_dialogs.dart';
 import '../ui/tracking/subject_page.dart';
@@ -63,11 +65,11 @@ class MelonApp extends StatefulWidget {
     super.key,
     required this.window,
     required this.service,
-    required this.preferences,
+    required this.settings,
   });
   final Window window;
   final AppServices service;
-  final SharedPreferences preferences;
+  final Settings settings;
   @override
   State<MelonApp> createState() => _MelonAppState();
 }
@@ -98,11 +100,11 @@ class _MelonAppState extends State<MelonApp>
   bool closing = false, sidebarVisible = true, windowFullScreen = false;
 
   /// Theme mode, theme colour and cover colouring.
-  late final appearance = Appearance(widget.preferences);
+  late final appearance = Appearance(widget.settings);
 
   /// Which shows the home page's 继续观看 lists.
-  late final continueRange = ContinuePreference(widget.preferences);
-  late final scheduleFilter = SchedulePreference(widget.preferences);
+  late final continueRange = ContinuePreference(widget.settings);
+  late final scheduleFilter = SchedulePreference(widget.settings);
 
   /// Set when the window's close quits rather than going to the background.
   bool quitting = false;
@@ -187,7 +189,7 @@ class _MelonAppState extends State<MelonApp>
     appearance.addListener(servicesChanged);
     continueRange.addListener(servicesChanged);
     unawaited(appearance.refreshSystemAccent());
-    recentSearches = widget.preferences.getStringList('recentSearches') ?? [];
+    recentSearches = widget.settings.get(recentSearchesSetting);
     windowListener = window.addListener(windowEvent);
     Background.listen(
       onQuit: quit,
@@ -255,6 +257,13 @@ class _MelonAppState extends State<MelonApp>
       };
       service.subscriptions.addListener(syncTray);
       downloads.active.addListener(syncTray);
+      service.sync.addListener(syncConflicted);
+      // A change stays here when the upload fails; say so, and the next
+      // sync takes it up.
+      service.sync.onFailed = (message) =>
+          showError('设置已保存在这台设备，但没能同步到云端：$message');
+      service.librarySync.onArrived = (arrived) =>
+          unawaited(askSynced(arrived));
       subscriptions.add(
         service.tracking.changes.stream.listen((_) {
           if (!mounted) return;
@@ -287,6 +296,34 @@ class _MelonAppState extends State<MelonApp>
 
   void servicesChanged() {
     if (mounted && !closing) setState(() {});
+  }
+
+  /// Asks whether subscriptions synced from another device cache here.
+  Future<void> askSynced(List<Subscription> arrived) async {
+    final target = navigation.currentState?.overlay?.context;
+    if (target == null || closing) return;
+    final cache = await askSyncedSubscriptions(target, arrived);
+    if (cache != true) return;
+    await service.subscriptions.setPaused([
+      for (final subscription in arrived) subscription.subjectId,
+    ], false);
+  }
+
+  /// The conflicts last asked about, so one waiting choice asks only once;
+  /// later the choice waits in Settings › 账户与同步.
+  List<SettingConflict>? askedConflicts;
+
+  /// Asks which side keeps each setting changed on both devices.
+  void syncConflicted() {
+    final sync = service.sync;
+    if (sync.status != SettingsSyncStatus.conflict ||
+        identical(sync.conflicts, askedConflicts)) {
+      return;
+    }
+    askedConflicts = sync.conflicts;
+    final target = navigation.currentState?.overlay?.context;
+    if (target == null || closing) return;
+    unawaited(showSyncConflicts(target, sync).catchError(showError));
   }
 
   void availabilityChanged() {
@@ -586,14 +623,12 @@ class _MelonAppState extends State<MelonApp>
         ...recentSearches.where((item) => item != query),
       ].take(8).toList();
     });
-    unawaited(
-      widget.preferences.setStringList('recentSearches', recentSearches),
-    );
+    unawaited(widget.settings.set(recentSearchesSetting, recentSearches));
   }
 
   void clearRecentSearches() {
     setState(() => recentSearches = []);
-    unawaited(widget.preferences.remove('recentSearches'));
+    unawaited(widget.settings.remove(recentSearchesSetting));
   }
 
   /// Searches typed text, where `#百合` searches the tag 百合. On the search
@@ -955,6 +990,7 @@ class _MelonAppState extends State<MelonApp>
       downloads.availability.removeListener(availabilityChanged);
       service.subscriptions.removeListener(syncTray);
       downloads.active.removeListener(syncTray);
+      service.sync.removeListener(syncConflicted);
     }
     unawaited(
       (ready ? coordinator.close() : Future<void>.value()).whenComplete(
@@ -1219,6 +1255,9 @@ class _MelonAppState extends State<MelonApp>
   List<SettingsSection> settingsSections() => [
     accountSection(
       personal: personal,
+      sync: service.sync,
+      pikpak: service.pikpakTransfer,
+      bilibili: service.bilibili,
       onAccountAction: () => perform(personal.toggleAccount),
       onCancelSignIn: () => perform(personal.cancelSignIn),
       onUnlock: () => perform(personal.unlock),
@@ -1516,26 +1555,13 @@ class _MelonAppState extends State<MelonApp>
           ),
         );
       case 'sources':
-        final pikpak = service.pikpakTransfer;
-        Future<void> changeAccount(Future<void> Function() change) async {
-          await change();
-          if (mounted) setState(() {});
-        }
-
         return SourcesPage(
           registry: service.sources,
           danmaku: service.danmaku,
           connectivity: service.connectivity,
-          pikpakAccount: PikPakAccount(
-            account: pikpak.accountName,
-            needsAuthorization: pikpak.needsAuthorization,
-            verificationUrl: pikpak.verificationUrl,
-            onUnlock: () => changeAccount(pikpak.unlock),
-            onLogin: (username, password) =>
-                changeAccount(() => pikpak.signIn(username, password)),
-            onLogout: () => changeAccount(pikpak.signOut),
-          ),
-          bilibiliAccount: BilibiliAccountPanel(account: service.bilibili),
+          pikpak: service.pikpakTransfer,
+          bilibili: service.bilibili,
+          onOpenAccounts: () => openSettings('account'),
           onPlay: (stream) => coordinator.play(
             () async => service.library.online(stream),
             title: '在线视频',

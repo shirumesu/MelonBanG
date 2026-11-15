@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:path/path.dart' as p;
 
 import '../acquisition/resource_metadata.dart';
@@ -65,10 +67,18 @@ class DanmakuRepository {
     String provider,
     String locator,
     double number,
-  ) => store.put('danmaku_follow', '$subjectId:$provider', {
-    'locator': locator,
-    'number': number,
-  });
+  ) async {
+    await store.put(followScope, '$subjectId:$provider', {
+      'locator': locator,
+      'number': number,
+    });
+    followChanges.add(null);
+  }
+
+  static const followScope = 'danmaku_follow';
+
+  /// Fires when a show's hand-picked danmaku match changes here.
+  final followChanges = StreamController<void>.broadcast(sync: true);
 
   Future<DanmakuEpisode> episode(DanmakuTarget target) async {
     final subjectId = target.subjectId;

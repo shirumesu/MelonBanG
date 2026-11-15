@@ -69,6 +69,10 @@ flutter:
     - assets/images/akkarin.png
     - assets/images/logotype.png
     - assets/images/mark.png
+    # The app icons of PikPak and Bilibili beside their sign-ins, made from
+    # assets/images/services/source; 2.0x and 3.0x are picked up by scale.
+    - assets/images/services/bilibili.png
+    - assets/images/services/pikpak.png
     # The Windows tray icon, a copy of the app icon.
     - assets/images/tray.ico
     # The macOS menu bar icon: a template image AppKit tints for the menu

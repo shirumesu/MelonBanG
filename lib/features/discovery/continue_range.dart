@@ -1,15 +1,17 @@
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../core/settings.dart';
 
 import '../../domain/episode_release.dart';
 
 /// Which shows the home page's 继续观看 lists, by when they air.
-enum ContinueRange {
+enum ContinueRange implements Labeled {
   all('全部'),
   season('当季'),
   twoSeasons('近两季');
 
   const ContinueRange(this.label);
+  @override
   final String label;
 
   /// The first day a show must air on or after to be listed; null for all.
@@ -24,18 +26,20 @@ enum ContinueRange {
 
 /// The saved [ContinueRange].
 class ContinuePreference extends ChangeNotifier {
-  ContinuePreference(this._preferences);
-  final SharedPreferences _preferences;
-  static const _key = 'continueRange';
-
-  ContinueRange get value =>
-      ContinueRange.values
-          .where((range) => range.name == _preferences.getString(_key))
-          .firstOrNull ??
-      ContinueRange.twoSeasons;
-
-  Future<void> set(ContinueRange value) async {
-    await _preferences.setString(_key, value.name);
-    notifyListeners();
+  ContinuePreference(this._settings) {
+    _settings.watch([setting.key], notifyListeners);
   }
+  final Settings _settings;
+
+  static const setting = EnumSetting(
+    'continueRange',
+    ContinueRange.values,
+    ContinueRange.twoSeasons,
+    sync: SettingSync.synced,
+    label: '外观 › 首页继续观看',
+  );
+
+  ContinueRange get value => _settings.get(setting);
+
+  Future<void> set(ContinueRange value) => _settings.set(setting, value);
 }

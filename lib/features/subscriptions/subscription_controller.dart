@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../core/error_message.dart';
+import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../core/store.dart';
 import '../../domain/catalog.dart';
@@ -119,7 +120,7 @@ class SubscriptionController extends ChangeNotifier {
 
   /// Whether any subscription still waits for episodes.
   bool get active => subscriptions.values.any(
-    (subscription) => subscription.finishedAt == null,
+    (subscription) => subscription.finishedAt == null && !subscription.paused,
   );
 
   Future<void> start() async {
@@ -142,7 +143,8 @@ class SubscriptionController extends ChangeNotifier {
   void checkNow() {
     final ids = [
       for (final subscription in subscriptions.values)
-        if (subscription.finishedAt == null) subscription.subjectId,
+        if (subscription.finishedAt == null && !subscription.paused)
+          subscription.subjectId,
     ];
     if (ids.isEmpty) return;
     (_roundLeft ??= {}).addAll(ids);
@@ -155,7 +157,7 @@ class SubscriptionController extends ChangeNotifier {
   /// Checks the subscription of [id] now, ahead of the others, noting what
   /// it found.
   Future<void> checkOne(int id) async {
-    if (!subscriptions.containsKey(id)) return;
+    if (subscriptions[id]?.paused ?? true) return;
     _asked.add(id);
     _soon.remove(id);
     await check(id);
@@ -180,9 +182,15 @@ class SubscriptionController extends ChangeNotifier {
     onCheckedAll?.call(all);
   }
 
-  /// The detail with episodes of [id], loaded once an hour.
+  /// The detail with episodes of [id], loaded once an hour, with which
+  /// episodes are marked watched.
   Future<Subject> detail(int id) async {
-    final subject = await catalog.subject(id, forPlayback: true);
+    var subject = await catalog.subject(id, forPlayback: true);
+    try {
+      subject = await tracking.withProgress(subject);
+    } catch (_) {
+      // Signed out or switching accounts: nothing counts as watched.
+    }
     _details[id] = subject;
     return subject;
   }
@@ -256,7 +264,7 @@ class SubscriptionController extends ChangeNotifier {
         final now = DateTime.now();
         final due = <(Subscription, DateTime)>[
           for (final subscription in subscriptions.values)
-            if (subscription.finishedAt == null)
+            if (subscription.finishedAt == null && !subscription.paused)
               if (_soon.contains(subscription.subjectId))
                 (subscription, DateTime(0))
               else if (_nextCheck(subscription) case final at?
@@ -333,11 +341,13 @@ class SubscriptionController extends ChangeNotifier {
   }
 
   /// Whether [subscription] caches [episode]: a main episode airing from
-  /// the day before it was made, or chosen among the [earlier] ones.
+  /// the day before it was made and not marked watched (seen online, or on
+  /// another device), or chosen among the [earlier] ones.
   bool _wanted(Subscription subscription, Subject subject, Episode episode) =>
       episode.main &&
       (subscription.earlier.contains(episode.id) ||
-          _since(subscription.createdAt, subject, episode));
+          (!episode.watched &&
+              _since(subscription.createdAt, subject, episode)));
 
   /// Whether [episode] airs from the day before [at], or without an air
   /// date is listed after those before.
@@ -457,7 +467,7 @@ class SubscriptionController extends ChangeNotifier {
   /// What [subscription] needs from the user: a failure, or an episode no
   /// matching release came out for a day after it aired.
   SubscriptionIssue? issueOf(Subscription subscription) {
-    if (subscription.finishedAt != null) return null;
+    if (subscription.finishedAt != null || subscription.paused) return null;
     if (subscription.issue case final issue?) return SubscriptionIssue(issue);
     final subject = _details[subscription.subjectId];
     if (subject == null) return null;
@@ -845,6 +855,7 @@ class SubscriptionController extends ChangeNotifier {
     await _save(subscription);
     await preferences.setDefaultFilter(filter);
     notifyListeners();
+    edits.add(null);
     _soon.add(subject.id);
     unawaited(_pump());
   }
@@ -882,12 +893,81 @@ class SubscriptionController extends ChangeNotifier {
     subscriptions[id] = subscription;
     await _save(subscription);
     notifyListeners();
+    edits.add(null);
     _soon.add(id);
     unawaited(_pump());
   }
 
+  /// Fires when the user subscribes, changes a filter or unsubscribes:
+  /// what other devices learn of, unlike checks and caching.
+  final edits = StreamController<void>.broadcast(sync: true);
+
+  /// The subscriptions as other devices learn of them, by subject id.
+  Map<int, Json> get synced => {
+    for (final MapEntry(:key, :value) in subscriptions.entries)
+      key: value.synced,
+  };
+
+  /// Takes a subscription made or changed on another device, by its
+  /// [Subscription.synced] value; a new one starts [paused] here until the
+  /// user lets this device cache it. Null [value] ends it here too, keeping
+  /// what it cached. Returns whether it was new here.
+  Future<bool> adopt(int id, Json? value) async {
+    if (value == null) {
+      await unsubscribe(id, edit: false);
+      return false;
+    }
+    final filter = SubscriptionFilter.fromJson(object(value['filter']));
+    final existing = subscriptions[id];
+    if (existing != null) {
+      existing.title = '${value['title'] ?? existing.title}';
+      existing.coverUrl = value['coverUrl'] as String? ?? existing.coverUrl;
+      if (existing.filter != filter) {
+        existing
+          ..filter = filter
+          ..issue = null
+          ..failures = 0;
+        existing.seen.clear();
+        existing.waiting.clear();
+        existing.note('在其他设备上改为 ${filter.label}');
+      }
+      await _save(existing);
+      notifyListeners();
+      return false;
+    }
+    final subscription = Subscription(
+      subjectId: id,
+      title: '${value['title'] ?? ''}',
+      coverUrl: value['coverUrl'] as String?,
+      filter: filter,
+      createdAt:
+          DateTime.tryParse('${value['createdAt']}')?.toLocal() ??
+          DateTime.now(),
+      paused: true,
+    );
+    subscription.note('从其他设备同步：${filter.label}');
+    subscriptions[id] = subscription;
+    await _save(subscription);
+    notifyListeners();
+    return true;
+  }
+
+  /// Lets this device cache the subscriptions of [ids] too, or stops it.
+  Future<void> setPaused(Iterable<int> ids, bool paused) async {
+    for (final id in ids) {
+      final subscription = subscriptions[id];
+      if (subscription == null || subscription.paused == paused) continue;
+      subscription.paused = paused;
+      subscription.note(paused ? '这台设备不缓存新一话' : '这台设备也开始缓存');
+      await _save(subscription);
+      if (!paused) _soon.add(id);
+    }
+    notifyListeners();
+    unawaited(_pump());
+  }
+
   /// Ends the subscription of [id]; what it cached stays.
-  Future<void> unsubscribe(int id) async {
+  Future<void> unsubscribe(int id, {bool edit = true}) async {
     final subscription = subscriptions.remove(id);
     if (subscription == null) return;
     _soon.remove(id);
@@ -895,6 +975,7 @@ class SubscriptionController extends ChangeNotifier {
     _settleRound(subscription, null);
     await store.remove(_scope, '$id');
     notifyListeners();
+    if (edit) edits.add(null);
   }
 
   /// Every release the BT sites list for [subject], as a check would find
@@ -925,6 +1006,7 @@ class SubscriptionController extends ChangeNotifier {
   Future<void> close() async {
     _closed = true;
     _timer?.cancel();
+    await edits.close();
     await _downloadChanges?.cancel();
   }
 }

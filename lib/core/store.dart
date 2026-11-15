@@ -167,12 +167,19 @@ class AppStore {
     });
   }
 
-  Future<void> put(String scope, String id, Json body) async {
+  /// Saves [body]; [updated] keeps a change's own time, such as one made
+  /// on another device, where order by time matters.
+  Future<void> put(
+    String scope,
+    String id,
+    Json body, {
+    DateTime? updated,
+  }) async {
     await database.insert('documents', {
       'scope': scope,
       'id': id,
       'body': jsonEncode(body),
-      'updated': DateTime.now().millisecondsSinceEpoch,
+      'updated': (updated ?? DateTime.now()).millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 

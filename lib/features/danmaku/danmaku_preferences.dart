@@ -1,11 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:pinyin/pinyin.dart' show ChineseHelper;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/json.dart';
+import '../../core/settings.dart';
 import '../../domain/danmaku.dart';
 
 class DanmakuFilter {
@@ -37,9 +36,57 @@ class DanmakuFilter {
 
 class DanmakuPreferences extends ChangeNotifier {
   DanmakuPreferences(this.storage) {
-    final saved = object(
-      jsonDecode(storage.getString('danmaku-preferences') ?? '{}'),
-    );
+    _load();
+    sendStyle.addListener(_save);
+    // Changed on another device: read again and lay the comments out anew.
+    storage.watch([displaySetting.key, filtersSetting.key], () {
+      if (!storage.changedBySync) return;
+      _load();
+      notifyListeners();
+    });
+  }
+
+  /// The look, the sources and the sending style, one object saved as a
+  /// whole and synced field by field.
+  static const displaySetting = JsonSetting(
+    'danmaku-preferences',
+    fallback: <String, dynamic>{},
+    sync: SettingSync.synced,
+    label: '弹幕',
+    fieldLabels: {
+      'enabled': '弹幕 › 显示弹幕',
+      'size': '弹幕 › 字号',
+      'opacity': '弹幕 › 不透明度',
+      'area': '弹幕 › 显示区域',
+      'density': '弹幕 › 密度',
+      'speed': '弹幕 › 速度',
+      'limit': '弹幕 › 每集最多显示',
+      'overlap': '弹幕 › 允许重叠',
+      'shield': '弹幕 › 防挡字幕',
+      'scroll': '弹幕 › 滚动弹幕',
+      'top': '弹幕 › 顶部弹幕',
+      'bottom': '弹幕 › 底部弹幕',
+      'colorful': '弹幕 › 彩色弹幕',
+      'stroke': '弹幕 › 描边',
+      'merge': '弹幕 › 合并重复弹幕',
+      'sendMode': '弹幕 › 发送位置',
+      'sendColor': '弹幕 › 发送颜色',
+      'providers': '数据源 › 弹幕来源开关',
+    },
+  );
+  static const filtersSetting = JsonSetting(
+    'danmaku-filters',
+    fallback: <Object?>[],
+    sync: SettingSync.synced,
+    label: '弹幕 › 屏蔽规则',
+  );
+
+  /// Set while [_load] fills [sendStyle], whose listener would save.
+  bool _loading = false;
+
+  void _load() {
+    _loading = true;
+    final saved = object(storage.get(displaySetting));
     _readDisplay(saved);
     sendStyle.value = (
       mode:
@@ -49,7 +96,7 @@ class DanmakuPreferences extends ChangeNotifier {
     );
     providers = object(saved['providers'])
         .map((key, value) => MapEntry(key, value == true));
-    filters = objects(jsonDecode(storage.getString('danmaku-filters') ?? '[]'))
+    filters = objects(storage.get(filtersSetting))
         .map(
           (rule) => DanmakuFilter(
             '${rule['pattern'] ?? ''}',
@@ -59,9 +106,10 @@ class DanmakuPreferences extends ChangeNotifier {
         )
         .where((rule) => rule.pattern.isNotEmpty)
         .toList();
-    sendStyle.addListener(_save);
+    _loading = false;
   }
-  final SharedPreferences storage;
+
+  final Settings storage;
   late bool enabled, scroll, top, bottom, colorful, stroke, merge;
   late bool overlap, shield;
   late double size, opacity, area;
@@ -162,33 +210,28 @@ class DanmakuPreferences extends ChangeNotifier {
 
   void _save() {
     _pendingSave?.cancel();
-    storage.setString(
-      'danmaku-preferences',
-      jsonEncode({
-        'enabled': enabled,
-        'size': size,
-        'opacity': opacity,
-        'area': area,
-        'density': density,
-        'speed': speed,
-        'limit': limit,
-        'overlap': overlap,
-        'shield': shield,
-        'scroll': scroll,
-        'top': top,
-        'bottom': bottom,
-        'colorful': colorful,
-        'stroke': stroke,
-        'merge': merge,
-        'sendMode': sendStyle.value.mode.name,
-        'sendColor': sendStyle.value.color,
-        'providers': providers,
-      }),
-    );
-    storage.setString(
-      'danmaku-filters',
-      jsonEncode(filters.map((rule) => rule.toJson()).toList()),
-    );
+    if (_loading) return;
+    storage.set(displaySetting, <String, dynamic>{
+      'enabled': enabled,
+      'size': size,
+      'opacity': opacity,
+      'area': area,
+      'density': density,
+      'speed': speed,
+      'limit': limit,
+      'overlap': overlap,
+      'shield': shield,
+      'scroll': scroll,
+      'top': top,
+      'bottom': bottom,
+      'colorful': colorful,
+      'stroke': stroke,
+      'merge': merge,
+      'sendMode': sendStyle.value.mode.name,
+      'sendColor': sendStyle.value.color,
+      'providers': providers,
+    });
+    storage.set(filtersSetting, [for (final rule in filters) rule.toJson()]);
   }
 
   void setProvider(String provider, bool value) =>

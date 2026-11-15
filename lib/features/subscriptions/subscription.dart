@@ -1,15 +1,17 @@
 import 'dart:convert';
 
 import '../../core/json.dart';
+import '../../core/labeled.dart';
 import '../../domain/resource_title.dart';
 
 /// What a subscription does with a corrected release (`v2`) of an episode
 /// it already cached.
-enum RevisionPolicy {
+enum RevisionPolicy implements Labeled {
   skip('跳过'),
   replaceUnwatched('替换没看的');
 
   const RevisionPolicy(this.label);
+  @override
   final String label;
 }
 
@@ -156,6 +158,7 @@ class Subscription {
     this.checkedAt,
     this.failures = 0,
     this.issue,
+    this.paused = false,
     Map<int, LedgerEntry>? ledger,
     List<SubscriptionEvent>? events,
     Set<String>? seen,
@@ -177,6 +180,7 @@ class Subscription {
     checkedAt: _time(value['checkedAt']),
     failures: number(value['failures']).toInt(),
     issue: value['issue'] as String?,
+    paused: value['paused'] == true,
     ledger: {
       for (final entry in object(value['ledger']).entries)
         ?int.tryParse(entry.key): LedgerEntry.fromJson(object(entry.value)),
@@ -216,6 +220,10 @@ class Subscription {
   /// Why the last check or download failed, until one succeeds.
   String? issue;
 
+  /// Kept without caching on this device: a subscription another device
+  /// synced here, until the user lets this one cache it too.
+  bool paused;
+
   /// The release cached for each episode, by Bangumi episode id.
   final Map<int, LedgerEntry> ledger;
 
@@ -243,6 +251,7 @@ class Subscription {
     'checkedAt': checkedAt?.toUtc().toIso8601String(),
     'failures': failures,
     'issue': issue,
+    'paused': paused,
     'ledger': {
       for (final entry in ledger.entries) '${entry.key}': entry.value.toJson(),
     },
@@ -253,6 +262,15 @@ class Subscription {
         '${entry.key}': entry.value.toUtc().toIso8601String(),
     },
     'earlier': earlier.toList(),
+  };
+
+  /// What other devices learn of this subscription: the show and the filter.
+  /// The book, the events and [paused] belong to this device.
+  Json get synced => {
+    'title': title,
+    'coverUrl': coverUrl,
+    'filter': filter.toJson(),
+    'createdAt': createdAt.toUtc().toIso8601String(),
   };
 
   /// Notes [text] as the latest event, keeping the last 60.

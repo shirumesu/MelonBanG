@@ -75,7 +75,11 @@ class SubscribeButton extends StatelessWidget {
       final scheme = Theme.of(context).colorScheme;
       final dark = Theme.of(context).brightness == Brightness.dark;
       return Tooltip(
-        message: issue?.text ?? '新一话播出后自动缓存 · ${subscription.filter.label}',
+        message:
+            issue?.text ??
+            (subscription.paused
+                ? '这台设备不缓存这部番 · ${subscription.filter.label}'
+                : '新一话播出后自动缓存 · ${subscription.filter.label}'),
         child: FilledButton.tonalIcon(
           onPressed: open,
           style: switch (issue) {
@@ -114,6 +118,9 @@ class SubscribeButton extends StatelessWidget {
   }
   if (subscription.finishedAt != null) {
     return (text: '已完结 · 已订阅', warn: false, late: false);
+  }
+  if (subscription.paused) {
+    return (text: '这台设备不缓存 · 已订阅', warn: false, late: false);
   }
   return switch (controller.nextOf(subscription)) {
     (_, final release?) when release.at.isAfter(DateTime.now()) => (
@@ -849,29 +856,44 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                   ),
-                  Tooltip(
-                    message: '按已保存的筛选，现在就去资源站找一遍',
-                    child: TextButton.icon(
-                      onPressed: checking
-                          ? null
-                          : () => unawaited(
-                              widget.controller.checkOne(
-                                subscription.subjectId,
+                  if (subscription.paused)
+                    Tooltip(
+                      message: '这部番的订阅从其他设备同步而来，这台设备还没有缓存它',
+                      child: TextButton.icon(
+                        onPressed: () => unawaited(
+                          widget.controller.setPaused([
+                            subscription.subjectId,
+                          ], false),
+                        ),
+                        icon: const Icon(Icons.download_rounded, size: 18),
+                        label: const Text('这台设备也缓存'),
+                      ),
+                    )
+                  else
+                    Tooltip(
+                      message: '按已保存的筛选，现在就去资源站找一遍',
+                      child: TextButton.icon(
+                        onPressed: checking
+                            ? null
+                            : () => unawaited(
+                                widget.controller.checkOne(
+                                  subscription.subjectId,
+                                ),
                               ),
-                            ),
-                      icon: checking
-                          ? const SizedBox.square(
-                              dimension: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.refresh_rounded, size: 18),
-                      label: Text(checking ? '正在检查' : '立即检查'),
+                        icon: checking
+                            ? const SizedBox.square(
+                                dimension: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.refresh_rounded, size: 18),
+                        label: Text(checking ? '正在检查' : '立即检查'),
+                      ),
                     ),
-                  ),
                 ],
               ),
-              if (subscription.events.isEmpty)
-                Text('还没有动态', style: small),
+              if (subscription.events.isEmpty) Text('还没有动态', style: small),
               for (final event in subscription.events.take(4))
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
@@ -1038,6 +1060,51 @@ Future<CloseAction?> askCloseAction(
         autofocus: true,
         onPressed: () => Navigator.pop(context, CloseAction.background),
         child: const Text('留在后台'),
+      ),
+    ],
+  ),
+);
+
+/// Asks whether this device also caches the subscriptions [arrived] from
+/// another device, or only keeps them; true to cache.
+Future<bool?> askSyncedSubscriptions(
+  BuildContext context,
+  List<Subscription> arrived,
+) => showMelonDialog<bool>(
+  context: context,
+  builder: (context) => AlertDialog(
+    title: Text('从其他设备同步来 ${arrived.length} 部订阅'),
+    content: SizedBox(
+      width: 420,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            [
+              for (final subscription in arrived.take(5)) subscription.title,
+              if (arrived.length > 5) '等 ${arrived.length} 部',
+            ].join('、'),
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: Gap.md),
+          const Text(
+            '这台设备也缓存的话，会按订阅的筛选缓存新一话，标为看过的集不缓存。'
+            '只保留订阅时，这台设备不下载，之后可以在订阅窗口里打开。',
+            style: TextStyle(fontSize: 13, height: 1.6),
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context, false),
+        child: const Text('只保留订阅'),
+      ),
+      FilledButton(
+        autofocus: true,
+        onPressed: () => Navigator.pop(context, true),
+        child: const Text('这台设备也缓存'),
       ),
     ],
   ),

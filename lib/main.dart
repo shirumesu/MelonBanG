@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'app/app.dart';
 import 'app/app_services.dart';
+import 'app/settings_catalog.dart';
 import 'core/proxy.dart';
 import 'core/service_configuration.dart';
 
@@ -36,9 +37,9 @@ Future<void> main() async {
     await const MethodChannel('com.alexmercerind/media_kit_video')
         .invokeMethod<void>('VideoOutputManager.Reset');
   }
-  final preferences = await SharedPreferences.getInstance();
+  final settings = openSettings(await SharedPreferences.getInstance());
   // Before any HTTP client is created: each one asks the proxy per request.
-  final proxy = NetworkProxy(preferences);
+  final proxy = NetworkProxy(settings);
   await proxy.initialize();
   final configuration = await ServiceConfiguration.load();
   MediaKit.ensureInitialized(libmpv: Platform.isLinux ? _linkedLibmpv() : null);
@@ -61,9 +62,9 @@ Future<void> main() async {
       service: AppServices(
         configuration: configuration,
         proxy: proxy,
-        preferences: preferences,
+        settings: settings,
       ),
-      preferences: preferences,
+      settings: settings,
     ),
   );
 }
