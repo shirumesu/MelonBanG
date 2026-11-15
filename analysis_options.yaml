@@ -9,3 +9,9 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+  errors:
+    # Flutter 3.50 deprecates package:flutter/material.dart for the separate
+    # package:material_ui, which has its own Theme and localizations, so
+    # moving over waits until the packages whose widgets we use move too.
+    # Until then every import is flagged; drop this line after the move.
+    deprecated_member_use: ignore

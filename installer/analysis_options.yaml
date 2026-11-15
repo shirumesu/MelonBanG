@@ -13,6 +13,10 @@ analyzer:
   exclude:
     - build/**
     - windows/**
+  errors:
+    # As in the app: package:flutter/material.dart is deprecated for
+    # package:material_ui since Flutter 3.50; drop this after moving over.
+    deprecated_member_use: ignore
 
 linter:
   # The lint rules applied to this project can be customized in the
