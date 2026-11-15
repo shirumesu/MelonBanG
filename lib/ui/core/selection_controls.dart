@@ -147,7 +147,7 @@ class _MelonSegmentedControlState<T> extends State<MelonSegmentedControl<T>> {
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             color: scheme.surface,
-                            borderRadius: BorderRadius.circular(5),
+                            borderRadius: insetRadius(controlBorderRadius, 3),
                             boxShadow: [
                               BoxShadow(
                                 color: Theme.of(context).shadowColor,
@@ -209,7 +209,10 @@ class _MelonSegmentedControlState<T> extends State<MelonSegmentedControl<T>> {
                                               widget.onChanged!(entries[i].key);
                                             }
                                           },
-                                    borderRadius: BorderRadius.circular(5),
+                                    borderRadius: insetRadius(
+                                      controlBorderRadius,
+                                      3,
+                                    ),
                                     child: Center(
                                       child: Padding(
                                         padding: const EdgeInsets.symmetric(
@@ -300,7 +303,7 @@ class MelonChoiceMenu<T> extends StatelessWidget {
       child: OutlinedButton(
         style: OutlinedButton.styleFrom(
           textStyle: appFont.copyWith(
-            fontSize: 13,
+            fontSize: FontSize.body,
             fontWeight: FontWeight.w400,
           ),
         ),
@@ -312,7 +315,7 @@ class MelonChoiceMenu<T> extends StatelessWidget {
           children: [
             if (icon != null) ...[
               Icon(icon, size: 16),
-              const SizedBox(width: 7),
+              const SizedBox(width: Gap.sm),
             ],
             Flexible(
               child: Text(
@@ -321,7 +324,7 @@ class MelonChoiceMenu<T> extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: Gap.sm),
             ExpandChevron(open: controller.isOpen, size: 17),
           ],
         ),
@@ -446,22 +449,30 @@ class MelonFilterMenu<T> extends StatelessWidget {
       if (!multiple) menu.close();
     }
 
-    ButtonStyle pill(bool on, {bool picked = false, double left = 0}) =>
-        ButtonStyle(
-          padding: WidgetStatePropertyAll(EdgeInsets.only(left: left)),
-          minimumSize: const WidgetStatePropertyAll(Size(0, 36)),
-          backgroundColor: on
-              ? WidgetStatePropertyAll(scheme.primaryContainer)
-              : null,
-          foregroundColor: on || picked
-              ? WidgetStatePropertyAll(
-                  on ? scheme.onPrimaryContainer : scheme.primary,
-                )
-              : null,
-          shape: const WidgetStatePropertyAll(
-            RoundedRectangleBorder(borderRadius: controlBorderRadius),
-          ),
-        );
+    // Grid cells sit Gap.xs + 2 inside the panel, the finer choices Gap.xs
+    // inside theirs; each corner follows the panel's.
+    final cellRadius = insetRadius(panelBorderRadius, Gap.xs + 2);
+    final finerRadius = insetRadius(panelBorderRadius, Gap.xs);
+    ButtonStyle pill(
+      bool on,
+      BorderRadius radius, {
+      bool picked = false,
+      double left = 0,
+    }) => ButtonStyle(
+      padding: WidgetStatePropertyAll(EdgeInsets.only(left: left)),
+      minimumSize: const WidgetStatePropertyAll(Size(0, 36)),
+      backgroundColor: on
+          ? WidgetStatePropertyAll(scheme.primaryContainer)
+          : null,
+      foregroundColor: on || picked
+          ? WidgetStatePropertyAll(
+              on ? scheme.onPrimaryContainer : scheme.primary,
+            )
+          : null,
+      shape: WidgetStatePropertyAll(
+        RoundedRectangleBorder(borderRadius: radius),
+      ),
+    );
     Widget centred(String label, double width, bool bold) => SizedBox(
       width: width,
       child: Center(
@@ -476,7 +487,7 @@ class MelonFilterMenu<T> extends StatelessWidget {
       final picked = option.more.any((finer) => selected.contains(finer.value));
       if (option.more.isEmpty) {
         return MenuItemButton(
-          style: pill(on),
+          style: pill(on, cellRadius),
           onPressed: () => pick(option.value),
           child: centred(option.label, width - 4, on),
         );
@@ -488,12 +499,12 @@ class MelonFilterMenu<T> extends StatelessWidget {
         12 + Theme.of(context).visualDensity.horizontal * 2,
       );
       return SubmenuButton(
-        style: pill(on, picked: picked, left: gap),
+        style: pill(on, cellRadius, picked: picked, left: gap),
         submenuIcon: const WidgetStatePropertyAll(SizedBox.shrink()),
         alignmentOffset: const Offset(0, 3),
         menuStyle: const MenuStyle(
           alignment: AlignmentDirectional.bottomStart,
-          padding: WidgetStatePropertyAll(EdgeInsets.all(3)),
+          padding: WidgetStatePropertyAll(EdgeInsets.all(Gap.xs)),
         ),
         menuChildren: [
           Row(
@@ -502,7 +513,7 @@ class MelonFilterMenu<T> extends StatelessWidget {
                 SizedBox(
                   width: 34,
                   child: MenuItemButton(
-                    style: pill(selected.contains(finer.value)),
+                    style: pill(selected.contains(finer.value), finerRadius),
                     onPressed: () => pick(finer.value),
                     child: centred(
                       finer.label,
@@ -574,7 +585,7 @@ class MelonFilterMenu<T> extends StatelessWidget {
             : option.subtitle == null
             ? Text(option.label, maxLines: 1, overflow: TextOverflow.ellipsis)
             : Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
+                padding: const EdgeInsets.symmetric(vertical: Gap.sm),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
@@ -588,7 +599,7 @@ class MelonFilterMenu<T> extends StatelessWidget {
                       option.subtitle!,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: small?.copyWith(fontSize: 11),
+                      style: small?.copyWith(fontSize: FontSize.caption),
                     ),
                   ],
                 ),
@@ -607,11 +618,15 @@ class MelonFilterMenu<T> extends StatelessWidget {
         ?panel,
         if (panel == null)
           for (final (index, section) in sections.indexed) ...[
-            if (index > 0) const Divider(height: 9, indent: 8, endIndent: 8),
+            if (index > 0)
+              const Divider(height: 9, indent: Gap.sm, endIndent: Gap.sm),
             if (section.title case final title?)
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
-                child: Text(title, style: small?.copyWith(fontSize: 11)),
+                padding: const EdgeInsets.fromLTRB(Gap.md, Gap.sm, Gap.md, 2),
+                child: Text(
+                  title,
+                  style: small?.copyWith(fontSize: FontSize.caption),
+                ),
               ),
             if (columns == 1)
               for (final option in section.options) item(option)
@@ -633,7 +648,7 @@ class MelonFilterMenu<T> extends StatelessWidget {
                 ),
           ],
         if (actions.isNotEmpty) ...[
-          const Divider(height: 9, indent: 8, endIndent: 8),
+          const Divider(height: 9, indent: Gap.sm, endIndent: Gap.sm),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -652,20 +667,20 @@ class MelonFilterMenu<T> extends StatelessWidget {
           children: [
             if (icon != null) ...[
               Icon(icon, size: 16),
-              const SizedBox(width: 6),
+              const SizedBox(width: Gap.sm),
             ],
             Flexible(
               child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis),
             ),
             if (warning) ...[
-              const SizedBox(width: 5),
+              const SizedBox(width: Gap.xs),
               Icon(
                 Icons.error_outline_rounded,
                 size: 15,
                 color: scheme.tertiary,
               ),
             ],
-            const SizedBox(width: 4),
+            const SizedBox(width: Gap.xs),
             ExpandChevron(open: controller.isOpen, size: 17),
           ],
         );
@@ -678,7 +693,7 @@ class MelonFilterMenu<T> extends StatelessWidget {
                         ? scheme.primary
                         : scheme.onSurfaceVariant,
                     minimumSize: const Size(0, 32),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: Gap.md),
                   ),
                   onPressed: toggle,
                   child: content,
@@ -692,9 +707,9 @@ class MelonFilterMenu<T> extends StatelessWidget {
                         ? scheme.onPrimaryContainer
                         : scheme.onSurface,
                     minimumSize: const Size(0, 36),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: Gap.md),
                     textStyle: appFont.copyWith(
-                      fontSize: 13,
+                      fontSize: FontSize.body,
                       fontWeight: FontWeight.w400,
                     ),
                   ),
@@ -723,7 +738,7 @@ class FilterCheck extends StatelessWidget {
       height: 16,
       decoration: BoxDecoration(
         color: value ? scheme.primary : Colors.transparent,
-        borderRadius: const BorderRadius.all(Radius.circular(5)),
+        borderRadius: tightBorderRadius,
         border: Border.all(
           color: value ? scheme.primary : scheme.onSurfaceVariant,
           width: 1.5,

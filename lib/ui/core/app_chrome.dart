@@ -57,7 +57,7 @@ class AppTitleBar extends StatelessWidget {
             ),
             Row(
               children: [
-                SizedBox(width: macOS ? 78 : 8),
+                SizedBox(width: macOS ? 78 : Gap.sm),
                 if (!immersive) ...[
                   IconButton(
                     tooltip: sidebarVisible ? '收起侧栏' : '展开侧栏',
@@ -111,19 +111,13 @@ class AppTitleBar extends StatelessWidget {
                     onPressed: window.minimize,
                     icon: const Icon(Icons.remove, size: 16),
                   ),
-                  IconButton(
-                    tooltip: '最大化 / 还原',
-                    onPressed: () => window.isMaximized
-                        ? window.unmaximize()
-                        : window.maximize(),
-                    icon: const Icon(Icons.crop_square, size: 15),
-                  ),
+                  _MaximizeButton(window: window),
                   IconButton(
                     tooltip: '关闭窗口',
                     onPressed: window.close,
                     icon: const Icon(Icons.close, size: 17),
                   ),
-                  const SizedBox(width: 5),
+                  const SizedBox(width: Gap.xs),
                 ],
               ],
             ),
@@ -147,6 +141,52 @@ class AppTitleBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Maximises or restores the window; its tooltip names what a click does.
+class _MaximizeButton extends StatefulWidget {
+  const _MaximizeButton({required this.window});
+  final Window window;
+
+  @override
+  State<_MaximizeButton> createState() => _MaximizeButtonState();
+}
+
+class _MaximizeButtonState extends State<_MaximizeButton> {
+  late bool maximized = widget.window.isMaximized;
+  ListenerId? listener;
+
+  @override
+  void initState() {
+    super.initState();
+    listener = widget.window.addListener(windowEvent);
+  }
+
+  void windowEvent(WindowEvent event) {
+    switch (event) {
+      case WindowMaximizedEvent() ||
+          WindowRestoredEvent() ||
+          WindowResizedEvent():
+        final now = widget.window.isMaximized;
+        if (now != maximized && mounted) setState(() => maximized = now);
+      default:
+    }
+  }
+
+  @override
+  void dispose() {
+    if (listener case final id?) widget.window.removeListener(id);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: maximized ? '还原' : '最大化',
+    onPressed: () => widget.window.isMaximized
+        ? widget.window.unmaximize()
+        : widget.window.maximize(),
+    icon: const Icon(Icons.crop_square, size: 15),
+  );
 }
 
 /// The theme switch's sun or moon, turning in as it replaces the other.
@@ -359,14 +399,16 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
                       color: scheme.surface,
                       elevation: 3,
                       shadowColor: Theme.of(context).popupMenuTheme.shadowColor,
+                      // Drawn like the app's menus: a panel whose rows are
+                      // inset by Gap.xs with controlBorderRadius corners.
                       shape: const RoundedRectangleBorder(
-                        borderRadius: controlBorderRadius,
+                        borderRadius: panelBorderRadius,
                       ),
                       clipBehavior: Clip.antiAlias,
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxHeight: 340),
                         child: ListView(
-                          padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+                          padding: const EdgeInsets.all(Gap.xs),
                           shrinkWrap: true,
                           children: [
                             if (offersTag)
@@ -377,7 +419,12 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
                               ),
                             if (options.isNotEmpty)
                               Padding(
-                                padding: const EdgeInsets.fromLTRB(14, 0, 6, 0),
+                                padding: const EdgeInsets.fromLTRB(
+                                  Gap.lg,
+                                  0,
+                                  Gap.xs,
+                                  0,
+                                ),
                                 child: Row(
                                   children: [
                                     Text(
@@ -418,12 +465,12 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
               controller: widget.controller,
               focusNode: widget.focusNode,
               textAlignVertical: TextAlignVertical.center,
-              style: const TextStyle(fontSize: 13, height: 1.25),
+              style: const TextStyle(fontSize: FontSize.body, height: 1.25),
               onSubmitted: (value) => widget.onSearch(value.trim()),
               decoration: InputDecoration(
                 fillColor: scheme.surface,
                 hintText: '搜索番剧或 #标签',
-                contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                contentPadding: const EdgeInsets.symmetric(horizontal: Gap.md),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: controlBorderRadius,
                   borderSide: BorderSide(color: scheme.outlineVariant),
@@ -435,7 +482,7 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
                 suffixIconConstraints: const BoxConstraints(minHeight: 32),
                 prefixIcon: const Icon(Icons.search, size: 17),
                 suffixIcon: Padding(
-                  padding: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.only(right: Gap.sm),
                   child: MotionSwap(
                     value: focused,
                     alignment: Alignment.centerRight,
@@ -457,14 +504,12 @@ class _CatalogueSearchState extends State<_CatalogueSearch> {
                                 ),
                                 decoration: BoxDecoration(
                                   color: scheme.surfaceContainerHigh,
-                                  borderRadius: const BorderRadius.all(
-                                    Radius.circular(5),
-                                  ),
+                                  borderRadius: tightBorderRadius,
                                 ),
                                 child: Text(
                                   shortcut,
                                   style: TextStyle(
-                                    fontSize: 10.5,
+                                    fontSize: FontSize.caption,
                                     color: scheme.onSurfaceVariant,
                                   ),
                                 ),
@@ -549,7 +594,7 @@ class AppSidebar extends StatelessWidget {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, Gap.md, 12, Gap.md),
+          padding: const EdgeInsets.all(Gap.md),
           // One highlight glides between entries instead of each lighting up.
           child: MotionSelection<String>(
             selected: _selected,
@@ -617,7 +662,7 @@ class AppSidebar extends StatelessWidget {
                 const SizedBox(height: Gap.sm),
                 Material(
                   color: Theme.of(context).colorScheme.surface,
-                  borderRadius: posterBorderRadius,
+                  borderRadius: controlBorderRadius,
                   clipBehavior: Clip.antiAlias,
                   child: InkWell(
                     onTap: () => onNavigate('settings'),
@@ -630,7 +675,7 @@ class AppSidebar extends StatelessWidget {
                             name: username == null ? '' : nickname,
                             size: 32,
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: Gap.sm),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -640,8 +685,8 @@ class AppSidebar extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
+                                    fontSize: FontSize.small,
+                                    fontWeight: FontWeight.w400,
                                   ),
                                 ),
                                 Text(
@@ -652,7 +697,7 @@ class AppSidebar extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    fontSize: 10,
+                                    fontSize: FontSize.caption,
                                     color: accountIssue == null
                                         ? Theme.of(context)
                                               .colorScheme
@@ -722,18 +767,18 @@ class AppSidebar extends StatelessWidget {
                         child: AnimatedDefaultTextStyle(
                           duration: motionDuration(context, 200),
                           style: appFont.copyWith(
-                            fontSize: 11,
+                            fontSize: FontSize.caption,
                             color: selected
                                 ? accent.onNavigation
                                 : Theme.of(context).colorScheme.primary,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                           ),
                           child: Text(count),
                         ),
                       ),
                     ),
                   if (alert != null) ...[
-                    if (count != null) const SizedBox(width: 6),
+                    if (count != null) const SizedBox(width: Gap.sm),
                     Tooltip(
                       message: alert,
                       child: Semantics(label: alert, child: dot),
@@ -856,7 +901,7 @@ class SidebarTile extends StatelessWidget {
       titleTextStyle: Theme.of(context).textTheme.titleSmall,
       selectedTileColor: Colors.transparent,
       shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      contentPadding: const EdgeInsets.symmetric(horizontal: Gap.md),
       leading: Icon(icon, size: 20),
       title: Text(label),
       trailing: trailing,

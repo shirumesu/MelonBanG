@@ -40,6 +40,28 @@ const overlaySurface = Color(0xe6121315);
 /// Text and icons on the white of a selected overlay control.
 const overlayInk = Color(0xff15181d);
 
+/// Secondary text and icons over the video.
+const overlayMuted = Color(0xb3ffffff);
+
+/// The resting fill of a control over the video.
+const overlayFill = Color(0x14ffffff);
+
+/// The fill of an open, selected or focused control over the video.
+const overlayFillActive = Color(0x24ffffff);
+
+/// The edge of an outlined control over the video.
+const overlayOutline = Color(0x4dffffff);
+
+/// The dark wash under text laid straight on the picture.
+const overlayScrim = Color(0x99000000);
+
+/// Outlined buttons on the dark overlay: a faint fill with a light edge.
+final overlayOutlinedButtonStyle = OutlinedButton.styleFrom(
+  foregroundColor: Colors.white,
+  backgroundColor: overlayFill,
+  side: const BorderSide(color: overlayOutline),
+);
+
 /// The tint of [OverlayGlass], lighter because the blur already mutes the
 /// picture behind it.
 const _glassTint = Color(0x9e121315);
@@ -126,8 +148,8 @@ ThemeData _overlayTheme() {
     onPrimary: overlayInk,
     surface: overlaySurface,
     onSurface: Colors.white,
-    onSurfaceVariant: Colors.white70,
-    surfaceContainerLow: Colors.white.withValues(alpha: .08),
+    onSurfaceVariant: overlayMuted,
+    surfaceContainerLow: overlayFill,
     surfaceContainerHigh: Colors.white.withValues(alpha: .12),
     outlineVariant: Colors.white24,
   );
@@ -146,7 +168,7 @@ ThemeData _overlayTheme() {
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
         (states) =>
-            states.contains(WidgetState.selected) ? overlayInk : Colors.white70,
+            states.contains(WidgetState.selected) ? overlayInk : overlayMuted,
       ),
       trackColor: WidgetStateProperty.resolveWith(
         (states) => states.contains(WidgetState.selected)

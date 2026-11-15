@@ -32,11 +32,28 @@ class SettingsSection {
     required this.id,
     required this.title,
     required this.icon,
-    required this.groups,
-  });
+    required List<SettingsGroup> this._groups,
+  }) : _build = null,
+       listenable = null;
+
+  /// A section whose groups change with [listenable], such as settings
+  /// that show once what they set is ready.
+  const SettingsSection.watching({
+    required this.id,
+    required this.title,
+    required this.icon,
+    required Listenable this.listenable,
+    required List<SettingsGroup> Function() groups,
+  }) : _groups = null,
+       _build = groups;
+
   final String id, title;
   final IconData icon;
-  final List<SettingsGroup> groups;
+  final Listenable? listenable;
+  final List<SettingsGroup>? _groups;
+  final List<SettingsGroup> Function()? _build;
+
+  List<SettingsGroup> get groups => _build?.call() ?? _groups!;
 }
 
 /// Every setting on one scrolling page: the contents column on the left
@@ -157,7 +174,14 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([
+      for (final section in widget.sections) ?section.listenable,
+    ]),
+    builder: (context, _) => _page(context),
+  );
+
+  Widget _page(BuildContext context) {
     final sections = visible;
     final selected = sections.any((s) => s.id == current)
         ? current
@@ -399,7 +423,7 @@ class _SectionView extends StatelessWidget {
               ),
               child: Text(
                 title,
-                style: text.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+                style: text.bodySmall?.copyWith(fontWeight: FontWeight.w400),
               ),
             )
           else if (index > 0)
@@ -495,7 +519,7 @@ Widget _marked(BuildContext context, String text, TextStyle? style) {
   if (query.isEmpty || !lower.contains(query)) return Text(text, style: style);
   final mark = BoxDecoration(
     color: Theme.of(context).colorScheme.primary.withValues(alpha: .2),
-    borderRadius: const BorderRadius.all(Radius.circular(3)),
+    borderRadius: tightBorderRadius,
   );
   final spans = <InlineSpan>[];
   var start = 0;
@@ -562,7 +586,10 @@ class SettingRow extends StatelessWidget {
               child: _marked(
                 context,
                 title,
-                const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                const TextStyle(
+                  fontSize: FontSize.body,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
             if (help != null) ...[
@@ -575,7 +602,7 @@ class SettingRow extends StatelessWidget {
           ],
         ),
         if (subtitle != null) ...[
-          const SizedBox(height: 3),
+          const SizedBox(height: Gap.xs),
           _marked(
             context,
             subtitle!,
@@ -595,7 +622,7 @@ class SettingRow extends StatelessWidget {
       onTap: onTap,
       customBorder: CardTheme.of(context).shape,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: Gap.md),
         child: LayoutBuilder(
           builder: (context, constraints) {
             if (trailing != null && constraints.maxWidth < 520) {
@@ -736,7 +763,7 @@ class _HelpHintState extends State<HelpHint> {
     key: tooltip,
     message: widget.message,
     constraints: const BoxConstraints(maxWidth: 320),
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+    padding: const EdgeInsets.symmetric(horizontal: Gap.sm, vertical: Gap.xs),
     textAlign: TextAlign.start,
     positionDelegate: _beside,
     child: IconButton(

@@ -12,6 +12,7 @@ import 'player_menus.dart';
 import 'player_popovers.dart';
 import 'player_progress_bar.dart';
 import 'player_settings.dart';
+import 'player_theme.dart';
 
 /// Video widths below which the transport shrinks its buttons, then drops
 /// the less used ones, then the frame steps; see [PlayerControls._buttons].
@@ -112,7 +113,7 @@ class PlayerControls extends StatelessWidget {
       gradient: LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [Colors.transparent, Color(0x99000000), Color(0xcc000000)],
+        colors: [Colors.transparent, overlayScrim, Color(0xcc000000)],
         stops: [0, .55, 1],
       ),
     ),
@@ -200,7 +201,7 @@ class PlayerControls extends StatelessWidget {
             ),
             backgroundColor: WidgetStateProperty.resolveWith(
               (states) => states.contains(WidgetState.selected)
-                  ? Colors.white.withValues(alpha: .14)
+                  ? overlayFillActive
                   : null,
             ),
             overlayColor: const WidgetStatePropertyAll(Colors.white12),
@@ -337,8 +338,8 @@ class PlayerControls extends StatelessWidget {
         (current, duration) => Text(
           '${formatTime(dragging ?? current)} / ${formatTime(duration)}',
           style: const TextStyle(
-            fontSize: 12,
-            color: Colors.white70,
+            fontSize: FontSize.small,
+            color: overlayMuted,
             fontFeatures: [FontFeature.tabularFigures()],
           ),
         ),

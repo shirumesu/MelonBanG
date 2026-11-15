@@ -229,11 +229,16 @@ class _IssueBannerState extends State<IssueBanner> {
       child: _issue == null
           ? const SizedBox.shrink()
           : Padding(
-              padding: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.only(bottom: Gap.md),
               child: Semantics(
                 liveRegion: true,
                 child: Container(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 6, 4),
+                  padding: const EdgeInsets.fromLTRB(
+                    Gap.md,
+                    Gap.xs,
+                    Gap.xs,
+                    Gap.xs,
+                  ),
                   decoration: BoxDecoration(
                     color: scheme.errorContainer.withValues(alpha: .45),
                     borderRadius: controlBorderRadius,
@@ -245,7 +250,7 @@ class _IssueBannerState extends State<IssueBanner> {
                         size: 18,
                         color: scheme.error,
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: Gap.sm),
                       Expanded(
                         child: Text(
                           _issue!,
@@ -300,7 +305,7 @@ class InlineIssue extends StatelessWidget {
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: Padding(
-              padding: const EdgeInsets.only(right: 6),
+              padding: const EdgeInsets.only(right: Gap.sm),
               child: Icon(Icons.error_outline_rounded, size: 14, color: color),
             ),
           ),
@@ -319,12 +324,12 @@ class InlineIssue extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Flexible(child: line),
-                const SizedBox(width: 4),
+                const SizedBox(width: Gap.xs),
                 TextButton(
                   onPressed: onRetry,
                   style: TextButton.styleFrom(
                     minimumSize: const Size(0, 28),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     visualDensity: VisualDensity.compact,
                   ),

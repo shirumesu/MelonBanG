@@ -96,13 +96,13 @@ class PlaybackPreferences extends ChangeNotifier {
     'player-skip-opening',
     false,
     sync: SettingSync.synced,
-    label: '播放 › 自动跳过片头',
+    label: '播放 › 自动跳过 OP',
   );
   static const skipEndingSetting = BoolSetting(
     'player-skip-ending',
     false,
     sync: SettingSync.synced,
-    label: '播放 › 自动跳过片尾',
+    label: '播放 › 自动跳过 ED',
   );
   static const rememberSourceSetting = BoolSetting(
     'player-remember-source',

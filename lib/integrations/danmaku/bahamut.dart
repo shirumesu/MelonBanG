@@ -80,7 +80,7 @@ class BahamutDanmaku implements DanmakuSearch {
           title: '${anime['title']}',
           subtitle:
               '${'${anime['dateInfo']}'.replaceFirst('年份：', '')}'
-              ' · 共 ${anime['totalEpisode']} 集',
+              '  共 ${anime['totalEpisode']} 集',
           open: () => _anime('${anime['videoSn']}'),
         ),
     ];

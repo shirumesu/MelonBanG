@@ -340,7 +340,7 @@ class _ShowcaseSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final spotlight = MelonPanel(
-      padding: const EdgeInsets.all(28),
+      padding: const EdgeInsets.all(Gap.xl),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -573,7 +573,7 @@ class _Spotlight extends StatelessWidget {
             child: InkWell(
               onTap: () => onOpen(item),
               child: Padding(
-                padding: const EdgeInsets.all(28),
+                padding: const EdgeInsets.all(Gap.xl),
                 child: AnimatedSwitcher(
                   duration: motionDuration(context, 320),
                   switchInCurve: Curves.easeOutCubic,
@@ -636,7 +636,7 @@ class _Spotlight extends StatelessWidget {
                               '#$rank',
                               style: TextStyle(
                                 color: rank <= 3 ? gold : muted,
-                                fontSize: 13,
+                                fontSize: FontSize.body,
                                 fontFeatures: const [
                                   FontFeature.tabularFigures(),
                                 ],
@@ -649,7 +649,7 @@ class _Spotlight extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 color: white,
-                                fontSize: 24,
+                                fontSize: FontSize.headline,
                                 height: 1.25,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -659,7 +659,10 @@ class _Spotlight extends StatelessWidget {
                                 original,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: muted, fontSize: 12),
+                                style: TextStyle(
+                                  color: muted,
+                                  fontSize: FontSize.small,
+                                ),
                               ),
                             const SizedBox(height: Gap.lg),
                             Wrap(
@@ -671,7 +674,7 @@ class _Spotlight extends StatelessWidget {
                                   '★ ${scoreLabel(item.score)}',
                                   style: const TextStyle(
                                     color: gold,
-                                    fontSize: 17,
+                                    fontSize: FontSize.title,
                                     fontFeatures: [
                                       FontFeature.tabularFigures(),
                                     ],
@@ -680,8 +683,8 @@ class _Spotlight extends StatelessWidget {
                                 for (final tag in tags)
                                   Container(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 3,
+                                      horizontal: Gap.sm,
+                                      vertical: Gap.xs,
                                     ),
                                     decoration: BoxDecoration(
                                       color: white.withValues(alpha: .14),
@@ -691,7 +694,7 @@ class _Spotlight extends StatelessWidget {
                                       tag,
                                       style: const TextStyle(
                                         color: white,
-                                        fontSize: 12,
+                                        fontSize: FontSize.small,
                                       ),
                                     ),
                                   ),
@@ -708,7 +711,7 @@ class _Spotlight extends StatelessWidget {
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       color: muted,
-                                      fontSize: 13,
+                                      fontSize: FontSize.body,
                                       height: 1.6,
                                     ),
                                   ),
@@ -720,7 +723,13 @@ class _Spotlight extends StatelessWidget {
                                 FilledButton(
                                   style: FilledButton.styleFrom(
                                     backgroundColor: white,
-                                    foregroundColor: const Color(0xff164d39),
+                                    // The button stays white in both themes,
+                                    // so its text takes the accent's ink
+                                    // from the light theme.
+                                    foregroundColor: appTheme(
+                                      false,
+                                      accent: accentOf(context).accent,
+                                    ).colorScheme.onPrimaryContainer,
                                   ),
                                   onPressed: () => onOpen(item),
                                   child: const Text('查看详情'),
@@ -731,7 +740,9 @@ class _Spotlight extends StatelessWidget {
                                   (Icons.chevron_right, '下一部', onNext),
                                 ])
                                   Padding(
-                                    padding: const EdgeInsets.only(left: 6),
+                                    padding: const EdgeInsets.only(
+                                      left: Gap.sm,
+                                    ),
                                     child: IconButton(
                                       tooltip: tooltip,
                                       onPressed: action,
@@ -784,7 +795,7 @@ class _RankList extends StatelessWidget {
         highlight: DecoratedBox(
           decoration: BoxDecoration(
             color: scheme.primaryContainer.withValues(alpha: .35),
-            borderRadius: badgeBorderRadius,
+            borderRadius: insetRadius(panelBorderRadius, Gap.sm),
           ),
         ),
         builder: (context, keyOf) => Column(
@@ -798,7 +809,7 @@ class _RankList extends StatelessWidget {
                     size: 18,
                     color: scheme.onSurfaceVariant,
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: Gap.sm),
                   Text('本季热度', style: Theme.of(context).textTheme.titleSmall),
                 ],
               ),
@@ -808,9 +819,9 @@ class _RankList extends StatelessWidget {
                 child: Material(
                   key: keyOf(i),
                   color: Colors.transparent,
-                  borderRadius: badgeBorderRadius,
+                  borderRadius: insetRadius(panelBorderRadius, Gap.sm),
                   child: InkWell(
-                    borderRadius: badgeBorderRadius,
+                    borderRadius: insetRadius(panelBorderRadius, Gap.sm),
                     onTap: () => onSelect(i),
                     child: Semantics(
                       selected: i == selected,
@@ -824,7 +835,7 @@ class _RankList extends StatelessWidget {
                               child: Text(
                                 '${i + 1}',
                                 style: TextStyle(
-                                  fontSize: 14,
+                                  fontSize: FontSize.body,
                                   fontFeatures: const [
                                     FontFeature.tabularFigures(),
                                   ],
@@ -843,14 +854,14 @@ class _RankList extends StatelessWidget {
                                 items[i].title,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 13),
+                                style: const TextStyle(fontSize: FontSize.body),
                               ),
                             ),
                             const SizedBox(width: Gap.sm),
                             Text(
                               '★ ${scoreLabel(items[i].score)}',
                               style: TextStyle(
-                                fontSize: 12,
+                                fontSize: FontSize.small,
                                 fontFeatures: const [
                                   FontFeature.tabularFigures(),
                                 ],
@@ -1126,10 +1137,13 @@ class _ContinueSectionState extends State<_ContinueSection> {
                     if (widget.outOfRange > 0)
                       Padding(
                         padding: const EdgeInsets.only(top: Gap.xs),
-                        child: Text(
-                          '另有 ${widget.outOfRange} 部更早的在看，可在设置中调整首页继续观看的范围',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodySmall,
+                        child: Tooltip(
+                          message: '可在「设置 › 外观 › 首页继续观看」中调整显示范围',
+                          child: Text(
+                            '另有 ${widget.outOfRange} 部更早开播的在追',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
                         ),
                       ),
                     TextButton(
@@ -1293,16 +1307,7 @@ class _Hero extends StatelessWidget {
         const SizedBox(height: Gap.sm),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
-          child: Row(
-            children: [
-              Expanded(child: play),
-              const SizedBox(width: Gap.sm),
-              OutlinedButton(
-                onPressed: () => onOpen(item),
-                child: const Text('详情'),
-              ),
-            ],
-          ),
+          child: Row(children: [Expanded(child: play)]),
         ),
       ],
     );
@@ -1373,6 +1378,14 @@ class _HeroHeaderState extends State<_HeroHeader> {
                               style: text.titleMedium,
                             ),
                           ),
+                          if (watch.subscription != null)
+                            const Padding(
+                              padding: EdgeInsets.only(
+                                left: Gap.xs,
+                                top: Gap.xs,
+                              ),
+                              child: _SubscribedMark(),
+                            ),
                           AnimatedOpacity(
                             opacity: hovered ? 1 : 0,
                             duration: motionDuration(context, 120),
@@ -1391,7 +1404,7 @@ class _HeroHeaderState extends State<_HeroHeader> {
                       Text(
                         '★ ${scoreLabel(item.score)}',
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: FontSize.small,
                           fontFeatures: tabular,
                           color: scheme.tertiary,
                         ),
@@ -1513,9 +1526,6 @@ class _HeroEpisode extends StatelessWidget {
     final resumed = current ? watch.resumed : null;
     final muted = aired && !watched ? null : scheme.onSurfaceVariant;
     final subscription = watch.subscription;
-    // The first episode yet to air says the show is subscribed.
-    final subscribed =
-        subscription != null && (index == 0 || watch.aired[index - 1]);
     final (note, noteColor) = switch (episode) {
       _ when resumed != null => (watch.remaining, scheme.primary),
       _ when subscription?.lateEpisode == episode.id => (
@@ -1523,10 +1533,7 @@ class _HeroEpisode extends StatelessWidget {
         goldInk(Theme.of(context).brightness == Brightness.dark),
       ),
       _ when !aired => (
-        [
-          releaseWhen(episodeRelease(episode, watch.airings)!).trim(),
-          if (subscribed) '已订阅',
-        ].join(' · '),
+        releaseWhen(episodeRelease(episode, watch.airings)!).trim(),
         scheme.onSurfaceVariant,
       ),
       _ when watched => ('已看', scheme.onSurfaceVariant),
@@ -1555,10 +1562,8 @@ class _HeroEpisode extends StatelessWidget {
                       child: Text(
                         episode.label,
                         style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: current
-                              ? FontWeight.w700
-                              : FontWeight.w400,
+                          fontSize: FontSize.body,
+                          fontWeight: FontWeight.w400,
                           fontFeatures: const [FontFeature.tabularFigures()],
                           color: muted,
                         ),
@@ -1569,14 +1574,17 @@ class _HeroEpisode extends StatelessWidget {
                         episode.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 13, color: muted),
+                        style: TextStyle(fontSize: FontSize.body, color: muted),
                       ),
                     ),
                     if (note != null) ...[
                       const SizedBox(width: Gap.sm),
                       Text(
                         note,
-                        style: TextStyle(fontSize: 12, color: noteColor),
+                        style: TextStyle(
+                          fontSize: FontSize.small,
+                          color: noteColor,
+                        ),
                       ),
                     ],
                   ],
@@ -1602,6 +1610,21 @@ class _HeroEpisode extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The bell saying a subject is subscribed, shown once beside it.
+class _SubscribedMark extends StatelessWidget {
+  const _SubscribedMark();
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: '已订阅',
+    child: Icon(
+      Icons.notifications_active_rounded,
+      size: 14,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+    ),
+  );
 }
 
 /// A subject in the queue beside [_Hero]: what it offers next, its episode
@@ -1658,13 +1681,20 @@ class _QueueRowState extends State<_QueueRow> {
         '${watch.unwatched} 话未看',
         style: small.copyWith(color: scheme.primary),
       ),
-      _Watch(:final release?) => Text(
-        watch.subscription == null
-            ? '${releaseWhen(release)}更新'
-            : '${releaseWhen(release).trim()} · 已订阅',
-        style: small.copyWith(
-          fontFeatures: const [FontFeature.tabularFigures()],
-        ),
+      _Watch(:final release?) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${releaseWhen(release)}更新',
+            style: small.copyWith(
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          if (watch.subscription != null) ...[
+            const SizedBox(width: Gap.xs),
+            const _SubscribedMark(),
+          ],
+        ],
       ),
       _ => Text('已看完', style: small),
     };
@@ -1708,7 +1738,7 @@ class _QueueRowState extends State<_QueueRow> {
                               item.title,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 13),
+                              style: const TextStyle(fontSize: FontSize.body),
                             ),
                           ),
                           if (status != null) ...[

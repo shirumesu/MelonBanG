@@ -98,7 +98,7 @@ class AppTray {
         'macos' => 'assets/images/tray-template.png',
         _ => 'assets/images/mark.png',
       })
-      ..setTooltip('MelonBanG · 后台检查订阅更新')
+      ..setTooltip('MelonBanG\n正在后台检查订阅')
       // Windows opens the window on a click and the menu on a right click;
       // the menu bar opens the menu either way. Linux panels open the menu
       // themselves and report no clicks.

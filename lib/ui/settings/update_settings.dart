@@ -43,9 +43,8 @@ SettingsSection aboutSection({
             listenable: update,
             builder: (context, _) => SettingRow(
               title: '更新渠道',
-              subtitle: update.beta
-                  ? '测试版能更早用上新功能，但问题可能更多'
-                  : '只更新到稳定版；正在用测试版时，等下一个稳定版发布再更新',
+              subtitle: update.beta ? '测试版能更早用上新功能，但问题可能更多' : '只接收稳定版',
+              help: update.beta ? null : '正在用测试版时，等下一个稳定版发布再更新',
               trailing: SizedBox(
                 width: 180,
                 child: MelonSegmentedControl<bool>(
@@ -63,7 +62,7 @@ SettingsSection aboutSection({
             listenable: update,
             builder: (context, _) => SettingSwitch(
               title: '自动检查更新',
-              subtitle: '每次启动时检查 GitHub 上的新版本',
+              subtitle: '启动时检查新版本',
               value: update.autoCheck,
               onChanged: update.setAutoCheck,
             ),
@@ -120,7 +119,7 @@ class _AboutCard extends StatelessWidget {
           children: [
             Text(label),
             if (external) ...[
-              const SizedBox(width: 3),
+              const SizedBox(width: Gap.xs),
               const Icon(Icons.open_in_new_rounded, size: 12),
             ],
           ],
@@ -130,7 +129,7 @@ class _AboutCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.all(Gap.xl),
+            padding: const EdgeInsets.fromLTRB(20, Gap.xl, 20, Gap.xl),
             child: Row(
               children: [
                 Image.asset('assets/images/mark.png', width: 72, height: 72),
@@ -158,7 +157,7 @@ class _AboutCard extends StatelessWidget {
                             TextSpan(
                               text: development ? '开发版本' : version,
                               style: const TextStyle(
-                                fontSize: 14,
+                                fontSize: FontSize.emphasis,
                                 fontFeatures: [FontFeature.tabularFigures()],
                               ),
                             ),
@@ -208,7 +207,10 @@ class _AboutCard extends StatelessWidget {
           ],
           const Divider(height: 1, indent: 20, endIndent: 20),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(
+              horizontal: Gap.sm,
+              vertical: Gap.xs,
+            ),
             child: Wrap(
               spacing: Gap.xs,
               crossAxisAlignment: WrapCrossAlignment.center,
@@ -306,7 +308,7 @@ void _showChangelog(BuildContext context) => showMelonDialog<void>(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 16, 12, 4),
+            padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.lg, Gap.md, Gap.xs),
             child: Row(
               children: [
                 Expanded(
@@ -328,7 +330,7 @@ void _showChangelog(BuildContext context) => showMelonDialog<void>(
               future: rootBundle.loadString('CHANGELOG.md'),
               builder: (context, notes) => ScrollEdgeFade(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                  padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.xl),
                   child: _ReleaseNotes(
                     // Its heading names the version, which the title shows.
                     (notes.data ?? '').split('\n').skip(1).join('\n'),
@@ -470,6 +472,10 @@ class _UninstallRow extends StatelessWidget {
             child: const Text('取消'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('关闭并卸载'),
           ),
@@ -540,12 +546,10 @@ class _MacOSUninstallDialogState extends State<_MacOSUninstallDialog> {
           child: const Text('取消'),
         ),
         FilledButton(
-          style: wipe
-              ? FilledButton.styleFrom(
-                  backgroundColor: scheme.error,
-                  foregroundColor: scheme.onError,
-                )
-              : null,
+          style: FilledButton.styleFrom(
+            backgroundColor: scheme.error,
+            foregroundColor: scheme.onError,
+          ),
           onPressed: () => Navigator.pop(context, wipe),
           child: Text(wipe ? '退出并删除全部' : '退出并卸载'),
         ),

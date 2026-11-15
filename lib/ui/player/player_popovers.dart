@@ -155,7 +155,7 @@ class HoverPopoverState extends State<HoverPopover>
           },
           child: Padding(
             // Bridges the gap to the control so the pointer never falls between.
-            padding: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.only(bottom: Gap.sm),
             child: AnimatedBuilder(
               animation: _fade,
               builder: (context, child) {
@@ -329,7 +329,7 @@ class ChoiceList extends StatelessWidget {
     constraints: const BoxConstraints(minWidth: 76, maxWidth: 220),
     child: IntrinsicWidth(
       child: Padding(
-        padding: const EdgeInsets.all(4),
+        padding: const EdgeInsets.all(Gap.xs),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -337,9 +337,12 @@ class ChoiceList extends StatelessWidget {
             for (final item in items)
               Material(
                 color: item.selected ? Colors.white : Colors.transparent,
-                borderRadius: badgeBorderRadius,
+                borderRadius: insetRadius(popover.widget.borderRadius, Gap.xs),
                 child: InkWell(
-                  borderRadius: badgeBorderRadius,
+                  borderRadius: insetRadius(
+                    popover.widget.borderRadius,
+                    Gap.xs,
+                  ),
                   overlayColor: WidgetStatePropertyAll(
                     (item.selected ? overlayInk : Colors.white).withValues(
                       alpha: .1,
@@ -352,16 +355,14 @@ class ChoiceList extends StatelessWidget {
                   child: Container(
                     height: 30,
                     alignment: Alignment.center,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: Gap.md),
                     child: Text(
                       item.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: item.selected
-                            ? FontWeight.w700
-                            : FontWeight.w500,
+                        fontSize: FontSize.body,
+                        fontWeight: FontWeight.w400,
                         color: item.selected ? overlayInk : Colors.white,
                         fontFeatures: const [FontFeature.tabularFigures()],
                       ),
@@ -393,7 +394,7 @@ class OverlayChoice extends StatelessWidget {
     height: 28,
     padding: const EdgeInsets.all(2),
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: .08),
+      color: overlayFill,
       borderRadius: badgeBorderRadius,
     ),
     child: Row(
@@ -402,16 +403,16 @@ class OverlayChoice extends StatelessWidget {
           Expanded(
             child: Material(
               color: index == value ? Colors.white : Colors.transparent,
-              borderRadius: badgeBorderRadius,
+              borderRadius: insetRadius(badgeBorderRadius, 2),
               child: InkWell(
-                borderRadius: badgeBorderRadius,
+                borderRadius: insetRadius(badgeBorderRadius, 2),
                 onTap: () => onChanged(index),
                 child: Center(
                   child: Text(
                     option,
                     style: TextStyle(
-                      fontSize: 12,
-                      color: index == value ? overlayInk : Colors.white70,
+                      fontSize: FontSize.small,
+                      color: index == value ? overlayInk : overlayMuted,
                     ),
                   ),
                 ),

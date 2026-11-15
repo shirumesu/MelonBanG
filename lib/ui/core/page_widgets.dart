@@ -141,7 +141,7 @@ class PageScroll extends StatelessWidget {
       key: const PageStorageKey('page-scroll'),
       slivers: [
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(pageGutter, 6, pageGutter, 40),
+          padding: const EdgeInsets.fromLTRB(pageGutter, Gap.sm, pageGutter, 40),
           sliver: SliverMainAxisGroup(slivers: slivers),
         ),
       ],
@@ -230,7 +230,7 @@ class HeadedPanel extends StatelessWidget {
             child: Row(
               children: [
                 Icon(icon, size: 18, color: scheme.onSurfaceVariant),
-                const SizedBox(width: 6),
+                const SizedBox(width: Gap.sm),
                 Text(title, style: text.titleSmall),
                 const SizedBox(width: Gap.sm),
                 Expanded(
@@ -282,13 +282,13 @@ class SectionTitle extends StatelessWidget {
             size: 20,
             color: color ?? Theme.of(context).colorScheme.onSurfaceVariant,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: Gap.sm),
         ],
         Expanded(
           child: Wrap(
             crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 10,
-            runSpacing: 4,
+            spacing: Gap.sm,
+            runSpacing: Gap.xs,
             children: [
               Text(title, style: Theme.of(context).textTheme.titleMedium),
               if (subtitle != null)
@@ -439,11 +439,14 @@ class EmptyState extends StatelessWidget {
             Text(
               text,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                fontSize: FontSize.emphasis,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             if (detail != null)
               Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.only(top: Gap.xs, bottom: Gap.sm),
                 child: Text(
                   detail!,
                   textAlign: TextAlign.center,

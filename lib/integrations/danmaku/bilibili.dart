@@ -120,6 +120,7 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
                 ))
                   DanmakuCandidate(
                     title: episode.label,
+                    subtitle: episode.description,
                     locator: 'ep${episode.ref.data['epId']}',
                   ),
               ],
@@ -141,8 +142,10 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
       ),
       if (collection.isNotEmpty)
         DanmakuCandidate(
-          title: '所属合集 · ${collection['title']}',
-          subtitle: '${collection['ep_count']} 个视频',
+          title: '${collection['title']}',
+          subtitle: collection['ep_count'] == null
+              ? '合集'
+              : '合集  ${collection['ep_count']} 个视频',
           open: () async => _collection(collection),
         ),
     ];
@@ -157,7 +160,7 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
           DanmakuCandidate(
             title: '${video['title']}',
             subtitle:
-                '${objects(video['pages']).length} P · '
+                '${objects(video['pages']).length} P  '
                 '${_comments(_videoComments(video))}',
             open: () async => _parts(video),
           )
@@ -186,7 +189,7 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
         DanmakuCandidate(
           title: pages.length == 1
               ? '${video['title']}'
-              : 'P${page['page']} · ${page['part']}',
+              : 'P${page['page']} ${page['part']}',
           subtitle: [
             '${(number(page['duration']) / 60).round()} 分钟',
             if (comments != null && pages.length == 1) _comments(comments),
@@ -236,7 +239,7 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
               for (final page in pages)
                 (
                   name: '${page['part']}',
-                  label: 'P${page['page']} · ${page['part']}',
+                  label: 'P${page['page']} ${page['part']}',
                   locator: '$bvid?p=${page['page']}',
                   seconds: number(page['duration']),
                 ),

@@ -134,7 +134,7 @@ class _PlayerSidePanelState extends State<PlayerSidePanel> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleSmall
-                            ?.copyWith(fontSize: 15),
+                            ?.copyWith(fontSize: FontSize.emphasis),
                       ),
                       if (episode != null) ...[
                         const SizedBox(height: Gap.xs),
@@ -235,7 +235,7 @@ class _DetailButton extends StatelessWidget {
         backgroundColor: scheme.surfaceContainerHigh,
         foregroundColor: scheme.onSurface,
         shape: const RoundedRectangleBorder(borderRadius: badgeBorderRadius),
-        textStyle: appFont.copyWith(fontSize: 12),
+        textStyle: appFont.copyWith(fontSize: FontSize.small),
       ),
       onPressed: onPressed,
       icon: const Icon(Icons.info_outline_rounded, size: 15),
@@ -446,7 +446,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
             episodeLabel(episode),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 13),
+            style: const TextStyle(fontSize: FontSize.body),
           ),
         ),
         if (state.isNotEmpty) ...[
@@ -479,11 +479,8 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
       CacheMethod.online => false,
       null => source?.kind == PlayKind.bt || source?.kind == PlayKind.pikpak,
     };
-    final name = switch (source) {
-      PlayCandidate(:final line) when line.isNotEmpty => line,
-      PlayCandidate(:final providerLabel?) => providerLabel,
-      _ => task?.releaseGroups.firstOrNull ?? task?.source,
-    };
+    final name =
+        source?.sourceLabel ?? task?.releaseGroups.firstOrNull ?? task?.source;
     final live = task == null || task.complete
         ? null
         : transferLine(
@@ -506,7 +503,10 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Gap.xs,
+                  vertical: 1,
+                ),
                 decoration: BoxDecoration(
                   color: scheme.primaryContainer,
                   borderRadius: badgeBorderRadius,
@@ -514,8 +514,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                 child: Text(
                   kind,
                   style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: torrent ? FontWeight.w700 : FontWeight.w400,
+                    fontSize: FontSize.caption,
                     color: scheme.onPrimaryContainer,
                   ),
                 ),
@@ -523,10 +522,10 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
               const SizedBox(width: Gap.sm),
               Expanded(
                 child: Text(
-                  [?name, ?source?.quality].join('  '),
+                  name ?? '',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13),
+                  style: const TextStyle(fontSize: FontSize.body),
                 ),
               ),
               if (episode != null)
@@ -564,7 +563,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                 builder: (context, value) => LinearProgressIndicator(
                   value: value,
                   minHeight: 2,
-                  borderRadius: BorderRadius.circular(1),
+                  borderRadius: pillBorderRadius,
                 ),
               ),
             ),
@@ -674,7 +673,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                         )
                       : DefaultTextStyle.merge(
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: FontSize.body,
                             color: foreground,
                             fontFeatures: const [FontFeature.tabularFigures()],
                           ),
@@ -683,15 +682,15 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                 ),
                 if (downloading != null && !playing)
                   Positioned(
-                    left: 8,
-                    right: 8,
-                    bottom: 5,
+                    left: Gap.sm,
+                    right: Gap.sm,
+                    bottom: Gap.xs,
                     child: MotionValue(
                       value: downloading.progress,
                       builder: (context, value) => LinearProgressIndicator(
                         value: value,
                         minHeight: 2,
-                        borderRadius: BorderRadius.circular(1),
+                        borderRadius: pillBorderRadius,
                       ),
                     ),
                   ),
@@ -742,7 +741,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
       mainAxisSize: MainAxisSize.min,
       children: [
         mark,
-        const SizedBox(width: 4),
+        const SizedBox(width: Gap.xs),
         Text(label, style: small),
       ],
     );
@@ -811,7 +810,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
             padding: const EdgeInsets.symmetric(vertical: Gap.md),
             child: Row(
               children: [
-                const Text('缓存任务', style: TextStyle(fontSize: 13)),
+                const Text('缓存任务', style: TextStyle(fontSize: FontSize.body)),
                 const SizedBox(width: Gap.sm),
                 Text(
                   [
@@ -869,7 +868,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                     width: 28,
                     height: 38,
                     child: CoverFrame(
-                      radius: BorderRadius.circular(4),
+                      radius: tightBorderRadius,
                       child: SubjectCover(
                         url: task.coverUrl,
                         title: task.title,
@@ -877,14 +876,14 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: Gap.sm),
                 ],
                 Expanded(
                   child: Text(
                     episode == null ? task.title : episode.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12),
+                    style: const TextStyle(fontSize: FontSize.small),
                   ),
                 ),
                 DownloadToggleButton(
@@ -895,7 +894,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                 DownloadPlayButton(task: task, onPlay: widget.onPlayFile),
               ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: Gap.xs),
             DownloadTaskStatus(task: task),
             if (task.errorMessage case final message?)
               Padding(
@@ -967,9 +966,7 @@ class _DiscussionPaneState extends State<_DiscussionPane> {
         children: [
           Expanded(
             child: Text(
-              posts == null
-                  ? 'Bangumi 本话吐槽'
-                  : 'Bangumi 本话吐槽  ${posts.length} 条',
+              posts == null ? '本话吐槽' : '本话吐槽  ${posts.length} 条',
               style: small,
             ),
           ),
@@ -1088,7 +1085,9 @@ class _CommentState extends State<_Comment> {
                       children: [
                         for (final (index, reply) in shown.indexed)
                           Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: Gap.xs,
+                            ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -1162,7 +1161,7 @@ class _CommentState extends State<_Comment> {
       ? Text('（内容已删除）', style: Theme.of(context).textTheme.bodySmall)
       : BBCode(
           post.content,
-          style: const TextStyle(fontSize: 13, height: 1.55),
+          style: const TextStyle(fontSize: FontSize.body, height: 1.55),
         );
 }
 

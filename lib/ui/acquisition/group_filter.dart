@@ -69,8 +69,8 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
       final scheme = Theme.of(context).colorScheme;
       final small = Theme.of(context).textTheme.bodySmall;
       Widget caption(String text) => Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-        child: Text(text, style: small?.copyWith(fontSize: 11)),
+        padding: const EdgeInsets.fromLTRB(Gap.md, Gap.sm, Gap.md, Gap.xs),
+        child: Text(text, style: small?.copyWith(fontSize: FontSize.caption)),
       );
       Widget row(int index, String name) {
         final isPreferred = index < preferred.length;
@@ -97,7 +97,7 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                   height: _rowHeight,
                   child: Row(
                     children: [
-                      const SizedBox(width: 12),
+                      const SizedBox(width: Gap.md),
                       // A group without results offers nothing to show.
                       Opacity(
                         opacity: count > 0 || on ? 1 : .38,
@@ -117,13 +117,12 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                           child: Text(
                             '${index + 1}',
                             style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                              fontSize: FontSize.caption,
                               color: scheme.primary,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: Gap.sm),
                       ],
                       Expanded(
                         child: Text(
@@ -131,7 +130,7 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: FontSize.body,
                             color: count > 0 || on
                                 ? null
                                 : scheme.onSurfaceVariant,
@@ -143,8 +142,12 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                         TextButton(
                           style: TextButton.styleFrom(
                             minimumSize: const Size(0, 28),
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            textStyle: appFont.copyWith(fontSize: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: Gap.sm,
+                            ),
+                            textStyle: appFont.copyWith(
+                              fontSize: FontSize.small,
+                            ),
                           ),
                           onPressed: () => prefer(
                             isPreferred
@@ -155,7 +158,7 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                         )
                       else
                         Padding(
-                          padding: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.only(right: Gap.sm),
                           child: Text(
                             '$count',
                             style: small?.copyWith(
@@ -165,7 +168,7 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                             ),
                           ),
                         ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: Gap.xs),
                     ],
                   ),
                 ),
@@ -210,7 +213,11 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                           key: const ValueKey(_line),
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const Divider(height: 9, indent: 8, endIndent: 8),
+                            const Divider(
+                              height: Gap.sm,
+                              indent: Gap.sm,
+                              endIndent: Gap.sm,
+                            ),
                             caption(others.isEmpty ? '没有其他字幕组' : '其他字幕组'),
                           ],
                         )
@@ -218,7 +225,7 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                 ),
               ),
             ),
-            const Divider(height: 9, indent: 8, endIndent: 8),
+            const Divider(height: Gap.sm, indent: Gap.sm, endIndent: Gap.sm),
             Material(
               type: MaterialType.transparency,
               child: InkWell(
@@ -234,10 +241,13 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                     opacity: preferred.isEmpty ? .38 : 1,
                     child: Row(
                       children: [
-                        const SizedBox(width: 12),
+                        const SizedBox(width: Gap.md),
                         FilterCheck(onlyPreferred),
                         const SizedBox(width: Gap.sm),
-                        const Text('只显示偏好字幕组', style: TextStyle(fontSize: 13)),
+                        const Text(
+                          '只显示偏好字幕组',
+                          style: TextStyle(fontSize: FontSize.body),
+                        ),
                       ],
                     ),
                   ),

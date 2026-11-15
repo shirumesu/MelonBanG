@@ -274,7 +274,7 @@ class Playback extends ChangeNotifier {
   bool _skippedOpening = false, _skippedEnding = false;
   double? _lastPosition;
 
-  /// The OP or ED (`片头`, `片尾`) about to be skipped, [skipCountdown]
+  /// The OP or ED (`OP`, `ED`) about to be skipped, [skipCountdown]
   /// seconds from now; null when none is coming.
   String? upcomingSkip;
   int skipCountdown = 0;
@@ -861,10 +861,10 @@ class Playback extends ChangeNotifier {
     final (span, label) = switch (marks) {
       OpeningEnding(:final opening)
           when settings.skipOpening && !_skippedOpening && nearing(opening) =>
-        (opening, '片头'),
+        (opening, 'OP'),
       OpeningEnding(:final ending)
           when settings.skipEnding && !_skippedEnding && nearing(ending) =>
-        (ending, '片尾'),
+        (ending, 'ED'),
       _ => (null, null),
     };
     if (span == null) return;
@@ -905,7 +905,7 @@ class Playback extends ChangeNotifier {
     _passed(span);
     _upcoming = upcomingSkip = null;
     notifyListeners();
-    unawaited(_skipTo(span.end, '$verb$label'));
+    unawaited(_skipTo(span.end, '$verb $label'));
   }
 
   /// Plays the OP or ED counting down instead of skipping it.

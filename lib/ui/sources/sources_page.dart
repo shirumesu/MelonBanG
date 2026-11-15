@@ -16,6 +16,7 @@ import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
 import '../settings/network_settings.dart' show ProbeStatus;
+import '../settings/settings_page.dart' show HelpHint;
 
 /// Every source of data the app reads, by kind: online video sites, BT
 /// indexes, the PikPak drive and danmaku providers. Built for many of each:
@@ -311,7 +312,7 @@ class _SourcesPageState extends State<SourcesPage> {
                         ),
                         FeedbackButton(
                           feedback: _update,
-                          label: '检查更新',
+                          label: '更新规则',
                           runningLabel: '检查中',
                           successLabel: '已更新',
                           icon: Icons.refresh,
@@ -322,9 +323,12 @@ class _SourcesPageState extends State<SourcesPage> {
                         ),
                       ],
                     ),
-                    Text(
-                      '在线源与 BT 索引规则 ${registry.version}，${snapshotDate(registry.snapshot.updatedAt)} 更新',
-                      style: Theme.of(context).textTheme.bodySmall,
+                    Tooltip(
+                      message: '在线源与 BT 索引规则 ${registry.version}',
+                      child: Text(
+                        '规则更新于 ${snapshotDate(registry.snapshot.updatedAt)}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ),
                     FeedbackIssue(
                       feedback: _update,
@@ -611,9 +615,14 @@ class _SourcesPageState extends State<SourcesPage> {
         ],
         Padding(
           padding: const EdgeInsets.only(top: Gap.md),
-          child: Text(
-            '开关决定新打开的视频是否加载这个来源；播放中可以在侧栏的弹幕页单独开关。',
-            style: theme.textTheme.bodySmall,
+          child: Row(
+            children: [
+              Flexible(
+                child: Text('对之后打开的视频生效', style: theme.textTheme.bodySmall),
+              ),
+              const SizedBox(width: Gap.xs),
+              const HelpHint(message: '播放中可以在侧栏的弹幕页单独开关'),
+            ],
           ),
         ),
       ],
@@ -622,32 +631,49 @@ class _SourcesPageState extends State<SourcesPage> {
 
   /// Who the source signs in as, and the way to Settings, where signing in
   /// and out happens.
-  Widget _account(String status, {required bool signedIn}) => MelonPanel(
-    padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.md, Gap.md),
-    child: Row(
-      children: [
-        Expanded(child: Text(status)),
-        const SizedBox(width: Gap.md),
-        TextButton(
-          onPressed: widget.onOpenAccounts,
-          child: Text(signedIn ? '在设置中管理' : '去设置登录'),
+  Widget _account(String status, {required bool signedIn, Widget? badge}) =>
+      MelonPanel(
+        padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.md, Gap.md),
+        child: Row(
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(child: Text(status)),
+                  if (badge != null) ...[const SizedBox(width: Gap.sm), badge],
+                ],
+              ),
+            ),
+            const SizedBox(width: Gap.md),
+            TextButton(
+              onPressed: widget.onOpenAccounts,
+              child: Text(signedIn ? '在设置中管理' : '在设置中登录'),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
+      );
 
   Widget _bilibiliAccount() => ListenableBuilder(
     listenable: widget.bilibili,
-    builder: (context, _) => _account(
-      widget.bilibili.signedIn
-          ? '已登录 ${widget.bilibili.name ?? 'B 站账号'}'
-                '${widget.bilibili.membership == null ? '' : ' · ${widget.bilibili.membership}'}'
-          : widget.bilibili.lapsed ?? '未登录 · 登录后弹幕更全，大会员还能播放会员集',
-      signedIn: widget.bilibili.signedIn,
-    ),
+    builder: (context, _) {
+      final account = widget.bilibili;
+      return _account(
+        account.signedIn
+            ? account.name ?? 'B 站账号'
+            : account.lapsed ?? '登录后可获取更多弹幕，大会员可播放会员剧集',
+        signedIn: account.signedIn,
+        badge: switch (account.membership) {
+          final membership? when account.signedIn => MelonBadge(
+            membership,
+            color: coral,
+          ),
+          _ => null,
+        },
+      );
+    },
   );
 
-  /// Nothing while the source is simply on.
+  /// Nothing while the source is simply on, or off by its own switch.
   Widget? _badge(_Entry entry) => entry.quiet
       ? null
       : MelonBadge(
@@ -695,11 +721,8 @@ class _SourcesPageState extends State<SourcesPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _connection(entry, domain, instance?.website ?? domain),
-              if (instance != null)
-                Text(
-                  manual ? '需要手动选择条目' : instance.engine,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+              if (manual)
+                Text('需要手动选择条目', style: Theme.of(context).textTheme.bodySmall),
               if (instance?.description case final description?)
                 Padding(
                   padding: const EdgeInsets.only(top: Gap.sm),
@@ -718,7 +741,7 @@ class _SourcesPageState extends State<SourcesPage> {
                 ? 'PikPak 登录凭据待解锁'
                 : switch (widget.pikpak.accountName) {
                     final name? => '已登录 $name',
-                    null => '未登录 · 登录后可用 PikPak 云端离线下载',
+                    null => '登录后可用云端离线下载',
                   },
             signedIn: widget.pikpak.accountName != null,
           ),
@@ -760,7 +783,7 @@ class _SourcesPageState extends State<SourcesPage> {
             Padding(
               padding: const EdgeInsets.only(top: Gap.sm),
               child: Text(
-                '没有找到，换个名称试试',
+                '未找到结果',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -824,7 +847,7 @@ class _SourcesPageState extends State<SourcesPage> {
                   const SizedBox(height: Gap.sm),
                   if (_resolved!.format == StreamFormat.hls &&
                       _resolved!.playlist != null)
-                    const Text('已过滤验证过的插入广告分片'),
+                    const Text('已去除插播广告'),
                   FeedbackButton(
                     feedback: _resolve,
                     label: '试播',
@@ -877,7 +900,7 @@ class _SourcesPageState extends State<SourcesPage> {
           padding: const EdgeInsets.only(top: Gap.sm),
           child: Text(
             releases.isEmpty
-                ? '没有找到，换个关键词试试'
+                ? '未找到结果'
                 : releases.length > 5
                 ? '找到 ${releases.length} 条，下面是前 5 条'
                 : '找到 ${releases.length} 条',
@@ -937,18 +960,16 @@ class _SourcesPageState extends State<SourcesPage> {
             runSpacing: Gap.sm,
             children: [
               for (final episode in _episodes.where((e) => e.line == line))
-                OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(64, 36),
-                    padding: const EdgeInsets.symmetric(horizontal: Gap.md),
-                    backgroundColor: _episode == episode
-                        ? Theme.of(context).colorScheme.primaryContainer
-                        : Theme.of(context).colorScheme.surfaceContainerHigh,
+                Tooltip(
+                  // An episode's own title, or a part's length.
+                  message: episode.description ?? '',
+                  child: ChoiceChip(
+                    label: Text(episode.label),
+                    selected: _episode == episode,
+                    onSelected: _resolve.busy
+                        ? null
+                        : (_) => _resolveEpisode(episode),
                   ),
-                  onPressed: _resolve.busy
-                      ? null
-                      : () => _resolveEpisode(episode),
-                  child: Text(episode.label),
                 ),
             ],
           ),
@@ -1005,12 +1026,15 @@ final class _Entry {
   final SourceInstance? instance;
   final DanmakuMatcher? danmaku;
 
-  /// Simply on, so the list shows no status and the details no badge.
-  bool get quiet => enabled && !problem;
+  /// Simply on, or off by its own switch, which already shows it, so the
+  /// list shows no status and the details no badge. A state the switch
+  /// cannot change, such as a source the maintainer disabled or one not
+  /// configured, still says so.
+  bool get quiet => !problem && (enabled || onToggle != null);
 }
 
-/// A source in the list: status dot, name, status when it is not simply on,
-/// and its switch.
+/// A source in the list: status dot, name, status when its switch does not
+/// already say it, and its switch.
 class _SourceRow extends StatelessWidget {
   const _SourceRow({
     required this.entry,

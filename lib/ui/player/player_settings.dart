@@ -31,17 +31,7 @@ class PlaybackMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final settings = playback.settings;
     Widget toggle(String label, bool value, Future<void> Function(bool) set) =>
-        _Row(
-          label: label,
-          labelWidth: 120,
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: Transform.scale(
-              scale: .75,
-              child: Switch(value: value, onChanged: set),
-            ),
-          ),
-        );
+        _SwitchRow(label: label, value: value, onChanged: set);
     return HoverPopover(
       onPopupChanged: onPopupChanged,
       borderRadius: panelBorderRadius,
@@ -66,8 +56,8 @@ class PlaybackMenu extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              toggle('自动跳过片头', settings.skipOpening, settings.setSkipOpening),
-              toggle('自动跳过片尾', settings.skipEnding, settings.setSkipEnding),
+              toggle('自动跳过 OP', settings.skipOpening, settings.setSkipOpening),
+              toggle('自动跳过 ED', settings.skipEnding, settings.setSkipEnding),
               toggle('自动连播', settings.autoplay, settings.setAutoplay),
               _Row(
                 label: '画面比例',
@@ -136,7 +126,7 @@ class DanmakuQuickSettings extends StatelessWidget {
         children: [
           Expanded(
             child: Slider(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
               value: value,
               min: min,
               max: max,
@@ -151,8 +141,8 @@ class DanmakuQuickSettings extends StatelessWidget {
               shown,
               textAlign: TextAlign.right,
               style: const TextStyle(
-                fontSize: 12,
-                color: Colors.white70,
+                fontSize: FontSize.small,
+                color: overlayMuted,
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
@@ -160,11 +150,17 @@ class DanmakuQuickSettings extends StatelessWidget {
         ],
       ),
     );
-    Widget toggle(String label, bool value, void Function(bool) change) =>
+    Widget filter(String label, bool value, void Function(bool) change) =>
         _Toggle(
           label: label,
           selected: value,
           onPressed: () => prefs.update(() => change(!value)),
+        );
+    Widget toggle(String label, bool value, void Function(bool) change) =>
+        _SwitchRow(
+          label: label,
+          value: value,
+          onChanged: (value) => prefs.update(() => change(value)),
         );
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.xs, Gap.sm, Gap.md),
@@ -183,7 +179,7 @@ class DanmakuQuickSettings extends StatelessWidget {
                 focusNode: closeFocusNode,
                 tooltip: '关闭',
                 onPressed: onClose,
-                icon: const Icon(Icons.close, size: 18, color: Colors.white70),
+                icon: const Icon(Icons.close, size: 18, color: overlayMuted),
               ),
             ],
           ),
@@ -249,16 +245,17 @@ class DanmakuQuickSettings extends StatelessWidget {
                   spacing: Gap.sm,
                   runSpacing: Gap.sm,
                   children: [
-                    toggle('滚动', prefs.scroll, (v) => prefs.scroll = v),
-                    toggle('顶部', prefs.top, (v) => prefs.top = v),
-                    toggle('底部', prefs.bottom, (v) => prefs.bottom = v),
-                    toggle('彩色', prefs.colorful, (v) => prefs.colorful = v),
-                    toggle('描边', prefs.stroke, (v) => prefs.stroke = v),
-                    toggle('允许重叠', prefs.overlap, (v) => prefs.overlap = v),
-                    toggle('防挡字幕', prefs.shield, (v) => prefs.shield = v),
-                    toggle('合并重复', prefs.merge, (v) => prefs.merge = v),
+                    filter('滚动', prefs.scroll, (v) => prefs.scroll = v),
+                    filter('顶部', prefs.top, (v) => prefs.top = v),
+                    filter('底部', prefs.bottom, (v) => prefs.bottom = v),
                   ],
                 ),
+                const SizedBox(height: Gap.xs),
+                toggle('彩色', prefs.colorful, (v) => prefs.colorful = v),
+                toggle('描边', prefs.stroke, (v) => prefs.stroke = v),
+                toggle('允许重叠', prefs.overlap, (v) => prefs.overlap = v),
+                toggle('防挡字幕', prefs.shield, (v) => prefs.shield = v),
+                toggle('合并重复', prefs.merge, (v) => prefs.merge = v),
                 if (onOpenSources != null) ...[
                   const SizedBox(height: Gap.sm),
                   Align(
@@ -266,7 +263,7 @@ class DanmakuQuickSettings extends StatelessWidget {
                     child: TextButton(
                       style: TextButton.styleFrom(
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
                       ),
                       onPressed: onOpenSources,
                       child: const Text('来源与屏蔽 ›'),
@@ -297,7 +294,10 @@ class _Row extends StatelessWidget {
           width: labelWidth,
           child: Text(
             label,
-            style: const TextStyle(fontSize: 12, color: Colors.white70),
+            style: const TextStyle(
+              fontSize: FontSize.small,
+              color: overlayMuted,
+            ),
           ),
         ),
         Expanded(child: child),
@@ -306,7 +306,32 @@ class _Row extends StatelessWidget {
   );
 }
 
-/// An on/off chip: brighter when on.
+/// An on/off setting: its label, and a small switch at the right.
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => _Row(
+    label: label,
+    labelWidth: 120,
+    child: Align(
+      alignment: Alignment.centerRight,
+      child: Transform.scale(
+        scale: .75,
+        child: Switch(value: value, onChanged: onChanged),
+      ),
+    ),
+  );
+}
+
+/// An on/off chip: brighter when on, dimmed when off.
 class _Toggle extends StatelessWidget {
   const _Toggle({
     required this.label,
@@ -321,7 +346,7 @@ class _Toggle extends StatelessWidget {
   Widget build(BuildContext context) => Semantics(
     toggled: selected,
     child: Material(
-      color: Colors.white.withValues(alpha: selected ? .18 : .06),
+      color: selected ? overlayFillActive : overlayFill,
       borderRadius: badgeBorderRadius,
       child: InkWell(
         borderRadius: badgeBorderRadius,
@@ -334,10 +359,8 @@ class _Toggle extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              fontSize: 12,
-              color: selected ? Colors.white : Colors.white54,
-              decoration: selected ? null : TextDecoration.lineThrough,
-              decorationColor: Colors.white38,
+              fontSize: FontSize.small,
+              color: selected ? Colors.white : Colors.white38,
             ),
           ),
         ),

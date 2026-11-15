@@ -82,13 +82,16 @@ class _CalendarPageState extends State<CalendarPage> {
       children: [
         Container(
           color: Theme.of(context).scaffoldBackgroundColor,
-          height: 115,
+          height: 112,
           child: ListView.separated(
             key: const PageStorageKey('calendar-days'),
-            padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 14),
+            padding: const EdgeInsets.symmetric(
+              horizontal: pageGutter,
+              vertical: Gap.md,
+            ),
             scrollDirection: Axis.horizontal,
             itemCount: 7,
-            separatorBuilder: (_, _) => const SizedBox(width: 8),
+            separatorBuilder: (_, _) => const SizedBox(width: Gap.sm),
             itemBuilder: (context, i) => SizedBox(
               width: 82,
               child: Semantics(
@@ -97,14 +100,14 @@ class _CalendarPageState extends State<CalendarPage> {
                   style: TextButton.styleFrom(
                     textStyle: DefaultTextStyle.of(context).style,
                     backgroundColor: selectedDate == dates[i]
-                        ? Theme.of(context).colorScheme.secondaryContainer
+                        ? Theme.of(context).colorScheme.primaryContainer
                         : Theme.of(context).colorScheme.surface,
                     foregroundColor: selectedDate == dates[i]
-                        ? Theme.of(context).colorScheme.onSecondaryContainer
+                        ? Theme.of(context).colorScheme.onPrimaryContainer
                         : Theme.of(context).colorScheme.onSurface,
                     padding: EdgeInsets.zero,
                     shape: const RoundedRectangleBorder(
-                      borderRadius: posterBorderRadius,
+                      borderRadius: controlBorderRadius,
                     ),
                   ),
                   onPressed: () => selectDay(dates[i]),
@@ -115,35 +118,29 @@ class _CalendarPageState extends State<CalendarPage> {
                         i == 0 ? '今天' : weekday(dates[i]),
                         style: TextStyle(
                           color: selectedDate == dates[i]
-                              ? Theme.of(context)
-                                    .colorScheme
-                                    .onSecondaryContainer
+                              ? Theme.of(context).colorScheme.onPrimaryContainer
                               : null,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
+                          fontSize: FontSize.body,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: Gap.xs),
                       Text(
                         dates[i].substring(5).replaceAll('-', '/'),
                         style: TextStyle(
                           color: selectedDate == dates[i]
-                              ? Theme.of(context)
-                                    .colorScheme
-                                    .onSecondaryContainer
+                              ? Theme.of(context).colorScheme.onPrimaryContainer
                               : Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontSize: 10,
+                          fontSize: FontSize.caption,
                         ),
                       ),
                       Text(
                         count(dates[i]),
                         style: TextStyle(
                           color: selectedDate == dates[i]
-                              ? Theme.of(context)
-                                    .colorScheme
-                                    .onSecondaryContainer
+                              ? Theme.of(context).colorScheme.onPrimaryContainer
                               : Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontSize: 10,
+                          fontSize: FontSize.caption,
                         ),
                       ),
                     ],
@@ -157,11 +154,8 @@ class _CalendarPageState extends State<CalendarPage> {
           child: PageScroll(
             children: [
               SectionTitle(
-                title: '${weekday(selectedDate)}  $selectedDate',
+                title: _dayTitle(selectedDate, weekday(selectedDate)),
                 icon: Icons.calendar_month_outlined,
-                subtitle: items.length == all.length
-                    ? null
-                    : '显示 ${items.length} 部，共 ${all.length} 部',
                 trailing: _filters(filter, all, now),
               ),
               // Days from an earlier load stay readable when a refresh fails.
@@ -178,7 +172,7 @@ class _CalendarPageState extends State<CalendarPage> {
                 const BroadcastTimelineSkeleton()
               else if (items.isEmpty)
                 EmptyState(
-                  text: widget.error != null ? '暂时无法加载时间表' : '本日暂无新番放送',
+                  text: widget.error != null ? '暂时无法加载时间表' : '本日没有番剧放送',
                   detail: widget.error,
                   action: widget.error != null ? widget.onRetry : null,
                 )
@@ -196,6 +190,12 @@ class _CalendarPageState extends State<CalendarPage> {
         ),
       ],
     );
+  }
+
+  /// A day's heading, such as 11月18日 周三.
+  static String _dayTitle(String date, String weekday) {
+    final day = DateTime.parse(date);
+    return '${day.month}月${day.day}日 $weekday';
   }
 
   /// The day when the filter leaves nothing. Clearing it keeps hiding R18
@@ -261,7 +261,6 @@ class _CalendarPageState extends State<CalendarPage> {
                   _ => null,
                 }
               : '${selected.length} 项',
-          tooltip: '按类型、地区筛选，或隐藏长篇与往季度番剧',
           sections: [
             MelonFilterSection(title: '类型', [
               for (final kind in ScheduleFilter.kindOptions)
@@ -309,7 +308,7 @@ class _CalendarPageState extends State<CalendarPage> {
           multiple: false,
           active: filter.adult != AdultFilter.show,
           summary: filter.adult.label,
-          tooltip: 'Bangumi 标为 R18，或用户主要标为里番的番剧；只标卖肉的不算',
+          tooltip: 'Bangumi 标为 R18 或里番的番剧',
           sections: [
             MelonFilterSection([
               for (final value in AdultFilter.values)

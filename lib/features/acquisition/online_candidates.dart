@@ -144,7 +144,7 @@ PlayCandidate onlinePartCandidate(
   kind: PlayKind.online,
   provider: parent.provider,
   providerLabel: parent.providerLabel,
-  title: '${upload.title} · ${part.label}',
+  title: '${upload.title}  ${part.label}',
   line: part.line,
   languages: parent.languages,
   target: OnlineTarget(
@@ -166,7 +166,7 @@ PlayCandidate _candidate(
   required bool possibleMatch,
   required int order,
 }) {
-  final title = label == null ? site.title : '${site.title} · $label';
+  final title = label == null ? site.title : '${site.title}  $label';
   final info = describeResource(title);
   return PlayCandidate(
     kind: PlayKind.online,

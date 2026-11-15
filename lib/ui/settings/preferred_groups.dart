@@ -90,10 +90,14 @@ class _PreferredGroupsSettingState extends State<PreferredGroupsSetting> {
       children: [
         const SettingRow(
           title: '字幕组偏好',
-          subtitle: '越靠前越优先；BT 和 PikPak 资源里这些字幕组的发布排在前面并优先推荐，订阅选“偏好字幕组”时也按这个顺序挑。拖动调整顺序，也可以选中后按 Alt + ← / → 移动、Delete 移除',
+          subtitle: '越靠前越优先，拖动调整顺序',
+          help:
+              'BT 和 PikPak 资源里这些字幕组的发布排在前面并优先推荐\n'
+              '订阅选“偏好字幕组”时也按这个顺序挑\n'
+              '选中后按 Alt + ← / → 移动，Delete 移除',
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, Gap.lg),
           child: Wrap(
             spacing: Gap.sm,
             runSpacing: Gap.sm,
@@ -229,7 +233,7 @@ class _GroupTag extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       height: 32,
-      padding: const EdgeInsets.only(left: 10),
+      padding: const EdgeInsets.only(left: Gap.md),
       decoration: BoxDecoration(
         color: scheme.primaryContainer,
         borderRadius: controlBorderRadius,
@@ -240,15 +244,18 @@ class _GroupTag extends StatelessWidget {
           Text(
             '${index + 1}',
             style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
+              fontSize: FontSize.caption,
+              fontWeight: FontWeight.w400,
               color: scheme.primary,
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: Gap.sm),
           Text(
             name,
-            style: TextStyle(fontSize: 13, color: scheme.onPrimaryContainer),
+            style: TextStyle(
+              fontSize: FontSize.body,
+              color: scheme.onPrimaryContainer,
+            ),
           ),
           // The tag itself takes the keyboard, where Delete removes it.
           ExcludeFocus(
@@ -325,7 +332,7 @@ class _AddGroupState extends State<_AddGroup> {
         fieldViewBuilder: (context, controller, focus, submit) => TextField(
           controller: controller,
           focusNode: focus,
-          style: const TextStyle(fontSize: 13),
+          style: const TextStyle(fontSize: FontSize.body),
           decoration: const InputDecoration(
             hintText: '添加字幕组',
             prefixIcon: Icon(Icons.add_rounded, size: 18),
@@ -344,22 +351,24 @@ class _AddGroupState extends State<_AddGroup> {
             color: menuSurface(context),
             elevation: 4,
             shadowColor: Colors.black.withValues(alpha: .2),
-            borderRadius: controlBorderRadius,
+            borderRadius: panelBorderRadius,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 300, maxHeight: 340),
               child: ScrollEdgeFade(
                 color: menuSurface(context),
                 child: ListView(
                   shrinkWrap: true,
-                  padding: const EdgeInsets.all(6),
+                  padding: const EdgeInsets.all(Gap.xs),
                   children: [
                     if (options.any((e) => e.count >= 0))
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
-                        child: Text(
-                          '搜到过的字幕组',
-                          style: small?.copyWith(fontSize: 11),
+                        padding: const EdgeInsets.fromLTRB(
+                          Gap.sm,
+                          Gap.xs,
+                          Gap.sm,
+                          Gap.xs,
                         ),
+                        child: Text('搜到过的字幕组', style: small),
                       ),
                     for (final (index, option) in options.indexed)
                       Builder(
@@ -368,19 +377,20 @@ class _AddGroupState extends State<_AddGroup> {
                               AutocompleteHighlightedOption.of(context) ==
                               index;
                           final _Option(:name, :count, :cached) = option;
+                          final corner = insetRadius(panelBorderRadius, Gap.xs);
                           return InkWell(
-                            borderRadius: badgeBorderRadius,
+                            borderRadius: corner,
                             onTap: () => select(option),
                             child: Container(
-                              height: 34,
+                              height: 32,
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
+                                horizontal: Gap.sm,
                               ),
                               decoration: BoxDecoration(
                                 color: highlighted
                                     ? scheme.primary.withValues(alpha: .08)
                                     : null,
-                                borderRadius: badgeBorderRadius,
+                                borderRadius: corner,
                               ),
                               child: Row(
                                 children: [
@@ -390,25 +400,35 @@ class _AddGroupState extends State<_AddGroup> {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                        fontSize: 13,
+                                        fontSize: FontSize.body,
                                         color: count < 0
                                             ? scheme.primary
                                             : null,
                                       ),
                                     ),
                                   ),
-                                  if (count >= 0)
+                                  if (count > 0)
                                     Text(
-                                      [
-                                        if (count > 0) '$count 条',
-                                        if (cached) '缓存过',
-                                      ].join(' · '),
+                                      '$count 条',
                                       style: small?.copyWith(
                                         fontFeatures: const [
                                           FontFeature.tabularFigures(),
                                         ],
                                       ),
                                     ),
+                                  if (count >= 0 && cached) ...[
+                                    if (count > 0)
+                                      const SizedBox(width: Gap.xs),
+                                    Tooltip(
+                                      message: '缓存过',
+                                      child: Icon(
+                                        Icons.download_done_rounded,
+                                        size: 14,
+                                        color: scheme.onSurfaceVariant,
+                                        semanticLabel: '缓存过',
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),

@@ -35,17 +35,14 @@ class _ConflictDialogState extends State<_ConflictDialog> {
     final theme = Theme.of(context);
 
     return AlertDialog(
-      title: const Text('设置在两台设备上改得不一样'),
+      title: const Text('设置同步冲突'),
       content: SizedBox(
         width: 560,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              '上次同步后，下面这些设置在这台设备和其他设备上都改过。选好每项保留哪边，其余设置已经合并好了。',
-              style: theme.textTheme.bodySmall,
-            ),
+            Text('选择每项要保留的版本，其余设置已合并', style: theme.textTheme.bodySmall),
             const SizedBox(height: Gap.lg),
             Flexible(
               child: SingleChildScrollView(
@@ -59,7 +56,7 @@ class _ConflictDialogState extends State<_ConflictDialog> {
                             child: Text(
                               sync.labelOf(conflict),
                               style: const TextStyle(
-                                fontWeight: FontWeight.w600,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),

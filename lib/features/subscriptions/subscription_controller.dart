@@ -515,7 +515,7 @@ class SubscriptionController extends ChangeNotifier {
       final subject = await detail(id);
       final result = await _search(subject);
       if (result.sources.isEmpty) {
-        throw StateError('没有可用的 BT 资源站，去数据源页启用一个');
+        throw StateError('没有可用的资源站，请在「数据源」中启用');
       }
       if (result.sources.every(
         (source) => source.status == SearchStatus.error,
@@ -529,7 +529,7 @@ class SubscriptionController extends ChangeNotifier {
       final judged = await _apply(subscription, subject, result.candidates);
       if (_asked.remove(id)) {
         found = _found(subscription, subject, judged);
-        subscription.note('检查了一遍：$found');
+        subscription.note(found);
       }
     } catch (e) {
       subscription.failures++;
@@ -633,8 +633,21 @@ class SubscriptionController extends ChangeNotifier {
       replaceable: replaceable,
       known: {for (final entry in subscription.ledger.values) entry.identity},
     );
+    // Skipped files are told once per episode, with their reasons.
+    final skipped = <Episode?, List<String>>{};
+    void noteSkipped() {
+      for (final MapEntry(key: episode, value: reasons) in skipped.entries) {
+        subscription.note(
+          '${episode?.label ?? ''}跳过 ${reasons.length} 个文件：'
+          '${reasons.toSet().join('、')}',
+          kind: SubscriptionEventKind.skipped,
+        );
+      }
+    }
+
     for (final judgement in judged) {
       if (!identical(subscriptions[subscription.subjectId], subscription)) {
+        noteSkipped();
         return judged;
       }
       final episode = judgement.episode;
@@ -656,8 +669,13 @@ class SubscriptionController extends ChangeNotifier {
             revision: releaseRevision(title),
           );
           subscription.judged(judgement.identity);
+          final info = judgement.info;
+          final group = info.sourceGroups.isNotEmpty
+              ? info.sourceGroups.join(' & ')
+              : info.credit ?? '';
           subscription.note(
-            '${judgement.replaces ? '换成修正版' : '开始缓存'}${episode.label}：$title',
+            '${judgement.replaces ? '换成修正版' : '开始缓存'}${episode.label}'
+            '（${group.isEmpty ? title : group}）',
             kind: SubscriptionEventKind.started,
           );
         } catch (e) {
@@ -685,12 +703,10 @@ class SubscriptionController extends ChangeNotifier {
                 false)
           : _wanted(subscription, subject, episode);
       if (relevant) {
-        subscription.note(
-          '跳过 ${judgement.candidate.release.title}：${judgement.reason}',
-          kind: SubscriptionEventKind.skipped,
-        );
+        (skipped[episode] ??= []).add(judgement.reason);
       }
     }
+    noteSkipped();
     _checkFinished(subscription, subject);
     return judged;
   }
@@ -716,9 +732,9 @@ class SubscriptionController extends ChangeNotifier {
       }
     }
     subscription.finishedAt = now;
-    subscription.note('已完结，剧集都缓存好了');
+    subscription.note('已完结，全部剧集已缓存');
     if (preferences.autoUnsubscribe == AutoUnsubscribe.finished) {
-      unawaited(_end(subscription, '已完结，剧集都缓存好了'));
+      unawaited(_end(subscription, '已完结，全部剧集已缓存'));
     }
   }
 
@@ -730,7 +746,7 @@ class SubscriptionController extends ChangeNotifier {
     if (preferences.autoUnsubscribe == AutoUnsubscribe.finished) {
       for (final subscription in subscriptions.values.toList()) {
         if (subscription.finishedAt != null) {
-          await _end(subscription, '已完结，剧集都缓存好了');
+          await _end(subscription, '已完结，全部剧集已缓存');
         }
       }
       return;
@@ -770,13 +786,13 @@ class SubscriptionController extends ChangeNotifier {
         changed = true;
         final episode = _details[subscription.subjectId]?.episode(id);
         subscription.note(
-          '${episode?.label ?? '一集'}缓存好了',
+          '${episode?.label ?? '一集'}已缓存',
           kind: SubscriptionEventKind.cached,
         );
         onCached?.call(subscription, episode);
         if (entry.replaces case final old? when snapshot.task(old) != null) {
           unawaited(downloads.remove(old).catchError((Object _) {}));
-          subscription.note('删掉了${episode?.label ?? '这一集'}被修正版替换的旧文件');
+          subscription.note('已删除${episode?.label ?? '这一集'}的旧版本');
         }
       }
       if (!changed) continue;

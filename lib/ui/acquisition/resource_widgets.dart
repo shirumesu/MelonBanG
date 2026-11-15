@@ -19,7 +19,7 @@ import 'download_labels.dart';
 /// them.
 double resourceDownloadWidth({required bool labelled}) => labelled ? 84 : 36;
 double resourcePlayWidth({required bool labelled}) => labelled ? 76 : 36;
-const _actionGap = 6.0;
+const _actionGap = Gap.sm;
 
 /// The subtitle filter's sections: either script may meet a selection,
 /// while 中日双语 and 内封 each narrow it further. [option] makes a choice's
@@ -57,7 +57,6 @@ class _ResourceAction extends StatelessWidget {
     required this.background,
     required this.foreground,
     this.onTap,
-    this.numericLabel = false,
   });
   final Widget icon;
   final String? label;
@@ -65,9 +64,6 @@ class _ResourceAction extends StatelessWidget {
   final double width;
   final Color background, foreground;
   final VoidCallback? onTap;
-
-  /// Bold only a figure such as progress; Chinese labels stay regular.
-  final bool numericLabel;
 
   @override
   Widget build(BuildContext context) => Tooltip(
@@ -102,14 +98,11 @@ class _ResourceAction extends StatelessWidget {
                   ),
                 ),
                 if (label != null) ...[
-                  const SizedBox(width: 5),
+                  const SizedBox(width: Gap.xs),
                   Text(
                     label!,
                     style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: numericLabel
-                          ? FontWeight.w700
-                          : FontWeight.w400,
+                      fontSize: FontSize.small,
                       color: foreground,
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
@@ -149,7 +142,7 @@ class ResourceDownloadButton extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final task = this.task;
     final foreground = failed
-        ? scheme.tertiary
+        ? scheme.error
         : task != null
         ? scheme.primary
         : scheme.onSurface;
@@ -187,7 +180,7 @@ class ResourceDownloadButton extends StatelessWidget {
       null when failed => (
         Icon(Icons.refresh_rounded, size: 18, color: foreground),
         '重试',
-        '添加失败，点击重试',
+        '添加失败',
       ),
       null => (
         Icon(Icons.download_rounded, size: 18, color: foreground),
@@ -200,7 +193,6 @@ class ResourceDownloadButton extends StatelessWidget {
       child: _ResourceAction(
         icon: icon,
         label: showLabel ? label : null,
-        numericLabel: !adding && task != null && !task.complete,
         tooltip: tooltip,
         width: resourceDownloadWidth(labelled: showLabel),
         background: scheme.surfaceContainerHigh,
@@ -235,15 +227,19 @@ class ResourcePlayButton extends StatelessWidget {
               padding: const EdgeInsets.all(2),
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: scheme.onPrimary,
+                color: scheme.onPrimaryContainer,
               ),
             )
-          : Icon(Icons.play_arrow_rounded, size: 18, color: scheme.onPrimary),
+          : Icon(
+              Icons.play_arrow_rounded,
+              size: 18,
+              color: scheme.onPrimaryContainer,
+            ),
       label: showLabel ? (spinning ? '打开中' : '观看') : null,
       tooltip: instant || playing ? '观看' : '观看，同时下载到本机',
       width: resourcePlayWidth(labelled: showLabel),
-      background: scheme.primary,
-      foreground: scheme.onPrimary,
+      background: scheme.primaryContainer,
+      foreground: scheme.onPrimaryContainer,
       onTap: onPressed,
     );
   }
@@ -503,11 +499,11 @@ class ResourceResultRow extends StatelessWidget {
         _OriginalTitle(
           title: expanded ? info.title : null,
           detailUrl: detailUrl,
-          padding: const EdgeInsets.only(left: 18, top: 8),
+          padding: const EdgeInsets.only(left: 18, top: Gap.sm),
         ),
         if (error != null)
           Padding(
-            padding: const EdgeInsets.only(left: 18, top: 4),
+            padding: const EdgeInsets.only(left: 18, top: Gap.xs),
             child: InlineIssue(error!),
           ),
       ],
@@ -586,7 +582,10 @@ class _ResourceRowFrame extends StatelessWidget {
       return InkWell(
         onTap: onExpand,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(
+            horizontal: Gap.lg,
+            vertical: Gap.md,
+          ),
           child: Row(
             children: [
               Expanded(
@@ -609,19 +608,19 @@ class _ResourceRowFrame extends StatelessWidget {
                             maxLines: wrapTitle ? null : 1,
                             overflow: wrapTitle ? null : TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 13,
+                              fontSize: FontSize.body,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: Gap.xs),
                     Padding(
                       padding: const EdgeInsets.only(left: 18),
                       child: Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
+                        spacing: Gap.xs,
+                        runSpacing: Gap.xs,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           if (recommended)
@@ -666,7 +665,7 @@ class _ResourceRowFrame extends StatelessWidget {
                     ),
                     if (!wide)
                       Padding(
-                        padding: const EdgeInsets.only(left: 18, top: 4),
+                        padding: const EdgeInsets.only(left: 18, top: Gap.xs),
                         child: Text(
                           [
                             group,
@@ -694,7 +693,10 @@ class _ResourceRowFrame extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: small?.copyWith(color: scheme.onSurface),
                       ),
-                      Text(source, style: small?.copyWith(fontSize: 11)),
+                      Text(
+                        source,
+                        style: small?.copyWith(fontSize: FontSize.caption),
+                      ),
                     ],
                   ),
                 ),
@@ -706,7 +708,10 @@ class _ResourceRowFrame extends StatelessWidget {
                 const SizedBox(width: Gap.md),
                 SizedBox(
                   width: resourceDateColumnWidth,
-                  child: Text(date, style: figures?.copyWith(fontSize: 12)),
+                  child: Text(
+                    date,
+                    style: figures?.copyWith(fontSize: FontSize.small),
+                  ),
                 ),
               ],
               const SizedBox(width: Gap.sm),
@@ -745,7 +750,10 @@ class _OriginalTitle extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SelectableText(title!, style: const TextStyle(fontSize: 12)),
+                SelectableText(
+                  title!,
+                  style: const TextStyle(fontSize: FontSize.small),
+                ),
                 if (detailUrl case final url?)
                   TextButton.icon(
                     style: TextButton.styleFrom(padding: EdgeInsets.zero),
@@ -796,7 +804,7 @@ Widget _tag(
   child: Text(
     text,
     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-      fontSize: 11,
+      fontSize: FontSize.caption,
       color: foreground,
       fontWeight: bold ? FontWeight.w700 : null,
     ),
@@ -877,13 +885,13 @@ class ResourceEpisodePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) => Padding(
-      padding: const EdgeInsets.fromLTRB(26, 0, 8, 10),
+      padding: const EdgeInsets.fromLTRB(26, 0, Gap.sm, Gap.sm),
       child: Material(
         color: insetSurface(context),
         borderRadius: controlBorderRadius,
         clipBehavior: Clip.antiAlias,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(vertical: Gap.xs),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: rows(constraints.maxWidth >= resourceTableWidth),
@@ -946,7 +954,10 @@ class ResourceEpisodeRow extends StatelessWidget {
     return InkWell(
       onTap: title == null ? null : onExpand,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Gap.sm,
+          vertical: Gap.xs,
+        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -977,7 +988,7 @@ class ResourceEpisodeRow extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                fontSize: 13,
+                                fontSize: FontSize.body,
                                 fontWeight: FontWeight.w700,
                                 fontFeatures: [FontFeature.tabularFigures()],
                               ),
@@ -987,8 +998,8 @@ class ResourceEpisodeRow extends StatelessWidget {
                         const SizedBox(width: Gap.md),
                         Expanded(
                           child: Wrap(
-                            spacing: 4,
-                            runSpacing: 4,
+                            spacing: Gap.xs,
+                            runSpacing: Gap.xs,
                             crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
                               for (final note in notes)
@@ -1015,11 +1026,11 @@ class ResourceEpisodeRow extends StatelessWidget {
                   _OriginalTitle(
                     title: expanded ? title : null,
                     detailUrl: detailUrl,
-                    padding: const EdgeInsets.only(left: 18, bottom: 4),
+                    padding: const EdgeInsets.only(left: 18, bottom: Gap.xs),
                   ),
                   if (error != null)
                     Padding(
-                      padding: const EdgeInsets.only(left: 18, bottom: 4),
+                      padding: const EdgeInsets.only(left: 18, bottom: Gap.xs),
                       child: InlineIssue(error!),
                     ),
                 ],

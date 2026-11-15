@@ -9,6 +9,7 @@ import '../../features/playback/super_resolution.dart';
 import '../core/motion.dart';
 import '../core/theme.dart';
 import 'player_popovers.dart';
+import 'player_theme.dart';
 
 /// Mute button; hovering it raises a vertical volume slider above it, and the
 /// wheel adjusts volume anywhere over either.
@@ -66,12 +67,11 @@ class PlayerVolumeControl extends StatelessWidget {
           final volume = snapshot.data!.clamp(0.0, 100.0);
           return Column(
             children: [
-              const SizedBox(height: 8),
+              const SizedBox(height: Gap.sm),
               Text(
                 '${volume.round()}',
                 style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+                  fontSize: FontSize.small,
                   color: Colors.white,
                   fontFeatures: [FontFeature.tabularFigures()],
                 ),
@@ -80,7 +80,7 @@ class PlayerVolumeControl extends StatelessWidget {
                 child: RotatedBox(
                   quarterTurns: 3,
                   child: Slider(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: Gap.md),
                     value: volume,
                     max: 100,
                     semanticFormatterCallback: (value) =>
@@ -114,11 +114,14 @@ class _TextAction extends StatelessWidget {
   Widget build(BuildContext context) => TextButton(
     style: TextButton.styleFrom(
       foregroundColor: Colors.white,
-      backgroundColor: open ? Colors.white.withValues(alpha: .14) : null,
+      backgroundColor: open ? overlayFillActive : null,
       overlayColor: Colors.white,
       minimumSize: const Size(44, 36),
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w700),
+      padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
+      textStyle: appFont.copyWith(
+        fontSize: FontSize.body,
+        fontWeight: FontWeight.w700,
+      ),
     ),
     onPressed: onPressed,
     child: Text(label),
@@ -198,15 +201,13 @@ class SuperResolutionMenu extends StatelessWidget {
       onPopupChanged: onPopupChanged,
       anchor: (popover) => TextButton.icon(
         style: TextButton.styleFrom(
-          foregroundColor: on ? Colors.white : Colors.white70,
-          backgroundColor: popover.open
-              ? Colors.white.withValues(alpha: .14)
-              : null,
+          foregroundColor: on ? Colors.white : overlayMuted,
+          backgroundColor: popover.open ? overlayFillActive : null,
           overlayColor: Colors.white,
           minimumSize: const Size(44, 36),
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
           textStyle: appFont.copyWith(
-            fontSize: 13,
+            fontSize: FontSize.body,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -221,20 +222,20 @@ class SuperResolutionMenu extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+            padding: const EdgeInsets.fromLTRB(Gap.md, Gap.sm, Gap.md, Gap.xs),
             child: Text(
               switch (upscale) {
-                _ when !on => 'Anime4K 放大到窗口分辨率',
+                _ when !on => '放大到窗口分辨率',
                 (:final source, output: final output?) =>
                   '${_size(source)} → ${_size(output)}',
                 (:final source, output: null) =>
-                  '${_size(source)} 原生\n画面不小于窗口，只修复线条',
+                  '${_size(source)} 原生\n已是窗口分辨率，仅修复线条',
                 null => '打开视频后放大到窗口分辨率',
               },
               style: const TextStyle(
-                fontSize: 12,
+                fontSize: FontSize.small,
                 height: 1.5,
-                color: Colors.white70,
+                color: overlayMuted,
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
@@ -317,4 +318,4 @@ class SubtitleMenu extends StatelessWidget {
 }
 
 String speedLabel(double rate) =>
-    '${rate == rate.roundToDouble() ? rate.toStringAsFixed(1) : rate}x';
+    '${rate == rate.roundToDouble() ? rate.toStringAsFixed(1) : rate}×';

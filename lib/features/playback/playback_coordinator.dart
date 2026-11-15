@@ -79,7 +79,7 @@ class PreparingPlayback {
   final String? status;
 
   /// The source picked for the episode, once chosen.
-  final String? source;
+  final PlayCandidate? source;
 
   /// The download being started or streamed, whose live state is shown.
   final String? downloadId;
@@ -89,7 +89,7 @@ class PreparingPlayback {
 
   PreparingPlayback _copy({
     String? status,
-    String? source,
+    PlayCandidate? source,
     String? downloadId,
     String? failed,
   }) => PreparingPlayback(
@@ -447,7 +447,7 @@ class PlaybackCoordinator extends ChangeNotifier {
     final chosen = await _pick(item, episode, cancel: cancel, show: true);
     if (_closed || request != _selectionRequest) return;
     if (chosen.candidate case final candidate?) {
-      _preparingStep(source: describePick(candidate));
+      _preparingStep(source: candidate);
       await playCandidate(candidate, item, episode, picked: true);
     } else {
       _failPreparing(_preparingTicket, chosen.reason!);
@@ -618,7 +618,11 @@ class PlaybackCoordinator extends ChangeNotifier {
 
   /// Shows the step a preparing player is at, the source it picked and the
   /// download it waits on.
-  void _preparingStep({String? status, String? source, String? downloadId}) {
+  void _preparingStep({
+    String? status,
+    PlayCandidate? source,
+    String? downloadId,
+  }) {
     final current = preparing;
     if (_closed || current == null || current.failed != null) return;
     preparing = current._copy(
@@ -690,7 +694,7 @@ class PlaybackCoordinator extends ChangeNotifier {
           await playback.open(session);
           if (playback.error != null) throw StateError(playback.error!);
           if (picked) {
-            playback.showNotice('已自动选择 ${describePick(candidate)}');
+            playback.showNotice('已自动选择 ${candidate.sourceLabel}');
           }
           // A failed write only loses the preference, not the playback.
           unawaited(
@@ -766,7 +770,7 @@ class PlaybackCoordinator extends ChangeNotifier {
                 playback.session?.episodeId == episode.id
             ? playback.player.state.position
             : Duration(milliseconds: ((saved?.position ?? 0) * 1000).round());
-        playback.showNotice('正在刷新播放地址');
+        playback.showNotice('正在重新连接');
         try {
           await playCandidate(
             failed,
@@ -973,7 +977,7 @@ class PlaybackCoordinator extends ChangeNotifier {
       episode: next,
       sourceLabel: chosen.sourceLabel,
       play: () => prepare(item, next, () async {
-        _preparingStep(source: describePick(chosen));
+        _preparingStep(source: chosen);
         await playCandidate(chosen, item, next);
       }),
     );
@@ -1016,19 +1020,6 @@ class PlaybackCoordinator extends ChangeNotifier {
     await playback.close();
   }
 }
-
-/// A picked source as the player names it: the release group, quality and
-/// site of a torrent, the site and line of an online entry.
-String describePick(PlayCandidate candidate) => [
-  if (candidate.kind == PlayKind.online) ...[
-    candidate.providerLabel ?? candidate.provider,
-    if (candidate.line.isNotEmpty) '线路 ${candidate.line}',
-  ] else ...[
-    if (candidate.line.isNotEmpty) candidate.line,
-    ?candidate.quality,
-    candidate.providerLabel ?? candidate.provider,
-  ],
-].join(' · ');
 
 /// What a source search is waiting on, for the preparing player.
 String searchStatus(Iterable<SourceProgress> sources) {

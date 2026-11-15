@@ -12,6 +12,7 @@ import '../core/action_feedback.dart';
 import '../core/byte_units.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
+import '../core/theme.dart';
 import 'settings_page.dart';
 
 /// The data and media folders with their usage, moving them, and the image
@@ -30,7 +31,7 @@ SettingsSection storageSection({
   groups: [
     SettingsGroup([
       SettingsItem(
-        '存储 缓存 清理 应用数据 媒体缓存 下载位置 迁移 空间 文件夹',
+        '存储 缓存 应用缓存 图片 资料 清理 应用数据 媒体缓存 下载位置 迁移 空间 文件夹',
         StorageSettings(
           readCacheSize: readCacheSize,
           onClearCache: onClearCache,
@@ -92,7 +93,7 @@ bool cloudSynced(String path) {
   return roots.any((root) => p.equals(root, path) || p.isWithin(root, path));
 }
 
-const _syncedNote = '这个位置在网盘的同步文件夹里，下载时会被不停同步，占满网络，文件也可能因同步冲突损坏，建议换个位置。';
+const _syncedNote = '此位置在网盘同步文件夹中，下载时会占用网络并可能损坏文件，建议更换';
 
 class StorageSettings extends StatefulWidget {
   const StorageSettings({
@@ -216,10 +217,10 @@ class _StorageSettingsState extends State<StorageSettings> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('新位置'),
-                const SizedBox(height: 8),
+                const SizedBox(height: Gap.sm),
                 SelectableText(selected),
                 if (!p.equals(selected, picked)) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: Gap.sm),
                   Text(
                     inside
                         ? '所选位置在安装目录里，将使用其中的 downloads 文件夹，更新时不会被替换。'
@@ -227,7 +228,7 @@ class _StorageSettingsState extends State<StorageSettings> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
-                const SizedBox(height: 8),
+                const SizedBox(height: Gap.sm),
                 if (short)
                   InlineIssue(
                     '所在磁盘可用 ${ByteUnitsScope.of(context).format(space.free)}'
@@ -240,25 +241,23 @@ class _StorageSettingsState extends State<StorageSettings> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 if (media && space.system) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: Gap.sm),
                   Text(
                     '这是系统盘。番剧很占空间，系统盘空间紧张会拖慢整个系统，建议选择其他磁盘。',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
                 if (cloudSynced(selected)) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: Gap.sm),
                   const InlineIssue(_syncedNote),
                 ],
                 if (inside) ...[
-                  const SizedBox(height: 12),
+                  const SizedBox(height: Gap.md),
                   const InlineIssue('卸载时选择删除数据，或手动删除安装目录，已下载的番剧会被一起删除。'),
                 ],
                 const SizedBox(height: 20),
-                const Text(
-                  '同一磁盘内会在重新打开应用时直接移动；跨磁盘时先在后台复制，期间可以照常使用，复制完成后重新打开应用即可切换。切换后会删除原位置的文件。',
-                ),
-                const SizedBox(height: 12),
+                const Text('重新打开应用后生效，原位置的文件会被删除；跨磁盘时会先在后台复制'),
+                const SizedBox(height: Gap.md),
                 const Text('迁移完成前请保持原位置和新位置的磁盘连接。'),
               ],
             ),
@@ -295,46 +294,55 @@ class _StorageSettingsState extends State<StorageSettings> {
     final copied = plan['copied'] == true;
     final total = copy?.total ?? 0;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: Gap.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
             copied ? '迁移已准备好' : '正在后台迁移',
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              fontSize: FontSize.body,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: Gap.sm),
           if (plan['data'] != widget.dataDirectory)
             SelectableText('应用数据 → ${plan['data']}', style: small),
           if (plan['media'] != widget.mediaDirectory)
             SelectableText('媒体缓存 → ${plan['media']}', style: small),
-          const SizedBox(height: 8),
+          const SizedBox(height: Gap.sm),
           if (copy?.error case final message?)
             InlineIssue('复制已停止：$message')
           else if (copied)
             Text(
               '重新打开应用即可完成迁移，并删除原位置的文件'
-              '${(copy?.left ?? 0) > 0 ? '；${copy!.left} 个正在使用的文件届时补上' : ''}。',
+              '${(copy?.left ?? 0) > 0 ? '；${copy!.left} 个正在使用的文件届时补上' : ''}',
               style: small,
             )
           else ...[
             LinearProgressIndicator(
               value: total == 0 ? null : copy!.done / total,
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: Gap.sm),
             Text(
               total == 0
                   ? '正在准备…'
-                  : '${copy!.done * 100 ~/ total}% · 共 ${ByteUnitsScope.of(context).format(total)}'
-                        '${copy.file.isEmpty ? '' : ' · ${copy.file}'}',
+                  : '${copy!.done * 100 ~/ total}%，共 ${ByteUnitsScope.of(context).format(total)}',
               style: small,
             ),
-            const SizedBox(height: 4),
-            Text('期间可以照常使用，复制完成后重新打开应用即可完成迁移。', style: small),
+            if (total > 0 && copy!.file.isNotEmpty)
+              Text(
+                copy.file,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: small,
+              ),
+            const SizedBox(height: Gap.xs),
+            Text('期间可以照常使用，复制完成后重新打开应用即可完成迁移', style: small),
           ],
-          const SizedBox(height: 12),
+          const SizedBox(height: Gap.md),
           Wrap(
-            spacing: 12,
+            spacing: Gap.md,
             children: [
               if (copied)
                 FilledButton(
@@ -392,7 +400,7 @@ class _StorageSettingsState extends State<StorageSettings> {
             onPressed: measuring ? null : refreshUsage,
             icon: const Icon(Icons.refresh, size: 18),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: Gap.xs),
           OutlinedButton.icon(
             // Without location management (a data folder given at launch)
             // there is nothing to move.
@@ -409,15 +417,18 @@ class _StorageSettingsState extends State<StorageSettings> {
       ),
     );
     Widget path(String value) => Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, Gap.md),
       child: SelectableText(value, style: small),
     );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SettingRow(
-          title: '缓存数据',
+          title: '应用缓存',
           subtitle: usageLabel(cacheBytes),
+          help:
+              '图片与番剧资料，超过 120 天自动清理，图片最多 100 MiB\n'
+              '清理不影响已下载的视频、追番、订阅和观看进度',
           trailing: FeedbackButton(
             feedback: cleanup,
             label: '清理缓存',
@@ -425,14 +436,6 @@ class _StorageSettingsState extends State<StorageSettings> {
             successLabel: '已清理',
             icon: Icons.cleaning_services_outlined,
             onPressed: clearCache,
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-          child: Text(
-            '图片与番剧资料，超过 120 天自动清理，图片最多 100 MiB；'
-            '清理不影响已下载的视频、追番、订阅和观看进度',
-            style: small,
           ),
         ),
         Padding(
@@ -455,7 +458,7 @@ class _StorageSettingsState extends State<StorageSettings> {
         ],
         if (error != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, Gap.md),
             child: InlineIssue(error!),
           ),
       ],
@@ -537,13 +540,13 @@ class _StorageSetupState extends State<StorageSetup> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(Gap.xl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text('欢迎使用 MelonBanG', style: text.headlineSmall),
-              const SizedBox(height: 8),
+              const SizedBox(height: Gap.sm),
               const Text('先选好番剧下载到哪里。视频很占空间，建议放在剩余空间较大的磁盘上。'),
               const SizedBox(height: 20),
               MelonPanel(
@@ -551,7 +554,7 @@ class _StorageSetupState extends State<StorageSetup> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('下载位置', style: text.titleSmall),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: Gap.sm),
                     SelectableText(media, style: text.bodySmall),
                     if (space case final space?)
                       Text(
@@ -560,10 +563,10 @@ class _StorageSetupState extends State<StorageSetup> {
                         style: text.bodySmall,
                       ),
                     if (cloudSynced(media)) ...[
-                      const SizedBox(height: 4),
+                      const SizedBox(height: Gap.xs),
                       const InlineIssue(_syncedNote),
                     ],
-                    const SizedBox(height: 10),
+                    const SizedBox(height: Gap.md),
                     OutlinedButton.icon(
                       onPressed: busy ? null : pick,
                       icon: const Icon(Icons.folder_open_outlined),
@@ -572,10 +575,10 @@ class _StorageSetupState extends State<StorageSetup> {
                   ],
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: Gap.sm),
               Text('之后可以在 设置 › 存储 › 媒体缓存 里更改', style: text.bodySmall),
               if (error != null) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: Gap.md),
                 InlineIssue(error!),
               ],
               const SizedBox(height: 20),

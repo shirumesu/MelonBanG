@@ -126,10 +126,10 @@ class _DanmakuComposerState extends State<DanmakuComposer> {
             duration: motionDuration(context, 160),
             height: 34,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: focused ? .14 : .08),
-              borderRadius: BorderRadius.circular(17),
+              color: focused ? overlayFillActive : overlayFill,
+              borderRadius: pillBorderRadius,
               border: Border.all(
-                color: Colors.white.withValues(alpha: focused ? .3 : .1),
+                color: focused ? overlayOutline : Colors.white10,
               ),
             ),
             child: Row(
@@ -151,7 +151,10 @@ class _DanmakuComposerState extends State<DanmakuComposer> {
                     onSubmitted: (_) => unawaited(_send()),
                     cursorColor: Colors.white,
                     cursorHeight: 15,
-                    style: const TextStyle(fontSize: 13, color: Colors.white),
+                    style: const TextStyle(
+                      fontSize: FontSize.body,
+                      color: Colors.white,
+                    ),
                     // The theme's outlines would draw a box inside the pill.
                     decoration: InputDecoration(
                       isCollapsed: true,
@@ -160,11 +163,13 @@ class _DanmakuComposerState extends State<DanmakuComposer> {
                       enabledBorder: InputBorder.none,
                       focusedBorder: InputBorder.none,
                       disabledBorder: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: Gap.sm,
+                      ),
                       hintText: blocked ?? widget.hint,
                       hintMaxLines: 1,
                       hintStyle: const TextStyle(
-                        fontSize: 13,
+                        fontSize: FontSize.body,
                         color: Colors.white38,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -188,15 +193,17 @@ class _DanmakuComposerState extends State<DanmakuComposer> {
                             minHeight: 26,
                           ),
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: Gap.sm,
+                            ),
                             child: Center(
                               widthFactor: 1,
                               child: wait > 0
                                   ? Text(
-                                      '$wait s',
+                                      '$wait 秒',
                                       style: const TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.white54,
+                                        fontSize: FontSize.small,
+                                        color: overlayMuted,
                                         fontFeatures: [
                                           FontFeature.tabularFigures(),
                                         ],
@@ -264,7 +271,7 @@ class _SendStyleMenu extends StatelessWidget {
               child: Text(
                 'A',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: FontSize.emphasis,
                   fontWeight: FontWeight.w700,
                   color: Color(0xff000000 | style.color),
                   shadows: const [Shadow(blurRadius: 3)],

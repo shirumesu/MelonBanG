@@ -121,7 +121,7 @@ class _TodayTimelineState extends State<TodayTimeline> {
                   ? '筛选后今日没有番剧'
                   : widget.error != null
                   ? '暂时无法加载今日放送'
-                  : '今日暂无放送数据',
+                  : '今日没有番剧放送',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             if (widget.hidden > 0)
@@ -167,9 +167,8 @@ class _TodayTimelineState extends State<TodayTimeline> {
       title: '今日更新',
       detail: [
         if (items.isNotEmpty) '已更新 $airedCount/${items.length}',
-        if (widget.hidden > 0)
-          items.isEmpty ? '隐藏 ${widget.hidden} 部' : '（隐藏 ${widget.hidden} 部）',
-      ].join(),
+        if (widget.hidden > 0) '隐藏 ${widget.hidden} 部',
+      ].join('  '),
       action: TextButton(
         onPressed: widget.onCalendar,
         child: const Text('时间表'),
@@ -185,7 +184,7 @@ class _TodayTimelineState extends State<TodayTimeline> {
 }
 
 /// [_TimelineEntry] rows in grey while today's shows load: the time, the
-/// rail and its dot, the cover and two lines, at the rows' height.
+/// rail and its dot, the cover and the title, at the rows' height.
 class _TodayTimelineSkeleton extends StatelessWidget {
   const _TodayTimelineSkeleton();
 
@@ -225,28 +224,23 @@ class _TodayTimelineSkeleton extends StatelessWidget {
                             dot: const SkeletonBlock(
                               width: 10,
                               height: 10,
-                              radius: BorderRadius.all(Radius.circular(5)),
+                              radius: pillBorderRadius,
                             ),
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: Gap.md),
                           const SkeletonBlock(
                             width: 34,
                             height: 46,
                             radius: badgeBorderRadius,
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: Gap.md),
                           Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                FractionallySizedBox(
-                                  widthFactor: share,
-                                  child: const SkeletonBlock(height: 10),
-                                ),
-                                const SizedBox(height: 8),
-                                const SkeletonBlock(width: 34, height: 8),
-                              ],
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: FractionallySizedBox(
+                                widthFactor: share,
+                                child: const SkeletonBlock(height: 10),
+                              ),
                             ),
                           ),
                         ],
@@ -326,8 +320,8 @@ class _TimelineEntry extends StatelessWidget {
                 child: Text(
                   instant == null ? '待定' : shanghaiClock(instant),
                   style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                    fontSize: FontSize.small,
+                    fontWeight: FontWeight.w400,
                     fontFeatures: const [FontFeature.tabularFigures()],
                     color: aired ? scheme.onSurface : scheme.onSurfaceVariant,
                   ),
@@ -349,7 +343,7 @@ class _TimelineEntry extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: Gap.md),
               CoverFrame(
                 radius: badgeBorderRadius,
                 child: SizedBox(
@@ -365,32 +359,17 @@ class _TimelineEntry extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: Gap.md),
               Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: aired ? null : scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      aired ? '已更新' : '待更新',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: aired ? FontWeight.w700 : FontWeight.w400,
-                        color: aired ? scheme.primary : scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  item.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: FontSize.body,
+                    fontWeight: FontWeight.w700,
+                    color: aired ? null : scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
               if (watching)
@@ -430,8 +409,8 @@ class _NowMarker extends StatelessWidget {
               child: Text(
                 '现在',
                 style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
+                  fontSize: FontSize.small,
+                  fontWeight: FontWeight.w400,
                   color: ink,
                 ),
               ),
@@ -456,7 +435,7 @@ class _NowMarker extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: Gap.md),
             Expanded(
               child: Container(height: 1, color: coral.withValues(alpha: .45)),
             ),
@@ -464,8 +443,8 @@ class _NowMarker extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
+                fontSize: FontSize.caption,
+                fontWeight: FontWeight.w400,
                 color: ink,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
@@ -514,7 +493,7 @@ class BroadcastTimeline extends StatelessWidget {
 
 /// [BroadcastTimeline] entries in grey while the schedule loads, shown
 /// once the wait has lasted [busyDelay]: the time, the rail with its dot
-/// and branch, and a panel holding the cover, two lines and 详情.
+/// and branch, and a panel holding the cover and two lines.
 class BroadcastTimelineSkeleton extends StatelessWidget {
   const BroadcastTimelineSkeleton({super.key});
 
@@ -545,20 +524,20 @@ class BroadcastTimelineSkeleton extends StatelessWidget {
           Stack(
             children: [
               Positioned(
-                left: 66.5,
-                top: i == 0 ? 68 : 0,
-                bottom: i == _shares.length - 1 ? 80 : 0,
+                left: 64.5,
+                top: i == 0 ? 70 : 0,
+                bottom: i == _shares.length - 1 ? 82 : 0,
                 child: Container(width: 2, color: line),
               ),
               Positioned(
-                left: 68,
-                top: 67.5,
-                width: 19,
+                left: 66,
+                top: 69.5,
+                width: 17,
                 height: 1,
                 child: ColoredBox(color: line),
               ),
               Padding(
-                padding: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.only(bottom: Gap.md),
                 child: Row(
                   children: [
                     const SizedBox(
@@ -569,16 +548,16 @@ class BroadcastTimelineSkeleton extends StatelessWidget {
                       ),
                     ),
                     const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 14),
+                      padding: EdgeInsets.symmetric(horizontal: Gap.md),
                       child: SkeletonBlock(
                         width: 11,
                         height: 11,
-                        radius: BorderRadius.all(Radius.circular(5.5)),
+                        radius: pillBorderRadius,
                       ),
                     ),
                     Expanded(
                       child: MelonPanel(
-                        padding: const EdgeInsets.all(14),
+                        padding: const EdgeInsets.all(Gap.lg),
                         child: Row(
                           children: [
                             const SkeletonBlock(
@@ -586,7 +565,7 @@ class BroadcastTimelineSkeleton extends StatelessWidget {
                               height: 108,
                               radius: posterBorderRadius,
                             ),
-                            const SizedBox(width: 16),
+                            const SizedBox(width: Gap.lg),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -595,16 +574,10 @@ class BroadcastTimelineSkeleton extends StatelessWidget {
                                     widthFactor: share,
                                     child: const SkeletonBlock(height: 12),
                                   ),
-                                  const SizedBox(height: 12),
+                                  const SizedBox(height: Gap.md),
                                   const SkeletonBlock(width: 64, height: 9),
                                 ],
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            const SkeletonBlock(
-                              width: 64,
-                              height: 36,
-                              radius: controlBorderRadius,
                             ),
                           ],
                         ),
@@ -653,9 +626,9 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
         child: Stack(
           children: [
             Positioned(
-              left: 66.5,
-              top: widget.first ? 68 : 0,
-              bottom: widget.last ? 80 : 0,
+              left: 64.5,
+              top: widget.first ? 70 : 0,
+              bottom: widget.last ? 82 : 0,
               child: AnimatedContainer(
                 width: 2,
                 duration: motionDuration(context, 200),
@@ -665,9 +638,9 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
               ),
             ),
             Positioned(
-              left: 68,
-              top: 67.5,
-              width: 19,
+              left: 66,
+              top: 69.5,
+              width: 17,
               height: 1,
               child: ColoredBox(
                 color: active
@@ -676,7 +649,7 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.only(bottom: Gap.md),
               child: Row(
                 children: [
                   SizedBox(
@@ -684,8 +657,8 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                     child: Text(
                       _time(item),
                       style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                        fontSize: FontSize.small,
+                        fontWeight: FontWeight.w400,
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                     ),
@@ -694,7 +667,7 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                     duration: motionDuration(context, 200),
                     width: 11,
                     height: 11,
-                    margin: const EdgeInsets.symmetric(horizontal: 14),
+                    margin: const EdgeInsets.symmetric(horizontal: Gap.md),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.primary,
                       shape: BoxShape.circle,
@@ -724,7 +697,7 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                       ),
                       child: MelonPanel(
                         onTap: () => widget.onOpen(item),
-                        padding: const EdgeInsets.all(14),
+                        padding: const EdgeInsets.all(Gap.lg),
                         child: Row(
                           children: [
                             SizedBox(
@@ -738,7 +711,7 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 16),
+                            const SizedBox(width: Gap.lg),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -748,36 +721,37 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w800,
+                                      fontSize: FontSize.emphasis,
+                                      fontWeight: FontWeight.w700,
                                     ),
                                   ),
                                   if (item.episodeTotal != null ||
                                       widget.aired) ...[
-                                    const SizedBox(height: 7),
-                                    Text.rich(
-                                      TextSpan(
-                                        children: [
-                                          if (item.episodeTotal != null)
-                                            TextSpan(
-                                              text: '全 ${item.episodeTotal} 话',
-                                            ),
-                                          if (item.episodeTotal != null &&
-                                              widget.aired)
-                                            const TextSpan(text: ' · '),
-                                          if (widget.aired)
-                                            TextSpan(
-                                              text: '已更新',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w700,
-                                                color: scheme.primary,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall,
+                                    const SizedBox(height: Gap.sm),
+                                    Row(
+                                      children: [
+                                        if (item.episodeTotal != null)
+                                          Text(
+                                            '全 ${item.episodeTotal} 话',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall,
+                                          ),
+                                        if (item.episodeTotal != null &&
+                                            widget.aired)
+                                          const SizedBox(width: Gap.sm),
+                                        if (widget.aired)
+                                          Text(
+                                            '已更新',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w400,
+                                                  color: scheme.primary,
+                                                ),
+                                          ),
+                                      ],
                                     ),
                                   ],
                                 ],
@@ -788,11 +762,6 @@ class _BroadcastEntryState extends State<_BroadcastEntry> {
                                 padding: EdgeInsets.only(left: Gap.sm),
                                 child: MelonBadge('在追'),
                               ),
-                            const SizedBox(width: 12),
-                            OutlinedButton(
-                              onPressed: () => widget.onOpen(item),
-                              child: const Text('详情'),
-                            ),
                           ],
                         ),
                       ),

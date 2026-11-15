@@ -77,9 +77,8 @@ class SubscribeButton extends StatelessWidget {
       return Tooltip(
         message:
             issue?.text ??
-            (subscription.paused
-                ? '这台设备不缓存这部番 · ${subscription.filter.label}'
-                : '新一话播出后自动缓存 · ${subscription.filter.label}'),
+            '${subscription.paused ? '本机不缓存' : '自动缓存新一话'}\n'
+                '${subscription.filter.label}',
         child: FilledButton.tonalIcon(
           onPressed: open,
           style: switch (issue) {
@@ -117,14 +116,14 @@ class SubscribeButton extends StatelessWidget {
     );
   }
   if (subscription.finishedAt != null) {
-    return (text: '已完结 · 已订阅', warn: false, late: false);
+    return (text: '已完结', warn: false, late: false);
   }
   if (subscription.paused) {
-    return (text: '这台设备不缓存 · 已订阅', warn: false, late: false);
+    return (text: '本机不缓存', warn: false, late: false);
   }
   return switch (controller.nextOf(subscription)) {
     (_, final release?) when release.at.isAfter(DateTime.now()) => (
-      text: '${releaseWhen(release).trim()} · 已订阅',
+      text: '${releaseWhen(release)}更新',
       warn: false,
       late: false,
     ),
@@ -309,7 +308,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
         releases = result.candidates;
         subtitlesOf = seriesSubtitles(described);
         searchError = switch (result.sources) {
-          [] => '没有可用的 BT 资源站',
+          [] => '没有可用的资源站',
           final sources
               when sources.every(
                 (source) => source.status == SearchStatus.error,
@@ -421,8 +420,8 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
     return delay.isNegative ? null : delay;
   }
 
-  /// What [record]'s files meeting the quality and subtitles are like: the
-  /// latest one's tags and size, and how soon after airing they come out.
+  /// What [record]'s files meeting the quality and subtitles are like: how
+  /// soon after airing they come out, then the latest one's tags and size.
   String _groupSummary(GroupRecord record, ByteUnits units) {
     final latest = files
         .where(
@@ -431,16 +430,16 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
         )
         .lastOrNull;
     return [
-      if (latest != null) _fileSummary(latest, units),
       if (record.lag case final lag?) '播出后约 ${_span(lag)}',
-    ].join(' · ');
+      if (latest != null) ...[
+        if (_fileLabels(latest).isNotEmpty) _fileLabels(latest),
+        resourceSizeLabel(latest.candidate.release, units),
+      ],
+    ].join('  ');
   }
 
-  /// `1080p MP4 简日内嵌 · 580 MB`.
-  String _fileSummary(_File file, ByteUnits units) => [
-    if (file.info.labels.isNotEmpty) file.info.labels.take(4).join(' '),
-    resourceSizeLabel(file.candidate.release, units),
-  ].join(' · ');
+  /// `1080p MP4 简日内嵌`.
+  String _fileLabels(_File file) => file.info.labels.take(4).join(' ');
 
   /// The file the filter takes for each of the latest episodes, the
   /// latest first.
@@ -534,9 +533,9 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
       preferred,
     );
     String lagOf(Iterable<GroupRecord> chosen) => [
-      if (fastestLag(chosen) case final lag?) '播出后约 ${_span(lag)}',
       chosen.map((record) => record.name).join('、'),
-    ].join(' · ');
+      if (fastestLag(chosen) case final lag?) '通常播出后约 ${_span(lag)}',
+    ].join('  ');
     final partly =
         !filter.preferred &&
         preferred.any((name) => groupsMatch(filter.groups, [name]));
@@ -554,8 +553,8 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
         icon: Icons.groups_outlined,
         active: !filter.anyGroup,
         tooltip:
-            '智能：每次检查时挑本作发布集数多、播出后发布快的字幕组，偏好的优先，最多三个。'
-            '选了几个字幕组时，谁先发布就缓存谁的',
+            '智能：自动选择发布全、更新快的字幕组，偏好优先，最多三个；'
+            '选择多个时缓存最先发布的',
         sections: [
           MelonFilterSection([
             const MelonFilterOption(_anyGroup, '不限'),
@@ -577,7 +576,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                   ? null
                   : '${groupCounts.entries.where((entry) => groupsMatch([entry.key], preferred)).fold(0, (sum, entry) => sum + entry.value)}',
               subtitle: preferred.isEmpty
-                  ? '在 设置 › 字幕组 里设置'
+                  ? '在 设置 › 字幕组 中设置'
                   : ours.isNotEmpty
                   ? lagOf(ours)
                   : judged
@@ -610,8 +609,10 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                 ? searchError ?? '没有找到本作的字幕组'
                 : [
                     '本作的字幕组',
-                    if (hidden > 0) '另有 $hidden 个不符合画质和字幕或发布太慢',
-                  ].join(' · '),
+                    // The section title takes text only, so the hidden
+                    // count follows two spaces apart.
+                    if (hidden > 0) '已隐藏 $hidden 个',
+                  ].join('  '),
           ),
         ],
         selected: {
@@ -707,42 +708,57 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
       title: Text(title),
       subtitle: subtitle == null ? null : Text(subtitle),
     );
+    final intro = ended
+        ? '这部番的订阅已取消，缓存的剧集保留'
+        : subscription == null
+        ? '新一话播出后，自动缓存第一个符合筛选的文件'
+        : null;
     return AlertDialog(
       // A short window scrolls the filter, preview and events.
       scrollable: true,
-      title: Text(
-        ended
-            ? '已退订'
-            : subscription == null
-            ? '订阅更新'
-            : '已订阅',
-      ),
+      title: ended || subscription == null
+          ? Text(ended ? '已退订' : '订阅更新')
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.subject.title),
+                const SizedBox(height: 2),
+                Text(
+                  subscriptionStatus(widget.controller, subscription).text,
+                  style: small?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ],
+            ),
       content: SizedBox(
         width: 540,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              ended ? '这部番的订阅已取消，缓存的剧集保留' : '新一话播出后，自动缓存第一个符合筛选的文件',
-              style: small,
-            ),
+            // How subscribing works is said before subscribing only.
+            if (intro != null) Text(intro, style: small),
             if (issue != null) ...[
-              const SizedBox(height: Gap.md),
+              if (intro != null) const SizedBox(height: Gap.md),
               DecoratedBox(
                 decoration: BoxDecoration(
                   color: late ? goldPanel(dark) : scheme.errorContainer,
-                  borderRadius: controlBorderRadius,
+                  borderRadius: panelBorderRadius,
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+                  // Its buttons' corners sit Gap.xs inside the banner's.
+                  padding: const EdgeInsets.fromLTRB(
+                    Gap.md,
+                    Gap.xs,
+                    Gap.xs,
+                    Gap.xs,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
                         child: Text(
                           issue.text,
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: FontSize.body,
                             color: late
                                 ? goldInk(dark)
                                 : scheme.onErrorContainer,
@@ -773,7 +789,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                 ),
               ),
             ],
-            const SizedBox(height: Gap.lg),
+            if (intro != null || issue != null) const SizedBox(height: Gap.lg),
             Wrap(spacing: Gap.sm, runSpacing: Gap.sm, children: menus),
             const SizedBox(height: Gap.md),
             Material(
@@ -781,8 +797,8 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
               borderRadius: controlBorderRadius,
               child: Padding(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
+                  horizontal: Gap.md,
+                  vertical: Gap.sm,
                 ),
                 child: picks.isEmpty
                     ? Text(
@@ -797,7 +813,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                           // A preview: what the filter takes for episodes
                           // already out, as it would for the next.
                           Text(
-                            '按现在的筛选，最近几话会选这些文件',
+                            '按当前筛选，最近几话将缓存',
                             style: small?.copyWith(
                               color: scheme.onSurfaceVariant,
                             ),
@@ -807,11 +823,15 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                             _PickRow(
                               episode: pick.episode!.label,
                               group: resourceGroupLabel(pick.info),
-                              file: _fileSummary((
+                              file: _fileLabels((
                                 candidate: pick.candidate,
                                 info: pick.info,
                                 episode: pick.episode!,
-                              ), units),
+                              )),
+                              size: resourceSizeLabel(
+                                pick.candidate.release,
+                                units,
+                              ),
                               delay: switch (_delay((
                                 candidate: pick.candidate,
                                 info: pick.info,
@@ -844,7 +864,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                 value: canMark && markWatching,
                 onChanged: canMark ? (value) => markWatching = value : null,
                 title: '在 Bangumi 标成在看',
-                subtitle: canMark ? null : 'Bangumi 同步暂停了，到 设置 › 账户与同步 处理',
+                subtitle: canMark ? null : 'Bangumi 同步已暂停，可在 设置 › 账户与同步 中恢复',
               ),
             if (subscription != null) ...[
               const SizedBox(height: Gap.md),
@@ -858,7 +878,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                   ),
                   if (subscription.paused)
                     Tooltip(
-                      message: '这部番的订阅从其他设备同步而来，这台设备还没有缓存它',
+                      message: '来自其他设备的订阅，本机尚未缓存',
                       child: TextButton.icon(
                         onPressed: () => unawaited(
                           widget.controller.setPaused([
@@ -871,7 +891,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                     )
                   else
                     Tooltip(
-                      message: '按已保存的筛选，现在就去资源站找一遍',
+                      message: '立即查找新剧集',
                       child: TextButton.icon(
                         onPressed: checking
                             ? null
@@ -958,17 +978,19 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
 }
 
 /// One episode's chosen file in the preview: the episode, the group, what
-/// the file is like and how soon it came out; the full title on hover.
+/// the file is like, its size and how soon it came out; the full title on
+/// hover.
 class _PickRow extends StatelessWidget {
   const _PickRow({
     required this.episode,
     required this.group,
     required this.file,
+    required this.size,
     required this.delay,
     required this.title,
     required this.style,
   });
-  final String episode, group, file, delay, title;
+  final String episode, group, file, size, delay, title;
   final TextStyle? style;
 
   @override
@@ -998,6 +1020,12 @@ class _PickRow extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: style,
             ),
+          ),
+          const SizedBox(width: Gap.sm),
+          // Sizes line up in a column of their own.
+          SizedBox(
+            width: 64,
+            child: Text(size, textAlign: TextAlign.end, style: style),
           ),
           if (delay.isNotEmpty) ...[
             const SizedBox(width: Gap.sm),
@@ -1047,8 +1075,8 @@ Future<CloseAction?> askCloseAction(
       width: 400,
       child: Text(
         '你订阅了 $shows 部番。留在后台时，MelonBanG 会在新一话播出后检查并缓存，'
-        '播放会停止。之后可以在 设置 › 订阅与缓存 里改。',
-        style: const TextStyle(fontSize: 13, height: 1.6),
+        '播放会停止。之后可在 设置 › 订阅与缓存 中更改',
+        style: const TextStyle(fontSize: FontSize.body, height: 1.6),
       ),
     ),
     actions: [
@@ -1085,13 +1113,13 @@ Future<bool?> askSyncedSubscriptions(
               for (final subscription in arrived.take(5)) subscription.title,
               if (arrived.length > 5) '等 ${arrived.length} 部',
             ].join('、'),
-            style: const TextStyle(fontWeight: FontWeight.w600),
+            style: const TextStyle(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: Gap.md),
           const Text(
-            '这台设备也缓存的话，会按订阅的筛选缓存新一话，标为看过的集不缓存。'
-            '只保留订阅时，这台设备不下载，之后可以在订阅窗口里打开。',
-            style: TextStyle(fontSize: 13, height: 1.6),
+            '本机也缓存时，按订阅筛选缓存新一话，已看过的集除外。'
+            '只保留订阅则本机不下载，之后可在订阅窗口中开启',
+            style: TextStyle(fontSize: FontSize.body, height: 1.6),
           ),
         ],
       ),

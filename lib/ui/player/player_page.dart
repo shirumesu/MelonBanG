@@ -611,7 +611,7 @@ class PlayerPageState extends State<PlayerPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.play_circle_outline, size: 48),
-            const SizedBox(height: 16),
+            const SizedBox(height: Gap.lg),
             Text(playback.error ?? '选一部作品，开始观看'),
             TextButton(onPressed: widget.onBack, child: const Text('返回')),
           ],
@@ -904,7 +904,7 @@ class PlayerPageState extends State<PlayerPage> {
                                   child: IconButton(
                                     tooltip: '播放 (Space)',
                                     iconSize: 40,
-                                    padding: const EdgeInsets.all(14),
+                                    padding: const EdgeInsets.all(Gap.md),
                                     color: Colors.white,
                                     onPressed: () {
                                       playback.cancelAutoplay();
@@ -928,49 +928,54 @@ class PlayerPageState extends State<PlayerPage> {
                       child: Center(
                         // Settles in from slightly smaller and keeps its text
                         // while fading out; a new message resizes it smoothly.
-                        child: AnimatedOpacity(
-                          opacity: toast ? 1 : 0,
+                        // The glass fades itself: an Opacity around its blur
+                        // would blur nothing on some renderers. Faded out, it
+                        // is not painted, so no blur runs under the video.
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween(end: toast ? 1 : 0),
                           duration: motionDuration(context, toast ? 150 : 200),
-                          child: AnimatedScale(
-                            scale: toast ? 1 : .94,
-                            duration: motionDuration(context, 220),
+                          builder: (context, visibility, child) => Offstage(
+                            offstage: visibility == 0 && !toast,
+                            child: AnimatedScale(
+                              scale: toast ? 1 : .94,
+                              duration: motionDuration(context, 220),
+                              curve: Curves.easeOutCubic,
+                              child: OverlayGlass(
+                                visibility: visibility,
+                                child: child!,
+                              ),
+                            ),
+                          ),
+                          child: AnimatedSize(
+                            duration: motionDuration(context, 180),
                             curve: Curves.easeOutCubic,
-                            child: Container(
+                            child: Padding(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: Gap.lg,
                                 vertical: Gap.sm,
                               ),
-                              decoration: const BoxDecoration(
-                                color: Color(0xb3000000),
-                                borderRadius: controlBorderRadius,
-                              ),
-                              child: AnimatedSize(
-                                duration: motionDuration(context, 180),
-                                curve: Curves.easeOutCubic,
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (shownBoost) ...[
-                                      const Icon(
-                                        Icons.fast_forward_rounded,
-                                        size: 18,
-                                        color: Colors.white,
-                                      ),
-                                      const SizedBox(width: Gap.sm),
-                                    ],
-                                    Text(
-                                      shownFeedback,
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.white,
-                                        fontFeatures: [
-                                          FontFeature.tabularFigures(),
-                                        ],
-                                      ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (shownBoost) ...[
+                                    const Icon(
+                                      Icons.fast_forward_rounded,
+                                      size: 18,
+                                      color: Colors.white,
                                     ),
+                                    const SizedBox(width: Gap.sm),
                                   ],
-                                ),
+                                  Text(
+                                    shownFeedback,
+                                    style: const TextStyle(
+                                      fontSize: FontSize.body,
+                                      color: Colors.white,
+                                      fontFeatures: [
+                                        FontFeature.tabularFigures(),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
@@ -999,7 +1004,7 @@ class PlayerPageState extends State<PlayerPage> {
                             gradient: LinearGradient(
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
-                              colors: [Color(0x99000000), Colors.transparent],
+                              colors: [overlayScrim, Colors.transparent],
                             ),
                           ),
                           child: _Title(
@@ -1176,9 +1181,9 @@ class PlayerPageState extends State<PlayerPage> {
                             now >= span.start &&
                             now < span.end - 3;
                         final (label, target) = inside(marks.opening)
-                            ? ('跳过片头', marks.opening!.end)
+                            ? ('跳过 OP', marks.opening!.end)
                             : inside(marks.ending)
-                            ? ('跳过片尾', marks.ending!.end)
+                            ? ('跳过 ED', marks.ending!.end)
                             : (null, 0.0);
                         final upcoming = playback.upcomingSkip;
                         if ((label == null && upcoming == null) ||
@@ -1207,7 +1212,7 @@ class PlayerPageState extends State<PlayerPage> {
                               milliseconds: 260,
                               child: upcoming != null
                                   ? _Countdown(
-                                      title: '即将跳过$upcoming',
+                                      title: '即将跳过 $upcoming',
                                       detail:
                                           '跳到 ${formatTime(playback.skipTarget!)}',
                                       seconds: playback.skipCountdown,
@@ -1331,14 +1336,17 @@ class _Title extends StatelessWidget {
         children: [
           TextSpan(
             text: title,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+            style: const TextStyle(
+              fontSize: FontSize.emphasis,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           if (episode case final episode?)
             TextSpan(
               text: '   ${episodeLabel(episode)}',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.white.withValues(alpha: .75),
+              style: const TextStyle(
+                fontSize: FontSize.body,
+                color: overlayMuted,
               ),
             ),
         ],
@@ -1368,11 +1376,7 @@ class _FailureCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final buttonStyle = OutlinedButton.styleFrom(
-      foregroundColor: Colors.white,
-      backgroundColor: Colors.white.withValues(alpha: .08),
-      side: BorderSide(color: Colors.white.withValues(alpha: .3)),
-    );
+    final buttonStyle = overlayOutlinedButtonStyle;
     return Container(
       constraints: const BoxConstraints(maxWidth: 420),
       margin: const EdgeInsets.all(Gap.xl),
@@ -1386,7 +1390,7 @@ class _FailureCard extends StatelessWidget {
         children: [
           const Icon(
             Icons.error_outline_rounded,
-            color: Colors.white70,
+            color: overlayMuted,
             size: 28,
           ),
           const SizedBox(height: Gap.md),
@@ -1395,7 +1399,10 @@ class _FailureCard extends StatelessWidget {
             textAlign: TextAlign.center,
             maxLines: 6,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white, fontSize: 13),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: FontSize.body,
+            ),
           ),
           const SizedBox(height: Gap.lg),
           Wrap(
@@ -1420,9 +1427,7 @@ class _FailureCard extends StatelessWidget {
                 ),
               if (onExitFullScreen case final exit?)
                 TextButton(
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.white.withValues(alpha: .7),
-                  ),
+                  style: TextButton.styleFrom(foregroundColor: overlayMuted),
                   onPressed: exit,
                   child: const Text('退出全屏 (Esc)'),
                 )
@@ -1456,26 +1461,33 @@ class _OverloadCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final buttonStyle = TextButton.styleFrom(
       foregroundColor: Colors.white,
-      backgroundColor: Colors.white.withValues(alpha: .1),
+      backgroundColor: overlayFill,
       visualDensity: VisualDensity.compact,
       padding: const EdgeInsets.symmetric(horizontal: Gap.md),
-      textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w700),
+      shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
+      textStyle: appFont.copyWith(
+        fontSize: FontSize.body,
+        fontWeight: FontWeight.w700,
+      ),
     );
     return OverlayGlass(
       borderRadius: panelBorderRadius,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
+        padding: const EdgeInsets.fromLTRB(Gap.md, Gap.xs, Gap.xs, Gap.xs),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.speed_rounded, size: 18, color: Colors.white70),
+            const Icon(Icons.speed_rounded, size: 18, color: overlayMuted),
             const SizedBox(width: Gap.sm),
             Flexible(
               child: Text(
-                quality ? '超分质量档负载过高，正在掉帧' : '超分负载过高，正在掉帧',
+                quality ? '画面卡顿，可改用效率档' : '画面卡顿，可关闭超分',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: FontSize.body,
+                ),
               ),
             ),
             const SizedBox(width: Gap.md),
@@ -1483,7 +1495,7 @@ class _OverloadCard extends StatelessWidget {
               TextButton(
                 style: buttonStyle,
                 onPressed: () => onChoose('fast'),
-                child: const Text('切换效率'),
+                child: const Text('改用效率档'),
               ),
               const SizedBox(width: Gap.xs),
             ],
@@ -1497,7 +1509,7 @@ class _OverloadCard extends StatelessWidget {
               onPressed: onClose,
               iconSize: 16,
               visualDensity: VisualDensity.compact,
-              color: Colors.white70,
+              color: overlayMuted,
               icon: const Icon(Icons.close_rounded),
             ),
           ],
@@ -1519,19 +1531,21 @@ class _SkipButton extends StatelessWidget {
     child: InkWell(
       onTap: onPressed,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+        padding: const EdgeInsets.fromLTRB(Gap.md, Gap.xs, Gap.xs, Gap.xs),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // As tall as the buttons in the other corner cards.
+            const SizedBox(height: 30),
             Text(
               label,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 13,
+                fontSize: FontSize.body,
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: Gap.xs),
             const Icon(
               Icons.keyboard_double_arrow_right_rounded,
               size: 18,
@@ -1586,7 +1600,7 @@ class _Countdown extends StatelessWidget {
                 '$seconds',
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 14,
+                  fontSize: FontSize.body,
                   fontWeight: FontWeight.w700,
                   fontFeatures: tabular,
                 ),
@@ -1594,7 +1608,7 @@ class _Countdown extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: Gap.md),
         Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1603,7 +1617,7 @@ class _Countdown extends StatelessWidget {
               title,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 13,
+                fontSize: FontSize.body,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1611,8 +1625,8 @@ class _Countdown extends StatelessWidget {
             Text(
               detail,
               style: const TextStyle(
-                color: Colors.white60,
-                fontSize: 12,
+                color: overlayMuted,
+                fontSize: FontSize.small,
                 fontFeatures: tabular,
               ),
             ),
@@ -1620,7 +1634,7 @@ class _Countdown extends StatelessWidget {
         ),
         const SizedBox(width: Gap.xl),
         _GlassCard.button('取消', onCancel),
-        const SizedBox(width: 4),
+        const SizedBox(width: Gap.xs),
         _GlassCard.button(confirm, onConfirm, primary: true),
       ],
     );
@@ -1642,26 +1656,22 @@ class _Notice extends StatelessWidget {
   @override
   Widget build(BuildContext context) => _GlassCard(
     children: [
-      const SizedBox(width: 4),
+      const SizedBox(width: Gap.xs),
       Text(
         message,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-        ),
+        style: const TextStyle(color: Colors.white, fontSize: FontSize.body),
       ),
       if (action case final action?) ...[
         const SizedBox(width: Gap.xl),
         _GlassCard.button(action, onAction, primary: true),
       ],
-      const SizedBox(width: 4),
+      const SizedBox(width: Gap.xs),
       IconButton(
         tooltip: '关闭',
         onPressed: onClose,
         iconSize: 16,
         visualDensity: VisualDensity.compact,
-        color: Colors.white70,
+        color: overlayMuted,
         icon: const Icon(Icons.close_rounded),
       ),
     ],
@@ -1681,10 +1691,13 @@ class _GlassCard extends StatelessWidget {
   }) => TextButton(
     style: TextButton.styleFrom(
       minimumSize: const Size(0, 30),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: Gap.md),
       shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
-      textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w700),
-      foregroundColor: primary ? overlayInk : Colors.white70,
+      textStyle: appFont.copyWith(
+        fontSize: FontSize.body,
+        fontWeight: FontWeight.w700,
+      ),
+      foregroundColor: primary ? overlayInk : overlayMuted,
       backgroundColor: primary ? Colors.white : null,
       overlayColor: primary ? overlayInk : Colors.white,
     ),
@@ -1696,7 +1709,7 @@ class _GlassCard extends StatelessWidget {
   Widget build(BuildContext context) => OverlayGlass(
     borderRadius: panelBorderRadius,
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      padding: const EdgeInsets.fromLTRB(Gap.md, Gap.xs, Gap.xs, Gap.xs),
       child: Row(mainAxisSize: MainAxisSize.min, children: children),
     ),
   );
@@ -1741,7 +1754,7 @@ class _PanelHandle extends StatelessWidget {
     message: open ? '收起侧边栏' : '展开侧边栏',
     child: Material(
       color: overlaySurface,
-      borderRadius: const BorderRadius.horizontal(left: Radius.circular(8)),
+      borderRadius: BorderRadius.horizontal(left: controlBorderRadius.topLeft),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onPressed,
@@ -1779,9 +1792,9 @@ String? _swarmHint(DownloadTask? task) {
   if ((failedTrackers ?? 0) > 0 &&
       (workingTrackers ?? 0) == 0 &&
       (dhtNodes ?? 0) == 0) {
-    return '连不上任何 Tracker 和 DHT 节点。开着代理软件时，请让 MelonBanG 直连';
+    return '连不上 BT 网络，开着代理时请让 MelonBanG 直连';
   }
-  return '冷门资源找到节点可能要很久，可以在侧栏换个资源';
+  return '冷门资源可能要等很久，可以在侧栏换个资源';
 }
 
 /// Shown over the video while it opens or buffers; a streamed download adds
@@ -1810,10 +1823,10 @@ class _BufferingStatus extends StatelessWidget {
           ),
           const SizedBox(height: Gap.md),
           Text(
-            opening ? '正在打开视频' : '正在缓冲',
+            opening ? '正在打开视频…' : '正在缓冲…',
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 13,
+              fontSize: FontSize.body,
               shadows: shadow,
             ),
           ),
@@ -1821,10 +1834,10 @@ class _BufferingStatus extends StatelessWidget {
             const SizedBox(height: Gap.xs),
             Text(
               line,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: .75),
-                fontSize: 12,
-                fontFeatures: const [FontFeature.tabularFigures()],
+              style: const TextStyle(
+                color: overlayMuted,
+                fontSize: FontSize.small,
+                fontFeatures: [FontFeature.tabularFigures()],
                 shadows: shadow,
               ),
             ),
@@ -1834,9 +1847,9 @@ class _BufferingStatus extends StatelessWidget {
             Text(
               hint,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: .75),
-                fontSize: 12,
+              style: const TextStyle(
+                color: overlayMuted,
+                fontSize: FontSize.small,
                 shadows: shadow,
               ),
             ),
@@ -1871,12 +1884,8 @@ class _PreparingView extends StatelessWidget {
     final hint = _swarmHint(task);
     final canChoose = preparing.subject != null && preparing.episode != null;
     const white = Colors.white;
-    final muted = white.withValues(alpha: .7);
-    final buttonStyle = OutlinedButton.styleFrom(
-      foregroundColor: white,
-      backgroundColor: white.withValues(alpha: .08),
-      side: BorderSide(color: white.withValues(alpha: .3)),
-    );
+    const muted = overlayMuted;
+    final buttonStyle = overlayOutlinedButtonStyle;
     return ColoredBox(
       color: Colors.black,
       child: Center(
@@ -1905,7 +1914,7 @@ class _PreparingView extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: white,
-                    fontSize: 17,
+                    fontSize: FontSize.title,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -1914,7 +1923,7 @@ class _PreparingView extends StatelessWidget {
                   Text(
                     detail,
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: muted, fontSize: 12),
+                    style: TextStyle(color: muted, fontSize: FontSize.small),
                   ),
                 ],
                 const SizedBox(height: Gap.xl),
@@ -1951,31 +1960,49 @@ class _PreparingView extends StatelessWidget {
                           alignment: Alignment.centerLeft,
                           child: Text(
                             failed ?? preparing.status ?? '正在查找资源…',
-                            style: TextStyle(color: muted, fontSize: 13),
+                            style: TextStyle(
+                              color: muted,
+                              fontSize: FontSize.body,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ],
                 ),
-                if (failed == null && preparing.source != null) ...[
+                if (preparing.source case final source?
+                    when failed == null) ...[
                   const SizedBox(height: Gap.xs),
-                  Text(
-                    '已选择 ${preparing.source}',
+                  // The source's name stands out from the site listing it.
+                  Text.rich(
+                    TextSpan(
+                      children: [
+                        const TextSpan(text: '已选择 '),
+                        if (source.sourceName.isNotEmpty)
+                          TextSpan(
+                            text: '${source.sourceName}  ',
+                            style: const TextStyle(color: white),
+                          ),
+                        TextSpan(text: source.site),
+                      ],
+                    ),
                     textAlign: TextAlign.center,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: muted, fontSize: 12),
+                    style: const TextStyle(
+                      color: muted,
+                      fontSize: FontSize.small,
+                    ),
                   ),
                 ],
                 if (failed == null && live != null) ...[
                   const SizedBox(height: Gap.xs),
                   Text(
                     live,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: muted,
-                      fontSize: 12,
-                      fontFeatures: const [FontFeature.tabularFigures()],
+                      fontSize: FontSize.small,
+                      fontFeatures: [FontFeature.tabularFigures()],
                     ),
                   ),
                 ],
@@ -1984,7 +2011,7 @@ class _PreparingView extends StatelessWidget {
                   Text(
                     hint,
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: muted, fontSize: 12),
+                    style: TextStyle(color: muted, fontSize: FontSize.small),
                   ),
                 ],
                 const SizedBox(height: Gap.lg),

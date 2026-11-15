@@ -250,8 +250,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                         child: Text(
                           'SP',
                           style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
+                            fontSize: FontSize.small,
                             color: scheme.onSurfaceVariant,
                           ),
                         ),
@@ -309,8 +308,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                 child: AnimatedDefaultTextStyle(
                   duration: motionDuration(context, 120),
                   style: appFont.copyWith(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                    fontSize: FontSize.small,
                     color: foreground,
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
@@ -427,12 +425,12 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                 ),
               ),
             ),
-            const SizedBox(height: Gap.sm + 2),
+            const SizedBox(height: Gap.md),
             DefaultTextStyle.merge(
-              style: small?.copyWith(fontSize: 11),
+              style: small?.copyWith(fontSize: FontSize.caption),
               child: Wrap(
                 spacing: Gap.lg,
-                runSpacing: 4,
+                runSpacing: Gap.xs,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   legend(
@@ -479,7 +477,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                     TextButton(
                       style: TextButton.styleFrom(
                         minimumSize: const Size(0, 28),
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
                       ),
                       onPressed: () => setState(() => expanded = !expanded),
                       child: Text(expanded ? '收起' : '展开全部 $main 话'),
@@ -495,10 +493,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
 }
 
 /// Explains the specials under the main episodes.
-const specialsHelp =
-    'SP、OVA、番外、总集篇等，按 Bangumi 的编号列出\n'
-    '下方小字是放送位置，17.5 即在第 17、18 话之间播出\n'
-    '自动连播按放送顺序一起播放，总集篇和特番可在设置中跳过';
+const specialsHelp = '番外与特别篇\n小字为放送位置，17.5 表示在第 17、18 话之间播出';
 
 /// An episode's number in a grid cell, with where a special aired beneath
 /// it in smaller type.
@@ -519,7 +514,7 @@ class EpisodeNumber extends StatelessWidget {
           between,
           maxLines: 1,
           style: TextStyle(
-            fontSize: 9,
+            fontSize: FontSize.caption,
             height: 1.1,
             color: color?.withValues(alpha: .7),
           ),
@@ -575,9 +570,9 @@ class EpisodeGridSkeleton extends StatelessWidget {
                           SkeletonBlock(width: width, height: height),
                       ],
                     ),
-                    const SizedBox(height: Gap.sm + 2),
+                    const SizedBox(height: Gap.md),
                     SkeletonLine(
-                      style: small?.copyWith(fontSize: 11),
+                      style: small?.copyWith(fontSize: FontSize.caption),
                       width: 180,
                     ),
                   ],

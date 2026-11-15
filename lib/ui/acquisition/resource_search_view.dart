@@ -747,7 +747,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         Row(
           children: [
             CoverFrame(
-              radius: const BorderRadius.all(Radius.circular(7)),
+              radius: badgeBorderRadius,
               child: SizedBox(
                 width: 34,
                 height: 46,
@@ -791,7 +791,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 hintText: '资源关键词',
                 prefixIcon: const Icon(Icons.search, size: 19),
                 suffixIcon: Padding(
-                  padding: const EdgeInsets.only(right: 6),
+                  padding: const EdgeInsets.only(right: Gap.xs),
                   child: aliasMenu,
                 ),
               ),
@@ -956,7 +956,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 if (state.terms != null && !results.grouping) ...[
                   const SizedBox(width: Gap.sm),
                   Tooltip(
-                    message: '清空集数重新搜索，按字幕组归类后选择集数下载',
+                    message: '搜索全部集数，按字幕组选择要下载的集数',
                     child: TextButton.icon(
                       onPressed: () {
                         episodeQuery.clear();
@@ -992,13 +992,14 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                               provider.sourceId,
                               provider.sourceName,
                               detail: resourceProviderStatus(provider),
-                              detailColor:
-                                  const [
-                                    SearchStatus.error,
-                                    SearchStatus.partial,
-                                  ].contains(provider.status)
-                                  ? scheme.tertiary
-                                  : null,
+                              detailColor: switch (provider.status) {
+                                SearchStatus.error => scheme.error,
+                                SearchStatus.partial => goldInk(
+                                  Theme.of(context).brightness ==
+                                      Brightness.dark,
+                                ),
+                                _ => null,
+                              },
                             ),
                         ], title: sources.isEmpty ? '搜索后显示资源站' : null),
                       ],
@@ -1144,11 +1145,19 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                 top: panelBorderRadius.topLeft,
               ),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                padding: const EdgeInsets.fromLTRB(
+                  Gap.lg,
+                  Gap.md,
+                  Gap.lg,
+                  Gap.sm,
+                ),
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text('资源', style: small?.copyWith(fontSize: 11)),
+                      child: Text(
+                        '资源',
+                        style: small?.copyWith(fontSize: FontSize.caption),
+                      ),
                     ),
                     for (final (label, width) in [
                       ('来源', resourceGroupColumnWidth),
@@ -1160,7 +1169,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                         width: width,
                         child: Text(
                           label,
-                          style: small?.copyWith(fontSize: 11),
+                          style: small?.copyWith(fontSize: FontSize.caption),
                         ),
                       ),
                     ],
@@ -1196,10 +1205,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           (rule) => controller.sources.status(rule.id) == SourceHealth.disabled,
         );
     if (noSources) {
-      return const EmptyState(
-        text: '没有可用的资源站',
-        detail: '在「数据源」页开启在线源或 BT 索引后再搜索',
-      );
+      return const EmptyState(text: '没有可用的资源站', detail: '在「数据源」中启用在线源或资源站后再搜索');
     }
     return (results.visible.isEmpty &&
             (allProvidersExcluded || !searchBusy || candidates.isNotEmpty))
@@ -1504,7 +1510,12 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             rows: (wide) => [
               if (several)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(26, 6, 8, 4),
+                  padding: const EdgeInsets.fromLTRB(
+                    26,
+                    Gap.sm,
+                    Gap.sm,
+                    Gap.xs,
+                  ),
                   child: Row(
                     children: [
                       Text('版本', style: Theme.of(context).textTheme.bodySmall),
@@ -1560,7 +1571,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         Widget line(String name, List<_Part> items) {
           final options = lineOptions(items);
           return Padding(
-            padding: const EdgeInsets.fromLTRB(26, 4, 8, 0),
+            padding: const EdgeInsets.fromLTRB(26, Gap.xs, Gap.sm, 0),
             child: Row(
               children: [
                 Expanded(
@@ -1625,7 +1636,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         }
 
         Widget notice(Widget child) => Padding(
-          padding: const EdgeInsets.fromLTRB(26, 8, 8, 8),
+          padding: const EdgeInsets.fromLTRB(26, Gap.sm, Gap.sm, Gap.sm),
           child: child,
         );
         return Column(
@@ -1778,7 +1789,12 @@ class _ResultsSkeleton extends StatelessWidget {
               ].indexed) ...[
                 if (i > 0) const Divider(height: 1, indent: 16, endIndent: 16),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
+                  padding: const EdgeInsets.fromLTRB(
+                    Gap.lg,
+                    Gap.md,
+                    Gap.lg,
+                    Gap.md,
+                  ),
                   child: Row(
                     children: [
                       Expanded(

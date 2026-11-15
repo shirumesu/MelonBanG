@@ -121,7 +121,7 @@ class SubscriptionFilter {
     'forms': _ordered(forms, resourceSubtitleForms),
   };
 
-  /// `偏好字幕组 · 1080p · 简体`.
+  /// `偏好字幕组  1080p  简体`.
   String get label => [
     switch ((groups.length, preferred)) {
       _ when smart => '智能选择字幕组',
@@ -134,7 +134,7 @@ class SubscriptionFilter {
     if (qualities.isNotEmpty) _ordered(qualities, resourceQualities).join('、'),
     if (languages.isNotEmpty || forms.isNotEmpty)
       _ordered({...languages, ...forms}, resourceSubtitleChoices).join('、'),
-  ].join(' · ');
+  ].join('  ');
 
   @override
   bool operator ==(Object other) =>

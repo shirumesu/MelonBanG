@@ -57,7 +57,7 @@ class DownloadTaskStatus extends StatelessWidget {
               builder: (context, value) => LinearProgressIndicator(
                 value: value,
                 minHeight: 4,
-                borderRadius: BorderRadius.circular(99),
+                borderRadius: pillBorderRadius,
                 backgroundColor: Theme.of(context)
                     .colorScheme
                     .surfaceContainerLow,
@@ -170,7 +170,10 @@ Future<void> chooseDownloadVideo(
           return ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.video_file_outlined, size: 20),
-            title: Text(file.name, style: const TextStyle(fontSize: 12)),
+            title: Text(
+              file.name,
+              style: const TextStyle(fontSize: FontSize.small),
+            ),
             subtitle: Text(
               file.progress >= 1
                   ? size

@@ -74,7 +74,7 @@ class BilibiliEngine implements OnlineSourceEngine {
     return SourceSubject(
       id: 'ss${row['season_id']}',
       title: dub == null ? title : title.substring(0, dub.start),
-      line: dub == null ? '官方番剧' : '官方番剧 · 中配',
+      line: dub == null ? '官方番剧' : '官方番剧  中配',
       description: members == 0 || member
           ? null
           : free == 0
@@ -105,7 +105,7 @@ class BilibiliEngine implements OnlineSourceEngine {
       return SourceSubject(
         id: id,
         title: _text(row['title']),
-        line: '投稿 · $author',
+        line: '投稿  $author',
         description: duration == null ? null : _clock(duration),
         choosePart: true,
         durationSeconds: duration,
@@ -194,11 +194,11 @@ class BilibiliEngine implements OnlineSourceEngine {
         'bvid': subject.id,
       }, cancel: cancel);
       final data = object(value['data']);
-      final line = '投稿 · ${object(data['owner'])['name']}';
+      final line = '投稿  ${object(data['owner'])['name']}';
       return [
         for (final page in objects(data['pages']))
           SourceEpisode(
-            label: 'P${page['page']} · ${page['part']}',
+            label: 'P${page['page']} ${page['part']}',
             part: '${page['part']}',
             description: switch (_integer(page['duration'])) {
               final seconds? => _clock(seconds),
@@ -219,9 +219,10 @@ class BilibiliEngine implements OnlineSourceEngine {
     return seasonEpisodes(subject, cancel: cancel);
   }
 
-  /// A season's episodes. Members-only ones (status 13) play for 大会员
-  /// only, so they are left out for others unless [members], as their
-  /// comments still load.
+  /// A season's episodes, labelled by number and the site's badge such as
+  /// 会员, with the episode's own title as the description. Members-only
+  /// ones (status 13) play for 大会员 only, so they are left out for others
+  /// unless [members], as their comments still load.
   Future<List<SourceEpisode>> seasonEpisodes(
     SourceSubject subject, {
     bool members = false,
@@ -237,8 +238,16 @@ class BilibiliEngine implements OnlineSourceEngine {
         object(value['result'])['episodes'],
       ).where((episode) => members || member || episode['status'] != 13))
         SourceEpisode(
-          label:
-              '第${episode['title']}话 · ${episode['long_title']}${episode['badge'] == '' ? '' : ' · ${episode['badge']}'}',
+          label: [
+            '第${episode['title']}话',
+            if ('${episode['badge'] ?? ''}' case final badge
+                when badge.isNotEmpty)
+              badge,
+          ].join('  '),
+          description: switch ('${episode['long_title'] ?? ''}'.trim()) {
+            '' => null,
+            final title => title,
+          },
           line: line,
           ref: StreamRef(instance.id, {
             'epId': episode['id'],

@@ -97,7 +97,7 @@ class _DanmakuFilterEditorState extends State<DanmakuFilterEditor> {
                       padding: const EdgeInsets.only(right: Gap.sm),
                       child: Text(
                         '正则无效',
-                        style: TextStyle(color: scheme.error, fontSize: 12),
+                        style: TextStyle(color: scheme.error, fontSize: FontSize.small),
                       ),
                     ),
                   Switch(

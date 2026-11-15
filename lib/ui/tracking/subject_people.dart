@@ -119,11 +119,12 @@ class SubjectPeoplePanel extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: Gap.md),
                   Expanded(
                     child: ListView.separated(
                       itemCount: people.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(height: Gap.sm),
                       itemBuilder: (_, index) => characters
                           ? _credit(context, people[index], character: true)
                           : _staffRow(context, people[index]),
@@ -243,7 +244,7 @@ class SubjectPeoplePanel extends StatelessWidget {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: Gap.md),
                       Expanded(
                         child: InteractiveViewer(
                           child: CachedImage(
@@ -269,7 +270,7 @@ class SubjectPeoplePanel extends StatelessWidget {
       label: '${person.title}${character ? '角色头像' : '人物头像'}',
       image: true,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(character ? 8 : size / 2),
+        borderRadius: character ? badgeBorderRadius : pillBorderRadius,
         child: SizedBox(
           width: width,
           height: height,
@@ -326,18 +327,19 @@ class SubjectPeoplePanel extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
-                    Text(
-                      role.isEmpty ? '角色' : role,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: small,
-                    ),
+                    if (role.isNotEmpty)
+                      Text(
+                        role,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: small,
+                      ),
                     if (actorName.isNotEmpty) ...[
-                      const SizedBox(height: 4),
+                      const SizedBox(height: Gap.xs),
                       Row(
                         children: [
                           _avatar(context, actors.first, size: 18),
-                          const SizedBox(width: 5),
+                          const SizedBox(width: Gap.xs),
                           Expanded(
                             child: Text(
                               actorName,
@@ -365,7 +367,7 @@ class SubjectPeoplePanel extends StatelessWidget {
       borderRadius: badgeBorderRadius,
       onTap: () => _open(context, person, character: false),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
+        padding: const EdgeInsets.symmetric(vertical: Gap.sm, horizontal: 2),
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
@@ -378,7 +380,7 @@ class SubjectPeoplePanel extends StatelessWidget {
             SizedBox(
               width: 92,
               child: Text(
-                role.isEmpty ? '制作人员' : role,
+                role,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall,
@@ -390,7 +392,7 @@ class SubjectPeoplePanel extends StatelessWidget {
                 person.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 13),
+                style: const TextStyle(fontSize: FontSize.body),
               ),
             ),
           ],
@@ -461,7 +463,7 @@ class _PeopleSkeleton extends StatelessWidget {
               const SkeletonBlock(
                 width: 44,
                 height: 60,
-                radius: BorderRadius.all(Radius.circular(8)),
+                radius: badgeBorderRadius,
               ),
               const SizedBox(width: Gap.md),
               Expanded(
@@ -470,15 +472,15 @@ class _PeopleSkeleton extends StatelessWidget {
                   children: [
                     SkeletonLine(style: text.titleSmall, widthFactor: share),
                     SkeletonLine(style: text.bodySmall, width: 28),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: Gap.xs),
                     Row(
                       children: [
                         const SkeletonBlock(
                           width: 18,
                           height: 18,
-                          radius: BorderRadius.all(Radius.circular(9)),
+                          radius: pillBorderRadius,
                         ),
-                        const SizedBox(width: 5),
+                        const SizedBox(width: Gap.xs),
                         Expanded(
                           child: SkeletonLine(
                             style: text.bodySmall,
@@ -497,7 +499,7 @@ class _PeopleSkeleton extends StatelessWidget {
 
   Widget _staff(BuildContext context, TextTheme text, double share) =>
       Container(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
+        padding: const EdgeInsets.symmetric(vertical: Gap.sm, horizontal: 2),
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
@@ -514,7 +516,7 @@ class _PeopleSkeleton extends StatelessWidget {
             const SizedBox(width: Gap.sm),
             Expanded(
               child: SkeletonLine(
-                style: const TextStyle(fontSize: 13),
+                style: const TextStyle(fontSize: FontSize.body),
                 widthFactor: share,
               ),
             ),

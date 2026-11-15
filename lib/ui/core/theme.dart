@@ -3,8 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
-// Layout and spacing tokens; Spec topics/ui/design/foundations.md explains
-// their use.
+// Layout, spacing, radius and type tokens; Spec
+// topics/ui/design/foundations.md explains their use.
 const pageGutter = 24.0;
 const titleBarHeight = 44.0;
 const sidebarWidth = 208.0;
@@ -25,6 +25,30 @@ const posterBorderRadius = BorderRadius.all(Radius.circular(8));
 const panelBorderRadius = BorderRadius.all(Radius.circular(12));
 const controlBorderRadius = BorderRadius.all(Radius.circular(8));
 const badgeBorderRadius = BorderRadius.all(Radius.circular(6));
+
+/// The smallest corner: a check box, a key cap, a highlight inset in a badge.
+const tightBorderRadius = BorderRadius.all(Radius.circular(4));
+
+/// Fully rounded ends, for progress tracks and stadium-shaped fields.
+const pillBorderRadius = BorderRadius.all(Radius.circular(999));
+
+/// [outer] shrunk by [padding]: the corner of something inset in a rounded
+/// box, such as a menu item's highlight, so both corners share one centre.
+/// Write nested corners with this rather than reusing the outer radius.
+BorderRadius insetRadius(BorderRadius outer, double padding) =>
+    BorderRadius.all(Radius.circular(math.max(0, outer.topLeft.x - padding)));
+
+/// The type scale. Sizes outside it are not used; bold (700) is for titles
+/// and headings only, never for text at [small] or below.
+abstract final class FontSize {
+  static const caption = 11.0,
+      small = 12.0,
+      body = 13.0,
+      emphasis = 15.0,
+      title = 17.0,
+      page = 22.0,
+      headline = 24.0;
+}
 
 /// The interface typeface. A style that replaces a widget's whole text style,
 /// as button and chip label styles do, starts from it; a bare [TextStyle]
@@ -413,17 +437,19 @@ ThemeData _appTheme(bool dark, Color accent) {
       surfaceTintColor: Colors.transparent,
       elevation: 3,
       shadowColor: menuShadow,
-      shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
+      shape: const RoundedRectangleBorder(borderRadius: panelBorderRadius),
     ),
+    // Menus are panels: items inset by Gap.xs keep controlBorderRadius,
+    // which is panelBorderRadius minus that inset.
     menuTheme: MenuThemeData(
       style: MenuStyle(
         backgroundColor: WidgetStatePropertyAll(menuColor),
         surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
         elevation: const WidgetStatePropertyAll(3),
         shadowColor: WidgetStatePropertyAll(menuShadow),
-        padding: const WidgetStatePropertyAll(EdgeInsets.all(5)),
+        padding: const WidgetStatePropertyAll(EdgeInsets.all(Gap.xs)),
         shape: const WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: controlBorderRadius),
+          RoundedRectangleBorder(borderRadius: panelBorderRadius),
         ),
       ),
     ),
@@ -447,7 +473,11 @@ ThemeData _appTheme(bool dark, Color accent) {
       isDense: true,
       filled: true,
       fillColor: scheme.surfaceContainerHigh,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      // Ten, not twelve, keeps a field 36 high, level with the buttons.
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: Gap.md,
+        vertical: 10,
+      ),
       hintStyle: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
       border: inputBorder,
       enabledBorder: inputBorder,
@@ -466,8 +496,8 @@ ThemeData _appTheme(bool dark, Color accent) {
         backgroundColor: scheme.primaryContainer,
         foregroundColor: scheme.onPrimaryContainer,
         minimumSize: const Size(64, 36),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-        textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
+        padding: const EdgeInsets.symmetric(horizontal: Gap.lg, vertical: Gap.sm),
+        textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w700),
         shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
       ).copyWith(side: focusRing(scheme)),
     ),
@@ -480,10 +510,13 @@ ThemeData _appTheme(bool dark, Color accent) {
               borderRadius: controlBorderRadius,
             ),
             minimumSize: const Size(64, 36),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            padding: const EdgeInsets.symmetric(
+              horizontal: Gap.lg,
+              vertical: Gap.sm,
+            ),
             textStyle: appFont.copyWith(
               fontSize: 13,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
             ),
           ).copyWith(
             side: focusRing(scheme, BorderSide(color: scheme.outlineVariant)),
@@ -529,7 +562,7 @@ ThemeData _appTheme(bool dark, Color accent) {
         color: scheme.onSurface,
         fontWeight: FontWeight.w400,
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: Gap.sm, vertical: Gap.xs),
       showCheckmark: false,
     ),
     // Every message floats as one calm card above the page's foot,
@@ -556,7 +589,7 @@ ThemeData _appTheme(bool dark, Color accent) {
     // passes over toolbars; once one shows, its neighbours show at once.
     tooltipTheme: TooltipThemeData(
       waitDuration: const Duration(milliseconds: 500),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: Gap.sm, vertical: Gap.xs),
       decoration: BoxDecoration(
         color: scheme.inverseSurface,
         borderRadius: badgeBorderRadius,
@@ -612,7 +645,7 @@ ThemeData _appTheme(bool dark, Color accent) {
       ),
       titleMedium: textTheme.bodyMedium!.copyWith(
         fontSize: 17,
-        fontWeight: FontWeight.w600,
+        fontWeight: FontWeight.w700,
       ),
       titleSmall: textTheme.bodyMedium!.copyWith(
         fontSize: 13,

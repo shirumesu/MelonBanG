@@ -174,12 +174,12 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
     return Padding(
       // Expanded text belongs to its entry, not the list position.
       key: ValueKey('$segment:${entry.id}'),
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: Gap.md),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AccountAvatar(url: entry.avatarUrl, name: name, size: 32),
-          const SizedBox(width: 12),
+          const SizedBox(width: Gap.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -207,7 +207,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                             const WidgetSpan(
                               alignment: PlaceholderAlignment.middle,
                               child: Padding(
-                                padding: EdgeInsets.only(left: 4),
+                                padding: EdgeInsets.only(left: Gap.xs),
                                 child: Icon(
                                   Icons.open_in_new_rounded,
                                   size: 13,
@@ -231,7 +231,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                       Text('${entry.replies} 回复', style: small),
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: Gap.sm),
                 switch (segment) {
                   // Short comments stay whole; Bangumi caps them at 380.
                   'comments' => SelectableText(entry.text, style: _postText),
@@ -294,8 +294,8 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
     final Widget body;
     if (status == null) {
       body = Padding(
-        padding: const EdgeInsets.only(top: 7),
-        child: Text('先在页面顶部选择收藏状态，才能写吐槽。', style: small),
+        padding: const EdgeInsets.only(top: Gap.sm),
+        child: Text('选择收藏状态后可写吐槽', style: small),
       );
     } else if (_editing) {
       final length = _composer.text.runes.length;
@@ -316,7 +316,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                 errorText: length > collectionCommentLimit ? '吐槽超过字数上限' : null,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: Gap.sm),
             Row(
               children: [
                 Text('我的评分 ', style: small),
@@ -332,7 +332,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                       : () => setState(() => _editing = false),
                   child: const Text('取消'),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: Gap.sm),
                 FilledButton(
                   onPressed:
                       _commentFeedback.busy ||
@@ -359,7 +359,10 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
             _editing = true;
           }),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            padding: const EdgeInsets.symmetric(
+              horizontal: Gap.md,
+              vertical: Gap.sm,
+            ),
             child: Row(children: [Text('写一句吐槽…', style: small)]),
           ),
         ),
@@ -371,7 +374,10 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
           Row(
             children: [
               Text('我', style: small),
-              if (score > 0) ...[const SizedBox(width: 8), _ScoreStars(score)],
+              if (score > 0) ...[
+                const SizedBox(width: Gap.sm),
+                _ScoreStars(score),
+              ],
               Text('  ${collectionLabels[status] ?? ''}', style: small),
               const Spacer(),
               TextButton(
@@ -391,14 +397,19 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
           ),
           SelectableText(
             comment,
-            style: const TextStyle(fontSize: 13, height: 1.6),
+            style: const TextStyle(fontSize: FontSize.body, height: 1.6),
           ),
           if (_confirmDelete)
             ListenableBuilder(
               listenable: _commentFeedback,
               builder: (context, _) => Container(
-                margin: const EdgeInsets.only(top: 10),
-                padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+                margin: const EdgeInsets.only(top: Gap.md),
+                padding: const EdgeInsets.fromLTRB(
+                  Gap.md,
+                  Gap.xs,
+                  Gap.xs,
+                  Gap.xs,
+                ),
                 decoration: BoxDecoration(
                   color: scheme.errorContainer.withValues(alpha: .5),
                   borderRadius: controlBorderRadius,
@@ -408,7 +419,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                     const Expanded(
                       child: Text(
                         '删除这条吐槽？评分、标签和收藏状态都会保留。',
-                        style: TextStyle(fontSize: 12),
+                        style: TextStyle(fontSize: FontSize.small),
                       ),
                     ),
                     TextButton(
@@ -432,8 +443,8 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
       );
     }
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: Gap.sm),
+      padding: const EdgeInsets.all(Gap.md),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow,
         borderRadius: controlBorderRadius,
@@ -449,7 +460,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                 name: name,
                 size: 32,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: Gap.md),
               Expanded(child: body),
             ],
           ),
@@ -489,6 +500,9 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
         decoration: BoxDecoration(
           color: CardTheme.of(context).color,
           borderRadius: panelBorderRadius,
+          // Matches MelonPanel's lift; its dark-mode top-edge light needs a
+          // foreground layer, which a sliver decoration can't draw.
+          boxShadow: panelShadows(context),
         ),
         sliver: SliverPadding(
           padding: const EdgeInsets.all(20),
@@ -534,7 +548,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: Gap.lg),
                     FeedbackIssue(
                       feedback: _feedback,
                       onRetry: () => unawaited(_load(refresh: true)),
@@ -563,7 +577,9 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                         if (rows.isEmpty)
                           SliverToBoxAdapter(
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: Gap.md,
+                              ),
                               child: Text(
                                 _feedback.busy
                                     ? '正在加载…'
@@ -666,8 +682,8 @@ class _SubjectRelationsState extends State<SubjectRelations> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('关联作品', style: text.titleMedium),
-          const SizedBox(height: 4),
+          Text('关联作品', style: text.titleSmall),
+          const SizedBox(height: Gap.xs),
           FeedbackIssue(
             feedback: _feedback,
             onRetry: () => unawaited(_load(refresh: true)),
@@ -676,7 +692,7 @@ class _SubjectRelationsState extends State<SubjectRelations> {
             listenable: _feedback,
             builder: (context, _) => _relations.isEmpty
                 ? Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    padding: const EdgeInsets.symmetric(vertical: Gap.sm),
                     child: Text(
                       _feedback.busy ? '正在加载关联作品…' : '暂无关联作品',
                       style: text.bodySmall,
@@ -687,14 +703,14 @@ class _SubjectRelationsState extends State<SubjectRelations> {
           for (final (index, row) in shown.indexed) ...[
             if (index == 0 || _group(shown[index - 1]) != _group(row))
               Padding(
-                padding: const EdgeInsets.only(top: 8, bottom: 2),
+                padding: const EdgeInsets.only(top: Gap.sm, bottom: 2),
                 child: Text(_group(row), style: text.bodySmall),
               ),
             InkWell(
               borderRadius: controlBorderRadius,
               onTap: () => widget.onOpenSubject(row),
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 5),
+                padding: const EdgeInsets.symmetric(vertical: Gap.xs),
                 child: Row(
                   children: [
                     SizedBox(
@@ -709,7 +725,7 @@ class _SubjectRelationsState extends State<SubjectRelations> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: Gap.md),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -719,7 +735,7 @@ class _SubjectRelationsState extends State<SubjectRelations> {
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 13,
+                              fontSize: FontSize.body,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -728,8 +744,12 @@ class _SubjectRelationsState extends State<SubjectRelations> {
                               if (row.relation != _group(row)) ?row.relation,
                               ?row.platform,
                               ?row.season?.year,
-                            ].join(' · '),
-                            style: text.bodySmall,
+                            ].join('  '),
+                            style: text.bodySmall?.copyWith(
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -750,7 +770,7 @@ class _SubjectRelationsState extends State<SubjectRelations> {
   }
 }
 
-const _postText = TextStyle(fontSize: 13, height: 1.6);
+const _postText = TextStyle(fontSize: FontSize.body, height: 1.6);
 
 /// A post's date as YYYY-MM-DD, or empty without one.
 String communityDate(int? seconds) {
@@ -762,7 +782,7 @@ String communityDate(int? seconds) {
 
 final _compactButton = TextButton.styleFrom(
   minimumSize: const Size(0, 28),
-  padding: const EdgeInsets.symmetric(horizontal: 6),
+  padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
 );
 
@@ -1135,7 +1155,7 @@ class _TopicThreadState extends State<_TopicThread>
           Container(
             key: _replies,
             width: double.infinity,
-            margin: const EdgeInsets.only(top: 6),
+            margin: const EdgeInsets.only(top: Gap.sm),
             decoration: BoxDecoration(
               color: theme.colorScheme.surfaceContainerLow,
               borderRadius: controlBorderRadius,
@@ -1146,11 +1166,11 @@ class _TopicThreadState extends State<_TopicThread>
                     onTap: () => _show(0),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
+                        horizontal: Gap.md,
+                        vertical: Gap.sm,
                       ),
                       child: Text(
-                        '共 $count 条回复，点击查看',
+                        '查看 $count 条回复',
                         style: small?.copyWith(
                           color: theme.colorScheme.primary,
                         ),
@@ -1158,7 +1178,12 @@ class _TopicThreadState extends State<_TopicThread>
                     ),
                   )
                 : Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+                    padding: const EdgeInsets.fromLTRB(
+                      Gap.md,
+                      Gap.xs,
+                      Gap.md,
+                      Gap.xs,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1172,7 +1197,7 @@ class _TopicThreadState extends State<_TopicThread>
                             post: post,
                             floor: page * _perPage + index + 2,
                           ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: Gap.xs),
                         _Pager(
                           page: page,
                           pages: pages,
@@ -1284,7 +1309,7 @@ class _FloorState extends State<_Floor> {
     final nested = widget.post.replies;
     final shown = _all ? nested : nested.take(_preview);
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: Gap.sm),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1341,7 +1366,7 @@ class _PostTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final small = Theme.of(context).textTheme.bodySmall;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: Gap.xs),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

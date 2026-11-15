@@ -120,7 +120,7 @@ class _TrackingPageState extends State<TrackingPage> {
     }
     if (personal.credentialsUnsaved) {
       return IssueBanner(
-        issue: '续期后的 Bangumi 登录没能保存到钥匙串，不保存的话下次打开需要重新登录',
+        issue: 'Bangumi 登录未保存到钥匙串，下次启动需重新登录',
         actionLabel: '保存',
         onAction: widget.onSaveCredentials,
       );
@@ -128,7 +128,7 @@ class _TrackingPageState extends State<TrackingPage> {
     return IssueBanner(
       issue: personal.pullError == null
           ? null
-          : '未能获取 Bangumi 上的最新收藏，先显示本地记录：${personal.pullError}',
+          : '无法获取 Bangumi 最新收藏，当前显示本地记录：${personal.pullError}',
       onAction: () => personal.pull(force: true),
     );
   }
@@ -219,7 +219,7 @@ class _TrackingPageState extends State<TrackingPage> {
   }) {
     return PageScroll(
       children: [
-        const SizedBox(height: 8),
+        const SizedBox(height: Gap.sm),
         MelonSegmentedControl<CollectionStatus>(
           options: {
             for (final entry in collectionLabels.entries)
@@ -255,19 +255,15 @@ class _TrackingPageState extends State<TrackingPage> {
                 onChanged: (_) => updateFilters(() {}),
               ),
             ),
-            Tooltip(
-              message: '7 天内有新一话放送',
-              child: FilterChip(
-                label: const Text('本周更新'),
-                labelStyle: const TextStyle(fontSize: 13),
-                selected: airingOnly,
-                backgroundColor: Theme.of(context)
-                    .colorScheme
-                    .surfaceContainerHigh,
-                showCheckmark: true,
-                checkmarkColor: Theme.of(context).colorScheme.primary,
-                onSelected: (value) => updateFilters(() => airingOnly = value),
-              ),
+            // Unselected it sits on the same fill as the filter menus beside
+            // it; selected, the theme's selected colour marks it.
+            FilterChip(
+              label: const Text('7 天内更新'),
+              selected: airingOnly,
+              backgroundColor: Theme.of(context)
+                  .colorScheme
+                  .surfaceContainerHigh,
+              onSelected: (value) => updateFilters(() => airingOnly = value),
             ),
             MelonFilterMenu<String>(
               label: '放送',
@@ -333,7 +329,7 @@ class _TrackingPageState extends State<TrackingPage> {
         else if (collection.isEmpty && !filtered && !personal.signedIn)
           EmptyState(
             text: '还没有收藏的番剧',
-            detail: '登录 Bangumi 后同步你在 Bangumi 上的收藏和观看进度',
+            detail: '登录后同步收藏和观看进度',
             actionLabel: personal.accountBusy ? '登录中…' : '登录 Bangumi',
             action: personal.accountBusy ? null : widget.onAccountAction,
           )
@@ -412,7 +408,7 @@ class _SyncStatusState extends State<SyncStatus>
     // Within the five minutes a page shown later still rings the posters.
     if (!_shown && widget.updated == 0) return;
     _hide?.cancel();
-    _result = widget.updated == 0 ? '已同步' : '已同步 · ${widget.updated} 部有更新';
+    _result = widget.updated == 0 ? '已同步' : '${widget.updated} 部有更新';
     _hide = Timer(const Duration(seconds: 4), () {
       if (mounted) setState(() => _result = null);
     });
@@ -471,7 +467,7 @@ class _SyncStatusState extends State<SyncStatus>
                               : accentOf(context).accent,
                         ),
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: Gap.xs),
                       Text(label, style: small),
                     ],
                   ),

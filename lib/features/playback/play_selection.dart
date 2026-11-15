@@ -560,12 +560,14 @@ class RememberedSource {
     );
   }
 
+  // Lines such as B 站's 投稿  作者 were once joined with ' · '; sources
+  // remembered then still match.
   factory RememberedSource.fromJson(Json json) => RememberedSource(
     family: '${json['family'] ?? ''}',
     provider: '${json['provider'] ?? ''}',
-    line: '${json['line'] ?? ''}',
-    key: '${json['key'] ?? ''}',
-    label: '${json['label'] ?? ''}',
+    line: '${json['line'] ?? ''}'.replaceAll(' · ', '  '),
+    key: '${json['key'] ?? ''}'.replaceAll(' · ', '  '),
+    label: '${json['label'] ?? ''}'.replaceAll(' · ', '  '),
   );
 
   /// `online`, `bt` or `pikpak`.

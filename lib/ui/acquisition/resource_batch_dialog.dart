@@ -252,8 +252,7 @@ class _BatchDialogState extends State<_BatchDialog> {
                           episode.number,
                           maxLines: 1,
                           style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
+                            fontSize: FontSize.small,
                             color: foreground,
                             fontFeatures: const [FontFeature.tabularFigures()],
                           ),
@@ -304,7 +303,10 @@ class _BatchDialogState extends State<_BatchDialog> {
               widget.title,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                fontSize: FontSize.body,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 2),
             Text(widget.source, style: small),
@@ -350,7 +352,7 @@ class _BatchDialogState extends State<_BatchDialog> {
                       onPressed: count == 0 ? null : () => selectAll(false),
                       child: const Text('清空'),
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: Gap.xs),
                   ],
                 ),
               ),
@@ -361,8 +363,8 @@ class _BatchDialogState extends State<_BatchDialog> {
               child: ScrollEdgeFade(
                 child: SingleChildScrollView(
                   child: Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
+                    spacing: Gap.sm,
+                    runSpacing: Gap.sm,
                     children: [
                       for (final episode in widget.episodes) cell(episode),
                     ],

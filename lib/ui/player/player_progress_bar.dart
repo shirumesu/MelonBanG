@@ -146,18 +146,12 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
                             ),
                             children: [
                               if (hovered != null)
-                                TextSpan(
-                                  text: '  ${hovered.label}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w400,
-                                  ),
-                                ),
+                                TextSpan(text: '  ${hovered.label}'),
                             ],
                           ),
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
+                            fontSize: FontSize.caption,
                             color: Colors.white,
                             fontFeatures: [FontFeature.tabularFigures()],
                           ),

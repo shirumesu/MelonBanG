@@ -223,14 +223,17 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
   Widget sourceRow(DanmakuSourceState source) {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
-    final open = editing == source.id;
+    // A source matched by the playing chapters has nothing to choose.
+    final searchable = danmaku.searchable(source.id);
+    final open = editing == source.id && searchable;
     final status = !source.enabled
-        ? '已关闭'
+        ? ''
         : switch (source.status) {
-            DanmakuStatus.idle => '等待匹配',
+            DanmakuStatus.idle => searchable ? '等待匹配' : '自动匹配',
             DanmakuStatus.loading => '匹配中',
             DanmakuStatus.ready => switch (source.followed) {
-              final title? => '${source.count} 条  沿用 $title',
+              final title? => '${source.count} 条  来自 $title',
+              null when !searchable => '${source.count} 条  自动匹配',
               null => '${source.count} 条',
             },
             DanmakuStatus.unmatched =>
@@ -246,6 +249,12 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
             DanmakuStatus.unmatched => scheme.tertiary,
             _ => null,
           };
+    final statusText = Text(
+      status,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: small?.copyWith(color: statusColor),
+    );
     return Container(
       margin: const EdgeInsets.only(top: Gap.xs),
       decoration: BoxDecoration(
@@ -263,29 +272,39 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(source.label, style: const TextStyle(fontSize: 13)),
-                      const SizedBox(height: 2),
                       Text(
-                        status,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: small?.copyWith(color: statusColor),
+                        source.label,
+                        style: TextStyle(
+                          fontSize: FontSize.body,
+                          color: source.enabled
+                              ? null
+                              : scheme.onSurfaceVariant,
+                        ),
                       ),
+                      if (status.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        if (searchable)
+                          statusText
+                        else
+                          Tooltip(
+                            message: '随播放的章节自动匹配，无需手动选择',
+                            child: statusText,
+                          ),
+                      ],
                     ],
                   ),
                 ),
-                TextButton(
-                  onPressed: busy ? null : () => edit(source.id),
-                  child: Text(
-                    open
-                        ? '收起'
-                        : !danmaku.searchable(source.id)
-                        ? '详情'
-                        : source.status == DanmakuStatus.ready
-                        ? '更换'
-                        : '匹配',
+                if (searchable)
+                  TextButton(
+                    onPressed: busy ? null : () => edit(source.id),
+                    child: Text(
+                      open
+                          ? '收起'
+                          : source.status == DanmakuStatus.ready
+                          ? '更换'
+                          : '匹配',
+                    ),
                   ),
-                ),
                 Switch(
                   value: source.enabled,
                   onChanged: busy
@@ -306,16 +325,6 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
   /// Suggested episodes and a manual search, for one source.
   Widget matching(DanmakuSourceState source) {
     final small = Theme.of(context).textTheme.bodySmall;
-    final scheme = Theme.of(context).colorScheme;
-    if (!danmaku.searchable(source.id)) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(Gap.sm, 0, Gap.sm, Gap.sm),
-        child: Text(
-          '随播放的章节自动匹配，无需手动选择',
-          style: small?.copyWith(color: scheme.onSurfaceVariant),
-        ),
-      );
-    }
     Widget choice(DanmakuCandidate match) => ListTile(
       dense: true,
       shape: const RoundedRectangleBorder(borderRadius: badgeBorderRadius),
@@ -347,7 +356,7 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
                   height: 36,
                   child: TextField(
                     controller: query,
-                    style: const TextStyle(fontSize: 13),
+                    style: const TextStyle(fontSize: FontSize.body),
                     decoration: const InputDecoration(
                       isDense: true,
                       hintText: '搜索番剧名称或粘贴链接',

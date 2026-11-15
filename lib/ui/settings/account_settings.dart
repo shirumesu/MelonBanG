@@ -91,7 +91,7 @@ class _BangumiRow extends StatelessWidget {
     final problem =
         account != null && (!signedIn || personal.credentialsUnsaved);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: Gap.md),
       child: Wrap(
         alignment: WrapAlignment.spaceBetween,
         crossAxisAlignment: WrapCrossAlignment.center,
@@ -116,17 +116,17 @@ class _BangumiRow extends StatelessWidget {
                       account?.nickname ?? '登录 Bangumi',
                       style: theme.textTheme.titleMedium,
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: Gap.xs),
                     Text(
                       account == null
-                          ? '收藏、观看进度和设置都跟着 Bangumi 账号走，在浏览器中授权登录'
+                          ? '登录后同步收藏、观看进度和设置'
                           : personal.sessionExpired
                           ? '登录已过期，重新登录后继续同步'
                           : personal.needsAuthorization
                           ? '没有获得钥匙串授权，暂时无法同步'
                           : personal.credentialsUnsaved
-                          ? '续期后的登录没能保存到钥匙串，不保存的话下次打开需要重新登录'
-                          : '@${account.username ?? ''} · Bangumi',
+                          ? '登录信息未保存，下次启动需重新登录'
+                          : '@${account.username ?? ''}',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: problem ? theme.colorScheme.error : null,
                       ),
@@ -154,7 +154,14 @@ class _BangumiRow extends StatelessWidget {
                 OutlinedButton.icon(
                   onPressed: personal.accountBusy
                       ? null
-                      : () => _confirmSignOut(context, onAccountAction),
+                      : () => _confirmSignOut(
+                          context,
+                          title: '退出 Bangumi 登录？',
+                          message:
+                              '退出后不再同步收藏、观看进度和设置，需要时可以重新在浏览器中授权登录。'
+                              '已缓存的番剧、订阅和本机的设置不受影响。',
+                          onSignOut: onAccountAction,
+                        ),
                   icon: const Icon(Icons.logout, size: 18),
                   label: Text(
                     !personal.accountBusy
@@ -190,38 +197,42 @@ class _BangumiRow extends StatelessWidget {
   });
 }
 
+/// Asks before signing out of a service, with what signing out changes.
 Future<void> _confirmSignOut(
-  BuildContext context,
-  VoidCallback onSignOut,
-) async {
+  BuildContext context, {
+  required String title,
+  required String message,
+  required VoidCallback onSignOut,
+}) async {
   final confirmed = await showMelonDialog<bool>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('退出 Bangumi 登录？'),
-      content: const SizedBox(
-        width: 400,
-        child: Text(
-          '退出后不再同步收藏、观看进度和设置，需要时可以重新在浏览器中授权登录。'
-          '已缓存的番剧、订阅和本机的设置不受影响。',
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('退出登录'),
-        ),
-      ],
-    ),
+    builder: (context) {
+      final scheme = Theme.of(context).colorScheme;
+      return AlertDialog(
+        title: Text(title),
+        content: SizedBox(width: 400, child: Text(message)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.error,
+              foregroundColor: scheme.onError,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('退出登录'),
+          ),
+        ],
+      );
+    },
   );
   if (confirmed == true) onSignOut();
 }
 
 /// The settings sync switch, where it stands, and a way to sync now; what
-/// else syncs with the settings is written below, as the storage rows do.
+/// else syncs with the settings is behind its ? mark.
 class _SyncRow extends StatefulWidget {
   const _SyncRow({required this.sync});
   final SettingsSync sync;
@@ -252,8 +263,8 @@ class _SyncRowState extends State<_SyncRow> {
   Widget build(BuildContext context) => _watch(widget.sync, (context) {
     final sync = widget.sync;
     final scheme = Theme.of(context).colorScheme;
-    final (String subtitle, Color? color) = switch (sync.status) {
-      SettingsSyncStatus.off => ('只用这台设备上的设置', null),
+    final (String? subtitle, Color? color) = switch (sync.status) {
+      SettingsSyncStatus.off => (null, null),
       SettingsSyncStatus.signedOut => ('登录 Bangumi 后，设置在登录同一账号的设备间同步', null),
       SettingsSyncStatus.syncing => ('正在同步…', null),
       SettingsSyncStatus.conflict => (
@@ -265,15 +276,19 @@ class _SyncRowState extends State<_SyncRow> {
         scheme.error,
       ),
       SettingsSyncStatus.idle => switch (sync.syncedAt) {
-        final at? => ('已同步 · ${syncedAgo(at)}', null),
+        final at? => (syncedAgo(at), null),
         null => ('等待第一次同步', null),
       },
     };
     final busy = sync.status == SettingsSyncStatus.syncing;
-    final row = SettingRow(
+    // Tapping the row flips the switch, as a switch row does; the switch
+    // stays its own keyboard stop beside the other actions.
+    return SettingRow(
       title: '设置同步',
       subtitle: subtitle,
       subtitleColor: color,
+      help: '订阅、偏好来源、手动匹配的弹幕、播放记录等非设置项会一起同步',
+      onTap: () => unawaited(sync.setEnabled(!sync.enabled)),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -301,28 +316,16 @@ class _SyncRowState extends State<_SyncRow> {
         ],
       ),
     );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        row,
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-          child: Text(
-            '订阅、偏好来源、手动匹配的弹幕、播放记录等非设置项会一起同步',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ),
-      ],
-    );
   });
 }
 
+/// When settings last synced: 刚刚同步, 3 分钟前已同步, 5 月 3 日已同步.
 String syncedAgo(DateTime at) {
   final passed = DateTime.now().difference(at);
-  if (passed.inMinutes < 1) return '刚刚';
-  if (passed.inHours < 1) return '${passed.inMinutes} 分钟前';
-  if (passed.inDays < 1) return '${passed.inHours} 小时前';
-  return '${at.month} 月 ${at.day} 日';
+  if (passed.inMinutes < 1) return '刚刚同步';
+  if (passed.inHours < 1) return '${passed.inMinutes} 分钟前已同步';
+  if (passed.inDays < 1) return '${passed.inHours} 小时前已同步';
+  return '${at.month} 月 ${at.day} 日已同步';
 }
 
 /// A service's row: its logo, its name and who is signed in, and one
@@ -427,7 +430,7 @@ class _PikPakRowState extends State<_PikPakRow> {
       if (mounted) {
         setState(() {
           if (failure is SourceVerificationRequired) {
-            error = 'PikPak 需要网页验证，请完成验证后重试';
+            // The verification hint under the row says what to do.
             captcha = failure.url;
           } else {
             error = errorMessage(failure);
@@ -456,7 +459,7 @@ class _PikPakRowState extends State<_PikPakRow> {
     return _ServiceRow(
       logo: 'assets/images/services/pikpak.png',
       name: 'PikPak',
-      status: locked ? '登录凭据待解锁' : account ?? '未登录 · 登录后订阅和缓存可以用 PikPak 云端离线下载',
+      status: locked ? '登录凭据待解锁' : account ?? '登录后可用云端离线下载',
       action: locked
           ? FilledButton(
               onPressed: busy ? null : () => run(pikpak.unlock),
@@ -464,8 +467,15 @@ class _PikPakRowState extends State<_PikPakRow> {
             )
           : account != null
           ? TextButton(
-              onPressed: busy ? null : () => run(pikpak.signOut),
-              child: Text(busy ? '退出中…' : '退出'),
+              onPressed: busy
+                  ? null
+                  : () => _confirmSignOut(
+                      context,
+                      title: '退出 PikPak 登录？',
+                      message: '退出后订阅和缓存不能再使用 PikPak 云端离线下载，需要时可以重新登录。',
+                      onSignOut: () => run(pikpak.signOut),
+                    ),
+              child: Text(busy ? '退出中…' : '退出登录'),
             )
           : open
           ? TextButton(
@@ -529,11 +539,10 @@ class _PikPakRowState extends State<_PikPakRow> {
                   ),
                 if (verification != null) ...[
                   const SizedBox(height: Gap.sm),
-                  Text(
+                  InlineIssue(
                     account == null
-                        ? '在 PikPak 官方页面完成验证后，再点「登录 PikPak」重试。'
-                        : '在 PikPak 官方页面完成验证后，回到缓存页继续下载任务。',
-                    style: Theme.of(context).textTheme.bodySmall,
+                        ? '在 PikPak 官方页面完成验证后，再点「登录 PikPak」重试'
+                        : '在 PikPak 官方页面完成验证后，回到缓存页继续下载任务',
                   ),
                   TextButton.icon(
                     onPressed: busy
@@ -647,8 +656,8 @@ class _BilibiliRowState extends State<_BilibiliRow> {
       logo: 'assets/images/services/bilibili.png',
       name: '哔哩哔哩',
       status: signedIn
-          ? '${account.name ?? 'B 站账号'} · ${account.vip ? '弹幕更全，会员集可以播放，画质随大会员' : 'B 站的弹幕和视频按这个账号读取'}'
-          : account.lapsed ?? '未登录 · 登录后读到的弹幕多得多，大会员还能播放会员集',
+          ? account.name ?? 'B 站账号'
+          : account.lapsed ?? '登录后可获取更多弹幕，大会员可播放会员剧集',
       statusColor: !signedIn && account.lapsed != null
           ? theme.colorScheme.error
           : null,
@@ -660,8 +669,15 @@ class _BilibiliRowState extends State<_BilibiliRow> {
           : null,
       action: signedIn
           ? TextButton(
-              onPressed: busy ? null : () => run(account.signOut),
-              child: Text(busy ? '退出中…' : '退出'),
+              onPressed: busy
+                  ? null
+                  : () => _confirmSignOut(
+                      context,
+                      title: '退出 B 站登录？',
+                      message: '退出后按访客读取 B 站的弹幕和视频，弹幕会变少，会员剧集无法播放。需要时可以重新扫码登录。',
+                      onSignOut: () => run(account.signOut),
+                    ),
+              child: Text(busy ? '退出中…' : '退出登录'),
             )
           : code != null
           ? TextButton(onPressed: cancel, child: const Text('取消'))
@@ -710,7 +726,7 @@ class _BilibiliRowState extends State<_BilibiliRow> {
             children: [
               Text(switch (state) {
                 BilibiliQrState.scanned => '已扫码，在手机上确认登录',
-                BilibiliQrState.expired => '二维码过期了',
+                BilibiliQrState.expired => '二维码已过期',
                 _ => '用 B 站 App 扫码，在手机上确认登录',
               }),
               const SizedBox(height: Gap.xs),
@@ -723,7 +739,7 @@ class _BilibiliRowState extends State<_BilibiliRow> {
                 FilledButton.icon(
                   onPressed: busy ? null : start,
                   icon: const Icon(Icons.refresh_rounded, size: 18),
-                  label: const Text('换一个'),
+                  label: const Text('刷新二维码'),
                 ),
               ],
             ],

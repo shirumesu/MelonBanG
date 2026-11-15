@@ -131,7 +131,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         action: '删除',
         message: [
           '将删除本机文件：${file.name}',
-          if (task.seeds) '删除后这个合集不再做种，其余视频仍可观看。',
+          if (task.seeds) '删除后这个合集不再做种，其余视频仍可观看',
         ].join('\n'),
       ),
     );
@@ -165,8 +165,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
         title: '删除所选缓存？',
         action: '删除',
         message: [
-          '将删除所选的 $count 项及其本机缓存文件。',
-          if (files.keys.any((id) => tasks[id]!.seeds)) '删除合集中的部分视频后，该合集不再做种。',
+          '将删除所选的 $count 项及其本机缓存文件',
+          if (files.keys.any((id) => tasks[id]!.seeds)) '删除合集中的部分视频后，该合集不再做种',
         ].join('\n'),
       ),
     );
@@ -251,13 +251,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
         text,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: tone,
-          fontWeight: warn ? FontWeight.w600 : null,
-        ),
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: tone),
       ),
       IconButton(
-        tooltip: '订阅 · ${subscription.filter.label}',
+        tooltip: '订阅设置',
         onPressed: () => _openSubscription(id),
         color: tone ?? scheme.primary,
         icon: const Icon(Icons.notifications_active_rounded, size: 20),
@@ -388,7 +385,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
           title: '缓存',
           trailing: selecting
               ? Wrap(
-                  spacing: 8,
+                  spacing: Gap.sm,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
@@ -403,15 +400,23 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       child: Text(allSelected ? '全不选' : '全选'),
                     ),
                     Tooltip(
-                      message: '退出批量删除 (Esc)',
+                      message: '退出批量删除（Esc）',
                       child: TextButton(
                         onPressed: () => setState(_endSelection),
                         child: const Text('取消'),
                       ),
                     ),
                     Tooltip(
-                      message: '删除所选 (Delete)',
+                      message: '删除所选（Delete）',
                       child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Theme.of(context)
+                              .colorScheme
+                              .errorContainer,
+                          foregroundColor: Theme.of(context)
+                              .colorScheme
+                              .onErrorContainer,
+                        ),
                         onPressed:
                             selectedTasks.isEmpty && selectedFiles.isEmpty
                             ? null
@@ -431,7 +436,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 ),
         ),
         Wrap(
-          spacing: 12,
+          spacing: Gap.md,
           runSpacing: Gap.md,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
@@ -463,7 +468,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 '↓ ${ByteUnitsScope.of(context).rate(speed)}',
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.primary,
-                  fontSize: 12,
+                  fontSize: FontSize.small,
                 ),
               ),
           ],
@@ -472,7 +477,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         for (final issue in widget.downloads.downloads.failures.values)
           Padding(
             padding: const EdgeInsets.only(top: Gap.md),
-            child: InlineIssue('$issue。这类缓存暂时不能下载或播放，重新启动应用后再试'),
+            child: InlineIssue('$issue，这类缓存暂时不能下载或播放，重新启动应用后再试'),
           ),
         if (filter != '全部' && groups.isNotEmpty) const SizedBox(height: Gap.lg),
         for (final group in groups) ...[
@@ -483,7 +488,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
           for (final subscription in group.$3)
             Padding(
               key: ValueKey('subscription:${subscription.subjectId}'),
-              padding: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.only(bottom: Gap.md),
               child: _waiting(context, subscription),
             ),
           if (group.$2.isNotEmpty) ...[
@@ -504,7 +509,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     index: index,
                     enter: arriving.contains(id),
                     child: Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.only(bottom: Gap.md),
                       child: _entry(context, group.$2[index]),
                     ),
                   );
@@ -674,7 +679,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     id: subjectId,
                     onOpen: () => widget.onOpenSubject(subjectId),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: Gap.lg),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -710,7 +715,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: Gap.md),
                   // Buttons of different heights centre on one line.
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -737,7 +742,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
               children: [
                 Divider(height: 1, color: scheme.outlineVariant),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                  padding: const EdgeInsets.fromLTRB(
+                    Gap.sm,
+                    Gap.xs,
+                    Gap.sm,
+                    Gap.sm,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -768,7 +778,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
             id: id,
             onOpen: () => widget.onOpenSubject(id),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: Gap.lg),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -782,7 +792,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ],
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: Gap.md),
           button,
         ],
       ),
@@ -812,18 +822,22 @@ class _DownloadsPageState extends State<DownloadsPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         InkWell(
-          borderRadius: controlBorderRadius,
+          // The rows sit Gap.sm inside the entry's panel.
+          borderRadius: insetRadius(panelBorderRadius, Gap.sm),
           onTap: () => setState(
             () => details ? expanded.remove(task.id) : expanded.add(task.id),
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 2, 0, 2),
+            padding: const EdgeInsets.fromLTRB(Gap.sm, 2, 0, 2),
             child: Row(
               children: [
                 if (selecting) _taskCheck(task),
                 SizedBox(
                   width: 64,
-                  child: Text(label, style: const TextStyle(fontSize: 13)),
+                  child: Text(
+                    label,
+                    style: const TextStyle(fontSize: FontSize.body),
+                  ),
                 ),
                 Expanded(
                   child: Text(
@@ -833,7 +847,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     style: small,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: Gap.md),
                 if (downloadOrigin(task) case final origin?) ...[
                   MelonBadge(origin, color: scheme.onSurfaceVariant),
                   if (DownloadStatusBadge.shows(task))
@@ -849,7 +863,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       style: small,
                     ),
                   ),
-                const SizedBox(width: 4),
+                const SizedBox(width: Gap.xs),
                 DownloadToggleButton(task: task, onToggle: _toggle, size: 20),
                 DownloadPlayButton(task: task, onPlay: widget.onPlay),
                 IconButton(
@@ -863,26 +877,26 @@ class _DownloadsPageState extends State<DownloadsPage> {
         ),
         if (!task.complete)
           Padding(
-            padding: const EdgeInsets.fromLTRB(72, 0, 8, 4),
+            padding: const EdgeInsets.fromLTRB(72, 0, Gap.sm, Gap.xs),
             child: MotionValue(
               value: task.cloudProgress ?? progress,
               builder: (context, value) => LinearProgressIndicator(
                 value: value,
                 minHeight: 2,
-                borderRadius: BorderRadius.circular(99),
+                borderRadius: pillBorderRadius,
                 backgroundColor: scheme.surfaceContainerLow,
               ),
             ),
           ),
         if ((task.errorMessage ?? task.persistenceError) case final issue?)
           Padding(
-            padding: const EdgeInsets.fromLTRB(72, 0, 8, 6),
+            padding: const EdgeInsets.fromLTRB(72, 0, Gap.sm, Gap.xs),
             child: InlineIssue(issue),
           ),
         MotionReveal(
           visible: details,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(72, 4, 8, 10),
+            padding: const EdgeInsets.fromLTRB(72, Gap.xs, Gap.sm, Gap.sm),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               // The row above already has the remove button.
@@ -926,7 +940,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                           null => null,
                         },
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: Gap.lg),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -943,14 +957,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: Gap.md),
                       // Buttons of different heights centre on one line.
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           _watchButton(subject, [task]),
                           if (task.toggle != null) ...[
-                            const SizedBox(width: 8),
+                            const SizedBox(width: Gap.sm),
                             DownloadToggleButton(
                               task: task,
                               onToggle: _toggle,
@@ -969,7 +983,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   if ((task.errorMessage ?? task.persistenceError)
                       case final issue?)
                     Padding(
-                      padding: const EdgeInsets.only(top: 12),
+                      padding: const EdgeInsets.only(top: Gap.md),
                       child: InlineIssue(issue),
                     ),
                 ],
@@ -984,7 +998,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Divider(height: 1),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: Gap.md),
                   ..._details(context, task, subject, removable: true),
                 ],
               ),
@@ -1008,7 +1022,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     return [
       if (task.videos.length > 1) ...[
         _videos(context, task, subject),
-        const SizedBox(height: 8),
+        const SizedBox(height: Gap.sm),
       ] else if (files.length > 1 ||
           (files.length == 1 && files.single.name != task.title)) ...[
         Text(
@@ -1017,55 +1031,59 @@ class _DownloadsPageState extends State<DownloadsPage> {
               : '${files.first.name} 等 ${files.length} 个文件',
           style: Theme.of(context).textTheme.bodySmall,
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: Gap.sm),
       ],
-      _stats(context, [
-        // A finished task downloads nothing more.
-        if (!task.complete)
-          '↓ ${ByteUnitsScope.of(context).rate(task.downloadSpeed)}',
-        if (task.seeds) ...[
-          '↑ ${ByteUnitsScope.of(context).rate(task.uploadSpeed)}',
-          '${swarm.peers} 个连接',
-          '分享率 ${task.totalBytes > 0 ? (task.uploadedBytes / task.totalBytes).toStringAsFixed(2) : '0.00'}',
-        ],
-      ]),
-      if (task.seeds && !task.complete && swarm.trackers != null) ...[
-        const SizedBox(height: 4),
-        _stats(context, [
-          '发现 ${swarm.knownPeers ?? 0} 个节点',
-          'Tracker ${swarm.workingTrackers ?? 0}/${swarm.trackers} 可用',
-          (swarm.dhtNodes ?? 0) < 0
-              ? 'DHT 已关闭'
-              : 'DHT ${swarm.dhtNodes ?? 0} 个节点',
+      // How the swarm is found shows on hover over the transfer line.
+      Tooltip(
+        message: task.seeds && !task.complete && swarm.trackers != null
+            ? [
+                '发现 ${swarm.knownPeers ?? 0} 个节点',
+                'Tracker ${swarm.workingTrackers ?? 0}/${swarm.trackers} 可用',
+                (swarm.dhtNodes ?? 0) < 0
+                    ? 'DHT 已关闭'
+                    : 'DHT ${swarm.dhtNodes ?? 0} 个节点',
+              ].join('\n')
+            : '',
+        child: _stats(context, [
+          // A finished task downloads nothing more.
+          if (!task.complete)
+            '↓ ${ByteUnitsScope.of(context).rate(task.downloadSpeed)}',
+          if (task.seeds) ...[
+            '↑ ${ByteUnitsScope.of(context).rate(task.uploadSpeed)}',
+            '${swarm.peers} 个连接',
+            '分享率 ${task.totalBytes > 0 ? (task.uploadedBytes / task.totalBytes).toStringAsFixed(2) : '0.00'}',
+          ],
         ]),
-        if ((task.status == DownloadStatus.metadata ||
-                task.status == DownloadStatus.downloading) &&
-            swarm.peers == 0)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              (swarm.knownPeers ?? 0) > 0
-                  ? '已发现节点，正在连接'
-                  : (swarm.failedTrackers ?? 0) > 0 &&
-                        (swarm.workingTrackers ?? 0) == 0 &&
-                        (swarm.dhtNodes ?? 0) <= 0
-                  ? '没有找到下载节点，请检查网络是否允许 BT，或换一个资源'
-                  : '正在寻找下载节点，做种的人少时会比较慢',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+      ),
+      // Said only when no peer can be found at all.
+      if (task.seeds &&
+          !task.complete &&
+          swarm.trackers != null &&
+          (task.status == DownloadStatus.metadata ||
+              task.status == DownloadStatus.downloading) &&
+          swarm.peers == 0 &&
+          (swarm.knownPeers ?? 0) == 0 &&
+          (swarm.failedTrackers ?? 0) > 0 &&
+          (swarm.workingTrackers ?? 0) == 0 &&
+          (swarm.dhtNodes ?? 0) <= 0)
+        Padding(
+          padding: const EdgeInsets.only(top: Gap.xs),
+          child: Text(
+            '没有找到下载节点，请检查网络是否允许 BT，或换一个资源',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
-      ],
+        ),
       if (task.seeds && task.complete) ...[
-        const SizedBox(height: 4),
+        const SizedBox(height: Gap.xs),
         _stats(context, [
           '已上传 ${ByteUnitsScope.of(context).format(task.uploadedBytes)}',
           '做种 ${_seedTime(task.seedSeconds)}',
         ]),
       ],
-      const SizedBox(height: 8),
+      const SizedBox(height: Gap.sm),
       Wrap(
-        spacing: 8,
-        runSpacing: 4,
+        spacing: Gap.sm,
+        runSpacing: Gap.xs,
         children: [
           if (files.isNotEmpty)
             TextButton.icon(
@@ -1134,7 +1152,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 child: Text(switch (episodes[file.id]) {
                   final episode? => episode.label,
                   null => '—',
-                }, style: const TextStyle(fontSize: 13)),
+                }, style: const TextStyle(fontSize: FontSize.body)),
               ),
               Expanded(
                 child: Text(
@@ -1144,7 +1162,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   style: small,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: Gap.md),
               Text(
                 [
                   ByteUnitsScope.of(context).format(file.size),
@@ -1181,7 +1199,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   Widget _stats(BuildContext context, List<String> values) => Wrap(
     spacing: Gap.lg,
-    runSpacing: 4,
+    runSpacing: Gap.xs,
     children: [
       for (final value in values)
         Text(value, style: Theme.of(context).textTheme.bodySmall),
@@ -1271,7 +1289,7 @@ class _SubjectTitleLinkState extends State<_SubjectTitleLink> {
       maxLines: 2,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
-        fontSize: 14,
+        fontSize: FontSize.emphasis,
         fontWeight: FontWeight.w700,
         color: hovered ? Theme.of(context).colorScheme.primary : null,
         decoration: hovered ? TextDecoration.underline : null,
@@ -1315,12 +1333,15 @@ class DownloadsSkeleton extends StatelessWidget {
   );
 
   Widget _body(BuildContext context) {
-    final title = const TextStyle(fontSize: 14, fontWeight: FontWeight.w700);
+    final title = const TextStyle(
+      fontSize: FontSize.emphasis,
+      fontWeight: FontWeight.w700,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Wrap(
-          spacing: 12,
+          spacing: Gap.md,
           runSpacing: Gap.md,
           children: [
             SkeletonBlock(width: 386, height: 44, radius: controlBorderRadius),
@@ -1330,7 +1351,7 @@ class DownloadsSkeleton extends StatelessWidget {
         const SizedBox(height: Gap.lg),
         for (final share in const [.45, .62, .38])
           Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.only(bottom: Gap.md),
             child: MelonPanel(
               padding: const EdgeInsets.all(Gap.lg),
               child: Row(
@@ -1341,7 +1362,7 @@ class DownloadsSkeleton extends StatelessWidget {
                     height: 78,
                     radius: posterBorderRadius,
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: Gap.lg),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1352,7 +1373,7 @@ class DownloadsSkeleton extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: Gap.md),
                   const SkeletonBlock(
                     width: 112,
                     height: 36,
@@ -1362,7 +1383,7 @@ class DownloadsSkeleton extends StatelessWidget {
                   const SkeletonBlock(
                     width: 24,
                     height: 24,
-                    radius: BorderRadius.all(Radius.circular(12)),
+                    radius: controlBorderRadius,
                   ),
                   const SizedBox(width: Gap.sm),
                 ],

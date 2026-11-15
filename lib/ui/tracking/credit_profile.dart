@@ -242,7 +242,7 @@ class _CreditBrowserState extends State<_CreditBrowser> {
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              const size = 12.0, height = 1.25;
+              const size = FontSize.small, height = 1.25;
               final lines = (constraints.maxHeight / (size * height)).floor();
               final glyphs = page.title.trim().characters.toList();
               final shown = glyphs.length <= lines
@@ -291,12 +291,12 @@ class _CreditBrowserState extends State<_CreditBrowser> {
       ],
       builder: (context, menu, _) => _spineFrame(
         context,
-        tooltip: '更早的 $count 层',
+        tooltip: '更早浏览的 $count 项',
         onTap: () => menu.isOpen ? menu.close() : menu.open(),
         children: [
-          const SizedBox(height: 24),
+          const SizedBox(height: Gap.xl),
           Icon(Icons.layers_outlined, size: 20, color: scheme.onSurfaceVariant),
-          const SizedBox(height: 4),
+          const SizedBox(height: Gap.xs),
           Text(
             '+$count',
             style: Theme.of(context).textTheme.labelSmall
@@ -379,7 +379,7 @@ class _ProfileSkeleton extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+          padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.lg, Gap.xl, 0),
           child: Column(
             children: [
               for (final share in const [1.0, .96, .9, .55])
@@ -391,11 +391,11 @@ class _ProfileSkeleton extends StatelessWidget {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, Gap.sm),
+          padding: const EdgeInsets.fromLTRB(Gap.xl, 20, Gap.xl, Gap.sm),
           child: SkeletonLine(style: text.titleSmall, width: 72),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+          padding: const EdgeInsets.fromLTRB(Gap.lg, 0, Gap.lg, 20),
           child: LayoutBuilder(
             builder: (context, constraints) {
               // SliverGridDelegateWithMaxCrossAxisExtent's columns.
@@ -406,9 +406,9 @@ class _ProfileSkeleton extends StatelessWidget {
                   for (var i = 0; i < columns * 2; i++)
                     SizedBox(
                       width: width,
-                      height: 68,
+                      height: 72,
                       child: Padding(
-                        padding: const EdgeInsets.all(6),
+                        padding: const EdgeInsets.all(Gap.sm),
                         child: Row(
                           children: [
                             const SkeletonBlock(
@@ -416,19 +416,21 @@ class _ProfileSkeleton extends StatelessWidget {
                               height: 56,
                               radius: badgeBorderRadius,
                             ),
-                            const SizedBox(width: 10),
+                            const SizedBox(width: Gap.md),
                             Expanded(
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   SkeletonLine(
-                                    style: const TextStyle(fontSize: 13),
+                                    style: const TextStyle(
+                                      fontSize: FontSize.body,
+                                    ),
                                     widthFactor: const [.7, .5, .6][i % 3],
                                   ),
                                   SkeletonLine(
                                     style: text.bodySmall?.copyWith(
-                                      fontSize: 11,
+                                      fontSize: FontSize.caption,
                                     ),
                                     width: 32,
                                   ),
@@ -481,12 +483,17 @@ class _ProfileView extends StatelessWidget {
           shrinkWrap: true,
           slivers: [
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 12, 0),
+              padding: const EdgeInsets.fromLTRB(Gap.xl, 20, Gap.md, 0),
               sliver: SliverToBoxAdapter(child: _header(context, data)),
             ),
             if (snapshot.hasError)
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                padding: const EdgeInsets.fromLTRB(
+                  Gap.xl,
+                  Gap.md,
+                  Gap.xl,
+                  Gap.xl,
+                ),
                 sliver: SliverToBoxAdapter(
                   child: PartFailure(message: '资料加载失败', onRetry: onRetry),
                 ),
@@ -496,7 +503,7 @@ class _ProfileView extends StatelessWidget {
             else ...[
               if (data.summary case final summary?)
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+                  padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.lg, Gap.xl, 0),
                   sliver: SliverToBoxAdapter(
                     child: BBCode(
                       summary,
@@ -508,7 +515,7 @@ class _ProfileView extends StatelessWidget {
               if (data.parts.isNotEmpty) ...[
                 _heading(context, character ? '配音' : '配音角色', data.parts.length),
                 SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  padding: const EdgeInsets.symmetric(horizontal: Gap.xl),
                   sliver: SliverToBoxAdapter(
                     child: Wrap(
                       spacing: Gap.sm,
@@ -522,11 +529,13 @@ class _ProfileView extends StatelessWidget {
               ],
               _heading(context, character ? '出场动画' : '参与动画', data.works.length),
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                padding: const EdgeInsets.fromLTRB(Gap.lg, 0, Gap.lg, 20),
                 sliver: data.works.isEmpty
                     ? SliverToBoxAdapter(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: Gap.sm,
+                          ),
                           child: Text('Bangumi 上没有记录', style: text.bodySmall),
                         ),
                       )
@@ -534,7 +543,7 @@ class _ProfileView extends StatelessWidget {
                         gridDelegate:
                             const SliverGridDelegateWithMaxCrossAxisExtent(
                               maxCrossAxisExtent: 300,
-                              mainAxisExtent: 68,
+                              mainAxisExtent: 72,
                             ),
                         itemCount: data.works.length,
                         itemBuilder: (context, index) =>
@@ -577,7 +586,7 @@ class _ProfileView extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 4),
+              const SizedBox(height: Gap.xs),
               SelectableText(page.title, style: text.titleLarge),
               if (page.name != page.title)
                 SelectableText(page.name, style: text.bodySmall),
@@ -657,7 +666,7 @@ class _ProfileView extends StatelessWidget {
 
   Widget _heading(BuildContext context, String label, int count) =>
       SliverPadding(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, Gap.sm),
+        padding: const EdgeInsets.fromLTRB(Gap.xl, 20, Gap.xl, Gap.sm),
         sliver: SliverToBoxAdapter(
           child: Text(
             '$label  $count',
@@ -695,14 +704,14 @@ class _ProfileView extends StatelessWidget {
                       part.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13),
+                      style: const TextStyle(fontSize: FontSize.body),
                     ),
                     if (part.role case final role?)
                       Text(
                         role,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: small?.copyWith(fontSize: 11),
+                        style: small?.copyWith(fontSize: FontSize.caption),
                       ),
                   ],
                 ),
@@ -720,7 +729,7 @@ class _ProfileView extends StatelessWidget {
       borderRadius: controlBorderRadius,
       onTap: () => onOpenSubject(subject),
       child: Padding(
-        padding: const EdgeInsets.all(6),
+        padding: const EdgeInsets.all(Gap.sm),
         child: Row(
           children: [
             CoverFrame(
@@ -735,7 +744,7 @@ class _ProfileView extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: Gap.md),
             Expanded(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -745,14 +754,14 @@ class _ProfileView extends StatelessWidget {
                     subject.title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13),
+                    style: const TextStyle(fontSize: FontSize.body),
                   ),
                   if (subject.relation case final role? when role.isNotEmpty)
                     Text(
                       role,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: small?.copyWith(fontSize: 11),
+                      style: small?.copyWith(fontSize: FontSize.caption),
                     ),
                 ],
               ),

@@ -396,7 +396,7 @@ class _SubjectPosterState extends State<SubjectPoster> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: FontSize.body,
                         height: 1.3,
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
@@ -647,6 +647,10 @@ class PosterMeta extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final personal = item.collection?.score ?? 0;
+    final meta = TextStyle(
+      fontSize: FontSize.caption,
+      color: scheme.onSurfaceVariant,
+    );
     return Row(
       children: [
         AnimatedSwitcher(
@@ -664,18 +668,10 @@ class PosterMeta extends StatelessWidget {
                   ),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: Text.rich(
-                      TextSpan(
-                        text: '我的 ',
-                        children: [
-                          TextSpan(
-                            text: '★ ${personal > 0 ? personal : '—'}',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                        ],
-                      ),
+                    child: Text(
+                      '我的 ★ ${personal > 0 ? personal : '—'}',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: FontSize.small,
                         color: scheme.onSecondaryContainer,
                       ),
                     ),
@@ -685,8 +681,8 @@ class PosterMeta extends StatelessWidget {
                   '★ ${scoreLabel(item.score)}',
                   key: const ValueKey('public'),
                   style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                    fontSize: FontSize.small,
+                    fontWeight: FontWeight.w400,
                     color: scheme.onSurfaceVariant,
                   ),
                 ),
@@ -703,15 +699,18 @@ class PosterMeta extends StatelessWidget {
               (null, final total?) => '全 $total 话',
               (final watched?, null) => '已看 $watched 话',
               (final watched?, final total?) => '已看 $watched/$total',
-            }, style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+            }, style: meta),
           )
         else
-          Text(
-            [
-              if (item.season?.year case final year?) '$year',
-              if (item.episodeTotal != null) '${item.episodeTotal} 话',
-            ].join(' · '),
-            style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            spacing: Gap.sm,
+            children: [
+              if (item.season?.year case final year?)
+                Text('$year', style: meta),
+              if (item.episodeTotal case final total?)
+                Text('全 $total 话', style: meta),
+            ],
           ),
       ],
     );
@@ -1068,10 +1067,13 @@ class _CoverNote extends StatelessWidget {
         borderRadius: badgeBorderRadius,
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: Gap.sm, vertical: 4),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Gap.sm,
+          vertical: Gap.xs,
+        ),
         child: Text(
           text,
-          style: const TextStyle(fontSize: 12, color: Colors.white),
+          style: const TextStyle(fontSize: FontSize.small, color: Colors.white),
         ),
       ),
     ),

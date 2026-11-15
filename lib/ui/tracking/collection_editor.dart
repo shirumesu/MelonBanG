@@ -134,12 +134,6 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
     Navigator.pop(context);
   }
 
-  void _reset() {
-    CollectionDrafts.clear(widget.draftKey);
-    comment.text = saved.comment;
-    setState(() => draft = CollectionDraft(saved));
-  }
-
   bool _addTags(String text) {
     try {
       final updated = normalizeCollectionTags([
@@ -195,7 +189,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
     final tooLong = comment.text.runes.length > collectionCommentLimit;
     final popular = widget.subject.tags.map((tag) => tag.name).take(16);
     Widget section(String title, Widget child, {String? detail}) => Padding(
-      padding: const EdgeInsets.only(bottom: Gap.lg + 2),
+      padding: const EdgeInsets.only(bottom: Gap.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -239,9 +233,9 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
         child: Material(
           color: scheme.surface,
           elevation: 6,
-          shadowColor: Colors.black26,
-          borderRadius: const BorderRadius.horizontal(
-            left: Radius.circular(12),
+          shadowColor: Theme.of(context).shadowColor,
+          borderRadius: BorderRadius.horizontal(
+            left: panelBorderRadius.topLeft,
           ),
           clipBehavior: Clip.antiAlias,
           child: SizedBox(
@@ -250,7 +244,12 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 18, 12, 14),
+                  padding: const EdgeInsets.fromLTRB(
+                    20,
+                    Gap.lg,
+                    Gap.md,
+                    Gap.md,
+                  ),
                   child: Row(
                     children: [
                       SizedBox(
@@ -295,26 +294,19 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                       if (restored && changed)
                         Container(
                           margin: const EdgeInsets.only(bottom: Gap.lg),
-                          padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: Gap.md,
+                            vertical: Gap.sm,
+                          ),
                           decoration: BoxDecoration(
                             color: scheme.primaryContainer.withValues(
                               alpha: .5,
                             ),
                             borderRadius: controlBorderRadius,
                           ),
-                          child: Row(
-                            children: [
-                              const Expanded(
-                                child: Text(
-                                  '已恢复上次未保存的编辑',
-                                  style: TextStyle(fontSize: 12),
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: _reset,
-                                child: const Text('放弃草稿'),
-                              ),
-                            ],
+                          child: const Text(
+                            '已恢复上次未保存的编辑',
+                            style: TextStyle(fontSize: FontSize.small),
                           ),
                         ),
                       section(
@@ -331,12 +323,17 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                                 : false,
                           ),
                         ),
-                        detail: status == null ? '先选一个状态，才能保存其他内容' : null,
+                        detail: status == null ? '选择收藏状态后可保存' : null,
                       ),
                       section(
                         '我的评分',
                         Container(
-                          padding: const EdgeInsets.fromLTRB(8, 6, 4, 6),
+                          padding: const EdgeInsets.fromLTRB(
+                            Gap.sm,
+                            Gap.sm,
+                            Gap.xs,
+                            Gap.sm,
+                          ),
                           decoration: BoxDecoration(
                             color: scheme.surfaceContainer,
                             borderRadius: controlBorderRadius,
@@ -369,7 +366,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                           ),
                         ),
                         detail: status == CollectionStatus.wish
-                            ? '想看状态不能评分，改回其他状态时恢复原评分'
+                            ? '想看状态不能评分'
                             : null,
                       ),
                       section(
@@ -379,14 +376,14 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                           children: [
                             Container(
                               width: double.infinity,
-                              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                              padding: const EdgeInsets.all(Gap.sm),
                               decoration: BoxDecoration(
                                 color: scheme.surfaceContainerHigh,
                                 borderRadius: controlBorderRadius,
                               ),
                               child: Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
+                                spacing: Gap.sm,
+                                runSpacing: Gap.sm,
                                 crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
                                   for (final tag in tags)
@@ -403,8 +400,8 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                                         hintText: '回车或逗号添加',
                                         filled: false,
                                         contentPadding: EdgeInsets.symmetric(
-                                          horizontal: 4,
-                                          vertical: 8,
+                                          horizontal: Gap.xs,
+                                          vertical: Gap.sm,
                                         ),
                                       ),
                                       onSubmitted: _addTags,
@@ -418,15 +415,16 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                                 ],
                               ),
                             ),
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(
-                                tagError ?? '每个标签至少两个字，不能包含空白',
-                                style: text.bodySmall?.copyWith(
-                                  color: tagError == null ? null : scheme.error,
+                            if (tagError case final error?)
+                              Padding(
+                                padding: const EdgeInsets.only(top: Gap.sm),
+                                child: Text(
+                                  error,
+                                  style: text.bodySmall?.copyWith(
+                                    color: scheme.error,
+                                  ),
                                 ),
                               ),
-                            ),
                             if (popular.isNotEmpty) ...[
                               const SizedBox(height: Gap.sm),
                               TagToggles(
@@ -468,15 +466,10 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                 ),
                 const Divider(height: 1),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+                  padding: const EdgeInsets.fromLTRB(20, Gap.md, 20, Gap.md),
                   child: Row(
                     children: [
-                      Expanded(
-                        child: Text(
-                          changed ? '关闭会暂存草稿' : '',
-                          style: text.bodySmall,
-                        ),
-                      ),
+                      const Spacer(),
                       if (changed)
                         TextButton(
                           onPressed: _discard,
@@ -715,7 +708,7 @@ class ScoreText extends StatelessWidget {
               TextSpan(
                 text: '$score',
                 style: const TextStyle(
-                  fontSize: 16,
+                  fontSize: FontSize.emphasis,
                   fontWeight: FontWeight.w700,
                   fontFeatures: [FontFeature.tabularFigures()],
                 ),
@@ -723,7 +716,7 @@ class ScoreText extends StatelessWidget {
               TextSpan(
                 text: ' ${scoreLabels[score]}',
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: FontSize.small,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
@@ -747,8 +740,8 @@ class TagToggles extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Wrap(
-    spacing: 6,
-    runSpacing: 6,
+    spacing: Gap.sm,
+    runSpacing: Gap.sm,
     children: [
       for (final tag in tags)
         FilterChip(

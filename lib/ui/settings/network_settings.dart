@@ -121,7 +121,7 @@ class _ProxyAddressState extends State<_ProxyAddress> {
   @override
   Widget build(BuildContext context) => SettingRow(
     title: '代理地址',
-    subtitle: saved ? '已保存，新的连接会使用这个地址' : null,
+    subtitle: saved ? '已保存' : null,
     trailing: SizedBox(
       width: 300,
       child: TextField(
@@ -197,6 +197,7 @@ class _ConnectivityState extends State<_Connectivity> {
           .length;
       int count(ProbeState state) =>
           targets.where((t) => results[t.id]?.state == state).length;
+      final route = check.proxy.describe();
       final failed = count(ProbeState.failed);
       final limited = count(ProbeState.limited);
       final groups = <String, List<ProbeTarget>>{};
@@ -211,7 +212,9 @@ class _ConnectivityState extends State<_Connectivity> {
         children: [
           SettingRow(
             title: '检查各项服务能否连接',
-            subtitle: '当前${check.proxy.describe()}',
+            // Only a proxy in use is worth a line; the proxy row above says
+            // the rest.
+            subtitle: route.startsWith('经由') ? '当前$route' : null,
             trailing: FilledButton.icon(
               onPressed: check.running ? null : check.runAll,
               icon: check.running
@@ -231,7 +234,7 @@ class _ConnectivityState extends State<_Connectivity> {
           ),
           if (results.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, Gap.md),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -333,7 +336,7 @@ class _ConnectivityState extends State<_Connectivity> {
         count: members.length,
         open: open,
         onTap: () => setState(() => _toggled[name] = !open),
-        padding: const EdgeInsets.fromLTRB(Gap.md, 8, Gap.md, 8),
+        padding: const EdgeInsets.fromLTRB(Gap.md, Gap.sm, Gap.md, Gap.sm),
         trailing: busy
             ? const SizedBox.square(
                 dimension: 14,
@@ -390,8 +393,8 @@ class _Tally extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      Icon(icon, size: 15, color: color),
-      const SizedBox(width: 3),
+      Icon(icon, size: 16, color: color),
+      const SizedBox(width: Gap.xs),
       Text(
         '$label $count',
         style: Theme.of(context).textTheme.bodySmall
@@ -408,7 +411,7 @@ class _ProbeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 30,
+    height: 32,
     child: Row(
       children: [
         Expanded(
@@ -447,7 +450,7 @@ class ProbeStatus extends StatelessWidget {
         accentOf(context).accent,
       ),
       ProbeState.limited => (
-        '${value!.elapsed!.inMilliseconds} ms · HTTP ${value.status}',
+        'HTTP ${value!.status}',
         Icons.warning_amber_rounded,
         gold,
       ),
@@ -464,7 +467,7 @@ class ProbeStatus extends StatelessWidget {
       );
     }
     final style = Theme.of(context).textTheme.bodySmall;
-    return Row(
+    final row = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (icon != null) ...[
@@ -484,5 +487,13 @@ class ProbeStatus extends StatelessWidget {
         ),
       ],
     );
+    // A limited service still answered; how fast shows on hover.
+    return switch (value) {
+      ProbeResult(state: ProbeState.limited, :final elapsed?) => Tooltip(
+        message: '${elapsed.inMilliseconds} ms',
+        child: row,
+      ),
+      _ => row,
+    };
   }
 }

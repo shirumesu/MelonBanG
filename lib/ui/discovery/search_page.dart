@@ -113,7 +113,7 @@ class _SearchPageState extends State<SearchPage> {
             else if (results.isEmpty && query.keyword.isEmpty)
               const EmptyState(text: '没有带这个标签的番剧')
             else if (results.isEmpty)
-              const EmptyState(text: '没有找到匹配的番剧，换个名称或别名试试')
+              const EmptyState(text: '没有找到匹配的番剧', detail: '可用原名或别名搜索')
             else
               PageSliver(
                 child: SubjectPosterGrid(
@@ -248,7 +248,6 @@ class _Filters extends StatelessWidget {
           summary: query.before
               ? '更早'
               : '$year年${query.month == null ? '' : '${query.month}月'}',
-          tooltip: '按放送时间筛选',
           sections: [
             MelonFilterSection([
               for (var y = now + 1; y > now - 10; y--)

@@ -66,7 +66,7 @@ class IqiyiDanmaku implements DanmakuSearch {
         subtitle: [
           ?album.year,
           if (album.total case final n?) '共 $n 集',
-        ].join(' · '),
+        ].join('  '),
         open: () async => [
           for (final row in await _episodes(album))
             DanmakuCandidate(title: row.name, locator: row.locator),

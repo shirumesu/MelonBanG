@@ -185,7 +185,7 @@ class _Renderer {
   }
 
   Widget _block(_Node node, TextStyle style) {
-    const gap = EdgeInsets.symmetric(vertical: 4);
+    const gap = EdgeInsets.symmetric(vertical: Gap.xs);
     Widget column(List<Widget> children) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: children,
@@ -216,7 +216,7 @@ class _Renderer {
         final quoted = style.copyWith(color: scheme.onSurfaceVariant);
         return Container(
           margin: gap,
-          padding: const EdgeInsets.fromLTRB(Gap.md, 6, Gap.sm, 6),
+          padding: const EdgeInsets.fromLTRB(Gap.md, Gap.sm, Gap.sm, Gap.sm),
           decoration: BoxDecoration(
             color: scheme.surfaceContainerLow,
             borderRadius: badgeBorderRadius,

@@ -105,8 +105,18 @@ class PlayCandidate {
       ? 'online:$provider:$line'
       : '$family:$line:${quality ?? ''}';
 
-  String get sourceLabel {
-    final label = providerLabel ?? provider;
-    return line.isEmpty ? label : '$label  $line';
-  }
+  /// The site listing this source.
+  String get site => providerLabel ?? provider;
+
+  /// The source without its site: the release group or line, then the
+  /// quality, two spaces apart; a line that is only a number reads 线路 N.
+  String get sourceName => [
+    if (line.isNotEmpty) int.tryParse(line) == null ? line : '线路 $line',
+    ?quality,
+  ].join('  ');
+
+  /// How the source is named everywhere it is shown: [sourceName], then
+  /// the [site].
+  String get sourceLabel =>
+      [if (sourceName.isNotEmpty) sourceName, site].join('  ');
 }

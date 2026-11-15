@@ -335,7 +335,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
 
   void _saveScore(int score) {
     if (_status == null) {
-      _nudgeStatus('先选择收藏状态，再评分');
+      _nudgeStatus('选择收藏状态后可评分');
       return;
     }
     if (_status == CollectionStatus.wish) {
@@ -357,7 +357,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
 
   Future<String?> _saveTags(List<String> tags) async {
     if (_status == null) {
-      _nudgeStatus('先选择收藏状态，再加标签');
+      _nudgeStatus('选择收藏状态后可加标签');
       return null;
     }
     try {
@@ -399,7 +399,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       setState(() {
         _undo = null;
         _nudge = null;
-        _feedback = CollectionDrafts.has(key) ? '已暂存草稿，下次打开编辑会恢复' : null;
+        _feedback = CollectionDrafts.has(key) ? '草稿已保存' : null;
       });
       return;
     }
@@ -759,7 +759,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                   Text(
                     scoreLabel(score),
                     style: const TextStyle(
-                      fontSize: 24,
+                      fontSize: FontSize.headline,
                       fontWeight: FontWeight.w700,
                       height: 1,
                       fontFeatures: [FontFeature.tabularFigures()],
@@ -800,7 +800,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                     ),
                   const SizedBox(height: Gap.sm),
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(99),
+                    borderRadius: pillBorderRadius,
                     child: MotionValue(
                       key: const PageStorageKey('watch-progress'),
                       value: total == 0 ? 0 : watched / total,
@@ -865,7 +865,10 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                   children: [
                     for (final share in const [1.0, .94, .58])
                       SkeletonLine(
-                        style: const TextStyle(fontSize: 13, height: 1.75),
+                        style: const TextStyle(
+                          fontSize: FontSize.body,
+                          height: 1.75,
+                        ),
                         widthFactor: share,
                         shown: skeleton,
                       ),
@@ -875,13 +878,19 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                   child: _summaryExpanded
                       ? Text(
                           summary,
-                          style: const TextStyle(fontSize: 13, height: 1.75),
+                          style: const TextStyle(
+                            fontSize: FontSize.body,
+                            height: 1.75,
+                          ),
                         )
                       : Text(
                           summary.replaceAll(RegExp(r'\s+'), ' '),
                           maxLines: 3,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 13, height: 1.75),
+                          style: const TextStyle(
+                            fontSize: FontSize.body,
+                            height: 1.75,
+                          ),
                         ),
                 ),
         ),
@@ -943,7 +952,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                   );
           },
         ),
-        const Divider(height: 28),
+        const Divider(height: Gap.xl),
         _episodeSection(episodes, next, skeleton: skeleton),
       ],
     );
@@ -1015,7 +1024,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           )
         else if (episodes.isEmpty)
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
+            padding: const EdgeInsets.symmetric(vertical: Gap.md),
             child: _failedPart('episodes')
                 ? _failure('剧集加载失败')
                 : const Text('暂无剧集信息'),
@@ -1040,7 +1049,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           ),
         if (_episodeError != null)
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: const EdgeInsets.only(top: Gap.sm),
             child: InlineIssue(_episodeError!),
           ),
       ],
@@ -1065,7 +1074,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             : CrossAxisAlignment.center,
         children: [
           Padding(
-            padding: EdgeInsets.only(top: top ? 8 : 0),
+            padding: EdgeInsets.only(top: top ? Gap.sm : 0),
             child: SizedBox(
               width: 34,
               child: Text(label, style: text.bodySmall),
@@ -1092,7 +1101,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                 TextButton.icon(
                   onPressed: _savingCollection ? null : () => _openDrawer(),
                   icon: const Icon(Icons.edit_outlined, size: 17),
-                  label: Text(draft ? '继续编辑' : '编辑'),
+                  label: const Text('编辑'),
                 ),
             ],
           ),
@@ -1160,7 +1169,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                     tags: _tags,
                     popular: item.tags.map((tag) => tag.name).take(16).toList(),
                     blocked: status == null,
-                    onBlocked: () => _nudgeStatus('先选择收藏状态，再加标签'),
+                    onBlocked: () => _nudgeStatus('选择收藏状态后可加标签'),
                     onSave: _saveTags,
                   ),
                 ],
@@ -1175,12 +1184,12 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                 child: InkWell(
                   borderRadius: controlBorderRadius,
                   onTap: () => status == null
-                      ? _nudgeStatus('先选择收藏状态，再写吐槽')
+                      ? _nudgeStatus('选择收藏状态后可写吐槽')
                       : _openDrawer(focusComment: true),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
+                      horizontal: Gap.md,
+                      vertical: Gap.sm,
                     ),
                     child: Text(
                       comment.isEmpty ? '写一句吐槽…' : comment,
@@ -1188,7 +1197,10 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                       overflow: TextOverflow.ellipsis,
                       style: comment.isEmpty
                           ? text.bodySmall
-                          : const TextStyle(fontSize: 12, height: 1.6),
+                          : const TextStyle(
+                              fontSize: FontSize.small,
+                              height: 1.6,
+                            ),
                     ),
                   ),
                 ),
@@ -1217,7 +1229,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       content = Row(
         children: [
           Icon(Icons.info_outline_rounded, size: 15, color: scheme.primary),
-          const SizedBox(width: 6),
+          const SizedBox(width: Gap.xs),
           Flexible(
             child: Text(_nudge!, style: small?.copyWith(color: scheme.primary)),
           ),
@@ -1228,12 +1240,12 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         _undo != null ||
         _completeOffer > 0) {
       content = Wrap(
-        spacing: 4,
+        spacing: Gap.xs,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           if (_savingCollection)
             const Padding(
-              padding: EdgeInsets.only(right: 4),
+              padding: EdgeInsets.only(right: Gap.xs),
               child: SizedBox.square(
                 dimension: 12,
                 child: CircularProgressIndicator(strokeWidth: 1.5),
@@ -1313,7 +1325,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             from: 0,
             milliseconds: 800,
             builder: (context, grown) => ClipRRect(
-              borderRadius: BorderRadius.circular(99),
+              borderRadius: pillBorderRadius,
               child: Align(
                 alignment: Alignment.centerLeft,
                 widthFactor: grown,
@@ -1342,7 +1354,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           const SizedBox(height: Gap.md),
           for (final MapEntry(:key, :value) in collectionLabels.entries)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
+              padding: const EdgeInsets.symmetric(vertical: Gap.xs),
               child: Row(
                 children: [
                   Container(
@@ -1355,13 +1367,15 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                   ),
                   const SizedBox(width: Gap.sm),
                   Expanded(
-                    child: Text(value, style: const TextStyle(fontSize: 12)),
+                    child: Text(
+                      value,
+                      style: const TextStyle(fontSize: FontSize.small),
+                    ),
                   ),
                   Text(
                     _thousands(stats[key] ?? 0),
                     style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                      fontSize: FontSize.small,
                       fontFeatures: tabular,
                     ),
                   ),
@@ -1395,7 +1409,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('作品资料', style: Theme.of(context).textTheme.titleMedium),
+          Text('作品资料', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: Gap.sm),
           AnimatedSize(
             duration: motionDuration(context, 280),
@@ -1405,7 +1419,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
               children: [
                 for (final row in shown)
                   Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3.5),
+                    padding: const EdgeInsets.symmetric(vertical: Gap.xs),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1416,7 +1430,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                               'subject-info:${item.id}:${row.key}',
                             ),
                             row.value,
-                            style: const TextStyle(fontSize: 12),
+                            style: const TextStyle(fontSize: FontSize.small),
                           ),
                         ),
                       ],
@@ -1534,9 +1548,9 @@ class _TagAdderState extends State<_TagAdder> {
     return MelonMenuAnchor(
       onClose: () => setState(() => error = null),
       menuChildren: [
-        // With the panel's own 5px, 12px around the field.
+        // With the menu's own 4px, 12px around the field.
         Padding(
-          padding: const EdgeInsets.all(7),
+          padding: const EdgeInsets.all(Gap.sm),
           child: SizedBox(
             width: 300,
             child: Column(
@@ -1564,7 +1578,7 @@ class _TagAdderState extends State<_TagAdder> {
                 if (widget.popular.isNotEmpty) ...[
                   const SizedBox(height: Gap.md),
                   Text('大家常用', style: small),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: Gap.sm),
                   TagToggles(
                     tags: widget.popular,
                     selected: widget.tags.toSet(),

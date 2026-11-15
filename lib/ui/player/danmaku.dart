@@ -377,7 +377,7 @@ class DanmakuSprite {
   TextPainter _layout(TextStyle style) => TextPainter(
     text: TextSpan(
       text: text,
-      style: style.copyWith(fontSize: fontSize, fontWeight: FontWeight.w600),
+      style: style.copyWith(fontSize: fontSize, fontWeight: FontWeight.w700),
     ),
     textDirection: TextDirection.ltr,
     maxLines: 1,

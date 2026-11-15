@@ -87,7 +87,7 @@ SettingsSection appearanceSection(
           range,
           (context) => SettingRow(
             title: '首页继续观看',
-            subtitle: '列出哪些在看的番：正在播出或这段时间播出过的',
+            subtitle: '按播出时间筛选首页的在追番剧',
             trailing: SizedBox(
               width: 252,
               child: MelonSegmentedControl<ContinueRange>(
@@ -107,7 +107,8 @@ SettingsSection appearanceSection(
           appearance,
           (context) => SettingRow(
             title: '容量单位',
-            subtitle: '文件大小和下载速度的单位：KiB 按 1024 进位，KB 按 1000 进位',
+            subtitle: '文件大小和下载速度的单位',
+            help: 'KiB 按 1024 进位，KB 按 1000 进位',
             trailing: SizedBox(
               width: 200,
               child: MelonSegmentedControl<ByteUnits>(
@@ -205,6 +206,7 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
     bool Function() value,
     Future<void> Function(bool) change, {
     String? subtitle,
+    String? help,
   }) => SettingsItem(
     '$title $keywords ${subtitle ?? ''}',
     _watch(
@@ -212,6 +214,7 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
       (context) => SettingSwitch(
         title: title,
         subtitle: subtitle,
+        help: help,
         value: value(),
         onChanged: change,
       ),
@@ -255,7 +258,8 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
           '跳过总集篇和特番',
           () => prefs.skipExtras,
           prefs.setSkipExtras,
-          subtitle: '自动连播、下一话和缓存下一话按标题跳过总集篇、放送特番和访谈；正片只在标题写明总集篇时跳过',
+          subtitle: '连播和缓存下一话时跳过总集篇、特番和访谈',
+          help: '正片只在标题写明总集篇时跳过',
         ),
         toggle(
           '看过 进度 标记',
@@ -266,17 +270,17 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
         ),
         toggle(
           'op 片头 跳过',
-          '自动跳过片头',
+          '自动跳过 OP',
           () => prefs.skipOpening,
           prefs.setSkipOpening,
-          subtitle: '视频内嵌章节标出 OP 时，播到片头直接跳到正片，跳过前 5 秒提示，可取消',
+          subtitle: '视频标有 OP 章节时自动跳过，跳过前提示',
         ),
         toggle(
           'ed 片尾 跳过',
-          '自动跳过片尾',
+          '自动跳过 ED',
           () => prefs.skipEnding,
           prefs.setSkipEnding,
-          subtitle: '视频内嵌章节标出 ED 时，播到片尾直接跳过，跳过前 5 秒提示，可取消',
+          subtitle: '视频标有 ED 章节时自动跳过，跳过前提示',
         ),
       ], title: '播放'),
       SettingsGroup([
@@ -350,7 +354,7 @@ SettingsSection sourcesSection(
             prefs,
             (context) => SettingSwitch(
               title: '记住每部番的来源',
-              subtitle: '再看这部番时优先用上次的站点线路或字幕组，优先于上面的全局顺序',
+              subtitle: '再看这部番时优先使用上次的线路或字幕组',
               value: prefs.rememberSource,
               onChanged: prefs.setRememberSource,
             ),
@@ -462,8 +466,10 @@ SettingsSection subscriptionSection(
             title: '关闭窗口时',
             subtitle: prefs.closeAction == null
                 ? '有订阅时，第一次关闭窗口会问一次'
-                : '留在后台时，新一话播出后会检查并缓存；从托盘（Mac 的菜单栏或程序坞）回到窗口或退出。'
-                      '没有订阅时关闭窗口就退出',
+                : '留在后台时继续检查并缓存订阅的新一话',
+            help:
+                '从托盘（Mac 的菜单栏或程序坞）回到窗口或退出\n'
+                '没有订阅时关闭窗口就退出',
             trailing: SizedBox(
               width: 200,
               child: MelonSegmentedControl<CloseAction>(
@@ -656,7 +662,7 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
         SettingsItem(
           '弹幕 屏蔽 关键词 正则 过滤',
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 12, 14),
+            padding: const EdgeInsets.fromLTRB(20, 12, 12, 12),
             child: DanmakuFilterEditor(preferences: prefs, heading: false),
           ),
         ),
@@ -697,7 +703,7 @@ SettingsSection shortcutsSection() => SettingsSection(
                 keys,
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w400,
                 ),
               ),
             ),
