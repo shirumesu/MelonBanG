@@ -623,7 +623,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
         : null;
     final released = aired(episode);
     final cached = playable != null;
-    final (background, foreground, border) = playing
+    final (background, foreground, outline) = playing
         ? (scheme.primary, scheme.onPrimary, null)
         : episode.watched
         ? (scheme.primaryContainer, scheme.onPrimaryContainer, null)
@@ -633,13 +633,11 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
             scheme.onSurfaceVariant.withValues(alpha: .6),
             null,
           )
-        : (
-            Colors.transparent,
-            scheme.onSurface,
-            cached
-                ? scheme.primary.withValues(alpha: .45)
-                : scheme.outlineVariant,
-          );
+        : (Colors.transparent, scheme.onSurface, scheme.outlineVariant);
+    // A cache shows as a green outline on any cell but the playing one.
+    final border = cached && !playing
+        ? scheme.primary.withValues(alpha: .45)
+        : outline;
     return MouseRegion(
       onEnter: (_) => setState(() => hovered = episode),
       onExit: (_) {
@@ -683,21 +681,6 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
                           child: EpisodeNumber(episode),
                         ),
                 ),
-                if (cached && !playing)
-                  Positioned(
-                    right: 5,
-                    top: 5,
-                    child: Container(
-                      width: 5,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: episode.watched
-                            ? scheme.onPrimaryContainer
-                            : scheme.primary,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
                 if (downloading != null && !playing)
                   Positioned(
                     left: 8,
@@ -781,11 +764,14 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
               item(box(scheme.primaryContainer), '已看'),
               item(
                 Container(
-                  width: 5,
-                  height: 5,
+                  width: 10,
+                  height: 10,
                   decoration: BoxDecoration(
-                    color: scheme.primary,
-                    shape: BoxShape.circle,
+                    borderRadius: BorderRadius.circular(3),
+                    border: Border.all(
+                      color: scheme.primary.withValues(alpha: .45),
+                      width: 1.5,
+                    ),
                   ),
                 ),
                 '已缓存',

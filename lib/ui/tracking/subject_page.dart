@@ -1026,6 +1026,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             nextId: next?.id,
             statusOf: _episodeStatus,
             aired: _aired,
+            cached: (episode) => _available(episode) ?? false,
             onSelect: widget.onOpenEpisode,
             onOpen: (episode) => widget.onFindResources(episode),
             onPlay: widget.onPlayEpisode,

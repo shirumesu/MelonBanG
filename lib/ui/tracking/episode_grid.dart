@@ -24,6 +24,7 @@ class EpisodeGrid extends StatefulWidget {
     required this.nextId,
     required this.statusOf,
     required this.aired,
+    required this.cached,
     required this.onSelect,
     required this.onOpen,
     required this.onPlay,
@@ -37,6 +38,9 @@ class EpisodeGrid extends StatefulWidget {
 
   final EpisodeStatus Function(Episode) statusOf;
   final bool Function(Episode) aired;
+
+  /// Whether the episode has a playable cache, shown as a green outline.
+  final bool Function(Episode) cached;
   final ValueChanged<Episode> onSelect, onOpen, onPlay;
   final void Function(List<Episode> episodes, EpisodeStatus status) onMark;
   final ValueChanged<Episode?> onHover;
@@ -260,7 +264,8 @@ class _EpisodeGridState extends State<EpisodeGrid> {
               : widget.statusOf(episode);
           final watched = status == EpisodeStatus.watched;
           final aired = widget.aired(episode);
-          final (background, foreground, border) = watched
+          final cached = widget.cached(episode);
+          final (background, foreground, outline) = watched
               ? (
                   scheme.primaryContainer,
                   scheme.onPrimaryContainer,
@@ -277,10 +282,14 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                   scheme.onSurfaceVariant.withValues(alpha: .45),
                   scheme.surfaceContainerHigh,
                 );
+          final border = cached
+              ? scheme.primary.withValues(alpha: .45)
+              : outline;
           return Semantics(
             button: true,
             label:
-                '${episode.placedLabel} ${watched ? '已看' : (aired ? '未看' : '未更新')}',
+                '${episode.placedLabel} ${watched ? '已看' : (aired ? '未看' : '未更新')}'
+                '${cached ? ' 已缓存' : ''}',
             onTap: () => widget.onSelect(episode),
             child: AnimatedContainer(
               duration: motionDuration(context, 120),
@@ -293,6 +302,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                   color: hovered == index && dragStatus == null
                       ? scheme.primary
                       : border,
+                  width: cached ? 1.5 : 1,
                 ),
               ),
               child: Center(
@@ -311,16 +321,18 @@ class _EpisodeGridState extends State<EpisodeGrid> {
           );
         }
 
-        Widget swatch(Color fill, Color border) => Container(
-          width: 12,
-          height: 12,
-          margin: const EdgeInsets.only(right: Gap.xs),
-          decoration: BoxDecoration(
-            color: fill,
-            borderRadius: badgeBorderRadius,
-            border: Border.all(color: border),
-          ),
-        );
+        Widget swatch(Color fill, Color border, {double width = 1}) =>
+            Container(
+              width: 12,
+              height: 12,
+              margin: const EdgeInsets.only(right: Gap.xs),
+              decoration: BoxDecoration(
+                color: fill,
+                borderRadius: badgeBorderRadius,
+                border: Border.all(color: border, width: width),
+              ),
+            );
+        final anyCached = widget.episodes.any(widget.cached);
         Widget legend(Widget mark, String text) =>
             Row(mainAxisSize: MainAxisSize.min, children: [mark, Text(text)]);
         final target = dragStatus == EpisodeStatus.watched ? '已看' : '未看';
@@ -438,6 +450,15 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                     ),
                     '未更新',
                   ),
+                  if (anyCached)
+                    legend(
+                      swatch(
+                        Colors.transparent,
+                        scheme.primary.withValues(alpha: .45),
+                        width: 1.5,
+                      ),
+                      '已缓存',
+                    ),
                   if (hint == null)
                     Tooltip(
                       message: '点击观看已缓存的一话，未缓存时选择资源\n长按标为已看，按住拖动可选多话\n右键查看更多操作',
