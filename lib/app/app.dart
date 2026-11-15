@@ -51,6 +51,7 @@ import '../ui/settings/settings_page.dart';
 import '../ui/settings/settings_sections.dart';
 import '../ui/settings/storage_settings.dart';
 import '../ui/settings/update_settings.dart';
+import '../ui/sources/bilibili_account.dart';
 import '../ui/sources/pikpak_account.dart';
 import '../ui/sources/sources_page.dart';
 import '../ui/subscriptions/subscription_dialogs.dart';
@@ -236,6 +237,22 @@ class _MelonAppState extends State<MelonApp>
           subjectId: subscription.subjectId,
         ),
       );
+      service.subscriptions.onCheckedAll = (found) {
+        if (found.isEmpty) return;
+        final lines = [
+          for (final MapEntry(key: subscription, value: text)
+              in found.entries.take(4))
+            '${subscription.title}：$text',
+          if (found.length > 4) '另有 ${found.length - 4} 部，在各自的订阅动态里',
+        ];
+        unawaited(
+          Background.notify(
+            '检查完 ${found.length} 部订阅',
+            lines.join('\n'),
+            subjectId: found.length == 1 ? found.keys.single.subjectId : null,
+          ),
+        );
+      };
       service.subscriptions.addListener(syncTray);
       downloads.active.addListener(syncTray);
       subscriptions.add(
@@ -685,6 +702,7 @@ class _MelonAppState extends State<MelonApp>
     icon.show(
       subscribed: subscriptions.subscriptions.length,
       caching: downloads.active.value,
+      checking: subscriptions.checkingAll,
     );
   }
 
@@ -1116,6 +1134,7 @@ class _MelonAppState extends State<MelonApp>
             : null,
         watchingCount: ready ? personal.watching.length : 0,
         attentionCount: ready ? service.subscriptions.attention : 0,
+        attentionFailed: ready && service.subscriptions.failing,
         downloadCount: count,
         onNavigate: navigate,
       );
@@ -1516,6 +1535,7 @@ class _MelonAppState extends State<MelonApp>
                 changeAccount(() => pikpak.signIn(username, password)),
             onLogout: () => changeAccount(pikpak.signOut),
           ),
+          bilibiliAccount: BilibiliAccountPanel(account: service.bilibili),
           onPlay: (stream) => coordinator.play(
             () async => service.library.online(stream),
             title: '在线视频',

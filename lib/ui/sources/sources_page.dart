@@ -26,6 +26,7 @@ class SourcesPage extends StatefulWidget {
     required this.danmaku,
     required this.connectivity,
     required this.pikpakAccount,
+    required this.bilibiliAccount,
     required this.onPlay,
     required this.onOpenUpdates,
   });
@@ -33,6 +34,9 @@ class SourcesPage extends StatefulWidget {
   final DanmakuController danmaku;
   final ConnectivityCheck connectivity;
   final Widget pikpakAccount;
+
+  /// The Bilibili sign-in, shown with the Bilibili video source and danmaku.
+  final Widget bilibiliAccount;
   final Future<void> Function(ResolvedStream) onPlay;
 
   /// Opens the app's update settings.
@@ -580,6 +584,10 @@ class _SourcesPageState extends State<SourcesPage> {
             ],
           ),
         ),
+        if (provider.id == 'bilibili') ...[
+          const SectionTitle(title: '账户', top: Gap.lg),
+          widget.bilibiliAccount,
+        ],
         if (sender) ...[
           const SectionTitle(title: '发送', top: Gap.lg),
           MelonPanel(
@@ -673,6 +681,10 @@ class _SourcesPageState extends State<SourcesPage> {
         if (instance == null) ...[
           const SectionTitle(title: '账户', top: Gap.lg),
           widget.pikpakAccount,
+        ],
+        if (instance?.engine == 'bilibili-web') ...[
+          const SectionTitle(title: '账户', top: Gap.lg),
+          widget.bilibiliAccount,
         ],
         if (instance?.kind == SourceKind.torrent) ..._torrentTrial(id),
         if (online) ...[

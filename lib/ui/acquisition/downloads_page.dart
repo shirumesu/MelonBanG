@@ -235,25 +235,31 @@ class _DownloadsPageState extends State<DownloadsPage> {
   (Widget, Widget)? _subscription(int id) {
     final subscription = widget.subscriptions.subscriptions[id];
     if (subscription == null) return null;
-    final (:text, :warn) = subscriptionStatus(
+    final (:text, :warn, :late) = subscriptionStatus(
       widget.subscriptions,
       subscription,
     );
     final scheme = Theme.of(context).colorScheme;
+    // An episode out late is something to know, in gold; failures in red.
+    final tone = !warn
+        ? null
+        : late
+        ? goldInk(Theme.of(context).brightness == Brightness.dark)
+        : scheme.error;
     return (
       Text(
         text,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: warn ? scheme.error : null,
+          color: tone,
           fontWeight: warn ? FontWeight.w600 : null,
         ),
       ),
       IconButton(
         tooltip: '订阅 · ${subscription.filter.label}',
         onPressed: () => _openSubscription(id),
-        color: warn ? scheme.error : scheme.primary,
+        color: tone ?? scheme.primary,
         icon: const Icon(Icons.notifications_active_rounded, size: 20),
       ),
     );

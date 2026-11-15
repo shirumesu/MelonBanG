@@ -72,18 +72,24 @@ class SubscribeButton extends StatelessWidget {
         );
       }
       final issue = controller.issueOf(subscription);
+      final scheme = Theme.of(context).colorScheme;
+      final dark = Theme.of(context).brightness == Brightness.dark;
       return Tooltip(
         message: issue?.text ?? '新一话播出后自动缓存 · ${subscription.filter.label}',
         child: FilledButton.tonalIcon(
           onPressed: open,
-          style: issue == null
-              ? null
-              : FilledButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.errorContainer,
-                  foregroundColor: Theme.of(context)
-                      .colorScheme
-                      .onErrorContainer,
-                ),
+          style: switch (issue) {
+            null => null,
+            // An episode out late is something to know, not a failure.
+            SubscriptionIssue(episode: _?) => FilledButton.styleFrom(
+              backgroundColor: goldPanel(dark),
+              foregroundColor: goldInk(dark),
+            ),
+            _ => FilledButton.styleFrom(
+              backgroundColor: scheme.errorContainer,
+              foregroundColor: scheme.onErrorContainer,
+            ),
+          },
           icon: const Icon(Icons.notifications_active_rounded, size: 18),
           label: Text(issue == null ? '已订阅' : issue.late ?? '订阅出错'),
         ),
@@ -93,8 +99,9 @@ class SubscribeButton extends StatelessWidget {
 }
 
 /// A subscription's state in a few words: when the next episode airs, what
-/// it waits for, or what needs the user, with [warn] set for the last.
-({String text, bool warn}) subscriptionStatus(
+/// it waits for, or what needs the user, with [warn] set for the last and
+/// [late] when that is an episode out later than usual, not a failure.
+({String text, bool warn, bool late}) subscriptionStatus(
   SubscriptionController controller,
   Subscription subscription,
 ) {
@@ -102,16 +109,24 @@ class SubscribeButton extends StatelessWidget {
     return (
       text: [?issue.episode?.label, issue.late ?? issue.text].join(' '),
       warn: true,
+      late: issue.episode != null,
     );
   }
-  if (subscription.finishedAt != null) return (text: '已完结 · 已订阅', warn: false);
+  if (subscription.finishedAt != null) {
+    return (text: '已完结 · 已订阅', warn: false, late: false);
+  }
   return switch (controller.nextOf(subscription)) {
     (_, final release?) when release.at.isAfter(DateTime.now()) => (
       text: '${releaseWhen(release).trim()} · 已订阅',
       warn: false,
+      late: false,
     ),
-    (final episode, _?) => (text: '${episode.label}等字幕组', warn: false),
-    _ => (text: '已订阅', warn: false),
+    (final episode, _?) => (
+      text: '${episode.label}等字幕组',
+      warn: false,
+      late: false,
+    ),
+    _ => (text: '已订阅', warn: false, late: false),
   };
 }
 
@@ -449,6 +464,12 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
     final issue = subscription == null
         ? null
         : widget.controller.issueOf(subscription);
+    // An episode out late is something to know, not a failure.
+    final late = issue?.episode != null;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final checking =
+        subscription != null &&
+        widget.controller.checking(subscription.subjectId);
     final offerWatching =
         widget.markWatching != MarkWatching.unavailable && !watching;
     final canMark = widget.markWatching == MarkWatching.available;
@@ -494,7 +515,17 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
       for (final record in records.values)
         if (groupsMatch(record.credits, preferred)) record,
     ];
-    final picked = smartGroups(records.values, preferred);
+    // The smart choice goes by files sure to meet the filter, as checks do.
+    final picked = smartGroups(
+      groupRecords(
+        subject: widget.subject,
+        filter: filter,
+        candidates: releases,
+        aired: widget.controller.airedAt,
+        stated: true,
+      ).values,
+      preferred,
+    );
     String lagOf(Iterable<GroupRecord> chosen) => [
       if (fastestLag(chosen) case final lag?) '播出后约 ${_span(lag)}',
       chosen.map((record) => record.name).join('、'),
@@ -693,7 +724,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
               const SizedBox(height: Gap.md),
               DecoratedBox(
                 decoration: BoxDecoration(
-                  color: scheme.errorContainer,
+                  color: late ? goldPanel(dark) : scheme.errorContainer,
                   borderRadius: controlBorderRadius,
                 ),
                 child: Padding(
@@ -705,7 +736,9 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                           issue.text,
                           style: TextStyle(
                             fontSize: 13,
-                            color: scheme.onErrorContainer,
+                            color: late
+                                ? goldInk(dark)
+                                : scheme.onErrorContainer,
                           ),
                         ),
                       ),
@@ -806,10 +839,39 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                 title: '在 Bangumi 标成在看',
                 subtitle: canMark ? null : 'Bangumi 同步暂停了，到 设置 › 账户与同步 处理',
               ),
-            if (subscription != null && subscription.events.isNotEmpty) ...[
-              const SizedBox(height: Gap.lg),
-              Text('订阅动态', style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: Gap.xs),
+            if (subscription != null) ...[
+              const SizedBox(height: Gap.md),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '订阅动态',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  Tooltip(
+                    message: '按已保存的筛选，现在就去资源站找一遍',
+                    child: TextButton.icon(
+                      onPressed: checking
+                          ? null
+                          : () => unawaited(
+                              widget.controller.checkOne(
+                                subscription.subjectId,
+                              ),
+                            ),
+                      icon: checking
+                          ? const SizedBox.square(
+                              dimension: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh_rounded, size: 18),
+                      label: Text(checking ? '正在检查' : '立即检查'),
+                    ),
+                  ),
+                ],
+              ),
+              if (subscription.events.isEmpty)
+                Text('还没有动态', style: small),
               for (final event in subscription.events.take(4))
                 Padding(
                   padding: const EdgeInsets.only(top: 2),

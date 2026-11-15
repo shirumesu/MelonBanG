@@ -78,6 +78,22 @@ class SubscriptionFilter {
     _ => null,
   };
 
+  /// Which of the quality and subtitles [info] fails, as `画质` or
+  /// `画质和字幕`, for a release [gaps] turns down.
+  String failing(
+    ResourceTitleInfo info,
+    ResourceTitleInfo Function(ResourceTitleInfo) subtitlesOf,
+  ) => [
+    if (resourceSelectionGaps(info, qualities: qualities) == null) '画质',
+    if (resourceSelectionGaps(
+          subtitlesOf(info),
+          languages: languages,
+          subtitleForms: forms,
+        ) ==
+        null)
+      '字幕',
+  ].join('和');
+
   SubscriptionFilter copyWith({
     Set<String>? groups,
     bool? preferred,

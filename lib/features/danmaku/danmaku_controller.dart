@@ -207,9 +207,19 @@ class DanmakuController extends ChangeNotifier {
         .where((episode) => episode.id == target!.episodeId)
         .firstOrNull;
     final names = {title, ...resourceNames(subject)};
+    // Uploads with few comments (under 200 is a few a minute), or naming
+    // only other episodes (第7话 while the second plays), add little to
+    // this one; an upload looked up by its own identifier stays.
+    bool idle(SourceSubject site) =>
+        site.choosePart &&
+        !site.direct &&
+        ((site.danmakuCount ?? minUploadComments) < minUploadComments ||
+            (episode != null && uploadNamesEpisode(site.title, episode) == 2));
     final kept = [
       for (final row in rows)
-        if (row.site == null || siteMatches(subject, episode, row.site!, names))
+        if (row.site == null ||
+            (siteMatches(subject, episode, row.site!, names) &&
+                !idle(row.site!)))
           row,
     ];
     // Uploads follow the other rows: first those whose titles name this
@@ -448,7 +458,8 @@ class DanmakuController extends ChangeNotifier {
   /// Linear multiway merge of the enabled sources' sorted lists. A comment
   /// with the same text, simplified/traditional spelling ignored, as one
   /// from another source within [copyWindow] seconds is a synced copy and
-  /// dropped; the kept comment shows the simplified spelling.
+  /// dropped; the kept comment shows the simplified spelling. Others
+  /// repeating it a moment apart, as viewers do at a big scene, stay.
   void _merge({DanmakuComment? sent}) {
     final lists = [
       for (final source in sources)
@@ -502,9 +513,14 @@ class DanmakuController extends ChangeNotifier {
     _refresh(sent: sent);
   }
 
-  /// Sources store times at different precision (Bahamut in tenths), so a
-  /// copy lands up to this far from its original.
-  static const copyWindow = .5;
+  /// Uploads with fewer comments are left out of the search rows.
+  static const minUploadComments = 200;
+
+  /// How far a synced copy lands from its original: none from Bahamut's
+  /// tenths, and up to half a hundredth where 弹弹play rounds Bilibili's
+  /// milliseconds to hundredths; a little more absorbs floating point.
+  /// Wider takes in viewers repeating a comment a moment later.
+  static const copyWindow = .006;
 
   /// Each comment's simplified spelling, kept across merges: converting
   /// thousands of comments again whenever a source loads or is switched

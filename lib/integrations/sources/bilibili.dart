@@ -3,12 +3,15 @@ import 'package:html/parser.dart' as html;
 import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../domain/sources.dart';
+import 'bilibili_account.dart';
 
-/// Bilibili web API as a guest: official seasons and uploader videos, played
-/// as the best available AVC video track with a separate AAC audio track.
+/// Bilibili web API, as the signed-in [account] or a guest: official seasons
+/// and uploader videos, played as the best available AVC video track with a
+/// separate AAC audio track.
 class BilibiliEngine implements OnlineSourceEngine {
-  BilibiliEngine(this.api, this.instance);
+  BilibiliEngine(this.api, this.instance, [this.account]);
   final ApiClient api;
+  final BilibiliAccount? account;
   @override
   final SourceInstance instance;
   String? _cookie;
@@ -19,6 +22,17 @@ class BilibiliEngine implements OnlineSourceEngine {
     'User-Agent': 'Mozilla/5.0',
   };
 
+  /// [mediaHeaders] with the guest's and the [account]'s cookies, for the
+  /// API; media files need none.
+  Map<String, String> get apiHeaders => {
+    ...mediaHeaders,
+    if ([?_cookie, ?account?.cookie] case final cookies when cookies.isNotEmpty)
+      'Cookie': cookies.join('; '),
+  };
+
+  /// Whether members-only episodes play: the account is 大会员.
+  bool get member => account?.vip ?? false;
+
   Future<Json> request(
     String path,
     Map<String, String> query, {
@@ -26,11 +40,7 @@ class BilibiliEngine implements OnlineSourceEngine {
   }) async {
     final uri = Uri.parse(currentBase)
         .replace(path: path, queryParameters: query);
-    final response = await api.send(
-      uri,
-      headers: {...mediaHeaders, 'Cookie': ?_cookie},
-      cancel: cancel,
-    );
+    final response = await api.send(uri, headers: apiHeaders, cancel: cancel);
     final value = object(await decodeJsonBytes(response.bodyBytes));
     if (value['code'] == -352 || value['code'] == -412) {
       throw SourceVerificationRequired('${instance.website}');
@@ -50,7 +60,7 @@ class BilibiliEngine implements OnlineSourceEngine {
 
   /// Null for a row missing its season. A dub is a season of its own, titled
   /// `… 中配版`; its line says so. Search rows badge each members-only
-  /// episode, which a guest cannot play.
+  /// episode, which plays for 大会员 only.
   SourceSubject? season(Json row, {bool direct = false}) {
     if (row['season_id'] == null) return null;
     final title = _text(row['title']);
@@ -65,11 +75,11 @@ class BilibiliEngine implements OnlineSourceEngine {
       id: 'ss${row['season_id']}',
       title: dub == null ? title : title.substring(0, dub.start),
       line: dub == null ? '官方番剧' : '官方番剧 · 中配',
-      description: members == 0
+      description: members == 0 || member
           ? null
           : free == 0
           ? '全部为大会员专享'
-          : '访客可看 $free 集，其余为大会员专享',
+          : '${account?.signedIn ?? false ? '' : '访客'}可看 $free 集，其余为大会员专享',
       year: switch (row['pubtime']) {
         final int timestamp => DateTime.fromMillisecondsSinceEpoch(
           timestamp * 1000,
@@ -209,9 +219,9 @@ class BilibiliEngine implements OnlineSourceEngine {
     return seasonEpisodes(subject, cancel: cancel);
   }
 
-  /// A season's episodes. Members-only ones (status 13) do not play for a
-  /// guest, so they are left out unless [members], as their comments still
-  /// load.
+  /// A season's episodes. Members-only ones (status 13) play for 大会员
+  /// only, so they are left out for others unless [members], as their
+  /// comments still load.
   Future<List<SourceEpisode>> seasonEpisodes(
     SourceSubject subject, {
     bool members = false,
@@ -225,7 +235,7 @@ class BilibiliEngine implements OnlineSourceEngine {
     return [
       for (final episode in objects(
         object(value['result'])['episodes'],
-      ).where((episode) => members || episode['status'] != 13))
+      ).where((episode) => members || member || episode['status'] != 13))
         SourceEpisode(
           label:
               '第${episode['title']}话 · ${episode['long_title']}${episode['badge'] == '' ? '' : ' · ${episode['badge']}'}',
@@ -235,6 +245,7 @@ class BilibiliEngine implements OnlineSourceEngine {
             'bvid': episode['bvid'],
             'cid': episode['cid'],
             'line': line,
+            'members': episode['status'] == 13,
             'url': '${instance.website}/bangumi/play/ep${episode['id']}',
           }),
         ),
@@ -247,20 +258,34 @@ class BilibiliEngine implements OnlineSourceEngine {
     RequestCancellation? cancel,
   }) async {
     await guest(cancel);
-    // The season player API caps guests at 480p; official free episodes play
-    // through the video player API, whose `try_look` lifts guests to 1080p.
-    final value = await request('/x/player/playurl', {
-      'bvid': '${ref.data['bvid']}',
-      'cid': '${ref.data['cid']}',
-      'fnval': '4048',
-      'qn': '80',
-      'fourk': '1',
-      'try_look': '1',
-    }, cancel: cancel);
+    // The season player API caps guests at 480p and gives others' members
+    // episodes as a preview; it plays members' episodes for 大会员. Others
+    // play through the video player API, whose `try_look` lifts guests to
+    // 1080p; an account gets what its membership allows on either.
+    final Json dash;
+    if (ref.data['members'] == true && member) {
+      final value = await request('/pgc/player/web/playurl', {
+        'ep_id': '${ref.data['epId']}',
+        'cid': '${ref.data['cid']}',
+        'fnval': '4048',
+        'qn': '120',
+        'fourk': '1',
+      }, cancel: cancel);
+      dash = object(object(value['result'])['dash']);
+    } else {
+      final value = await request('/x/player/playurl', {
+        'bvid': '${ref.data['bvid']}',
+        'cid': '${ref.data['cid']}',
+        'fnval': '4048',
+        'qn': '120',
+        'fourk': '1',
+        'try_look': '1',
+      }, cancel: cancel);
+      dash = object(object(value['data'])['dash']);
+    }
     final locator = ref.data['epId'] != null
         ? 'ep${ref.data['epId']}'
         : '${ref.data['bvid']}?p=${ref.data['page']}';
-    final dash = object(object(value['data'])['dash']);
     final videos =
         objects(dash['video'])
             .where((track) => _mediaUrls(track).isNotEmpty)

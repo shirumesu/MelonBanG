@@ -491,6 +491,7 @@ class AppSidebar extends StatelessWidget {
     this.watchingCount = 0,
     this.downloadCount = 0,
     this.attentionCount = 0,
+    this.attentionFailed = false,
     this.username,
     this.avatarUrl,
     this.selectedRoute,
@@ -505,8 +506,10 @@ class AppSidebar extends StatelessWidget {
   final String? selectedRoute;
   final int watchingCount, downloadCount;
 
-  /// Subscriptions waiting on the user, marked on 缓存 where they show.
+  /// Subscriptions waiting on the user, marked on 缓存 where they show:
+  /// in red when one of them failed, in gold when episodes are only late.
   final int attentionCount;
+  final bool attentionFailed;
   final bool sourcesWarning;
   final ValueChanged<String> onNavigate;
 
@@ -598,6 +601,7 @@ class AppSidebar extends StatelessWidget {
                   Icons.download_outlined,
                   downloadCount > 0 ? '$downloadCount' : null,
                   attentionCount > 0 ? '有订阅需要处理' : null,
+                  attentionFailed,
                 ),
                 const Spacer(),
                 _nav(
@@ -682,6 +686,9 @@ class AppSidebar extends StatelessWidget {
 
     /// What the dot marking something to deal with says; null for no dot.
     String? alert,
+
+    /// Whether the dot marks a failure, in red, or a notice, in gold.
+    bool failed = true,
   ]) {
     final selected = _selected == target;
     final accent = accentOf(context);
@@ -689,7 +696,7 @@ class AppSidebar extends StatelessWidget {
       width: 7,
       height: 7,
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.error,
+        color: failed ? Theme.of(context).colorScheme.error : gold,
         shape: BoxShape.circle,
       ),
     );

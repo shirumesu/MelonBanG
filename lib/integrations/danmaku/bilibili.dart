@@ -13,13 +13,14 @@ import '../../core/network.dart';
 import '../../domain/danmaku.dart';
 import '../../domain/sources.dart';
 import '../sources/bilibili.dart';
+import '../sources/bilibili_account.dart';
 import 'matching.dart';
 
 /// Bilibili: automatic matching takes official `media_bangumi` matches
 /// only; manual search is the resource search's, over official seasons and
 /// uploads. Locators are EP ids or BV ids with their part as `p`.
 class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
-  BilibiliDanmaku(this.api)
+  BilibiliDanmaku(this.api, [BilibiliAccount? account])
     : _engine = BilibiliEngine(
         api,
         SourceInstance(
@@ -31,6 +32,7 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
           website: 'https://www.bilibili.com',
           config: {},
         ),
+        account,
       );
   final ApiClient api;
   final BilibiliEngine _engine;
@@ -43,7 +45,7 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
   @override
   String get description =>
       '自动匹配番剧区的官方条目；也可以在播放器的弹幕页搜索番剧、投稿视频和合集，'
-      '或粘贴 EP、BV 号和播放链接。';
+      '或粘贴 EP、BV 号和播放链接。登录 B 站后读到的弹幕多得多。';
   @override
   String? get unconfigured => null;
 
@@ -316,21 +318,25 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
     } catch (_) {
       /* Segmented comments can remain available independently. */
     }
-    // Six-minute segments over the whole episode.
+    // Six-minute segments over the whole episode, two at a time: Bilibili
+    // turns away clients asking much faster. A guest gets a fraction of
+    // each; an account up to some ten thousand.
     try {
-      final segments = await fetchParts((duration / 360).ceil().clamp(1, 100), (
-        index,
-      ) async {
-        final response = await api.send(
-          Uri.https('api.bilibili.com', '/x/v2/dm/web/seg.so', {
-            'type': '1',
-            'oid': '$cid',
-            'segment_index': '${index + 1}',
-          }),
-          headers: _engine.mediaHeaders,
-        );
-        return compute(_parseSegment, response.bodyBytes);
-      });
+      final segments = await fetchParts(
+        (duration / 360).ceil().clamp(1, 100),
+        width: 2,
+        (index) async {
+          final response = await api.send(
+            Uri.https('api.bilibili.com', '/x/v2/dm/web/seg.so', {
+              'type': '1',
+              'oid': '$cid',
+              'segment_index': '${index + 1}',
+            }),
+            headers: _engine.apiHeaders,
+          );
+          return compute(_parseSegment, response.bodyBytes);
+        },
+      );
       for (final segment in segments) {
         comments.addAll(segment);
       }

@@ -15,13 +15,18 @@ class AppTray {
   tray.Menu? _menu;
   List<tray.MenuItem> _items = const [];
 
-  /// Shows the icon, or updates its menu: how many shows are [subscribed]
-  /// and how many cache tasks are [caching].
-  void show({required int subscribed, required int caching}) {
+  /// Shows the icon, or updates its menu: how many shows are [subscribed],
+  /// how many cache tasks are [caching], and whether a check of them all
+  /// the user asked for runs.
+  void show({
+    required int subscribed,
+    required int caching,
+    bool checking = false,
+  }) {
     // A desktop without a tray keeps the window's own way back.
     final icon = _icon ??= _create();
     if (icon == null) return;
-    final signature = '$subscribed:$caching';
+    final signature = '$subscribed:$caching:$checking';
     if (signature == _signature) return;
     final menu = tray.Menu.create();
     if (menu == null) return;
@@ -47,7 +52,11 @@ class AppTray {
     add('打开 MelonBanG', onOpen);
     menu.addSeparator();
     add('订阅了 $subscribed 部番');
-    add('立即检查更新', onCheck);
+    if (checking) {
+      add('正在检查更新…');
+    } else {
+      add('立即检查更新', onCheck);
+    }
     if (caching > 0) add('缓存中 $caching 个');
     menu.addSeparator();
     add('退出', onQuit);

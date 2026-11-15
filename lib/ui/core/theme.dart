@@ -86,6 +86,13 @@ Color badgeInk(Color tint, bool dark) =>
 /// 4.5:1 on a panel.
 Color coralInk(bool dark) => dark ? coral : const Color(0xffce3d59);
 
+/// Gold as text, for a notice that is not an error, such as an episode
+/// out later than usual: at the badges' lightness, so it reads on a panel.
+Color goldInk(bool dark) => badgeInk(gold, dark);
+
+/// The panel of a notice written in [goldInk].
+Color goldPanel(bool dark) => gold.withValues(alpha: dark ? .14 : .2);
+
 /// [a] mixed into [b] by [t] in OKLab, as CSS `color-mix(in oklab, …)`:
 /// the mix keeps a hue between the two instead of greying as sRGB does.
 Color mixOklab(Color a, Color b, double t) {

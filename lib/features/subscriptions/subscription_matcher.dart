@@ -88,6 +88,7 @@ List<ReleaseJudgement> judgeReleases({
               filter: filter,
               candidates: candidates,
               aired: aired ?? (_) => null,
+              stated: true,
             ).values,
             preferredGroups,
           ))
@@ -164,7 +165,9 @@ List<ReleaseJudgement> judgeReleases({
       judged.add(
         skip(
           Verdict.filtered,
-          gaps == null ? '不符合筛选' : '没写明${gaps.join('、')}',
+          gaps == null
+              ? '${filter.failing(info, subtitlesOf)}不符合筛选'
+              : '没写明${gaps.join('、')}',
           episode: episode,
         ),
       );
@@ -307,12 +310,16 @@ class GroupRecord {
 /// The groups releasing [candidates] of [subject] that meet [filter]'s
 /// quality and subtitles, by [groupKey] of their name; [aired] gives an
 /// episode's airing time when its hour is known. Batches and rebroadcasts
-/// say nothing of how a group follows the show.
+/// say nothing of how a group follows the show. With [stated], releases
+/// leaving part of the quality or subtitles unstated count for nothing, as
+/// the smart choice takes a group for files it can be sure meet the filter:
+/// raws stating no subtitles would otherwise win it on speed alone.
 Map<String, GroupRecord> groupRecords({
   required Subject subject,
   required SubscriptionFilter filter,
   required Iterable<ReleaseCandidate> candidates,
   required DateTime? Function(Episode) aired,
+  bool stated = false,
 }) {
   final records = <String, GroupRecord>{};
   final described = [
@@ -332,7 +339,8 @@ Map<String, GroupRecord> groupRecords({
     if (info.batch || releaseRebroadcast(release.title)) continue;
     final episode = releaseEpisode(subject, info);
     if (episode == null) continue;
-    if (filter.gaps(info, subtitlesOf) == null) continue;
+    final gaps = filter.gaps(info, subtitlesOf);
+    if (gaps == null || (stated && gaps.isNotEmpty)) continue;
     // A bare date says nothing about the hour.
     final raw = release.publishedAt ?? '';
     final published = raw.length > 10 ? releasePublished(raw) : null;

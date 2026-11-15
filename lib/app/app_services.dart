@@ -45,6 +45,7 @@ import '../integrations/danmaku/bilibili.dart';
 import '../integrations/danmaku/dandanplay.dart';
 import '../integrations/danmaku/melon.dart';
 import '../integrations/melon_api/source_rules.dart';
+import '../integrations/sources/bilibili_account.dart';
 import '../integrations/sources/engines.dart';
 import '../integrations/transfer/libtorrent.dart';
 import '../integrations/transfer/online.dart';
@@ -85,6 +86,9 @@ class AppServices {
   late final DownloadRepository downloads;
   late final LibtorrentTransfer bt;
   late final PikPakTransfer pikpakTransfer;
+
+  /// The Bilibili account the Bilibili video source and danmaku read as.
+  late final BilibiliAccount bilibili;
   late final ReleaseSearch releases;
   late final SubscriptionController subscriptions;
   late final DanmakuController danmaku;
@@ -160,6 +164,9 @@ class AppServices {
     tracking = TrackingRepository(store, account, catalog);
     community = BangumiPrivateClient(account);
     _dispose.add(tracking.close);
+    bilibili = BilibiliAccount(api, credentials);
+    await bilibili.initialize();
+    _dispose.add(() async => bilibili.dispose());
     final pikpak = PikPakClient(credentials);
     _dispose.add(() async => pikpak.close());
     await pikpak.initialize();
@@ -188,7 +195,7 @@ class AppServices {
           signedIn: () => account.profile != null,
         ),
         DandanplayDanmaku(api, configuration),
-        BilibiliDanmaku(api),
+        BilibiliDanmaku(api, bilibili),
         BahamutDanmaku(api),
         TencentDanmaku(api),
         IqiyiDanmaku(api),
@@ -199,7 +206,7 @@ class AppServices {
       api,
       preferences,
       SourceRulesClient(api),
-      sourceEngines(api),
+      sourceEngines(api, bilibili: bilibili),
     );
     _dispose.add(() async => sources.dispose());
     await sources.initialize();

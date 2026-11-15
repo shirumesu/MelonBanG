@@ -319,27 +319,28 @@ int? episodeLength(Subject subject, Episode? episode) =>
 
 /// How an upload's title places [episode]: 0 when it names the episode or a
 /// range holding it (`第3集`, `EP03`, `1-12`, `全12集`), 2 when it names only
-/// other episodes, 1 when it names none, as fan works seldom do.
+/// other episodes, 1 when it names none, as fan works seldom do. A sequel's
+/// episode may go by its number across seasons too.
 int uploadNamesEpisode(String title, Episode episode) {
   final text = simplifiedChinese(title).toUpperCase();
-  final number = episode.sort;
+  final numbers = {episode.sort, ?episode.absolute};
   var other = false;
   for (final match in RegExp(
     r'(\d{1,3})\s*[-–~～至到]\s*(\d{1,3})\s*(?:[集话\]】)）])',
   ).allMatches(text)) {
-    if (number >= int.parse(match[1]!) && number <= int.parse(match[2]!)) {
-      return 0;
-    }
+    final from = int.parse(match[1]!), to = int.parse(match[2]!);
+    if (numbers.any((number) => number >= from && number <= to)) return 0;
     other = true;
   }
   for (final match in RegExp(r'全\s*(\d{1,3})\s*[集话]').allMatches(text)) {
-    if (number <= int.parse(match[1]!)) return 0;
+    final total = int.parse(match[1]!);
+    if (numbers.any((number) => number <= total)) return 0;
     other = true;
   }
   for (final match in RegExp(
     r'第\s*(\d{1,3})\s*[集话]|(?<![A-Z])EP\s*(\d{1,3})(?!\d)',
   ).allMatches(text)) {
-    if (double.parse(match[1] ?? match[2]!) == number) return 0;
+    if (numbers.contains(double.parse(match[1] ?? match[2]!))) return 0;
     other = true;
   }
   return other ? 2 : 1;

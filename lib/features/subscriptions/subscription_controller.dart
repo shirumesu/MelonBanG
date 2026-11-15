@@ -86,6 +86,10 @@ class SubscriptionController extends ChangeNotifier {
   /// Announces a subscription ending by itself, and why.
   void Function(Subscription subscription, String reason)? onEnded;
 
+  /// Announces what a check of every subscription the user asked for
+  /// found, by subscription.
+  void Function(Map<Subscription, String> found)? onCheckedAll;
+
   static const _scope = 'subscriptions';
 
   /// By subject id.
@@ -93,6 +97,14 @@ class SubscriptionController extends ChangeNotifier {
 
   /// Subjects being checked now.
   final _checking = <int>{};
+
+  /// Subjects whose next check the user asked for; it notes what it found.
+  final _asked = <int>{};
+
+  /// A check of every subscription the user asked for: those still to be
+  /// checked, and what the others found.
+  Set<int>? _roundLeft;
+  final _roundFound = <Subscription, String>{};
 
   /// Each show's broadcasts in the coming week's schedule.
   Map<int, List<DateTime>> airings = {};
@@ -125,10 +137,47 @@ class SubscriptionController extends ChangeNotifier {
     unawaited(_refreshSchedule().whenComplete(_tick));
   }
 
-  /// Checks every subscription now.
+  /// Checks every subscription now, one after another; each notes what it
+  /// found, and [onCheckedAll] tells once all are done.
   void checkNow() {
-    _soon.addAll(subscriptions.keys);
+    final ids = [
+      for (final subscription in subscriptions.values)
+        if (subscription.finishedAt == null) subscription.subjectId,
+    ];
+    if (ids.isEmpty) return;
+    (_roundLeft ??= {}).addAll(ids);
+    _asked.addAll(ids);
+    _soon.addAll(ids);
+    notifyListeners();
     unawaited(_pump());
+  }
+
+  /// Checks the subscription of [id] now, ahead of the others, noting what
+  /// it found.
+  Future<void> checkOne(int id) async {
+    if (!subscriptions.containsKey(id)) return;
+    _asked.add(id);
+    _soon.remove(id);
+    await check(id);
+  }
+
+  /// Whether the subscription of [id] is being checked now.
+  bool checking(int id) => _checking.contains(id);
+
+  /// Whether a check of every subscription the user asked for runs.
+  bool get checkingAll => _roundLeft != null;
+
+  /// Counts [subscription] done in the check of every one, with what it
+  /// [found]; the last announces them all.
+  void _settleRound(Subscription subscription, String? found) {
+    final left = _roundLeft;
+    if (left == null || !left.remove(subscription.subjectId)) return;
+    if (found != null) _roundFound[subscription] = found;
+    if (left.isNotEmpty) return;
+    final all = Map.of(_roundFound);
+    _roundLeft = null;
+    _roundFound.clear();
+    onCheckedAll?.call(all);
   }
 
   /// The detail with episodes of [id], loaded once an hour.
@@ -435,11 +484,21 @@ class SubscriptionController extends ChangeNotifier {
       .where((subscription) => issueOf(subscription) != null)
       .length;
 
+  /// Whether a subscription needs the user for a failure, not only for an
+  /// episode out late.
+  bool get failing => subscriptions.values.any(
+    (subscription) => switch (issueOf(subscription)) {
+      SubscriptionIssue(episode: null) => true,
+      _ => false,
+    },
+  );
+
   /// Searches [subscription]'s show once and caches what it judges new.
   Future<void> check(int id) async {
     final subscription = subscriptions[id];
     if (subscription == null || !_checking.add(id)) return;
     notifyListeners();
+    String? found;
     try {
       // Restored tasks tell which episodes are cached already.
       await downloads.ready;
@@ -457,22 +516,80 @@ class SubscriptionController extends ChangeNotifier {
       if (!identical(subscriptions[id], subscription)) return;
       subscription.failures = 0;
       subscription.issue = null;
-      await _apply(subscription, subject, result.candidates);
+      final judged = await _apply(subscription, subject, result.candidates);
+      if (_asked.remove(id)) {
+        found = _found(subscription, subject, judged);
+        subscription.note('检查了一遍：$found');
+      }
     } catch (e) {
       subscription.failures++;
       // A site down for a while is common; three failures in a row show.
       if (subscription.failures >= 3) {
         subscription.issue = '检查更新失败：${errorMessage(e)}';
       }
+      if (_asked.remove(id)) {
+        found = '检查失败：${errorMessage(e)}';
+        subscription.note(found, kind: SubscriptionEventKind.failed);
+      }
     } finally {
       subscription.checkedAt = DateTime.now();
       _checking.remove(id);
       if (subscriptions[id] == subscription) await _save(subscription);
+      _settleRound(subscription, found);
       notifyListeners();
     }
   }
 
-  Future<void> _apply(
+  /// What a check the user asked for found, in a few words: what it began
+  /// caching, or why the episode waited for has no file yet, as
+  /// `第 7 话找到 4 个文件，都不符合筛选：不符合筛选 3 个、合集 1 个`.
+  String _found(
+    Subscription subscription,
+    Subject subject,
+    List<ReleaseJudgement> judged,
+  ) {
+    final started = [
+      for (final judgement in judged)
+        if (judgement.download) ?judgement.episode,
+    ]..sort((a, b) => a.sort.compareTo(b.sort));
+    if (started.isNotEmpty) return '开始缓存${episodeRange(started)}';
+    final now = DateTime.now();
+    final waiting = [
+      for (final episode in _pendingEpisodes(subscription, subject))
+        if (!(releaseOf(episode)?.at.isAfter(now) ?? true)) episode,
+    ];
+    if (waiting.isEmpty) {
+      return switch (nextOf(subscription)) {
+        (final episode, _) => '没有新的剧集，在等${episode.label}播出',
+        _ => '没有新的剧集',
+      };
+    }
+    final episode = waiting.first;
+    final files = [
+      for (final judgement in judged)
+        if ((judgement.episode ?? releaseEpisode(subject, judgement.info))
+                ?.id ==
+            episode.id)
+          judgement,
+    ];
+    if (files.isEmpty) return '${episode.label}还没有字幕组发布';
+    final reasons = <String, int>{};
+    for (final judgement in files) {
+      final reason = switch (judgement.verdict) {
+        Verdict.unclear => '没写清字幕或画质',
+        _ => judgement.reason,
+      };
+      reasons[reason] = (reasons[reason] ?? 0) + 1;
+    }
+    final why = [
+      for (final MapEntry(key: reason, value: count) in reasons.entries)
+        files.length == 1 ? reason : '$reason $count 个',
+    ].join('、');
+    return '${episode.label}找到 ${files.length} 个文件，'
+        '${files.length == 1 ? '' : '都'}没有选：$why';
+  }
+
+  Future<List<ReleaseJudgement>> _apply(
     Subscription subscription,
     Subject subject,
     List<ReleaseCandidate> candidates,
@@ -508,7 +625,7 @@ class SubscriptionController extends ChangeNotifier {
     );
     for (final judgement in judged) {
       if (!identical(subscriptions[subscription.subjectId], subscription)) {
-        return;
+        return judged;
       }
       final episode = judgement.episode;
       if (judgement.download && episode != null) {
@@ -565,6 +682,7 @@ class SubscriptionController extends ChangeNotifier {
       }
     }
     _checkFinished(subscription, subject);
+    return judged;
   }
 
   /// Marks [subscription] finished once every episode has aired and is
@@ -770,8 +888,11 @@ class SubscriptionController extends ChangeNotifier {
 
   /// Ends the subscription of [id]; what it cached stays.
   Future<void> unsubscribe(int id) async {
-    if (subscriptions.remove(id) == null) return;
+    final subscription = subscriptions.remove(id);
+    if (subscription == null) return;
     _soon.remove(id);
+    _asked.remove(id);
+    _settleRound(subscription, null);
     await store.remove(_scope, '$id');
     notifyListeners();
   }

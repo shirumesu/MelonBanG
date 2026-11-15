@@ -1520,7 +1520,7 @@ class _HeroEpisode extends StatelessWidget {
       _ when resumed != null => (watch.remaining, scheme.primary),
       _ when subscription?.lateEpisode == episode.id => (
         subscription!.late,
-        scheme.error,
+        goldInk(Theme.of(context).brightness == Brightness.dark),
       ),
       _ when !aired => (
         [
@@ -1642,7 +1642,9 @@ class _QueueRowState extends State<_QueueRow> {
           ?watch.episodes.where((e) => e.id == id).firstOrNull?.label,
           late,
         ].join(' '),
-        style: small.copyWith(color: scheme.error),
+        style: small.copyWith(
+          color: goldInk(Theme.of(context).brightness == Brightness.dark),
+        ),
       ),
       _ when watch.ready && watch.resumed != null => Text(
         watch.remaining,
