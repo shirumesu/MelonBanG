@@ -159,6 +159,7 @@ class Subscription {
     this.failures = 0,
     this.issue,
     this.paused = false,
+    this.adopted = false,
     Map<int, LedgerEntry>? ledger,
     List<SubscriptionEvent>? events,
     Set<String>? seen,
@@ -181,6 +182,8 @@ class Subscription {
     failures: number(value['failures']).toInt(),
     issue: value['issue'] as String?,
     paused: value['paused'] == true,
+    // Before this was saved, only one from another device could be paused.
+    adopted: value['adopted'] == true || value['paused'] == true,
     ledger: {
       for (final entry in object(value['ledger']).entries)
         ?int.tryParse(entry.key): LedgerEntry.fromJson(object(entry.value)),
@@ -221,8 +224,13 @@ class Subscription {
   String? issue;
 
   /// Kept without caching on this device: a subscription another device
-  /// synced here, until the user lets this one cache it too.
+  /// synced here while this one only syncs them, or one the user stopped
+  /// caching here.
   bool paused;
+
+  /// Made on another device and synced here: what this device does with it
+  /// follows the subscription sync setting.
+  final bool adopted;
 
   /// The release cached for each episode, by Bangumi episode id.
   final Map<int, LedgerEntry> ledger;
@@ -252,6 +260,7 @@ class Subscription {
     'failures': failures,
     'issue': issue,
     'paused': paused,
+    'adopted': adopted,
     'ledger': {
       for (final entry in ledger.entries) '${entry.key}': entry.value.toJson(),
     },
@@ -265,7 +274,7 @@ class Subscription {
   };
 
   /// What other devices learn of this subscription: the show and the filter.
-  /// The book, the events and [paused] belong to this device.
+  /// The book, the events, [paused] and [adopted] belong to this device.
   Json get synced => {
     'title': title,
     'coverUrl': coverUrl,

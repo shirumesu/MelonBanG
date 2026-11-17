@@ -51,6 +51,10 @@ abstract interface class SyncPart {
   /// for this device's, null to ask the user.
   bool? preferRemote(SettingConflict conflict);
 
+  /// Reads what [label] and [describe] need for [conflicts] before the
+  /// user is asked, such as the titles of the shows they are about.
+  Future<void> prepare(List<SettingConflict> conflicts);
+
   /// What a conflicting value is called, and how its values read.
   String label(SettingConflict conflict);
   String describe(SettingConflict conflict, Object? value);
@@ -78,15 +82,13 @@ class SettingsPart implements SyncPart {
   @override
   bool? preferRemote(SettingConflict conflict) => null;
   @override
+  Future<void> prepare(List<SettingConflict> conflicts) async {}
+  @override
   String label(SettingConflict conflict) =>
       settings.labelOf(conflict.key, conflict.field);
   @override
-  String describe(SettingConflict conflict, Object? value) {
-    final setting = settings.declaration(conflict.key);
-    return setting == null || conflict.field != null
-        ? describeValue(value)
-        : setting.describe(value);
-  }
+  String describe(SettingConflict conflict, Object? value) =>
+      settings.describe(conflict.key, conflict.field, value);
 }
 
 /// Keeps the synced settings (and, when turned on, the subscriptions and
@@ -204,10 +206,13 @@ class SettingsSync extends ChangeNotifier {
   /// Turns [part] on again after it was off: what this device and the cloud
   /// agreed on back then no longer holds, so its keys merge as on a first
   /// sync, keeping what either side has rather than removing anything.
-  Future<void> forgetBaseOf(SyncPart part) async {
+  Future<void> forgetBaseOf(SyncPart part) => forgetBase(part.owns);
+
+  /// [forgetBaseOf] for the [keys] alone.
+  Future<void> forgetBase(bool Function(String key) keys) async {
     final base = _base;
     if (base == null) return;
-    final data = _map(base['data'])..removeWhere((key, _) => part.owns(key));
+    final data = _map(base['data'])..removeWhere((key, _) => keys(key));
     // Without the revision the next sync reads the whole cloud copy: the
     // base no longer is it, so an unchanged answer would lose the part.
     await settings.set(baseSetting, {
@@ -382,6 +387,12 @@ class SettingsSync extends ChangeNotifier {
         ],
       );
       if (merge.conflicts.isNotEmpty) {
+        for (final part in parts) {
+          await part.prepare([
+            for (final conflict in merge.conflicts)
+              if (part.owns(conflict.key)) conflict,
+          ]);
+        }
         _pending = (merge: merge, remote: remote);
         return;
       }

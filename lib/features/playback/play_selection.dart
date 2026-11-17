@@ -73,15 +73,19 @@ class PlaySelectionRepository {
   final rememberedChanges = StreamController<void>.broadcast(sync: true);
 
   /// Takes the source another device remembered for [subjectId], or
-  /// forgets it for null.
-  Future<void> adoptRemembered(int subjectId, Json? value) async {
+  /// forgets it for null; [updated] is when it was played there.
+  Future<void> adoptRemembered(
+    int subjectId,
+    Json? value, {
+    DateTime? updated,
+  }) async {
     if (value == null) {
       _remembered[subjectId] = null;
       await store.remove(_rememberedScope, '$subjectId');
       return;
     }
     _remembered[subjectId] = RememberedSource.fromJson(value);
-    await store.put(_rememberedScope, '$subjectId', value);
+    await store.put(_rememberedScope, '$subjectId', value, updated: updated);
   }
 
   /// Cached files, online entries and torrents for [episode], or for the

@@ -262,8 +262,6 @@ class _MelonAppState extends State<MelonApp>
       // sync takes it up.
       service.sync.onFailed = (message) =>
           showError('设置已保存在这台设备，但没能同步到云端：$message');
-      service.librarySync.onArrived = (arrived) =>
-          unawaited(askSynced(arrived));
       subscriptions.add(
         service.tracking.changes.stream.listen((_) {
           if (!mounted) return;
@@ -296,17 +294,6 @@ class _MelonAppState extends State<MelonApp>
 
   void servicesChanged() {
     if (mounted && !closing) setState(() {});
-  }
-
-  /// Asks whether subscriptions synced from another device cache here.
-  Future<void> askSynced(List<Subscription> arrived) async {
-    final target = navigation.currentState?.overlay?.context;
-    if (target == null || closing) return;
-    final cache = await askSyncedSubscriptions(target, arrived);
-    if (cache != true) return;
-    await service.subscriptions.setPaused([
-      for (final subscription in arrived) subscription.subjectId,
-    ], false);
   }
 
   /// The conflicts last asked about, so one waiting choice asks only once;
@@ -1256,6 +1243,9 @@ class _MelonAppState extends State<MelonApp>
     accountSection(
       personal: personal,
       sync: service.sync,
+      library: service.librarySync,
+      onSubscriptionSync: (value) =>
+          perform(() => service.librarySync.setSubscriptionSync(value)),
       pikpak: service.pikpakTransfer,
       bilibili: service.bilibili,
       onAccountAction: () => perform(personal.toggleAccount),

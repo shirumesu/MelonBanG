@@ -220,6 +220,17 @@ class AppServices {
     );
     _dispose.add(() async => sources.dispose());
     await sources.initialize();
+    // Sync conflicts name a source as the Sources page does; one no longer
+    // offered keeps its id.
+    settings.sourceName = (id) =>
+        [
+          for (final instance in sources.instances)
+            if (instance.id == id) instance.name,
+          for (final provider in danmaku.repository.matchers)
+            if (provider.id == id) provider.label,
+          if (id == 'pikpak') 'PikPak',
+        ].firstOrNull ??
+        id;
     connectivity = ConnectivityCheck(sources, proxy);
     final support = (await getApplicationSupportDirectory()).path;
     final folders = <String>[];
@@ -310,6 +321,7 @@ class AppServices {
       accountChanges: account.changes,
       parts: [librarySync],
     );
+    librarySync.forgetBase = sync.forgetBase;
     _dispose.add(() async => sync.dispose());
     tracking.start();
     await subscriptions.start();

@@ -43,7 +43,7 @@ class SourceRegistry extends ChangeNotifier {
     'source-enabled-',
     (key) => BoolSetting(key, true, sync: SettingSync.synced),
     sync: SettingSync.synced,
-    label: (id) => '数据源 › $id',
+    label: (id, name) => '数据源 › ${name(id)}',
   );
 
   /// The rule snapshot last downloaded and its ETag: a cache.

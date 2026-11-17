@@ -847,7 +847,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                       ),
               ),
             ),
-            if (earlier.isNotEmpty || offerWatching)
+            if (earlier.isNotEmpty || offerWatching || subscription != null)
               const SizedBox(height: Gap.sm),
             if (earlier.isNotEmpty)
               check(
@@ -866,6 +866,17 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                 title: '在 Bangumi 标成在看',
                 subtitle: canMark ? null : 'Bangumi 同步已暂停，可在 设置 › 账户与同步 中恢复',
               ),
+            // Per device and applied at once: the subscription itself, and
+            // whether other devices cache it, stay as they are.
+            if (subscription != null)
+              check(
+                value: !subscription.paused,
+                onChanged: (value) => unawaited(
+                  widget.controller.setPaused([subscription.subjectId], !value),
+                ),
+                title: '这台设备缓存新一话',
+                subtitle: subscription.paused ? '订阅仍在各设备间同步，只是这台不下载' : null,
+              ),
             if (subscription != null) ...[
               const SizedBox(height: Gap.md),
               Row(
@@ -876,20 +887,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                   ),
-                  if (subscription.paused)
-                    Tooltip(
-                      message: '来自其他设备的订阅，本机尚未缓存',
-                      child: TextButton.icon(
-                        onPressed: () => unawaited(
-                          widget.controller.setPaused([
-                            subscription.subjectId,
-                          ], false),
-                        ),
-                        icon: const Icon(Icons.download_rounded, size: 18),
-                        label: const Text('这台设备也缓存'),
-                      ),
-                    )
-                  else
+                  if (!subscription.paused)
                     Tooltip(
                       message: '立即查找新剧集',
                       child: TextButton.icon(
@@ -1088,51 +1086,6 @@ Future<CloseAction?> askCloseAction(
         autofocus: true,
         onPressed: () => Navigator.pop(context, CloseAction.background),
         child: const Text('留在后台'),
-      ),
-    ],
-  ),
-);
-
-/// Asks whether this device also caches the subscriptions [arrived] from
-/// another device, or only keeps them; true to cache.
-Future<bool?> askSyncedSubscriptions(
-  BuildContext context,
-  List<Subscription> arrived,
-) => showMelonDialog<bool>(
-  context: context,
-  builder: (context) => AlertDialog(
-    title: Text('从其他设备同步来 ${arrived.length} 部订阅'),
-    content: SizedBox(
-      width: 420,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            [
-              for (final subscription in arrived.take(5)) subscription.title,
-              if (arrived.length > 5) '等 ${arrived.length} 部',
-            ].join('、'),
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: Gap.md),
-          const Text(
-            '本机也缓存时，按订阅筛选缓存新一话，已看过的集除外。'
-            '只保留订阅则本机不下载，之后可在订阅窗口中开启',
-            style: TextStyle(fontSize: FontSize.body, height: 1.6),
-          ),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context, false),
-        child: const Text('只保留订阅'),
-      ),
-      FilledButton(
-        autofocus: true,
-        onPressed: () => Navigator.pop(context, true),
-        child: const Text('这台设备也缓存'),
       ),
     ],
   ),

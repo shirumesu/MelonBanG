@@ -5,6 +5,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/error_message.dart';
 import '../../domain/sources.dart';
+import '../../features/sync/library_sync.dart';
 import '../../features/sync/settings_sync.dart';
 import '../../features/tracking/tracking_controller.dart';
 import '../../integrations/sources/bilibili_account.dart';
@@ -14,6 +15,7 @@ import '../core/action_feedback.dart';
 import '../core/external_link.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
+import '../core/selection_controls.dart';
 import '../core/theme.dart';
 import 'settings_page.dart';
 import 'sync_conflicts.dart';
@@ -24,6 +26,8 @@ import 'sync_conflicts.dart';
 SettingsSection accountSection({
   required TrackingController personal,
   required SettingsSync sync,
+  required LibrarySync library,
+  required Future<void> Function(SubscriptionSync value) onSubscriptionSync,
   required PikPakTransfer pikpak,
   required BilibiliAccount bilibili,
   required VoidCallback onAccountAction,
@@ -49,6 +53,35 @@ SettingsSection accountSection({
       SettingsItem(
         '设置同步 云端 多设备 同步 冲突 上传 下载 订阅 来源 弹幕匹配 播放记录',
         _SyncRow(sync: sync),
+      ),
+      SettingsItem(
+        '订阅同步 其他设备 临时 不缓存 只同步 同步并缓存 下载',
+        _watch(
+          library.settings,
+          (context) => SettingRow(
+            title: '订阅同步',
+            subtitle: switch (library.subscriptionSync) {
+              SubscriptionSync.off => '这台设备的订阅只留在本机，也不显示其他设备的订阅',
+              SubscriptionSync.keep => '其他设备的订阅在这里显示，新一话不下载',
+              SubscriptionSync.cache => '其他设备的订阅在这里也缓存新一话',
+            },
+            help:
+                '只对这台设备生效，其他设备的订阅不受影响\n'
+                '在这台设备上订阅的番照常缓存；某部番也可在订阅窗口中单独开关缓存',
+            trailing: SizedBox(
+              width: 300,
+              child: MelonSegmentedControl<SubscriptionSync>(
+                semanticLabel: '订阅同步',
+                options: {
+                  for (final value in SubscriptionSync.values)
+                    value: value.label,
+                },
+                value: library.subscriptionSync,
+                onChanged: (value) => unawaited(onSubscriptionSync(value)),
+              ),
+            ),
+          ),
+        ),
       ),
     ]),
     SettingsGroup([

@@ -50,33 +50,29 @@ class _ConflictDialogState extends State<_ConflictDialog> {
                   children: [
                     for (final (index, conflict) in conflicts.indexed) ...[
                       if (index > 0) const Divider(height: Gap.xl),
-                      Row(
+                      // The values get the full width: a source or a list
+                      // of switched-off sources is longer than the name.
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Expanded(
-                            child: Text(
-                              sync.labelOf(conflict),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                          Text(
+                            sync.labelOf(conflict),
+                            style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
-                          const SizedBox(width: Gap.lg),
-                          SizedBox(
-                            width: 300,
-                            child: MelonSegmentedControl<bool>(
-                              semanticLabel: sync.labelOf(conflict),
-                              options: {
-                                false:
-                                    '本机：${sync.describe(conflict, conflict.local)}',
-                                true:
-                                    '云端：${sync.describe(conflict, conflict.remote)}',
-                              },
-                              value: remote.contains(conflict.id),
-                              onChanged: (cloud) => setState(
-                                () => cloud
-                                    ? remote.add(conflict.id)
-                                    : remote.remove(conflict.id),
-                              ),
+                          const SizedBox(height: Gap.sm),
+                          MelonSegmentedControl<bool>(
+                            semanticLabel: sync.labelOf(conflict),
+                            options: {
+                              false:
+                                  '本机：${sync.describe(conflict, conflict.local)}',
+                              true:
+                                  '云端：${sync.describe(conflict, conflict.remote)}',
+                            },
+                            value: remote.contains(conflict.id),
+                            onChanged: (cloud) => setState(
+                              () => cloud
+                                  ? remote.add(conflict.id)
+                                  : remote.remove(conflict.id),
                             ),
                           ),
                         ],

@@ -73,7 +73,22 @@ class DanmakuPreferences extends ChangeNotifier {
       'sendColor': '弹幕 › 发送颜色',
       'providers': '数据源 › 弹幕来源开关',
     },
+    fieldDescriptions: {'providers': describeProviders},
   );
+
+  /// The danmaku sources switched off in a saved `providers` map; a source
+  /// not in it is on.
+  static String describeProviders(
+    Object? value,
+    String Function(String id) sourceName,
+  ) {
+    final off = [
+      for (final MapEntry(:key, :value) in object(value).entries)
+        if (value == false) sourceName(key),
+    ];
+    return off.isEmpty ? '全部开启' : '关闭 ${off.join('、')}';
+  }
+
   static const filtersSetting = JsonSetting(
     'danmaku-filters',
     fallback: <Object?>[],

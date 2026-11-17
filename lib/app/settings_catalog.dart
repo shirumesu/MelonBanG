@@ -52,6 +52,7 @@ const List<Setting<Object?>> settingsCatalog = [
   SettingsSync.enabledSetting,
   SettingsSync.baseSetting,
   LibrarySync.joinedSetting,
+  LibrarySync.subscriptionsSetting,
 ];
 
 /// Settings named by an id: one switch per source, one place per file.

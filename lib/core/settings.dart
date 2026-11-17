@@ -256,11 +256,16 @@ class JsonSetting extends Setting<Object?> {
     String? label,
     this.localFields = const {},
     this.fieldLabels = const {},
+    this.fieldDescriptions = const {},
   }) : super(key, fallback, sync: sync, label: label);
   final Set<String> localFields;
 
   /// Names of an object's fields for the conflict dialog, by field.
   final Map<String, String> fieldLabels;
+
+  /// How a field's value reads in the conflict dialog, for fields that
+  /// [describeValue] cannot put in words; given [Settings.sourceName].
+  final Map<String, FieldDescription> fieldDescriptions;
 
   @override
   Object? read(SharedPreferences storage) {
@@ -304,6 +309,11 @@ class JsonSetting extends Setting<Object?> {
   }
 }
 
+typedef FieldDescription = String Function(
+  Object? value,
+  String Function(String id) sourceName,
+);
+
 /// Settings named by a prefix and an id, one per source or episode:
 /// `source-enabled-<id>`.
 class SettingFamily<T> {
@@ -312,8 +322,10 @@ class SettingFamily<T> {
   final Setting<T> Function(String key) make;
   final SettingSync sync;
 
-  /// What the member [id] is called in a sync conflict.
-  final String Function(String id)? label;
+  /// What the member [id] is called in a sync conflict, given
+  /// [Settings.sourceName].
+  final String Function(String id, String Function(String id) sourceName)?
+  label;
 
   Setting<T> of(String id) => make('$prefix$id');
 
@@ -339,6 +351,11 @@ class Settings extends ChangeNotifier {
   }
 
   final SharedPreferences storage;
+
+  /// The name of a video or danmaku source by its id, for a sync conflict
+  /// about it; set by the app once the sources are built.
+  late String Function(String id) sourceName;
+
   final Map<String, Setting<Object?>> _settings;
   final List<SettingFamily<Object?>> _families;
 
@@ -453,7 +470,7 @@ class Settings extends ChangeNotifier {
   /// changed, for a sync conflict.
   String labelOf(String key, [String? field]) {
     if (familyOf(key) case final family?) {
-      return family.label?.call(family.idOf(key)!) ?? key;
+      return family.label?.call(family.idOf(key)!, sourceName) ?? key;
     }
     final setting = _settings[key];
     if (field != null && setting is JsonSetting) {
@@ -461,6 +478,19 @@ class Settings extends ChangeNotifier {
     }
     final name = setting?.label ?? key;
     return field == null ? name : '$name › $field';
+  }
+
+  /// How [value] of [key] (and its [field], for an object) reads in a sync
+  /// conflict.
+  String describe(String key, String? field, Object? value) {
+    final setting = declaration(key);
+    if (field == null) return setting?.describe(value) ?? describeValue(value);
+    if (setting is JsonSetting) {
+      if (setting.fieldDescriptions[field] case final description?) {
+        return description(value, sourceName);
+      }
+    }
+    return describeValue(value);
   }
 
   @override

@@ -752,12 +752,7 @@ class SubscriptionController extends ChangeNotifier {
       return;
     }
     if (preferences.autoUnsubscribe != AutoUnsubscribe.unwatched) return;
-    final Map<int, DateTime> played;
-    try {
-      played = await library.playedSubjects();
-    } catch (_) {
-      return;
-    }
+    final played = await library.playedSubjects();
     final limit = DateTime.now().subtract(const Duration(days: 21));
     for (final subscription in subscriptions.values.toList()) {
       final last = played[subscription.subjectId];
@@ -925,13 +920,12 @@ class SubscriptionController extends ChangeNotifier {
   };
 
   /// Takes a subscription made or changed on another device, by its
-  /// [Subscription.synced] value; a new one starts [paused] here until the
-  /// user lets this device cache it. Null [value] ends it here too, keeping
-  /// what it cached. Returns whether it was new here.
-  Future<bool> adopt(int id, Json? value) async {
+  /// [Subscription.synced] value; a new one caches here only with [cache].
+  /// Null [value] ends it here too, keeping what it cached.
+  Future<void> adopt(int id, Json? value, {required bool cache}) async {
     if (value == null) {
       await unsubscribe(id, edit: false);
-      return false;
+      return;
     }
     final filter = SubscriptionFilter.fromJson(object(value['filter']));
     final existing = subscriptions[id];
@@ -949,7 +943,7 @@ class SubscriptionController extends ChangeNotifier {
       }
       await _save(existing);
       notifyListeners();
-      return false;
+      return;
     }
     final subscription = Subscription(
       subjectId: id,
@@ -959,13 +953,31 @@ class SubscriptionController extends ChangeNotifier {
       createdAt:
           DateTime.tryParse('${value['createdAt']}')?.toLocal() ??
           DateTime.now(),
-      paused: true,
+      paused: !cache,
+      adopted: true,
     );
-    subscription.note('从其他设备同步：${filter.label}');
+    subscription.note('从其他设备同步：${filter.label}${cache ? '' : '，这台设备不缓存'}');
     subscriptions[id] = subscription;
     await _save(subscription);
     notifyListeners();
-    return true;
+    if (cache) {
+      _soon.add(id);
+      unawaited(_pump());
+    }
+  }
+
+  /// The subscriptions synced here from other devices.
+  Iterable<int> get adoptedIds => [
+    for (final subscription in subscriptions.values)
+      if (subscription.adopted) subscription.subjectId,
+  ];
+
+  /// Ends here every subscription synced from another device, keeping what
+  /// it cached; the other devices keep them.
+  Future<void> dropAdopted() async {
+    for (final id in adoptedIds.toList()) {
+      await unsubscribe(id, edit: false);
+    }
   }
 
   /// Lets this device cache the subscriptions of [ids] too, or stops it.
