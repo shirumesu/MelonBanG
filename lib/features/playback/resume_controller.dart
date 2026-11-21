@@ -87,19 +87,15 @@ class ResumeController extends ChangeNotifier {
   ];
 
   /// Requests, one at a time, the details of watched subjects with none
-  /// saved or with an episode still to air. One that fails keeps what was
-  /// saved; a newer refresh takes over.
+  /// saved or still airing. Every listed episode having aired is not
+  /// enough: an airing show often lists only those so far, fewer than its
+  /// episode count. One that fails keeps what was saved; a newer refresh
+  /// takes over.
   Future<void> _loadAiring(int ticket) async {
     final now = DateTime.now();
     for (final id in await _watchingIds()) {
       final saved = watching[id];
-      if (saved != null &&
-          saved.episodes.isNotEmpty &&
-          saved.episodes.every(
-            (e) => !e.main || (e.aired?.isBefore(now) ?? false),
-          )) {
-        continue;
-      }
+      if (saved != null && saved.finished(now: now)) continue;
       final Subject detail;
       try {
         detail = await tracking.withProgress(

@@ -9,11 +9,17 @@ import '../core/store.dart';
 import 'bangumi/subjects.dart';
 import 'melon_api/source_rules.dart' show melonApiOrigin;
 
-/// The locally cached full or playback detail of a subject, without a request.
+/// The locally cached full or playback detail of a subject, whichever was
+/// saved last, without a request. The detail page refreshes one and playback
+/// and the home page the other, so either may hold the newer episode list.
 Future<Json?> cachedSubjectDetail(AppStore store, int id) async {
-  final cached =
-      await store.get('catalog', 'detail:$id') ??
-      await store.get('catalog', 'playback-detail:$id');
+  final full = await store.get('catalog', 'detail:$id');
+  final playback = await store.get('catalog', 'playback-detail:$id');
+  final cached = switch ((full, playback)) {
+    (final a?, final b?) =>
+      number(a['savedAt']) >= number(b['savedAt']) ? a : b,
+    (final a, final b) => a ?? b,
+  };
   return cached == null ? null : object(object(cached['value'])['data']);
 }
 
@@ -408,12 +414,22 @@ class CatalogRepository implements Catalog {
             publish();
           }
         }),
-        part('aliases', () async {
-          final response = await api.json(
-            Uri.parse('$melonApiOrigin/v1/subjects/$id/aliases'),
-          );
-          parts['aliases'] = object(response)['data'];
-        }),
+        // Other names only add search terms, so Bangumi's detail stands
+        // without them: a Melon API outage must not leave a show unplayable
+        // or its subscription unchecked. Failed, they stay pending, which
+        // the resource search tells, and come with the next refresh.
+        () async {
+          try {
+            final response = await api.json(
+              Uri.parse('$melonApiOrigin/v1/subjects/$id/aliases'),
+            );
+            parts['aliases'] = object(response)['data'];
+            pending.remove('aliases');
+          } on Exception {
+            // Left pending, as above.
+          }
+          publish();
+        }(),
         if (!forPlayback) ...[
           part('characters', () async {
             parts['characters'] = await bangumi.characters(id);
@@ -426,7 +442,11 @@ class CatalogRepository implements Catalog {
     } finally {
       await published;
     }
-    return {...base!, ...parts};
+    return {
+      ...base!,
+      ...parts,
+      if (pending.isNotEmpty) '_pending': [...pending],
+    };
   }
 
   Subject _subject(int id, dynamic value) =>

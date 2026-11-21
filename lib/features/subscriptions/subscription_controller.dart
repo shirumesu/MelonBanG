@@ -264,7 +264,13 @@ class SubscriptionController extends ChangeNotifier {
         final now = DateTime.now();
         final due = <(Subscription, DateTime)>[
           for (final subscription in subscriptions.values)
-            if (subscription.finishedAt == null && !subscription.paused)
+            // One checked by hand now is left to that check, which wakes
+            // this once done: checking it here would return at once, and
+            // with nothing else due the loop would spin on microtasks and
+            // starve the very check it waits for.
+            if (subscription.finishedAt == null &&
+                !subscription.paused &&
+                !_checking.contains(subscription.subjectId))
               if (_soon.contains(subscription.subjectId))
                 (subscription, DateTime(0))
               else if (_nextCheck(subscription) case final at?
@@ -380,19 +386,14 @@ class SubscriptionController extends ChangeNotifier {
   /// The cache task of each episode of [subject], a finished one first;
   /// kept for each subject until the tasks change.
   Map<int, DownloadTask> _cachesOf(Subject subject) {
-    if (_cachesRevision != downloads.revision) {
-      _cachesRevision = downloads.revision;
-      _caches.clear();
-      _tasks = null;
-    }
+    final tasks = _snapshot();
     // The subject as loaded says which files are which episodes.
     if (_caches[subject.id] case (final known, final found)
         when identical(known, subject)) {
       return found;
     }
     final found = <int, DownloadTask>{};
-    _tasks ??= downloads.snapshot();
-    for (final task in _tasks!.forSubject(subject.id)) {
+    for (final task in tasks.forSubject(subject.id)) {
       for (final id in {?task.episodeId, ...episodeFiles(subject, task).keys}) {
         if (found[id] == null || (!found[id]!.complete && task.complete)) {
           found[id] = task;
@@ -401,6 +402,16 @@ class SubscriptionController extends ChangeNotifier {
     }
     _caches[subject.id] = (subject, found);
     return found;
+  }
+
+  /// The download tasks, taken again once they change.
+  TransferSnapshot _snapshot() {
+    if (_cachesRevision != downloads.revision) {
+      _cachesRevision = downloads.revision;
+      _caches.clear();
+      _tasks = null;
+    }
+    return _tasks ??= downloads.snapshot();
   }
 
   int? _cachesRevision;
@@ -464,12 +475,31 @@ class SubscriptionController extends ChangeNotifier {
     ];
   }
 
-  /// What [subscription] needs from the user: a failure, or an episode no
-  /// matching release came out for a day after it aired.
+  /// What [subscription] needs from the user: a failure, a cache that
+  /// failed, or an episode no matching release came out for a day after it
+  /// aired.
   SubscriptionIssue? issueOf(Subscription subscription) {
     if (subscription.finishedAt != null || subscription.paused) return null;
     if (subscription.issue case final issue?) return SubscriptionIssue(issue);
     final subject = _details[subscription.subjectId];
+    // A failed cache still holds its episode, so no other release is chosen
+    // for it: another would mostly fail alike (PikPak signed out, a full
+    // disk), and the downloads page retries this one.
+    final tasks = _snapshot();
+    for (final MapEntry(key: id, value: entry)
+        in subscription.ledger.entries) {
+      if (entry.taskId case final taskId?) {
+        if (tasks.task(taskId) case final task?
+            when task.status == DownloadStatus.failed) {
+          final label = subject?.episode(id)?.label ?? '一集';
+          return SubscriptionIssue(
+            '$label缓存失败'
+            '${task.errorMessage == null ? '' : '：${task.errorMessage}'}'
+            '，可在下载页重试',
+          );
+        }
+      }
+    }
     if (subject == null) return null;
     final now = DateTime.now();
     final since = subscription.createdAt.subtract(const Duration(days: 1));
@@ -522,13 +552,18 @@ class SubscriptionController extends ChangeNotifier {
       )) {
         throw StateError('资源站都没有响应，稍后会再试');
       }
-      // Ended while the sites answered: nothing more is cached for it.
-      if (!identical(subscriptions[id], subscription)) return;
+      // Ended, or stopped caching here, while the sites answered: nothing
+      // more is cached for it.
+      if (!_caching(subscription)) return;
       subscription.failures = 0;
       subscription.issue = null;
-      final judged = await _apply(subscription, subject, result.candidates);
+      final (:judged, :started) = await _apply(
+        subscription,
+        subject,
+        result.candidates,
+      );
       if (_asked.remove(id)) {
-        found = _found(subscription, subject, judged);
+        found = _found(subscription, subject, judged, started);
         subscription.note(found);
       }
     } catch (e) {
@@ -547,22 +582,36 @@ class SubscriptionController extends ChangeNotifier {
       if (subscriptions[id] == subscription) await _save(subscription);
       _settleRound(subscription, found);
       notifyListeners();
+      // The queue leaves a subscription to a check by hand; one asked for
+      // again meanwhile is checked now.
+      unawaited(_pump());
     }
   }
 
+  /// Whether [subscription] still caches here: neither ended nor paused
+  /// since a check of it began.
+  bool _caching(Subscription subscription) =>
+      identical(subscriptions[subscription.subjectId], subscription) &&
+      !subscription.paused;
+
   /// What a check the user asked for found, in a few words: what it began
-  /// caching, or why the episode waited for has no file yet, as
+  /// caching of the [started] episodes and why one could not, or why the
+  /// episode waited for has no file yet, as
   /// `第 7 话找到 4 个文件，都不符合筛选：不符合筛选 3 个、合集 1 个`.
   String _found(
     Subscription subscription,
     Subject subject,
     List<ReleaseJudgement> judged,
+    List<Episode> started,
   ) {
-    final started = [
-      for (final judgement in judged)
-        if (judgement.download) ?judgement.episode,
-    ]..sort((a, b) => a.sort.compareTo(b.sort));
-    if (started.isNotEmpty) return '开始缓存${episodeRange(started)}';
+    final ordered = [...started]..sort((a, b) => a.sort.compareTo(b.sort));
+    // The check cleared the issue before caching, so one now tells why an
+    // episode it chose did not start.
+    final cached = [
+      if (ordered.isNotEmpty) '开始缓存${episodeRange(ordered)}',
+      ?subscription.issue,
+    ];
+    if (cached.isNotEmpty) return cached.join('，');
     final now = DateTime.now();
     final waiting = [
       for (final episode in _pendingEpisodes(subscription, subject))
@@ -599,7 +648,10 @@ class SubscriptionController extends ChangeNotifier {
         '${files.length == 1 ? '' : '都'}没有选：$why';
   }
 
-  Future<List<ReleaseJudgement>> _apply(
+  /// Judges [candidates] for [subscription] and caches the releases chosen,
+  /// noting the rest; returns the judgements and the episodes whose cache
+  /// did start, which a failed one is not.
+  Future<({List<ReleaseJudgement> judged, List<Episode> started})> _apply(
     Subscription subscription,
     Subject subject,
     List<ReleaseCandidate> candidates,
@@ -645,10 +697,11 @@ class SubscriptionController extends ChangeNotifier {
       }
     }
 
+    final started = <Episode>[];
     for (final judgement in judged) {
-      if (!identical(subscriptions[subscription.subjectId], subscription)) {
+      if (!_caching(subscription)) {
         noteSkipped();
-        return judged;
+        return (judged: judged, started: started);
       }
       final episode = judgement.episode;
       if (judgement.download && episode != null) {
@@ -668,6 +721,7 @@ class SubscriptionController extends ChangeNotifier {
             replaces: judgement.replaces ? previous?.taskId : null,
             revision: releaseRevision(title),
           );
+          started.add(episode);
           subscription.judged(judgement.identity);
           final info = judgement.info;
           final group = info.sourceGroups.isNotEmpty
@@ -708,7 +762,7 @@ class SubscriptionController extends ChangeNotifier {
     }
     noteSkipped();
     _checkFinished(subscription, subject);
-    return judged;
+    return (judged: judged, started: started);
   }
 
   /// Marks [subscription] finished once every episode has aired and is
@@ -733,6 +787,11 @@ class SubscriptionController extends ChangeNotifier {
     }
     subscription.finishedAt = now;
     subscription.note('已完结，全部剧集已缓存');
+    // Finished by a cache ending, it is checked no more, and a check of
+    // every one waits for it no more; a check finishing it settles itself.
+    if (!_checking.contains(subscription.subjectId)) {
+      _settleRound(subscription, null);
+    }
     if (preferences.autoUnsubscribe == AutoUnsubscribe.finished) {
       unawaited(_end(subscription, '已完结，全部剧集已缓存'));
     }
@@ -768,6 +827,27 @@ class SubscriptionController extends ChangeNotifier {
     onEnded?.call(subscription, reason);
   }
 
+  /// Deletes the older version of [label] that a better one replaced once
+  /// it cached, noting whether that worked: one in use by a player stays,
+  /// and the downloads page can delete it later.
+  Future<void> _removeReplaced(
+    Subscription subscription,
+    String old,
+    String label,
+  ) async {
+    try {
+      await downloads.remove(old);
+      subscription.note('已删除$label的旧版本');
+    } catch (e) {
+      subscription.note('$label的旧版本没能删除：${errorMessage(e)}');
+    }
+    if (_closed) return;
+    if (subscriptions[subscription.subjectId] == subscription) {
+      await _save(subscription);
+    }
+    notifyListeners();
+  }
+
   void _downloadsChanged(TransferSnapshot snapshot) {
     var any = false;
     for (final subscription in subscriptions.values.toList()) {
@@ -786,8 +866,9 @@ class SubscriptionController extends ChangeNotifier {
         );
         onCached?.call(subscription, episode);
         if (entry.replaces case final old? when snapshot.task(old) != null) {
-          unawaited(downloads.remove(old).catchError((Object _) {}));
-          subscription.note('已删除${episode?.label ?? '这一集'}的旧版本');
+          unawaited(
+            _removeReplaced(subscription, old, episode?.label ?? '这一集'),
+          );
         }
       }
       if (!changed) continue;
@@ -800,8 +881,23 @@ class SubscriptionController extends ChangeNotifier {
         unawaited(_save(subscription));
       }
     }
+    // A cache failing, or retried, changes what [issueOf] tells.
+    final failed = {
+      for (final subscription in subscriptions.values)
+        for (final entry in subscription.ledger.values)
+          if (entry.taskId case final id?
+              when snapshot.task(id)?.status == DownloadStatus.failed)
+            id,
+    };
+    if (!setEquals(failed, _failedCaches)) {
+      _failedCaches = failed;
+      any = true;
+    }
     if (any) notifyListeners();
   }
+
+  /// The subscriptions' cache tasks that failed, as last seen.
+  var _failedCaches = <String>{};
 
   /// Subscribes to [subject] with [filter], or changes its subscription
   /// to it, keeping what it cached; the next subscription starts from the
@@ -987,8 +1083,16 @@ class SubscriptionController extends ChangeNotifier {
       if (subscription == null || subscription.paused == paused) continue;
       subscription.paused = paused;
       subscription.note(paused ? '这台设备不缓存新一话' : '这台设备也开始缓存');
+      if (paused) {
+        // Checked no more, as if ended here: a check of it that began stops
+        // before caching, and a check of every one waits for it no more.
+        _soon.remove(id);
+        _asked.remove(id);
+        _settleRound(subscription, null);
+      } else {
+        _soon.add(id);
+      }
       await _save(subscription);
-      if (!paused) _soon.add(id);
     }
     notifyListeners();
     unawaited(_pump());

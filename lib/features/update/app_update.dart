@@ -66,6 +66,12 @@ class AppUpdate extends ChangeNotifier {
   /// Whether alpha and beta versions are offered; off by default.
   bool get beta => settings.get(betaSetting);
 
+  /// Whether [version] belongs to the channel chosen now. A prerelease found,
+  /// downloaded or waiting from before leaving the beta channel never
+  /// installs.
+  bool _onChannel(String version) =>
+      beta || !SemanticVersion.parse(version).prerelease;
+
   Future<void> setAutoCheck(bool value) async {
     await settings.set(autoCheckSetting, value);
     notifyListeners();
@@ -81,10 +87,10 @@ class AppUpdate extends ChangeNotifier {
   Future<void> setBeta(bool value) async {
     await settings.set(betaSetting, value);
     // Leaving the beta channel drops a downloaded prerelease, which would
-    // otherwise still install on exit.
-    if (!value &&
-        phase == UpdatePhase.ready &&
-        (readyVersion?.contains('-') ?? false)) {
+    // otherwise still install on exit. One still being checked for or
+    // downloaded is dropped when that finishes, since check returns early
+    // meanwhile.
+    if (phase == UpdatePhase.ready && !_onChannel(readyVersion!)) {
       try {
         if (await _pending.exists()) await _pending.delete(recursive: true);
       } on FileSystemException {
@@ -138,8 +144,11 @@ class AppUpdate extends ChangeNotifier {
         final pending = SemanticVersion.tryParse(
           '${object(jsonDecode(await _readyMarker.readAsString()))['version']}',
         );
+        // A prerelease still here from before leaving the beta channel is
+        // cleared below too.
         if (pending != null &&
-            pending.compareTo(SemanticVersion.parse(version)) > 0) {
+            pending.compareTo(SemanticVersion.parse(version)) > 0 &&
+            _onChannel('$pending')) {
           readyVersion = '$pending';
           phase = UpdatePhase.ready;
           return;
@@ -181,13 +190,25 @@ class AppUpdate extends ChangeNotifier {
     phase = UpdatePhase.checking;
     error = null;
     notifyListeners();
+    final prereleases = beta;
     try {
-      release = await releases.newerThan(version, _platform, prereleases: beta);
+      release = await releases.newerThan(
+        version,
+        _platform,
+        prereleases: prereleases,
+      );
       phase = release == null ? UpdatePhase.idle : UpdatePhase.available;
       checkedAt = DateTime.now();
     } catch (e) {
       phase = UpdatePhase.failed;
       error = '检查更新失败：${errorMessage(e)}';
+    }
+    if (beta != prereleases) {
+      // The channel changed while checking, and its own check returned
+      // early, so this result belongs to the other channel.
+      release = null;
+      phase = UpdatePhase.idle;
+      return check();
     }
     notifyListeners();
     if (phase == UpdatePhase.available && autoDownload) await download();
@@ -206,6 +227,7 @@ class AppUpdate extends ChangeNotifier {
     progress = 0;
     error = null;
     notifyListeners();
+    var switched = false;
     try {
       if (await _pending.exists()) await _pending.delete(recursive: true);
       await _pending.create();
@@ -230,8 +252,17 @@ class AppUpdate extends ChangeNotifier {
         flush: true,
       );
       await marker.rename(_readyMarker.path);
-      readyVersion = release.version;
-      phase = UpdatePhase.ready;
+      if (_onChannel(release.version)) {
+        readyVersion = release.version;
+        phase = UpdatePhase.ready;
+      } else {
+        // Left the beta channel while this prerelease downloaded, and that
+        // switch's check returned early. The next start clears its files,
+        // and a new download replaces them.
+        switched = true;
+        this.release = null;
+        phase = UpdatePhase.idle;
+      }
     } on FileSystemException catch (e) {
       phase = UpdatePhase.failed;
       final location = Platform.isWindows ? '安装目录' : ' MelonBanG 所在的文件夹';
@@ -242,6 +273,7 @@ class AppUpdate extends ChangeNotifier {
       error = '下载更新失败：${errorMessage(e)}';
     }
     notifyListeners();
+    if (switched) await check();
   }
 
   /// Downloads the archive of [package] and unpacks it into [staging].

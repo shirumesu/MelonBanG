@@ -189,6 +189,14 @@ class LibrarySync implements SyncPart {
   @override
   Stream<void> get changes => _changes.stream;
 
+  /// A place saved moments ago goes up now rather than after the pause.
+  @override
+  void flush() {
+    if (_progressTimer?.isActive != true) return;
+    _progressTimer!.cancel();
+    _changes.add(null);
+  }
+
   @override
   Future<Map<String, Object?>> values() async => {
     if (subscriptionSync != SubscriptionSync.off)

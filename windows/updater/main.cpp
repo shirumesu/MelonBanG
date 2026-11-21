@@ -6,8 +6,11 @@
 // <staging> inside <app-dir>\.pending, so the swap is a few renames on one
 // volume. Each top-level entry of <staging> replaces the entry of the same
 // name; any failed rename rolls the swapped entries back, so the install is
-// never left half old and half new. The app copies this program to a
-// temporary directory before running it, which lets it replace itself.
+// not left half old and half new. Should a rollback rename stay blocked, the
+// old entries it could not put back stay in <app-dir>\.pending\backup, which
+// later runs leave alone, and reinstalling repairs the install. The app
+// copies this program to a temporary directory before running it, which lets
+// it replace itself.
 #include <windows.h>
 #include <shellapi.h>
 
@@ -19,6 +22,11 @@ namespace {
 constexpr wchar_t kTitle[] = L"MelonBanG 更新";
 constexpr wchar_t kUninstallKey[] =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\MelonBanG";
+
+// Antivirus scans and handles released just after exit can block a rename
+// briefly, so renames are tried this many times, this far apart.
+constexpr int kAttempts = 20;
+constexpr DWORD kRetryDelay = 500;
 
 struct Options {
   DWORD pid = 0;
@@ -72,10 +80,33 @@ struct Move {
   std::wstring from, to;
 };
 
+// Puts back the renames in [done], newest first. The locks that failed the
+// swap can hold the entries just moved as well, so each is tried several
+// times. Returns false once one stays blocked, leaving the older renames as
+// they are, since a name's two renames only undo in order.
+bool Undo(const std::vector<Move>& done) {
+  for (auto it = done.rbegin(); it != done.rend(); ++it) {
+    bool moved = false;
+    for (int attempt = 0; attempt < kAttempts && !moved; attempt++) {
+      if (attempt > 0) Sleep(kRetryDelay);
+      moved = MoveFileExW(it->to.c_str(), it->from.c_str(), 0) != 0;
+    }
+    if (!moved) return false;
+  }
+  return true;
+}
+
+struct SwapResult {
+  // 0 on success, otherwise the error of the rename that failed.
+  DWORD error = 0;
+  // Whether a failed swap put back every entry it had moved.
+  bool restored = true;
+};
+
 // Moves every staged entry into place, recording each rename so a failure can
-// undo them in reverse order. Returns 0 on success or the failing error.
-DWORD Swap(const Options& options, const std::wstring& backup,
-           const std::vector<std::wstring>& names) {
+// undo them in reverse order.
+SwapResult Swap(const Options& options, const std::wstring& backup,
+                const std::vector<std::wstring>& names) {
   std::vector<Move> done;
   auto rename = [&](const std::wstring& from, const std::wstring& to) {
     if (!MoveFileExW(from.c_str(), to.c_str(), 0)) return false;
@@ -87,13 +118,10 @@ DWORD Swap(const Options& options, const std::wstring& backup,
     if ((Exists(current) && !rename(current, Join(backup, name))) ||
         !rename(Join(options.staging, name), current)) {
       const DWORD error = GetLastError();
-      for (auto it = done.rbegin(); it != done.rend(); ++it) {
-        MoveFileExW(it->to.c_str(), it->from.c_str(), 0);
-      }
-      return error;
+      return {error, Undo(done)};
     }
   }
-  return 0;
+  return {};
 }
 
 // Updates the installed apps entry when it belongs to [app_dir]; a portable
@@ -173,21 +201,41 @@ int APIENTRY wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ wchar_t*,
 
   const std::wstring pending = Join(options.app_dir, L".pending");
   const std::wstring backup = Join(pending, L"backup");
-  RemoveTree(backup);
+  const std::wstring repair =
+      L"\n请重新运行 MelonBanG 安装程序修复，原来的文件保存在 " + backup +
+      L"。";
+  // A full rollback leaves the backup empty; entries still in it are the
+  // only copy of what an earlier swap could not put back.
+  if (!Entries(backup).empty()) {
+    const std::wstring message =
+        L"上次更新没能换回全部程序文件，MelonBanG 可能无法正常运行，"
+        L"更新已停止。\n" +
+        repair;
+    MessageBoxW(nullptr, message.c_str(), kTitle, MB_ICONERROR);
+    return 1;
+  }
   CreateDirectoryW(backup.c_str(), nullptr);
   const auto names = Entries(options.staging);
 
-  // Antivirus scans and handles released just after exit can block a rename
-  // briefly; each attempt is fully rolled back before the next.
-  DWORD error = 0;
-  for (int attempt = 0; attempt < 20; attempt++) {
-    error = Swap(options, backup, names);
-    if (error == 0) break;
-    Sleep(500);
+  // Each failed attempt is rolled back before the next; one that cannot be
+  // ends the attempts, since the install is then no longer the old one.
+  SwapResult result;
+  for (int attempt = 0; attempt < kAttempts; attempt++) {
+    result = Swap(options, backup, names);
+    if (result.error == 0 || !result.restored) break;
+    Sleep(kRetryDelay);
   }
-  if (error != 0) {
+  if (!result.restored) {
+    const std::wstring message =
+        L"无法替换程序文件，也没能换回全部已替换的文件，MelonBanG "
+        L"可能无法正常运行。\n\n" +
+        SystemMessage(result.error) + repair;
+    MessageBoxW(nullptr, message.c_str(), kTitle, MB_ICONERROR);
+    return 1;
+  }
+  if (result.error != 0) {
     const std::wstring message = L"无法替换程序文件，已保留当前版本。\n\n" +
-                                 SystemMessage(error) +
+                                 SystemMessage(result.error) +
                                  L"\n下次退出 MelonBanG 时会再试。";
     MessageBoxW(nullptr, message.c_str(), kTitle, MB_ICONWARNING);
   } else {
@@ -195,5 +243,5 @@ int APIENTRY wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ wchar_t*,
     RemoveTree(pending);
   }
   if (options.restart) Launch(options.app_dir);
-  return error == 0 ? 0 : 1;
+  return result.error == 0 ? 0 : 1;
 }

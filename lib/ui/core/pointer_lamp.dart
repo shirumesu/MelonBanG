@@ -156,6 +156,23 @@ class _PointerLampState extends State<PointerLamp> {
   }
 }
 
+/// Light that fades from [alpha] at the center to nothing at the rim of
+/// the circle it is drawn in, along a cosine bell. A straight ramp left a
+/// crease where it ends, and at the center, that the eye reads as a ring
+/// following the pointer; the bell leaves both flat.
+RadialGradient _softLight(Color color, double alpha) {
+  const steps = 16;
+  return RadialGradient(
+    colors: [
+      for (var i = 0; i <= steps; i++)
+        color.withValues(
+          alpha: alpha * (1 + math.cos(math.pi * i / steps)) / 2,
+        ),
+    ],
+    stops: [for (var i = 0; i <= steps; i++) i / steps],
+  );
+}
+
 class _FacePainter extends CustomPainter {
   _FacePainter(this.glow, this.color, this.strength) : super(repaint: glow);
   final _Glow glow;
@@ -169,13 +186,10 @@ class _FacePainter extends CustomPainter {
     canvas.drawRect(
       rect,
       Paint()
-        ..shader = RadialGradient(
-          colors: [
-            color.withValues(alpha: glow.near * strength * .06),
-            color.withValues(alpha: 0),
-          ],
-          stops: const [0, .7],
-        ).createShader(Rect.fromCircle(center: glow.at, radius: 340)),
+        ..shader = _softLight(
+          color,
+          glow.near * strength * .045,
+        ).createShader(Rect.fromCircle(center: glow.at, radius: 280)),
     );
   }
 
@@ -201,13 +215,10 @@ class _EdgePainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1
-        ..shader = RadialGradient(
-          colors: [
-            color.withValues(alpha: glow.near * strength * .3),
-            color.withValues(alpha: 0),
-          ],
-          stops: const [0, .72],
-        ).createShader(Rect.fromCircle(center: glow.at, radius: 200)),
+        ..shader = _softLight(
+          color,
+          glow.near * strength * .3,
+        ).createShader(Rect.fromCircle(center: glow.at, radius: 170)),
     );
   }
 

@@ -304,8 +304,19 @@ class OnlineDownloads implements OnlineTransfer {
     final task = _tasks.remove(id);
     if (task == null) return;
     await _stopWorker(id);
-    await _saved.discard(id);
-    _emit();
+    try {
+      await _saved.discard(id);
+    } on TaskFilesInUse {
+      // Nothing was deleted: the task stays as it was.
+      _tasks[id] = task;
+      if (task['complete'] != true && task['status'] != 'failed') {
+        task['status'] = task['manualPaused'] == true ? 'paused' : 'queued';
+      }
+      _schedule();
+      rethrow;
+    } finally {
+      _emit();
+    }
   }
 
   @override
@@ -414,7 +425,8 @@ class _Job {
     stream = await transfer.resolve(transfer._ref(task));
     if (media case final old?) {
       final next = await _playlist();
-      if (next.segments.length != old.segments.length) {
+      if (next.segments.length != old.segments.length ||
+          next.layout != old.layout) {
         throw StateError('视频源的分段已变化，请移除后重新下载');
       }
       media = next;
@@ -545,12 +557,20 @@ class _Job {
     final count = initial.segments.length;
     final folder = Directory(p.join(savePath, 'segments'));
     String segment(int index) => p.join(folder.path, '$index.seg');
+    // Segments of an earlier run are kept only for the same version of the
+    // stream. Tasks saved before layouts were recorded match by count.
+    final same =
+        task['segmentCount'] == count &&
+        switch (task['segmentLayout']) {
+          null => true,
+          final layout => layout == initial.layout,
+        };
     final done = <int>{
-      if (task['segmentCount'] == count)
+      if (same)
         for (final index in task['segmentsDone'] as List? ?? const [])
           index as int,
     };
-    if (task['segmentCount'] != count && await folder.exists()) {
+    if (!same && await folder.exists()) {
       await folder.delete(recursive: true);
     }
     await folder.create(recursive: true);
@@ -570,9 +590,12 @@ class _Job {
     } else {
       task['files'] = <Json>[_file('0', _name(extension), 'video')];
     }
+    // Appended to as segments arrive; each save copies it.
+    final finished = done.toList();
     task
       ..['segmentCount'] = count
-      ..['segmentsDone'] = done.toList()
+      ..['segmentLayout'] = initial.layout
+      ..['segmentsDone'] = finished
       ..['segmentBytes'] = bytes;
     await transfer._persist(task);
     final initPath = p.join(folder.path, 'init.seg');
@@ -584,11 +607,12 @@ class _Job {
       for (var index = 0; index < count; index++)
         if (!done.contains(index)) index,
     ];
+    var next = 0;
     Object? failure;
     StackTrace? failureStack;
     Future<void> worker() async {
-      while (pending.isNotEmpty && failure == null && active) {
-        final index = pending.removeAt(0);
+      while (next < pending.length && failure == null && active) {
+        final index = pending[next++];
         try {
           final data = await _retry(() async {
             final part = media!.segments[index];
@@ -601,11 +625,9 @@ class _Job {
           final file = File(segment(index));
           await File('${file.path}.part').writeAsBytes(data);
           await File('${file.path}.part').rename(file.path);
-          done.add(index);
+          finished.add(index);
           bytes += data.length;
-          task
-            ..['segmentsDone'] = done.toList()
-            ..['segmentBytes'] = bytes;
+          task['segmentBytes'] = bytes;
         } catch (error, stack) {
           if (!active) return;
           failure ??= error;
@@ -693,38 +715,69 @@ class _Job {
   Future<void> _fetchFile(Json file, String url) async {
     final part = File('${file['path']}.part');
     var offset = await part.exists() ? await part.length() : 0;
-    final response = await _get(
-      Uri.parse(url),
-      headers: {if (offset > 0) 'Range': 'bytes=$offset-'},
-    );
-    if (response.statusCode != HttpStatus.partialContent) offset = 0;
-    final total = switch (RegExp(r'/(\d+)$')
-        .firstMatch(response.headers['content-range'] ?? '')) {
-      final match? => int.parse(match[1]!),
-      null => offset + (response.contentLength ?? 0),
-    };
-    file['size'] = total;
-    final output = await part.open(
-      mode: offset == 0 ? FileMode.write : FileMode.append,
-    );
-    try {
-      await for (final chunk in response.stream.timeout(
-        OnlineDownloads._idle,
-      )) {
-        await output.writeFrom(chunk);
-        offset += chunk.length;
-        file['downloadedBytes'] = offset;
-        transfer._count(task, chunk.length);
-        if (!active) return;
+    final known = number(file['size']).toInt();
+    // A part file holding the whole file, as when renaming it failed, is
+    // only renamed: a range past its end would be refused.
+    if (known == 0 || offset != known) {
+      var response = await _get(
+        Uri.parse(url),
+        headers: {if (offset > 0) 'Range': 'bytes=$offset-'},
+      );
+      if (offset > 0 &&
+          response.statusCode == HttpStatus.partialContent &&
+          !_continues(response, offset, known)) {
+        // The source now serves another version of the file, such as
+        // another quality, or answered another range: appending would join
+        // two files, so it is fetched whole.
+        await response.stream.listen(null).cancel();
+        offset = 0;
+        response = await _get(Uri.parse(url));
       }
-    } finally {
-      await output.close();
+      if (response.statusCode != HttpStatus.partialContent) offset = 0;
+      final total = switch (RegExp(r'/(\d+)$')
+          .firstMatch(response.headers['content-range'] ?? '')) {
+        final match? => int.parse(match[1]!),
+        null => offset + (response.contentLength ?? 0),
+      };
+      file['size'] = total;
+      final output = await part.open(
+        mode: offset == 0 ? FileMode.write : FileMode.append,
+      );
+      try {
+        await for (final chunk in response.stream.timeout(
+          OnlineDownloads._idle,
+        )) {
+          await output.writeFrom(chunk);
+          offset += chunk.length;
+          file['downloadedBytes'] = offset;
+          transfer._count(task, chunk.length);
+          if (!active) return;
+        }
+      } finally {
+        await output.close();
+      }
+      if (total > 0 && offset < total) {
+        throw const HttpException('视频源连接提前结束');
+      }
     }
-    if (total > 0 && offset < total) throw const HttpException('视频源连接提前结束');
     await part.rename('${file['path']}');
     file
       ..['size'] = offset
       ..['complete'] = true;
+  }
+
+  /// Whether a 206 [response] to a range from [offset] continues the file
+  /// the part holds: it starts there, and the file is [known] bytes long
+  /// when that was read before.
+  static bool _continues(
+    http.StreamedResponse response,
+    int offset,
+    int known,
+  ) {
+    final range = RegExp(r'^bytes\s+(\d+)-\d+/(\d+|\*)$')
+        .firstMatch((response.headers['content-range'] ?? '').trim());
+    if (range == null || int.parse(range[1]!) != offset) return false;
+    return known == 0 || range[2] == '*' || int.parse(range[2]!) == known;
   }
 }
 
@@ -737,21 +790,30 @@ class _Segment {
 
 /// A media playlist with absolute URIs.
 class _Media {
-  const _Media(this.segments, this.map);
+  const _Media(this.segments, this.map, this.layout);
   final List<_Segment> segments;
 
   /// The initialization section fragmented MP4 segments share.
   final Uri? map;
+
+  /// A digest of the segments' durations. Links and hosts change between
+  /// reads of one version of the stream, but its durations stay, and a
+  /// version encoded again almost never cuts its segments at the same times
+  /// even when it has as many.
+  final String layout;
 
   static _Media parse(String text) {
     var sequence = 0;
     Uri? key, map;
     Uint8List? iv;
     final segments = <_Segment>[];
+    final durations = <String>[];
     for (final raw in text.split(RegExp(r'\r?\n'))) {
       final line = raw.trim();
       if (line.isEmpty) continue;
-      if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) {
+      if (line.startsWith('#EXTINF:')) {
+        durations.add(line.substring(8).split(',').first.trim());
+      } else if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) {
         sequence = int.tryParse(line.substring(22)) ?? 0;
       } else if (line.startsWith('#EXT-X-KEY:')) {
         final attributes = _attributes(line.substring(11));
@@ -789,7 +851,13 @@ class _Media {
       }
     }
     if (segments.isEmpty) throw StateError('视频清单没有分段');
-    return _Media(segments, map);
+    final digest = SHA256Digest().process(utf8.encode(durations.join(',')));
+    return _Media(
+      segments,
+      map,
+      [for (final byte in digest) byte.toRadixString(16).padLeft(2, '0')]
+          .join(),
+    );
   }
 
   static Map<String, String> _attributes(String value) => {

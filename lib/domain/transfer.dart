@@ -115,14 +115,18 @@ class DownloadTask {
   bool get seeds => method == CacheMethod.bt;
 
   /// Null while verifying, once a finished PikPak or online task is done,
-  /// and when the seeding settings stopped a finished BT task.
+  /// and when the seeding settings stopped a finished BT task. A PikPak or
+  /// online task with every byte that failed putting its file in place
+  /// resumes, which tries that again: it cannot play while failed.
   TaskToggle? get toggle {
     final resumable =
         status == DownloadStatus.paused ||
         status == DownloadStatus.failed ||
         (status == DownloadStatus.completed && seedingStopped);
     if (status == DownloadStatus.checking) return null;
-    if (!complete) return resumable ? TaskToggle.resume : TaskToggle.pause;
+    if (!complete || (!seeds && status == DownloadStatus.failed)) {
+      return resumable ? TaskToggle.resume : TaskToggle.pause;
+    }
     if (!seeds) return null;
     if (resumable) return TaskToggle.resumeSeeding;
     return status == DownloadStatus.seeding || status == DownloadStatus.queued

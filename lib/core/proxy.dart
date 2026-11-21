@@ -40,7 +40,12 @@ class ProxyServer {
       }
       throw const FormatException('地址格式不正确，例如 127.0.0.1:7890');
     }
-    if (!uri.hasPort || uri.port <= 0 || uri.port > 65535) {
+    // A parsed address leaves out HTTP's default port 80 even when written,
+    // so whether one was given is read from the text.
+    final authority = value.substring(value.indexOf('://') + 3).split('/')[0];
+    if (!RegExp(r':\d+$').hasMatch(authority) ||
+        uri.port <= 0 ||
+        uri.port > 65535) {
       throw const FormatException('请填写端口，例如 127.0.0.1:7890');
     }
     if (uri.path.isNotEmpty && uri.path != '/') {
@@ -212,17 +217,31 @@ class NetworkProxy extends ChangeNotifier {
   }
 
   /// Windows and macOS exception notation: `<local>`, `*.domain`, `domain`,
-  /// `192.168.*` and `169.254/16`.
+  /// `192.168.*` and IPv4 ranges such as `169.254/16`, `172.16.0.0/12` or
+  /// `10.0.0.5/32`, which hold only addresses, not names.
   static bool _excepted(String rule, String host) {
     final pattern = rule.trim().toLowerCase();
     final name = host.toLowerCase();
     if (pattern.isEmpty) return false;
     if (pattern == '<local>') return !name.contains('.');
-    final cidr = RegExp(r'^(\d+(?:\.\d+){0,3})/(\d+)$').firstMatch(pattern);
+    final cidr = RegExp(
+      r'^(\d{1,3}(?:\.\d{1,3}){0,3})/(\d{1,2})$',
+    ).firstMatch(pattern);
     if (cidr != null) {
-      final octets = int.parse(cidr[2]!) ~/ 8;
-      final prefix = cidr[1]!.split('.').take(octets).join('.');
-      return prefix.isNotEmpty && name.startsWith('$prefix.');
+      final address = InternetAddress.tryParse(name);
+      final bits = int.parse(cidr[2]!);
+      // Octets left out are zero: 169.254/16 is 169.254.0.0/16.
+      final network = [...cidr[1]!.split('.').map(int.parse), 0, 0, 0].take(4);
+      if (address == null ||
+          address.type != InternetAddressType.IPv4 ||
+          bits > 32 ||
+          network.any((octet) => octet > 255)) {
+        return false;
+      }
+      int value(Iterable<int> octets) =>
+          octets.fold(0, (value, octet) => value << 8 | octet);
+      final mask = (0xffffffff << (32 - bits)) & 0xffffffff;
+      return (value(address.rawAddress) & mask) == (value(network) & mask);
     }
     if (pattern.contains('*')) {
       final expression = RegExp(

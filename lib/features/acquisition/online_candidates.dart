@@ -87,7 +87,10 @@ Future<List<PlayCandidate>> onlineCandidates(
             publish([
               for (final (index, row)
                   in rows
-                      .where((row) => sourceEpisodeMatches(row.label, episode))
+                      .where(
+                        (row) =>
+                            sourceEpisode(subject, row.label)?.id == episode.id,
+                      )
                       .indexed)
                 _candidate(
                   rule,

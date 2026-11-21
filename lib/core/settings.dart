@@ -38,7 +38,10 @@ sealed class Setting<T> {
   final String? label;
 
   T read(SharedPreferences storage);
-  Future<void> write(SharedPreferences storage, T value);
+
+  /// Saves [value]; false when it did not reach the disk, as
+  /// [SharedPreferences] reports it.
+  Future<bool> write(SharedPreferences storage, T value);
 
   /// The saved value as JSON for sync; null while unset.
   Object? exported(SharedPreferences storage) =>
@@ -49,7 +52,7 @@ sealed class Setting<T> {
   /// whether the value was of this setting's type.
   Future<bool> imported(SharedPreferences storage, Object? value) async {
     if (value == null) {
-      await storage.remove(key);
+      _written(await storage.remove(key));
       return true;
     }
     return _import(storage, value);
@@ -59,6 +62,13 @@ sealed class Setting<T> {
 
   /// A synced [value] as the conflict dialog shows it.
   String describe(Object? value) => describeValue(value);
+}
+
+/// Fails for a write [SharedPreferences] reports as not saved (a full disk,
+/// a locked file): it keeps the value in memory and only returns false, so
+/// the setting would read as saved until the app starts again without it.
+void _written(bool saved) {
+  if (!saved) throw StateError('设置没能保存到磁盘');
 }
 
 /// A JSON value as people read it: 开 / 关, numbers, text, or a count.
@@ -87,14 +97,14 @@ class BoolSetting extends Setting<bool> {
     _ => fallback,
   };
   @override
-  Future<void> write(SharedPreferences storage, bool value) =>
+  Future<bool> write(SharedPreferences storage, bool value) =>
       storage.setBool(key, value);
   @override
   Object? _export(SharedPreferences storage) => read(storage);
   @override
   Future<bool> _import(SharedPreferences storage, Object value) async {
     if (value is! bool) return false;
-    await storage.setBool(key, value);
+    _written(await storage.setBool(key, value));
     return true;
   }
 }
@@ -112,14 +122,14 @@ class IntSetting extends Setting<int> {
     _ => fallback,
   };
   @override
-  Future<void> write(SharedPreferences storage, int value) =>
+  Future<bool> write(SharedPreferences storage, int value) =>
       storage.setInt(key, value);
   @override
   Object? _export(SharedPreferences storage) => read(storage);
   @override
   Future<bool> _import(SharedPreferences storage, Object value) async {
     if (value is! num || value != value.roundToDouble()) return false;
-    await storage.setInt(key, value.toInt());
+    _written(await storage.setInt(key, value.toInt()));
     return true;
   }
 }
@@ -137,14 +147,14 @@ class DoubleSetting extends Setting<double> {
     _ => fallback,
   };
   @override
-  Future<void> write(SharedPreferences storage, double value) =>
+  Future<bool> write(SharedPreferences storage, double value) =>
       storage.setDouble(key, value);
   @override
   Object? _export(SharedPreferences storage) => read(storage);
   @override
   Future<bool> _import(SharedPreferences storage, Object value) async {
     if (value is! num) return false;
-    await storage.setDouble(key, value.toDouble());
+    _written(await storage.setDouble(key, value.toDouble()));
     return true;
   }
 }
@@ -168,14 +178,14 @@ class StringSetting extends Setting<String> {
     _ => fallback,
   };
   @override
-  Future<void> write(SharedPreferences storage, String value) =>
+  Future<bool> write(SharedPreferences storage, String value) =>
       storage.setString(key, value);
   @override
   Object? _export(SharedPreferences storage) => read(storage);
   @override
   Future<bool> _import(SharedPreferences storage, Object value) async {
     if (value is! String) return false;
-    await storage.setString(key, value);
+    _written(await storage.setString(key, value));
     return true;
   }
 }
@@ -210,14 +220,14 @@ class EnumSetting<T extends Enum> extends Setting<T> {
   }
 
   @override
-  Future<void> write(SharedPreferences storage, T value) =>
+  Future<bool> write(SharedPreferences storage, T value) =>
       storage.setString(key, value.name);
   @override
   Object? _export(SharedPreferences storage) => storage.get(key);
   @override
   Future<bool> _import(SharedPreferences storage, Object value) async {
     if (value is! String) return false;
-    await storage.setString(key, value);
+    _written(await storage.setString(key, value));
     return true;
   }
 }
@@ -233,14 +243,14 @@ class StringListSetting extends Setting<List<String>> {
   List<String> read(SharedPreferences storage) =>
       storage.getStringList(key) ?? fallback;
   @override
-  Future<void> write(SharedPreferences storage, List<String> value) =>
+  Future<bool> write(SharedPreferences storage, List<String> value) =>
       storage.setStringList(key, value);
   @override
   Object? _export(SharedPreferences storage) => read(storage);
   @override
   Future<bool> _import(SharedPreferences storage, Object value) async {
     if (value is! List || value.any((item) => item is! String)) return false;
-    await storage.setStringList(key, value.cast<String>());
+    _written(await storage.setStringList(key, value.cast<String>()));
     return true;
   }
 }
@@ -279,7 +289,7 @@ class JsonSetting extends Setting<Object?> {
   }
 
   @override
-  Future<void> write(SharedPreferences storage, Object? value) => value == null
+  Future<bool> write(SharedPreferences storage, Object? value) => value == null
       ? storage.remove(key)
       : storage.setString(key, jsonEncode(value));
   @override
@@ -304,7 +314,7 @@ class JsonSetting extends Setting<Object?> {
             if (current.containsKey(field)) field: current[field],
       };
     }
-    await storage.setString(key, jsonEncode(merged));
+    _written(await storage.setString(key, jsonEncode(merged)));
     return true;
   }
 }
@@ -397,13 +407,13 @@ class Settings extends ChangeNotifier {
 
   Future<void> set<T>(Setting<T> setting, T value) async {
     assert(_known(setting), 'Undeclared setting ${setting.key}');
-    await setting.write(storage, value);
+    _written(await setting.write(storage, value));
     _notify({setting.key}, bySync: false);
   }
 
   Future<void> remove(Setting<Object?> setting) async {
     assert(_known(setting), 'Undeclared setting ${setting.key}');
-    await storage.remove(setting.key);
+    _written(await storage.remove(setting.key));
     _notify({setting.key}, bySync: false);
   }
 
@@ -454,15 +464,19 @@ class Settings extends ChangeNotifier {
 
   /// Saves values that arrived by sync, null removing a setting. Keys that
   /// are not synced settings here, or values of the wrong type, are left
-  /// alone; returns the keys that were saved.
+  /// alone; returns the keys that were saved. A failed write throws, after
+  /// telling listeners about the keys saved before it.
   Future<Set<String>> applySynced(Map<String, Object?> values) async {
     final applied = <String>{};
-    for (final MapEntry(:key, :value) in values.entries) {
-      if (!_synced(key)) continue;
-      final setting = declaration(key)!;
-      if (await setting.imported(storage, value)) applied.add(key);
+    try {
+      for (final MapEntry(:key, :value) in values.entries) {
+        if (!_synced(key)) continue;
+        final setting = declaration(key)!;
+        if (await setting.imported(storage, value)) applied.add(key);
+      }
+    } finally {
+      if (applied.isNotEmpty) _notify(applied, bySync: true);
     }
-    if (applied.isNotEmpty) _notify(applied, bySync: true);
     return applied;
   }
 

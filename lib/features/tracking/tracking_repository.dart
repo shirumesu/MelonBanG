@@ -474,7 +474,12 @@ class TrackingRepository {
         )
         .map((body) => '${body['subjectId']}')
         .toSet();
-    for (var offset = 0; ; offset += 50) {
+    // The pull replaces the saved collection, so it must hold every entry:
+    // a page cut short, or a collection that changed between pages and
+    // shifted entries past one, would drop shows until the next pull.
+    final seen = <Object?>{};
+    int? total;
+    for (var offset = 0; ;) {
       if (user != account.userId || _closed) return;
       final response = object(
         await account.request(
@@ -482,12 +487,20 @@ class TrackingRepository {
         ),
       );
       final rows = objects(response['data']);
+      final count = response['total'];
+      if (count is! int || count < 0 || (total != null && total != count)) {
+        throw const FormatException('收藏列表未完整接收，请稍后再试');
+      }
+      total = count;
       for (final row in rows) {
+        seen.add(row['subject_id']);
         if (number(row['type']) == 0) continue;
         remote['${row['subject_id']}'] = _remoteRow(row);
       }
-      if (rows.isEmpty || offset + rows.length >= number(response['total'])) {
-        break;
+      offset += rows.length;
+      if (offset == total && seen.length == total) break;
+      if (rows.isEmpty || offset >= total) {
+        throw const FormatException('收藏列表未完整接收，请稍后再试');
       }
     }
     if (user != account.userId || _closed) return;

@@ -15,7 +15,9 @@ import '../downloads/download_repository.dart';
 /// Saved position of an episode.
 typedef EpisodeProgress = ({double position, double duration, bool completed});
 
-/// A recently watched, unfinished episode that can still be played.
+/// A recently watched, unfinished episode, here or on a device whose places
+/// synced here. It need not have a cache: playing it picks a source as any
+/// episode does, and the place is kept by episode, whatever played it.
 class PlaybackResume {
   const PlaybackResume({
     required this.subject,
@@ -126,6 +128,8 @@ class PlaybackLibrary {
     standalone: subjectId == null || episodeId == null,
   );
 
+  /// Binds a cached file that opened as an episode to it, so the episode
+  /// plays that file first.
   Future<void> activate(PlaybackSession session) async {
     final subjectId = session.subjectId, episodeId = session.episodeId;
     if (subjectId == null || episodeId == null) return;
@@ -133,10 +137,6 @@ class PlaybackLibrary {
       await store.put('episode_files', '$subjectId:$episodeId', {
         'downloadId': downloadId,
         'fileId': session.fileId,
-      });
-    } else {
-      await store.put('online_episodes', '$subjectId:$episodeId', {
-        'online': true,
       });
     }
   }
@@ -162,37 +162,41 @@ class PlaybackLibrary {
     if (lookupBinding) {
       binding = await store.get('episode_files', '$subjectId:$episodeId');
     }
-    try {
-      final TransferMedia media;
-      if (binding?['downloadId'] case final String id
-          when downloads.contains(id)) {
-        media = downloads.media(id, fileId: binding!['fileId'] as String?);
-      } else {
-        media = _episodeMedia(subject, subjectId, episodeId);
+    // A bound file that no longer plays, as after deleting it from a batch,
+    // leaves the episode to its other downloads, such as one cached later.
+    if (binding?['downloadId'] case final String id
+        when downloads.contains(id)) {
+      final fileId = binding!['fileId'] as String?;
+      if (await _playable(() => downloads.media(id, fileId: fileId))) {
+        return true;
       }
-      return media.incomplete || await File(media.file.path).exists();
-    } on StateError {
-      return false;
     }
-  }
-
-  /// The most complete playable download of an episode: a task cached for
-  /// it, or a video of one of the subject's batches named after it.
-  TransferMedia _episodeMedia(Subject? subject, int subjectId, int episodeId) {
-    final found = <TransferMedia>[];
+    // A task cached for the episode, or a video of one of the subject's
+    // batches named after it.
     for (final task in downloads.snapshot().forSubject(subjectId)) {
       final file = subject == null
           ? null
           : episodeFiles(subject, task)[episodeId];
       if (file == null && task.episodeId != episodeId) continue;
-      try {
-        found.add(downloads.media(task.id, fileId: file?.id));
-      } on StateError {
-        continue;
+      if (await _playable(() => downloads.media(task.id, fileId: file?.id))) {
+        return true;
       }
     }
-    found.sort((a, b) => b.file.progress.compareTo(a.file.progress));
-    return found.firstOrNull ?? (throw StateError('该章节尚无可播放下载，请选择资源或具体视频文件'));
+    return false;
+  }
+
+  /// Whether [media] names a video that plays now: one still downloading
+  /// streams, a finished one needs its file. A download that cannot supply
+  /// it, not yet knowing its files or checking them, says so with a
+  /// [StateError].
+  Future<bool> _playable(TransferMedia Function() media) async {
+    final TransferMedia found;
+    try {
+      found = media();
+    } on StateError {
+      return false;
+    }
+    return found.incomplete || await File(found.file.path).exists();
   }
 
   Future<Set<int>> playableEpisodes(int subjectId) async {
@@ -284,13 +288,8 @@ class PlaybackLibrary {
             duration <= position) {
           continue;
         }
-        final cached = await catalog.cached(subjectId);
-        if (!await _available(cached, subjectId, episodeId) &&
-            await store.get('online_episodes', '$subjectId:$episodeId') ==
-                null) {
-          continue;
-        }
-        final detail = cached ?? Subject(id: subjectId);
+        final detail =
+            await catalog.cached(subjectId) ?? Subject(id: subjectId);
         subjects.add(subjectId);
         if (accept != null && !await accept(detail, episodeId)) continue;
         result.add(

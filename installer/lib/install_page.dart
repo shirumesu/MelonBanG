@@ -51,8 +51,12 @@ class _InstallPageState extends State<InstallPage> {
   }
 
   Future<void> browse() async {
-    final picked = await installer.pick(location.text.trim());
-    if (picked != null) location.text = picked;
+    try {
+      final picked = await installer.pick(location.text.trim());
+      if (picked != null) location.text = picked;
+    } on InstallError catch (e) {
+      refuse(e.message);
+    }
   }
 
   Future<void> browseMedia() async {
@@ -61,7 +65,11 @@ class _InstallPageState extends State<InstallPage> {
   }
 
   Future<void> next() async {
-    location.text = await installer.target(location.text.trim());
+    try {
+      location.text = await installer.target(location.text.trim());
+    } on InstallError catch (e) {
+      return refuse(e.message);
+    }
     if (updating || !firstInstall) return install();
     setState(() {
       step = _Step.media;
@@ -103,6 +111,12 @@ class _InstallPageState extends State<InstallPage> {
 
   void fail(String message) => setState(() {
     step = media == null ? _Step.options : _Step.media;
+    error = message;
+    errors++;
+  });
+
+  /// A location that cannot hold the install, shown on the options page.
+  void refuse(String message) => setState(() {
     error = message;
     errors++;
   });

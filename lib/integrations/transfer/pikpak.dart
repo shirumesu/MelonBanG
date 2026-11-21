@@ -155,9 +155,13 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
         .where((task) => task['fingerprint'] == fingerprint)
         .firstOrNull;
     if (existing != null) {
+      var changed = backfillPlace(existing, subjectId, episodeId, coverUrl);
       if (releaseGroups.isNotEmpty &&
           ((existing['releaseGroups'] as List?)?.isEmpty ?? true)) {
         existing['releaseGroups'] = List<String>.of(releaseGroups);
+        changed = true;
+      }
+      if (changed) {
         await _persist(existing);
         _emit();
       }
@@ -453,7 +457,12 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
   /// Renames a fully fetched file once no player connection reads it; an
   /// open file cannot be renamed on Windows.
   Future<void> _finish(_Fetch fetch) async {
-    if (!fetch.done ||
+    final task = fetch.task;
+    // A removed task's folder is being deleted, and its record must not
+    // come back.
+    bool kept() => !_closed && identical(_tasks[task['id']], task);
+    if (!kept() ||
+        !fetch.done ||
         fetch.running != null ||
         fetch.readers.isNotEmpty ||
         fetch.file['complete'] == true ||
@@ -465,14 +474,20 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     try {
       await finishing;
     } on FileSystemException {
-      // Another program holds the file; the next reader or run renames it.
+      // Another program holds the file. It still plays from the part file,
+      // and playing it again or the next start renames it.
+      if (!kept()) return;
+      task['errorMessage'] = '文件正被其他程序使用，关闭后重新播放即可完成缓存';
+      await _persist(task);
+      _emit();
       return;
     } finally {
       fetch.finishing = null;
     }
+    if (!kept()) return;
     fetch.file['complete'] = true;
-    _checkComplete(fetch.task);
-    await _persist(fetch.task);
+    _checkComplete(task);
+    await _persist(task);
     _emit();
   }
 
@@ -482,6 +497,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     if (files.isEmpty || files.any((file) => file['complete'] != true)) return;
     task['complete'] = true;
     task['status'] = 'completed';
+    task['errorMessage'] = null;
     task['progress'] = 1.0;
     task['downloadSpeedBytesPerSecond'] = 0;
     // The drive copy only fed the local one.
@@ -705,10 +721,6 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     final id = '${task['id']}';
     _tasks.remove(id);
     await _stopWorker(id);
-    if (task['cloudTaskId'] case final String cloud when client.isSignedIn) {
-      // Also cancels a cloud download still running.
-      client.deleteOffline(cloud).ignore();
-    }
     final fetches = [
       for (final entry in _fetches.entries.toList())
         if (entry.key.startsWith('$id/')) entry.value,
@@ -718,7 +730,19 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
       _fetches.remove('$id/${fetch.file['id']}');
       await fetch.close();
     }
-    await _saved.discard(id);
+    try {
+      await _saved.discard(id);
+    } on TaskFilesInUse {
+      // Nothing was deleted: the task stays, its drive copy too.
+      _tasks[id] = task;
+      _schedule();
+      _emit();
+      rethrow;
+    }
+    if (task['cloudTaskId'] case final String cloud when client.isSignedIn) {
+      // Also cancels a cloud download still running.
+      client.deleteOffline(cloud).ignore();
+    }
     _emit();
   }
 

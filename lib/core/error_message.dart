@@ -58,6 +58,8 @@ String fileFailure(int? code) => switch (code) {
   28 || 39 || 112 => '磁盘空间不足',
   1 || 5 || 13 => '没有权限读写这个位置',
   2 || 3 => '文件不存在或已被移动',
+  // Windows' sharing and lock violations: another program has it open.
+  32 || 33 => '文件正被其他程序使用',
   _ => '文件读写失败',
 };
 

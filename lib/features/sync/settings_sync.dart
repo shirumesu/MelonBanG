@@ -44,6 +44,10 @@ abstract interface class SyncPart {
   /// Fires when this device changes something the part syncs.
   Stream<void> get changes;
 
+  /// Fires [changes] now for a change it holds back, such as a place in an
+  /// episode waiting to stop moving: the app is quitting.
+  void flush();
+
   /// Whether [key]'s object merges as a whole rather than field by field.
   bool atomic(String key);
 
@@ -78,6 +82,8 @@ class SettingsPart implements SyncPart {
   @override
   Stream<void> get changes => settings.localChanges;
   @override
+  void flush() {}
+  @override
   bool atomic(String key) => false;
   @override
   bool? preferRemote(SettingConflict conflict) => null;
@@ -101,9 +107,10 @@ class SettingsPart implements SyncPart {
 /// when another device got in first, the merge runs again on its copy.
 ///
 /// One account is expected to be used on one device at a time, so it syncs
-/// when the app starts, on sign-in, and as soon as something synced changes
-/// here; nothing polls. A change is kept here whether or not the upload
-/// works; a failed one is retried with the next sync.
+/// when the app starts, on sign-in, as soon as something synced changes
+/// here, and once more as the app quits ([flush]); nothing polls. A change
+/// is kept here whether or not the upload works; a failed one is retried
+/// with the next sync.
 class SettingsSync extends ChangeNotifier {
   SettingsSync({
     required this.api,
@@ -163,8 +170,14 @@ class SettingsSync extends ChangeNotifier {
   String? error;
 
   /// Settings waiting for the user to pick a side.
-  List<SettingConflict> get conflicts => _pending?.merge.conflicts ?? const [];
-  ({SettingsMerge merge, _Remote remote})? _pending;
+  List<SettingConflict> get conflicts => _pending ?? const [];
+  List<SettingConflict>? _pending;
+
+  /// The sides the user picked, by conflict id, with the conflict as it
+  /// was shown. A pick settles that conflict in the following syncs while
+  /// both sides still hold the values it was picked between; kept until a
+  /// sync goes through, so a failed one does not ask again.
+  final _picked = <String, ({SettingConflict conflict, bool useRemote})>{};
 
   bool get enabled => settings.get(enabledSetting);
 
@@ -199,6 +212,7 @@ class SettingsSync extends ChangeNotifier {
   Future<void> setEnabled(bool value) async {
     await settings.set(enabledSetting, value);
     _pending = null;
+    _picked.clear();
     _refreshStatus();
     if (value) await syncNow();
   }
@@ -210,6 +224,9 @@ class SettingsSync extends ChangeNotifier {
 
   /// [forgetBaseOf] for the [keys] alone.
   Future<void> forgetBase(bool Function(String key) keys) async {
+    // A sync under way would remember the whole copy over this when it
+    // ends, and the next would read the keys missing here as removed.
+    await _running;
     final base = _base;
     if (base == null) return;
     final data = _map(base['data'])..removeWhere((key, _) => keys(key));
@@ -231,25 +248,23 @@ class SettingsSync extends ChangeNotifier {
 
   /// Settles [conflicts]: the ids in [useRemote] take the cloud's value, the
   /// rest keep this device's, then syncing carries on.
-  Future<void> resolve(Set<String> useRemote) async {
+  ///
+  /// The sync that follows merges again with what this device and the cloud
+  /// hold by then, as any sync does: what changed here while the choice
+  /// waited stays, and a conflicting setting changed again on either side
+  /// is asked about again rather than settled by a pick between older
+  /// values.
+  Future<void> resolve(Set<String> useRemote) {
     final pending = _pending;
-    if (pending == null) return;
+    if (pending == null) return Future.value();
     _pending = null;
-    status = SettingsSyncStatus.syncing;
-    notifyListeners();
-    try {
-      if (!await _finish(pending.merge.resolve(useRemote), pending.remote)) {
-        await _sync();
-      }
-      if (_pending != null) {
-        status = SettingsSyncStatus.conflict;
-        notifyListeners();
-        return;
-      }
-      _settled();
-    } catch (failure) {
-      _failed(failure, report: true);
+    for (final conflict in pending) {
+      _picked[conflict.id] = (
+        conflict: conflict,
+        useRemote: useRemote.contains(conflict.id),
+      );
     }
+    return syncNow();
   }
 
   /// Something synced changed here: upload it now. Changes made together
@@ -264,6 +279,7 @@ class SettingsSync extends ChangeNotifier {
     if (user == _lastUser) return;
     _lastUser = user;
     _pending = null;
+    _picked.clear();
     _refreshStatus();
     _schedule();
   }
@@ -289,6 +305,25 @@ class SettingsSync extends ChangeNotifier {
     if (_closed) return;
     _timer?.cancel();
     _timer = Timer(Duration.zero, () => unawaited(_start()));
+  }
+
+  /// As the app quits: uploads what changed here and still waits to go up,
+  /// such as the place an episode was just left at, waiting [limit] at
+  /// most. What does not make it stays here and goes up with the sync the
+  /// next start runs.
+  Future<void> flush(Duration limit) async {
+    for (final part in parts) {
+      if (part.enabled) part.flush();
+    }
+    if (_timer?.isActive != true && _running == null) return;
+    _timer?.cancel();
+    // The window is closing: a failure has no one left to tell.
+    _report = false;
+    try {
+      await _start().timeout(limit);
+    } on TimeoutException {
+      // Left for the next start, as above.
+    }
   }
 
   Future<void> _start() {
@@ -363,18 +398,21 @@ class SettingsSync extends ChangeNotifier {
         knownRev: base?['rev'],
         baseData: baseData,
       );
-      if (userId() != user) throw StateError('账号已经切换');
+      _checkUser(user);
+      final local = await _local();
       final found = mergeSettings(
         base: _ownedOf(baseData),
-        local: await _local(),
+        local: local,
         remote: _ownedOf(remote.data),
         atomic: (key) => _partOf(key).atomic(key),
       );
       // Conflicts a part settles itself, such as the later of two places
-      // in an episode, never ask.
+      // in an episode, never ask; nor do those the user picked a side of.
       final settled = {
         for (final conflict in found.conflicts)
-          conflict.id: ?_partOf(conflict.key).preferRemote(conflict),
+          conflict.id:
+              ?(_partOf(conflict.key).preferRemote(conflict) ??
+              _pickFor(conflict)),
       };
       final merge = SettingsMerge(
         found.resolve({
@@ -393,21 +431,47 @@ class SettingsSync extends ChangeNotifier {
               if (part.owns(conflict.key)) conflict,
           ]);
         }
-        _pending = (merge: merge, remote: remote);
+        _pending = merge.conflicts;
         return;
       }
-      if (await _finish(merge.merged, remote)) return;
+      if (await _finish(user, local, merge.merged, remote)) {
+        _picked.clear();
+        return;
+      }
     }
     throw StateError('云端设置一直在变化，稍后再试');
   }
 
-  /// Applies [merged] here and uploads it against [remote]'s revision.
-  /// Returns false when another device uploaded first: [remote] becomes the
-  /// base and the caller merges again with the newer copy.
-  Future<bool> _finish(Map<String, Object?> merged, _Remote remote) async {
-    final user = userId();
-    if (user == null) throw StateError('请先登录 Bangumi');
-    final local = await _local();
+  /// The side the user picked for [conflict], if they picked between these
+  /// very values; null to ask.
+  bool? _pickFor(SettingConflict conflict) {
+    final pick = _picked[conflict.id];
+    if (pick == null ||
+        !sameJson(pick.conflict.local, conflict.local) ||
+        !sameJson(pick.conflict.remote, conflict.remote)) {
+      return null;
+    }
+    return pick.useRemote;
+  }
+
+  /// The merge was made for [user]'s cloud copy: one signed out, or
+  /// switched to another account meanwhile, must not get it.
+  void _checkUser(String user) {
+    if (userId() != user) throw StateError('账号已经切换');
+  }
+
+  /// Applies [merged] here and uploads it to [user]'s copy against
+  /// [remote]'s revision. Only what the merge changed from [local], the
+  /// values it was merged from, is applied: a change made here since
+  /// stays. Returns false when another device uploaded first: [remote]
+  /// becomes the base and the caller merges again with the newer copy.
+  Future<bool> _finish(
+    String user,
+    Map<String, Object?> local,
+    Map<String, Object?> merged,
+    _Remote remote,
+  ) async {
+    _checkUser(user);
     final changes = {
       for (final key in {...local.keys, ...merged.keys})
         if (!sameJson(local[key], merged[key])) key: merged[key],
@@ -431,12 +495,14 @@ class SettingsSync extends ChangeNotifier {
       await _remember(user, remote.rev, remote.data);
       return true;
     }
+    final bearer = await token();
+    _checkUser(user);
     final response = await api.send(
       Uri.parse('$origin/v1/sync/settings'),
       method: 'PUT',
       body: {'data': upload},
       headers: {
-        'Authorization': 'Bearer ${await token()}',
+        'Authorization': 'Bearer $bearer',
         'If-Match': '"${remote.rev}"',
       },
       acceptedStatuses: const {412},

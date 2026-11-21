@@ -419,6 +419,9 @@ class AccountRepository implements Account {
     _profile = null;
     _refresh = null;
     _restoreNeedsAuthorization = _unlockDeclined = _expired = _unsaved = false;
+    // Settings sync follows the account by these events: without one here,
+    // signing in again to the same account would look like no change.
+    _notify();
     final deleting = _credentialWrites.then((_) async {
       await credentials.write('account', null);
       await store.remove('account', 'profile');

@@ -3,17 +3,25 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../core/error_message.dart';
+import '../../core/json.dart';
 import '../../core/network.dart';
 import '../../core/proxy.dart';
 import '../../domain/sources.dart';
 import '../../integrations/melon_api/source_rules.dart';
 import '../acquisition/source_registry.dart';
 
-/// A service the app talks to.
+/// A service the app talks to, probed at [url] with [headers].
 class ProbeTarget {
-  const ProbeTarget(this.id, this.name, this.group, this.url);
+  const ProbeTarget(
+    this.id,
+    this.name,
+    this.group,
+    this.url, {
+    this.headers = const {},
+  });
   final String id, name, group;
   final Uri url;
+  final Map<String, String> headers;
 }
 
 enum ProbeState { waiting, running, reachable, limited, failed }
@@ -28,7 +36,12 @@ class ProbeResult {
 
 /// Checks whether each service answers, through the current proxy setting.
 /// Any HTTP response counts as reachable; 403, 451 and 5xx usually mean a
-/// block or an outage and are reported as limited.
+/// block or an outage and are reported as limited. That holds only for an
+/// address the app itself requests: a front page can sit behind a bot
+/// challenge or forbid listing while the API under it stays open
+/// (api.gamer.com.tw, share.acgnx.se and api.wujinapi.com all answer 403 at
+/// the root and 200 where the app reads), so those hosts are probed where
+/// the app reads.
 class ConnectivityCheck extends ChangeNotifier {
   ConnectivityCheck(this.sources, this.proxy);
   final SourceRegistry sources;
@@ -61,7 +74,14 @@ class ConnectivityCheck extends ChangeNotifier {
     ProbeTarget('github', 'GitHub（更新）', '服务', Uri.https('github.com')),
     ProbeTarget('dandanplay', '弹弹play', '弹幕', Uri.https('api.dandanplay.net')),
     ProbeTarget('bilibili', 'Bilibili', '弹幕', Uri.https('api.bilibili.com')),
-    ProbeTarget('bahamut', '巴哈姆特', '弹幕', Uri.https('api.gamer.com.tw')),
+    ProbeTarget(
+      'bahamut',
+      '巴哈姆特',
+      '弹幕',
+      Uri.https('api.gamer.com.tw', '/anime/v1/search.php', {
+        'kw': _probeQuery,
+      }),
+    ),
     ProbeTarget('tencent', '腾讯视频', '弹幕', Uri.https('dm.video.qq.com')),
     ProbeTarget('iqiyi', '爱奇艺', '弹幕', Uri.https('cmts.iqiyi.com')),
     for (final kind in SourceKind.values)
@@ -73,10 +93,32 @@ class ConnectivityCheck extends ChangeNotifier {
               'source:${source.id}',
               source.name,
               kind == SourceKind.online ? '在线源' : 'BT 索引',
-              url,
+              _searchAddress(source, url),
+              headers: {
+                ...object(source.config['headers']),
+                ...object(object(source.config['search'])['headers']),
+              }.map((key, value) => MapEntry(key, '$value')),
             ),
     ProbeTarget('pikpak', 'PikPak', '网盘', Uri.https('api-drive.mypikpak.com')),
   ];
+
+  /// What sites list nothing for: their search answers quickly and small.
+  static const _probeQuery = 'melonbang';
+
+  /// The search [source]'s rule reads, at [base]; [base] itself for a
+  /// source without a search address (B 站 is opened by link only).
+  static Uri _searchAddress(SourceInstance source, Uri base) {
+    final search = object(source.config['search']);
+    if (search['url'] case final String path) {
+      return base.resolve(
+        path.replaceAllMapped(
+          RegExp(r'\{(\w+)\}'),
+          (match) => match[1] == 'query' ? _probeQuery : '',
+        ),
+      );
+    }
+    return base;
+  }
 
   /// The target probing [id], if it is checked.
   ProbeTarget? target(String id) =>
@@ -146,7 +188,7 @@ class ConnectivityCheck extends ChangeNotifier {
     try {
       final response = await client.send(
         target.url,
-        headers: const {'Accept': '*/*'},
+        headers: {'Accept': '*/*', ...target.headers},
         acceptedStatuses: _anyStatus,
       );
       final status = response.statusCode;

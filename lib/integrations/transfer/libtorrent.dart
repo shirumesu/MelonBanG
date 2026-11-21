@@ -596,12 +596,19 @@ class LibtorrentTransfer implements TorrentTransfer {
     List<String> releaseGroups = const [],
   }) async {
     await ready;
+    final resolvedCover = coverUrl ?? await cachedCover(store, subjectId);
     await _removing[fingerprint];
     _requireOpen();
     final existing = _tasks.values
         .where((t) => t['fingerprint'] == fingerprint)
         .firstOrNull;
     if (existing != null) {
+      var changed = backfillPlace(
+        existing,
+        subjectId,
+        episodeId,
+        resolvedCover,
+      );
       // Adding a torrent some files of which were deleted fetches them again.
       if (existing['detached'] == true) {
         await _engine();
@@ -616,12 +623,14 @@ class LibtorrentTransfer implements TorrentTransfer {
       if (releaseGroups.isNotEmpty &&
           ((existing['releaseGroups'] as List?)?.isEmpty ?? true)) {
         existing['releaseGroups'] = List<String>.of(releaseGroups);
+        changed = true;
+      }
+      if (changed) {
         await _persist('${existing['id']}', existing);
         _emit();
       }
       return existing;
     }
-    final resolvedCover = coverUrl ?? await cachedCover(store, subjectId);
     await _engine();
     if (metadataBytes != null) {
       final pending = File('$input.pending');
@@ -789,17 +798,25 @@ class LibtorrentTransfer implements TorrentTransfer {
 
   /// Deletes the folder of task [id]: the engine deletes the files it wrote
   /// but not the folder, and a task whose torrent already left the session,
-  /// as after [removeFiles], leaves the rest of its files to it. A folder
-  /// still held by the engine on Windows is left for a later removal.
+  /// as after [removeFiles], leaves the rest of its files to it. The engine
+  /// lets go of the files a moment after removing the torrent, so the
+  /// folder is tried a few times; one still held, as by another program,
+  /// fails the removal with where it is, for the user to delete.
   Future<void> _deleteFolder(String id, String path) async {
     if (!p.isWithin(directory, path) || p.basename(path) != id) return;
     final folder = Directory(path);
-    for (var attempt = 1; attempt <= 20; attempt++) {
+    for (var attempt = 1; ; attempt++) {
       try {
         if (await folder.exists()) await folder.delete(recursive: true);
         return;
-      } on FileSystemException {
-        await Future<void>.delayed(const Duration(milliseconds: 150));
+      } on FileSystemException catch (error) {
+        if (attempt == 10) {
+          throw StateError(
+            '任务已删除，但文件夹没能删除（${errorMessage(error)}），'
+            '可以手动删除：$path',
+          );
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 300));
       }
     }
   }

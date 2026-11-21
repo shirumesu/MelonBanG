@@ -120,15 +120,34 @@ double sourceMatchScore(
   return best.clamp(0, 1);
 }
 
-bool sourceEpisodeMatches(String label, Episode episode) {
-  final normalized = simplifiedChinese(label).toUpperCase();
-  final special = RegExp(r'SP|OVA|OAD|特别').hasMatch(normalized);
-  // A special is named as one, though an interlude may be named by its
-  // number (11.5).
-  if (special ? episode.main : episode.numberedApart) return false;
-  final match = RegExp(r'(?:第|EP\s*|SP\s*|OVA\s*|OAD\s*)?(\d+(?:\.\d+)?)')
-      .firstMatch(normalized);
-  return match != null && double.tryParse(match[1]!) == episode.sort;
+/// The episode of [subject] a site names one of its entries by, or a
+/// search's episode term: numbered within the season (`第01集`, `第1话  会员`,
+/// `EP03`, `03`, `S02E03`), else across seasons, as some sites number a
+/// sequel (`第49集` for a third season's first), or a special by its own
+/// number (`SP1`, `第SP1话`); an interlude goes by its number (`第11.5集`).
+/// A name stating another season holds none, nor does one stating no number
+/// (`正片`, `HD`), a range (`第01-10集`), a recap's count (`总集篇1`) or a
+/// trailer (`PV1`).
+Episode? sourceEpisode(Subject subject, String label) {
+  final stated = _statedEpisode(label, bare: true);
+  if (stated == null) return null;
+  final episodes = subject.episodes.where((e) => !e.numberedApart);
+  final sequel = episodes.any(
+    (e) => e.absolute != null && e.absolute != e.sort,
+  );
+  final season = _subjectSeason(subject) ?? (sequel ? null : 1);
+  if (stated.season != null && season != null && stated.season != season) {
+    return null;
+  }
+  if (stated.special) {
+    return subject.episodes
+        .where((e) => !e.main && e.sort == stated.number)
+        .firstOrNull;
+  }
+  // Sites mostly number within the season, so that reading goes first
+  // where a number could be either.
+  return episodes.where((e) => e.sort == stated.number).firstOrNull ??
+      episodes.where((e) => e.absolute == stated.number).firstOrNull;
 }
 
 /// The season the subject's titles state, if any.
@@ -358,9 +377,18 @@ List<Episode?> uploadPartEpisodes(
   String title,
   List<String> parts,
 ) {
-  var stated = [for (final name in parts) _statedEpisode(name, bare: true)];
+  // A part holding a special holds none of the subject's episodes here.
+  (int?, double)? held(String text, {required bool bare}) =>
+      switch (_statedEpisode(text, bare: bare)) {
+        (:final season, :final number, special: false) when number != 0 => (
+          season,
+          number,
+        ),
+        _ => null,
+      };
+  var stated = [for (final name in parts) held(name, bare: true)];
   if (parts.length == 1 && stated.single == null) {
-    stated = [_statedEpisode(title, bare: false)];
+    stated = [held(title, bare: false)];
   }
   if (parts.length > 1 && stated.every((e) => e == null)) {
     stated = [for (var i = 1; i <= parts.length; i++) (null, i.toDouble())];
@@ -383,35 +411,47 @@ List<Episode?> uploadPartEpisodes(
   ];
 }
 
-/// The season and episode number [text] states, or null for none, a range
-/// (`第1~5话`, `全12集`) or a special. With [bare], a text that is only a
-/// number (`06`, `(6)`, `6_合并`, `1 4K`) states it too; an upload's title
-/// carries `4K` and `1080P`, so it must say 第6话 or EP06.
-(int?, double)? _statedEpisode(String text, {required bool bare}) {
+/// The season and number of the episode [text] states, and whether it is a
+/// special's own number (`SP2`, `OVA 1`, `第SP1话`, `特别篇2`). Null for none,
+/// a range (`第1~5话`, `全12集`), a trailer or credits (`PV1`, `NCOP`) or a
+/// special without a number. With [bare], a text that is only a number
+/// (`06`, `(6)`, `6_合并`, `1 4K`, `01集`, `11.5`) states it too; an upload's
+/// title carries `4K` and `1080P`, so it must say 第6话 or EP06. A number
+/// after other words is theirs, not an episode's: `总集篇1` is a recap's.
+({int? season, double number, bool special})? _statedEpisode(
+  String text, {
+  required bool bare,
+}) {
   final season = resourceSeason(text);
   final name = simplifiedChinese(text)
       .toUpperCase()
       .replaceAll(_seasonPhrase, ' ')
       .trim();
-  if (_partSpecial.hasMatch(name) || _partRange.hasMatch(name)) return null;
-  final match =
-      _partNumber.firstMatch(name) ??
-      (bare ? _bareNumber.firstMatch(name) : null);
+  if (_partExtra.hasMatch(name) || _partRange.hasMatch(name)) return null;
+  final special = _partSpecial.hasMatch(name);
+  final match = special
+      ? _specialNumber.firstMatch(name)
+      : _partNumber.firstMatch(name) ??
+            (bare ? _bareNumber.firstMatch(name) : null);
   if (match == null) return null;
   final raw = match
       .groups([for (var i = 1; i <= match.groupCount; i++) i])
       .nonNulls
       .first;
   final number = double.tryParse(raw) ?? _chineseNumber(raw);
-  return number == null || number == 0 ? null : (season, number);
+  return number == null
+      ? null
+      : (season: season, number: number, special: special);
 }
 
 final _seasonPhrase = RegExp(
   r'第\s*[一二三四五六七八九十\d]+\s*[季期]|(?<![A-Z0-9])S\d{1,2}(?![0-9E])',
 );
-final _partSpecial = RegExp(
-  r'(?<![A-Z])(?:SP|OVA|OAD|PV|NCOP|NCED)(?![A-Z])|特别篇|番外|预告',
+final _partSpecial = RegExp(r'(?<![A-Z])(?:SP|OVA|OAD)(?![A-Z])|特别篇|番外');
+final _specialNumber = RegExp(
+  r'(?:(?<![A-Z])(?:SP|OVA|OAD)|特别篇|番外)\s*(\d{1,3}(?:\.5)?)(?!\d)',
 );
+final _partExtra = RegExp(r'(?<![A-Z])(?:PV|NCOP|NCED)(?![A-Z])|预告');
 final _partRange = RegExp(
   r'\d{1,3}\s*[-–~～至到]\s*\d{1,3}\s*[集话]|全\s*\d{1,3}\s*[集话]',
 );
@@ -419,7 +459,9 @@ final _partNumber = RegExp(
   r'第\s*(\d{1,3}(?:\.5)?|[一二三四五六七八九十]{1,3})\s*[集话回]'
   r'|(?<![A-Z])EP?\s*(\d{1,3})(?!\d)',
 );
-final _bareNumber = RegExp(r'^[\s(\[【「『《〖]*(\d{1,3})(?=$|[\s)\]】」』》〗_.·-])');
+final _bareNumber = RegExp(
+  r'^[\s(\[【「『《〖]*(\d{1,3}(?:\.5)?)(?=$|[\s)\]】」』》〗_.·集话-])',
+);
 
 /// 一 to 九十九.
 double? _chineseNumber(String text) {

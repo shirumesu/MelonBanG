@@ -335,15 +335,17 @@ Future<bool> isEmptyFolder(String path) =>
 
 const _marker = '.melonbang-migration';
 
-/// What each copied file was copied from: relative path → [size, modified].
+/// What each copied file was copied from: relative path → [size, modified],
+/// or null while it has not copied whole.
 const _manifest = '.melonbang-migration-files';
+const _manifestTemporary = '$_manifest.tmp';
 
 /// Copies each (source, target, excluded) tree of move [id], skipping files
 /// an earlier pass copied that have not changed since. With [strict], at the
-/// switch, every file must copy and files since removed from a source are
-/// removed from its target; otherwise a file that cannot be copied now, such
-/// as one being written, is left for later, and the pass stops once
-/// [cancelled]. Returns how many files were left.
+/// switch, every file must copy and copies of files since removed from a
+/// source are removed from its target; otherwise a file that cannot be
+/// copied now, such as one being written, is left for later, and the pass
+/// stops once [cancelled]. Returns how many files were left.
 Future<int> _copyTrees(
   List<(String, String, String?)> trees,
   String id, {
@@ -366,13 +368,13 @@ Future<int> _copyTrees(
       await marker.writeAsString(id, flush: true);
     }
     if (!await Directory(source).exists()) {
-      throw FileSystemException('原目录不可用，请连接磁盘后重新启动以继续迁移', source);
+      throw StateError('原目录不可用，请连接磁盘后重新启动以继续迁移：$source');
     }
     final manifest = File(p.join(target, _manifest));
-    manifests[target] = await manifest.exists()
+    final copied = manifests[target] = await manifest.exists()
         ? object(jsonDecode(await manifest.readAsString()))
         : {};
-    final kept = {_marker, _manifest};
+    final kept = {_marker, _manifest, _manifestTemporary};
     await for (final entity in Directory(
       source,
     ).list(recursive: true, followLinks: false)) {
@@ -390,11 +392,13 @@ Future<int> _copyTrees(
         files.add((target, relative, entity, stat));
         total += stat.size;
       } else {
-        throw FileSystemException('数据目录中包含链接，请先移除链接再迁移', entity.path);
+        throw StateError('数据目录中包含链接，请先移除链接再迁移：${entity.path}');
       }
     }
     if (strict) {
       // Gone from the source since an earlier pass, like a database journal.
+      // Only what this move copied is removed: anything else was put there
+      // meanwhile, by someone using the new folder, and stops the move.
       final stale = await Directory(target)
           .list(recursive: true, followLinks: false)
           .where(
@@ -402,7 +406,18 @@ Future<int> _copyTrees(
           )
           .toList();
       for (final entity in stale) {
-        if (await entity.exists()) await entity.delete(recursive: true);
+        if (entity is! Directory &&
+            !copied.containsKey(p.relative(entity.path, from: target)) &&
+            !_systemFiles.contains(p.basename(entity.path))) {
+          throw StateError('新位置里有不是迁移复制的文件，请先移走再重新打开应用：${entity.path}');
+        }
+      }
+      for (final entity in stale) {
+        if (entity is! Directory) await entity.delete();
+      }
+      // Listed parents first, so reversed each folder comes before its parent.
+      for (final folder in stale.whereType<Directory>().toList().reversed) {
+        if (await folder.list().isEmpty) await folder.delete();
       }
     }
   }
@@ -411,10 +426,22 @@ Future<int> _copyTrees(
   var saved = DateTime.now();
   Future<void> save() async {
     for (final MapEntry(key: target, value: manifest) in manifests.entries) {
-      await File(p.join(target, _manifest)).writeAsString(jsonEncode(manifest));
+      // Renamed into place, so a write cut short by quitting never leaves a
+      // record that the next pass cannot read.
+      final temporary = File(p.join(target, _manifestTemporary));
+      await temporary.writeAsString(jsonEncode(manifest));
+      await temporary.rename(p.join(target, _manifest));
     }
     saved = DateTime.now();
   }
+
+  // Each file is recorded before it is first written, unverified until it
+  // has copied whole, so a later pass removes only what a pass created even
+  // when quitting cut that pass short.
+  for (final (target, relative, _, _) in files) {
+    manifests[target]!.putIfAbsent(relative, () => null);
+  }
+  await save();
 
   void progress(String file, {bool now = false}) {
     if (!now && done - reported < 32 << 20) return;
@@ -560,6 +587,7 @@ Future<void> _discard(String source, String target, String id) async {
     } else if (entity is File &&
         (relative == _marker ||
             relative == _manifest ||
+            relative == _manifestTemporary ||
             await File(p.join(source, relative)).exists())) {
       await entity.delete();
     }

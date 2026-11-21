@@ -633,15 +633,18 @@ class PlaybackCoordinator extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Opens [candidate] as [episode]. [recoveryOf] is the request [_recover]
+  /// retries; it stays that request's, so a video started meanwhile wins.
   Future<void> playCandidate(
     PlayCandidate candidate,
     Subject item,
     Episode episode, {
-    bool recovery = false,
+    int? recoveryOf,
     bool picked = false,
     Duration? recoveryPosition,
   }) async {
-    final request = recovery ? _selectionRequest : _nextSelection();
+    final recovery = recoveryOf != null;
+    final request = recoveryOf ?? _nextSelection();
     final cancellation = _selectionCancel;
     if (!recovery) {
       playback.cancelAutoplay();
@@ -765,6 +768,9 @@ class PlaybackCoordinator extends ChangeNotifier {
       if (failed.kind == PlayKind.online && !_onlineRefreshed) {
         _onlineRefreshed = true;
         final saved = await library.progress(item.id, episode.id);
+        // Another video started while the place was read; reconnecting
+        // would queue over it.
+        if (_closed || request != _selectionRequest) return;
         final position =
             playback.session?.subjectId == item.id &&
                 playback.session?.episodeId == episode.id
@@ -776,7 +782,7 @@ class PlaybackCoordinator extends ChangeNotifier {
             failed,
             item,
             episode,
-            recovery: true,
+            recoveryOf: request,
             recoveryPosition: position,
           );
           if (playback.error == null) return;

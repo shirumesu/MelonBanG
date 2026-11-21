@@ -1,5 +1,6 @@
 import '../../domain/catalog.dart';
 import '../../domain/resource_title.dart';
+import 'title_matching.dart';
 
 String resourceEpisodeKeyword(Episode? episode) {
   if (episode == null) return '';
@@ -10,21 +11,17 @@ String resourceEpisodeKeyword(Episode? episode) {
 }
 
 /// The episode an episode term names: [chapter] for its own keyword, else
-/// the episode numbered so within or across seasons (`03`, `S01E03`,
-/// `第3话`). Null for an empty or unrecognized term, which searches the whole
-/// subject.
+/// the one it names as a site names its entries ([sourceEpisode]), within
+/// or across seasons or a special by its own number (`03`, `S01E03`,
+/// `第3话`, `SP03`). Null for an empty or unrecognized term, which searches
+/// the whole subject.
 Episode? keywordEpisode(Subject subject, String keyword, Episode? chapter) {
   final text = keyword.trim();
   if (text.isEmpty) return null;
   if (chapter != null && text == resourceEpisodeKeyword(chapter)) {
     return chapter;
   }
-  final match = RegExp(r'\d+(?:\.5)?').allMatches(text).lastOrNull;
-  if (match == null) return null;
-  final number = double.parse(match[0]!);
-  final episodes = subject.episodes.where((e) => !e.numberedApart);
-  return episodes.where((e) => e.sort == number).firstOrNull ??
-      episodes.where((e) => e.absolute == number).firstOrNull;
+  return sourceEpisode(subject, text);
 }
 
 /// Resource names are catalogue aliases, never guessed from a release title.

@@ -613,7 +613,16 @@ class _BilibiliRowState extends State<_BilibiliRow> {
   void initState() {
     super.initState();
     // The membership may have changed since the app started.
-    unawaited(account.refresh());
+    unawaited(check());
+  }
+
+  /// Reads the account's name and membership, showing why it could not.
+  Future<void> check() async {
+    try {
+      await account.refresh();
+    } catch (failure) {
+      if (mounted) setState(() => error = errorMessage(failure));
+    }
   }
 
   @override
@@ -656,6 +665,9 @@ class _BilibiliRowState extends State<_BilibiliRow> {
     polling = true;
     try {
       final next = await account.poll(code);
+      // Signed in even if the code was cancelled meanwhile; the name and
+      // membership follow.
+      if (next == BilibiliQrState.signedIn) unawaited(check());
       if (!mounted || !identical(qr, code)) return;
       setState(() {
         state = next;

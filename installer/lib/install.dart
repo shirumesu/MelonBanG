@@ -133,18 +133,26 @@ class Installer {
 
   /// The folder to install into for [chosen], whether picked or typed. One
   /// that already holds other files gets a MelonBanG subfolder, since
-  /// uninstalling removes the install folder as a whole. Media an uninstall
-  /// kept there does not count.
+  /// uninstalling removes the install folder as a whole; when that subfolder
+  /// holds other files too, the location is refused.
   Future<String> target(String chosen) async {
     final location = p.normalize(chosen);
-    final folder = Directory(location);
     final media = mediaIn(await storage());
-    if (!await folder.exists() ||
-        await isInstalled(location) ||
-        await folder.list().every((entry) => p.equals(entry.path, media))) {
-      return location;
-    }
-    return p.join(location, 'MelonBanG');
+    if (await _ownable(location, media)) return location;
+    final folder = p.join(location, 'MelonBanG');
+    if (await _ownable(folder, media)) return folder;
+    throw const InstallError('MelonBanG 文件夹里已有其他文件，请选择其他位置');
+  }
+
+  /// Whether [location] may become the install folder: a new or empty one,
+  /// an installation, or one holding only the [media] an uninstall kept
+  /// there, but never the media folder itself.
+  Future<bool> _ownable(String location, String media) async {
+    final folder = Directory(location);
+    return !p.equals(location, media) &&
+        (!await folder.exists() ||
+            await isInstalled(location) ||
+            await folder.list().every((entry) => p.equals(entry.path, media)));
   }
 
   Future<bool> isInstalled(String location) =>

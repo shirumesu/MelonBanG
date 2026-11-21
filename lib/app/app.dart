@@ -796,7 +796,11 @@ class _MelonAppState extends State<MelonApp>
         // quits; an update is not applied over services still running.
         var closed = false;
         try {
-          await service.close().timeout(const Duration(seconds: 20));
+          // The place just left goes up first, so another device resumes
+          // there; a slow network keeps it for this one's next start.
+          await service
+              .close(upload: const Duration(seconds: 2))
+              .timeout(const Duration(seconds: 20));
           closed = true;
         } on TimeoutException {
           // Quits anyway.

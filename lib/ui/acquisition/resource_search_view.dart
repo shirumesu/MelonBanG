@@ -470,12 +470,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
         ? uploadPartEpisodes(subject, upload.title, [
             for (final row in rows) row.part!,
           ])
-        : [
-            for (final row in rows)
-              subject.episodes
-                  .where((e) => sourceEpisodeMatches(row.label, e))
-                  .firstOrNull,
-          ];
+        : [for (final row in rows) sourceEpisode(subject, row.label)];
     final order = [for (var i = 0; i < rows.length; i++) i];
     if (searched case final episode? when held != null) {
       order.sort((a, b) {
@@ -679,7 +674,11 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       sections: [
         MelonFilterSection([
           for (final name in aliases) MelonFilterOption(name, name),
-        ], title: aliases.isEmpty ? '没有其他名称' : '同时搜索这些名称'),
+        ], title: switch (subject?.pending?.contains('aliases')) {
+          true => 'Melon 服务暂时没有返回其他名称，只用番名搜索',
+          _ when aliases.isEmpty => '没有其他名称',
+          _ => '同时搜索这些名称',
+        }),
       ],
       selected: includedAliases.toSet(),
       onToggle: (name, selected) => changeForm(

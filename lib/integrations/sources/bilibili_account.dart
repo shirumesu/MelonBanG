@@ -76,7 +76,9 @@ class BilibiliAccount extends ChangeNotifier {
   }
 
   /// Reads the account's name and membership again; a sign-in Bilibili no
-  /// longer accepts lapses. Offline, the account stays as it was.
+  /// longer accepts lapses. Offline, the account stays as it was. Any other
+  /// answer, such as risk control's -352 or a rate limit's, says nothing of
+  /// the sign-in, so it stays too and the call fails.
   Future<void> refresh() async {
     final cookie = this.cookie;
     if (cookie == null) return;
@@ -90,10 +92,15 @@ class BilibiliAccount extends ChangeNotifier {
       return;
     }
     if (cookie != this.cookie) return;
+    final code = value['code'];
     final data = object(value['data']);
-    if (value['code'] == -101 || data['isLogin'] != true) {
+    // -101 is Bilibili's 账号未登录.
+    if (code == -101 || (code == 0 && data['isLogin'] == false)) {
       await lapse();
       return;
+    }
+    if (code != 0 || data['isLogin'] != true) {
+      throw StateError('B 站没有返回登录状态（$code），稍后再试');
     }
     name = data['uname'] as String?;
     vip = data['vipStatus'] == 1;
@@ -132,7 +139,9 @@ class BilibiliAccount extends ChangeNotifier {
     return (url: data['url'] as String, key: '${data['qrcode_key']}');
   }
 
-  /// Where [qr] stands; signs in once the phone confirms it.
+  /// Where [qr] stands; signs in once the phone confirms it. The caller
+  /// reads the name and membership with [refresh] next, so failing to read
+  /// them leaves the sign-in standing.
   Future<BilibiliQrState> poll(BilibiliQr qr) async {
     final response = await api.send(
       Uri.https('passport.bilibili.com', '/x/passport-login/web/qrcode/poll', {
@@ -171,7 +180,6 @@ class BilibiliAccount extends ChangeNotifier {
         lapsed = null;
         await _save();
         notifyListeners();
-        await refresh();
         return BilibiliQrState.signedIn;
       default:
         throw StateError('${data['message'] ?? 'B 站登录失败'}');

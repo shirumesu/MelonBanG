@@ -125,7 +125,8 @@ class PlaySelectionRepository {
     final preferred = await remembered(subjectId);
     cancel?.throwIfCancelled();
     if (preferred != null) onlineFirst = preferred.family == 'online';
-    final releaseTaste = taste(subjectId);
+    // The taste is read on each ranking: the resource page ranks again as
+    // the preferred groups are dragged in its group filter.
     List<PlayCandidate> ranked() => rankPlayCandidates(
       found.values,
       onlineFirst: onlineFirst,
@@ -133,7 +134,7 @@ class PlaySelectionRepository {
       remembered: preferred,
       continuity: useContinuity ? continuity[subjectId] : null,
       singleEpisode: episode != null,
-      taste: releaseTaste,
+      taste: taste(subjectId),
     );
     // Searches still running once the result is settled are dropped.
     final searches = RequestCancellation();
@@ -161,10 +162,19 @@ class PlaySelectionRepository {
     final binding = episodeId == null || !includeDownloads
         ? null
         : await store.get('episode_files', '$subjectId:$episodeId');
-    for (final task
-        in includeDownloads
-            ? downloads.snapshot().forSubject(subjectId)
-            : const <DownloadTask>[]) {
+    final snapshot = downloads.snapshot();
+    final tasks = includeDownloads
+        ? [
+            ...snapshot.forSubject(subjectId),
+            // A torrent added before without this subject, as by hand, that
+            // [load] played as the episode.
+            if (binding?['downloadId'] case final String id)
+              if (snapshot.task(id) case final task?
+                  when task.subjectId != subjectId)
+                task,
+          ]
+        : const <DownloadTask>[];
+    for (final task in tasks) {
       final bound = binding?['downloadId'] == task.id;
       final file = episode == null
           ? null
@@ -477,7 +487,13 @@ class PlaySelectionRepository {
         cancel?.throwIfCancelled();
         try {
           downloads.media(id);
-          return await library.fromDownload(id);
+          // The torrent may already be a task added without this episode, or
+          // for another one: transfers hand back the task they hold for it.
+          return await library.fromDownload(
+            id,
+            subjectId: subjectId,
+            episodeId: episodeId,
+          );
         } on StateError catch (e) {
           final current = downloads.snapshot().task(id);
           if (current == null ||

@@ -88,10 +88,11 @@ class DanmakuController extends ChangeNotifier {
     _merge();
   }
 
-  /// Loads every enabled automatic source: the stream's own locator, then a
-  /// saved manual match, then the episode following one picked for another
-  /// episode of the subject, then the provider's own matching. [only]
-  /// limits it to one source.
+  /// Loads every enabled automatic source: a saved manual match, then the
+  /// stream's own locator, then the episode following one picked for another
+  /// episode of the subject, then the provider's own matching. A match the
+  /// viewer picked for this media goes first, as a Bilibili video's own
+  /// comments are only its default. [only] limits it to one source.
   Future<void> autoMatch(
     double duration, {
     DanmakuTarget? target,
@@ -125,14 +126,14 @@ class DanmakuController extends ChangeNotifier {
             }
             Future<_Loaded> load(String locator, {String? followed}) async =>
                 (locator, await provider.load(locator), followed);
-            if (current.embedded case (final id, final locator)
-                when id == source.id) {
-              return load(locator);
-            }
             final saved = current.matchKey == null
                 ? null
                 : await repository.savedLocator(current.matchKey!, source.id);
             if (saved != null) return load(saved);
+            if (current.embedded case (final id, final locator)
+                when id == source.id) {
+              return load(locator);
+            }
             // A stream opened on its own names neither an episode nor a
             // file to match by.
             if (current.subjectId == null && current.path == null) {
@@ -428,23 +429,10 @@ class DanmakuController extends ChangeNotifier {
     _merge(sent: comment);
   }
 
-  /// Whether new sessions load [provider]; the current session follows,
-  /// matching a source switched on that it has not tried yet.
-  void setDefault(String provider, bool enabled) {
-    preferences.setProvider(provider, enabled);
-    final source = sources.where((source) => source.id == provider);
-    if (source.firstOrNull case final source? when source.enabled != enabled) {
-      source.enabled = enabled;
-      _merge();
-      if (enabled && source.status == DanmakuStatus.idle) {
-        if (_duration case final duration?) {
-          unawaited(autoMatch(duration, only: provider));
-        }
-      }
-    } else {
-      notifyListeners();
-    }
-  }
+  /// Whether new sessions load [provider]; the current session follows
+  /// ([_preferencesChanged]).
+  void setDefault(String provider, bool enabled) =>
+      preferences.setProvider(provider, enabled);
 
   /// Reads what the viewer may still send, for the data sources page.
   Future<void> refreshQuota() async {
@@ -544,8 +532,25 @@ class DanmakuController extends ChangeNotifier {
   Object? _shownBy;
 
   void _preferencesChanged() {
-    if (preferences.shownBy == _shownBy) return;
-    _refresh();
+    // A source switched here or on another device switches in the current
+    // session too, matching one switched on that it has not tried yet.
+    var switched = false;
+    for (final source in sources) {
+      final enabled = preferences.sourceEnabled(source.id);
+      if (source.enabled == enabled) continue;
+      source.enabled = enabled;
+      switched = true;
+      if (enabled && source.status == DanmakuStatus.idle) {
+        if (_duration case final duration?) {
+          unawaited(autoMatch(duration, only: source.id));
+        }
+      }
+    }
+    if (switched) {
+      _merge();
+    } else if (preferences.shownBy != _shownBy) {
+      _refresh();
+    }
   }
 
   void _refresh({DanmakuComment? sent}) {

@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../catalog.dart';
 import '../../core/deleted_files.dart';
+import '../../core/error_message.dart';
 import '../../core/json.dart';
 import '../../core/store.dart';
 import '../../domain/transfer.dart';
@@ -102,10 +103,14 @@ class TaskRecords {
   }
 
   Future<void> put(Json task) {
-    final saved = Map<String, dynamic>.of(task)
-      ..['files'] = [
-        for (final file in objects(task['files'])) {...file},
-      ];
+    final saved = <String, dynamic>{
+      for (final MapEntry(:key, :value) in task.entries)
+        // Lists a running task appends to are copied too.
+        key: value is List ? List<dynamic>.of(value) : value,
+    };
+    saved['files'] = [
+      for (final file in objects(task['files'])) {...file},
+    ];
     final writing = _writes.then(
       (_) => store.put(collection, '${task['id']}', saved),
     );
@@ -114,15 +119,45 @@ class TaskRecords {
   }
 
   /// Deletes the record and folder of task [id] once earlier writes finish.
+  /// The folder is moved aside first: on Windows that fails while another
+  /// program, such as a player, has a file in it open, before anything is
+  /// deleted, so the task stays whole instead of its files outliving its
+  /// record where nothing lists them.
   Future<void> discard(String id) async {
     await _writes;
-    await store.remove(collection, id);
     final folder = Directory(p.join(directory, id));
-    if (await folder.exists()) await folder.delete(recursive: true);
+    Directory? removed;
+    if (await folder.exists()) {
+      try {
+        removed = await folder.rename(p.join(directory, '$id.removed'));
+      } on FileSystemException catch (error, stack) {
+        // Access denied or a sharing violation.
+        if (!Platform.isWindows ||
+            !const {5, 32}.contains(error.osError?.errorCode)) {
+          rethrow;
+        }
+        Error.throwWithStackTrace(TaskFilesInUse(error), stack);
+      }
+    }
+    await store.remove(collection, id);
+    await removed?.delete(recursive: true);
   }
 
   /// Completes once the writes asked for so far finish.
   Future<void> get settled => _writes;
+}
+
+/// A task's folder could not be deleted because another program has a file
+/// in it open; nothing was deleted, and the task stays.
+class TaskFilesInUse implements UserFacingError {
+  const TaskFilesInUse(this.cause);
+  final FileSystemException cause;
+
+  @override
+  String get userMessage => '缓存文件正被其他程序使用，关闭后再删除';
+
+  @override
+  String toString() => 'TaskFilesInUse: $cause';
 }
 
 /// A stored finished task whose files were all deleted outside the app; its
@@ -142,6 +177,34 @@ DownloadFile downloadFile(Json file) => DownloadFile(
   progress: number(file['progress']),
   video: file['mediaKind'] == 'video',
 );
+
+/// Places an existing [task], added again with [subjectId] and [episodeId],
+/// under them when it has none: a torrent first added by hand and later
+/// chosen from a subject joins that subject. A subject or episode the task
+/// already has is kept, and an episode is taken only from its own subject.
+/// True when the task changed.
+bool backfillPlace(
+  Json task,
+  int? subjectId,
+  int? episodeId,
+  String? coverUrl,
+) {
+  var changed = false;
+  if (subjectId != null && task['subjectId'] == null) {
+    task['subjectId'] = subjectId;
+    if (task['coverUrl'] == null && coverUrl != null) {
+      task['coverUrl'] = coverUrl;
+    }
+    changed = true;
+  }
+  if (episodeId != null &&
+      task['episodeId'] == null &&
+      task['subjectId'] == subjectId) {
+    task['episodeId'] = episodeId;
+    changed = true;
+  }
+  return changed;
+}
 
 /// Cover of a subject whose detail is cached locally, for tasks added
 /// without one.

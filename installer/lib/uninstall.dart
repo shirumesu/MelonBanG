@@ -21,21 +21,24 @@ class Uninstaller {
 
   late final Future<Map<String, Object?>> _storage = storage();
 
-  /// Every existing folder of the program's data, none inside another.
+  /// Every existing folder of the program's data, none inside another unless
+  /// it is a link, such as media moved to another drive by a junction: no
+  /// listing here follows links, which may lead to anything outside.
   late final Future<List<String>> data = () async {
     final storage = await _storage;
     final kept = <String>[];
     for (final folder in [
       support,
-      storage['data'],
-      storage['media'],
-    ].whereType<String>()) {
-      if (kept.any(
-        (other) => p.equals(other, folder) || p.isWithin(other, folder),
-      )) {
+      storage['data'] as String? ?? p.join(support, 'native'),
+      mediaIn(storage),
+    ]) {
+      if (!await Directory(folder).exists() ||
+          kept.any((other) => p.equals(other, folder)) ||
+          (kept.any((other) => p.isWithin(other, folder)) &&
+              !await FileSystemEntity.isLink(folder))) {
         continue;
       }
-      if (await Directory(folder).exists()) kept.add(folder);
+      kept.add(folder);
     }
     return kept;
   }();
@@ -44,7 +47,9 @@ class Uninstaller {
   late final Future<int> dataSize = () async {
     var total = 0;
     for (final folder in await data) {
-      await for (final entry in Directory(folder).list(recursive: true)) {
+      await for (final entry in Directory(
+        folder,
+      ).list(recursive: true, followLinks: false)) {
         if (entry is File) total += await entry.length();
       }
     }
@@ -75,11 +80,17 @@ class Uninstaller {
     final roots = [
       location,
       if (wipe)
-        ...(await data).where((folder) => !p.isWithin(location, folder)),
+        for (final folder in await data)
+          if (!p.isWithin(location, folder) ||
+              await FileSystemEntity.isLink(folder))
+            folder,
     ];
+    // Links are removed with the folder holding them, never followed.
     final files = [
       for (final root in roots)
-        await for (final entry in Directory(root).list(recursive: true))
+        await for (final entry in Directory(
+          root,
+        ).list(recursive: true, followLinks: false))
           if (entry is File && (kept == null || !p.isWithin(kept, entry.path)))
             (root, entry),
     ];
@@ -100,7 +111,9 @@ class Uninstaller {
         left.add(root);
       }
     }
-    for (final root in roots) {
+    // A linked root inside another goes first, before removing that one
+    // takes the link with it.
+    for (final root in roots.reversed) {
       if (left.contains(root)) continue;
       try {
         if (root == location && kept != null) {

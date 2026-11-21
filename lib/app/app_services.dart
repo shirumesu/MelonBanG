@@ -317,11 +317,16 @@ class AppServices {
       api: api,
       settings: settings,
       token: account.accessToken,
-      userId: () => account.profile == null ? null : account.userId,
+      // An expired login waits for a sign-in as a signed-out one does: the
+      // sign-in then reads as an account change, and syncs.
+      userId: () => account.profile == null || account.sessionExpired
+          ? null
+          : account.userId,
       accountChanges: account.changes,
       parts: [librarySync],
     );
     librarySync.forgetBase = sync.forgetBase;
+    _flushSync = sync.flush;
     _dispose.add(() async => sync.dispose());
     tracking.start();
     await subscriptions.start();
@@ -348,8 +353,18 @@ class AppServices {
   ResourceSearchController newResourceSearch() =>
       ResourceSearchController(selection, playback);
 
-  Future<void> close() => _closing ??= _close();
-  Future<void> _close() async {
+  /// [SettingsSync.flush], once sync is built.
+  Future<void> Function(Duration limit)? _flushSync;
+
+  /// Closes the services. With [upload], a synced change still waiting to
+  /// go up first gets that long to: the place an episode was just left at
+  /// goes up only after a pause in playing, so quitting right after
+  /// watching would leave the account's other devices an older place until
+  /// this one starts again. A caller with little time, such as the end of
+  /// the system session, leaves it out.
+  Future<void> close({Duration upload = Duration.zero}) =>
+      _closing ??= _close(upload);
+  Future<void> _close(Duration upload) async {
     if (_starting == null) {
       api.close();
       return;
@@ -359,6 +374,7 @@ class AppServices {
     } catch (_) {
       // Partially initialized services still own resources that need closing.
     }
+    if (upload > Duration.zero) await _flushSync?.call(upload);
     api.close();
     try {
       await _restoringDownloads;

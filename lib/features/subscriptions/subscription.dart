@@ -182,8 +182,9 @@ class Subscription {
     failures: number(value['failures']).toInt(),
     issue: value['issue'] as String?,
     paused: value['paused'] == true,
-    // Before this was saved, only one from another device could be paused.
-    adopted: value['adopted'] == true || value['paused'] == true,
+    // Saved before this was, only one from another device could be paused;
+    // since, a paused one may be this device's own.
+    adopted: value['adopted'] as bool? ?? value['paused'] == true,
     ledger: {
       for (final entry in object(value['ledger']).entries)
         ?int.tryParse(entry.key): LedgerEntry.fromJson(object(entry.value)),

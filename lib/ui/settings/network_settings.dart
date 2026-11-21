@@ -432,8 +432,8 @@ class _ProbeRow extends StatelessWidget {
 }
 
 /// A probe's outcome: latency when the service answered, otherwise why not.
-/// Probes hit bare hosts without a token, so 401 or 404 still means the
-/// service answered; only the limited codes are worth showing.
+/// Probes go without a token, mostly to bare hosts, so 401 or 404 still
+/// means the service answered; only the limited codes are worth showing.
 class ProbeStatus extends StatelessWidget {
   const ProbeStatus(this.result, {super.key});
   final ProbeResult? result;
