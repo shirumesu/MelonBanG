@@ -93,7 +93,7 @@ class _PreferredGroupsSettingState extends State<PreferredGroupsSetting> {
           subtitle: '越靠前越优先，拖动调整顺序',
           help:
               'BT 和 PikPak 资源里这些字幕组的发布排在前面并优先推荐\n'
-              '订阅选“偏好字幕组”时也按这个顺序挑\n'
+              '订阅选“偏好字幕组”时缓存最先发布的，同时发布时按这个顺序挑\n'
               '选中后按 Alt + ← / → 移动，Delete 移除',
         ),
         Padding(

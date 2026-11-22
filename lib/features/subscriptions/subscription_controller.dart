@@ -339,7 +339,7 @@ class SubscriptionController extends ChangeNotifier {
         : age < const Duration(hours: 6)
         ? const Duration(minutes: 10)
         : age < const Duration(hours: 72)
-        ? const Duration(minutes: 30)
+        ? airingCheckInterval
         : const Duration(hours: 6);
     if (backoff > interval) interval = backoff;
     if (checked == null || checked.isBefore(latest.at)) return latest.at;
@@ -486,8 +486,7 @@ class SubscriptionController extends ChangeNotifier {
     // for it: another would mostly fail alike (PikPak signed out, a full
     // disk), and the downloads page retries this one.
     final tasks = _snapshot();
-    for (final MapEntry(key: id, value: entry)
-        in subscription.ledger.entries) {
+    for (final MapEntry(key: id, value: entry) in subscription.ledger.entries) {
       if (entry.taskId case final taskId?) {
         if (tasks.task(taskId) case final task?
             when task.status == DownloadStatus.failed) {

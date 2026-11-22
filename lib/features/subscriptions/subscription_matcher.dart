@@ -52,17 +52,24 @@ class ReleaseJudgement {
   String get identity => torrentIdentity(candidate.release.locator);
 }
 
+/// How often a show is checked from 6 hours to 3 days after an episode
+/// airs, when most groups release it. An episode's releases out within
+/// this of its first one count as found together.
+const airingCheckInterval = Duration(minutes: 30);
+
 /// Judges [candidates] for a subscription with [filter]: at most one
 /// release per episode is cached, only of episodes [wanted] and not [held]
 /// (cached already, by the subscription or by hand). [replaceable] episodes,
 /// with the title of the file cached, take that group's corrected release
-/// when [revisions] allows. Releases are taken in publishing order, so the
-/// first of an episode's matching files is kept, whichever subscribed group
-/// it is by; following the preferred groups, of files found together the
-/// one by the group listed first is kept. Of that group's files of the
-/// episode found together, one with subtitles the player can turn off goes
-/// first, as the resource search ranks them, so episodes found together
-/// take the same version rather than whichever was posted a minute earlier.
+/// when [revisions] allows. The first of an episode's matching files is
+/// kept, whichever subscribed group it is by, as checks running every
+/// [airingCheckInterval] would keep it: the same whether a check finds
+/// each release as it comes out or, catching up on aired episodes or after
+/// the computer slept, all at once. Following the preferred groups, of files
+/// out within [airingCheckInterval] of the first, the one by the group
+/// listed first is kept. Of that group's files of the episode, one with
+/// subtitles the player can turn off goes first, as the resource search
+/// ranks them, rather than whichever was posted a minute earlier.
 /// A smart filter takes the groups
 /// [smartGroups] picks from [candidates], with episodes timed by [aired].
 /// Subtitles are read across a group's series as the resource search reads
@@ -214,10 +221,34 @@ List<ReleaseJudgement> judgeReleases({
         .add(skip(Verdict.download, '', episode: episode));
   }
   for (final episode in {...exact.keys, ...loose.keys}) {
-    final options = exact[episode] ?? loose[episode]!;
+    // Releases a check would only find after it chose one: out later than
+    // the episode's first by more than a check's interval. A bare date says
+    // nothing about the hour, so such a release counts as out with the
+    // first.
+    DateTime? at(ReleaseJudgement option) =>
+        switch (option.candidate.release.publishedAt) {
+          final raw? when raw.trim().length > 10 => releasePublished(raw),
+          _ => null,
+        };
+    final all = [...?exact[episode], ...?loose[episode]];
+    final first = all
+        .map(at)
+        .nonNulls
+        .fold<DateTime?>(
+          null,
+          (first, at) => first == null || at.isBefore(first) ? at : first,
+        );
+    bool together(ReleaseJudgement option) => switch ((first, at(option))) {
+      (final first?, final at?) => at.difference(first) <= airingCheckInterval,
+      _ => true,
+    };
+    final later = all.where((option) => !together(option)).toList();
+    final sure = [...?exact[episode]?.where(together)];
+    final unsure = [...?loose[episode]?.where(together)];
+    final options = sure.isNotEmpty ? sure : unsure;
     final label = options.first.episode!.label;
-    if (exact[episode] == null && options.length > 1) {
-      for (final option in options) {
+    if (sure.isEmpty && options.length > 1) {
+      for (final option in [...options, ...later]) {
         judged.add(
           ReleaseJudgement(
             option.candidate,
@@ -259,7 +290,7 @@ List<ReleaseJudgement> judgeReleases({
             )
             .firstOrNull ??
         pool.first;
-    for (final option in options) {
+    for (final option in [...options, ...later]) {
       final replaces = held.contains(episode);
       judged.add(
         identical(option, chosen)
@@ -382,9 +413,12 @@ Duration? fastestLag(Iterable<GroupRecord> records) {
 const slowGroupLag = Duration(days: 7);
 
 /// The groups worth following of [records], the best first: those scoring
-/// close to the best on how many of the show's episodes they released, how
-/// soon after airing, and whether they are among [preferredGroups], at
-/// most three. Groups usually a week late are left out.
+/// close to the best on how soon after airing they release, how many of the
+/// show's episodes they released, and whether they are among
+/// [preferredGroups], at most three. Speed weighs most, as a group days
+/// behind misses the week's talk of an episode: a preferred group a few
+/// days late loses to one out within a day. Groups usually a week late are
+/// left out.
 List<GroupRecord> smartGroups(
   Iterable<GroupRecord> records,
   List<String> preferredGroups,
@@ -393,12 +427,14 @@ List<GroupRecord> smartGroups(
   if (released.isEmpty) return const [];
   double score(GroupRecord record) {
     final lag = record.lag;
-    // Twelve hours late halves the speed score; an unknown lag counts so.
-    final speed = lag == null ? .5 : 1 / (1 + lag.inMinutes / (12 * 60));
+    // Each day late halves the speed score; an unknown lag counts as a day.
+    final speed = lag == null
+        ? .5
+        : math.pow(.5, lag.inMinutes / Duration.minutesPerDay).toDouble();
     final preferred = groupsMatch(record.credits, preferredGroups) ? 1 : 0;
-    return .45 * record.episodes.length / released.length +
-        .35 * speed +
-        .2 * preferred;
+    return .5 * speed +
+        .35 * record.episodes.length / released.length +
+        .15 * preferred;
   }
 
   final scored = [

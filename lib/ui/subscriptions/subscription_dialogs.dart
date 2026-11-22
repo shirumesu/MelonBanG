@@ -553,7 +553,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
         icon: Icons.groups_outlined,
         active: !filter.anyGroup,
         tooltip:
-            '智能：自动选择发布全、更新快的字幕组，偏好优先，最多三个；'
+            '智能：按更新快慢、发布集数和偏好自动选择字幕组，最多三个；'
             '选择多个时缓存最先发布的',
         sections: [
           MelonFilterSection([
@@ -564,7 +564,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
               subtitle: picked.isEmpty
                   ? judged
                         ? '本作还没有符合画质和字幕的发布'
-                        : '按发布集数、发布快慢和偏好挑选'
+                        : '按更新快慢、发布集数和偏好挑选'
                   : lagOf(picked),
             ),
             MelonFilterOption(
@@ -800,51 +800,103 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                   horizontal: Gap.md,
                   vertical: Gap.sm,
                 ),
-                child: picks.isEmpty
-                    ? Text(
-                        searching
-                            ? '正在查找符合筛选的文件…'
-                            : searchError ?? '最近没有符合筛选的文件',
-                        style: small,
-                      )
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // A preview: what the filter takes for episodes
-                          // already out, as it would for the next.
-                          Text(
-                            '按当前筛选，最近几话将缓存',
-                            style: small?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: Gap.xs),
-                          for (final pick in picks.take(3))
-                            _PickRow(
-                              episode: pick.episode!.label,
-                              group: resourceGroupLabel(pick.info),
-                              file: _fileLabels((
-                                candidate: pick.candidate,
-                                info: pick.info,
-                                episode: pick.episode!,
-                              )),
-                              size: resourceSizeLabel(
-                                pick.candidate.release,
-                                units,
+                // Sites answer one by one, so the preview changes as they
+                // do: it resizes and crossfades rather than jumping.
+                child: AnimatedSize(
+                  duration: motionDuration(context, 220),
+                  curve: Curves.easeInOutCubic,
+                  alignment: Alignment.topLeft,
+                  child: MotionSwap(
+                    value: picks.isEmpty,
+                    scale: 1,
+                    alignment: Alignment.topLeft,
+                    child: picks.isEmpty
+                        ? Text(
+                            searching
+                                ? '正在查找符合筛选的文件…'
+                                : searchError ?? '最近没有符合筛选的文件',
+                            style: small,
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // A preview: what the filter takes for
+                              // episodes already out, as it would for the
+                              // next.
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '按当前筛选，最近几话将缓存',
+                                      style: small?.copyWith(
+                                        color: scheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                                  // Until every site answers, the picks
+                                  // may still change.
+                                  DelayedBusy(
+                                    busy: searching,
+                                    builder: (context, shown) => MotionReveal(
+                                      visible: shown,
+                                      axis: Axis.horizontal,
+                                      alignment: Alignment.centerRight,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const SizedBox.square(
+                                            dimension: 12,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          ),
+                                          const SizedBox(width: Gap.xs),
+                                          Text(
+                                            '还在查找',
+                                            style: small?.copyWith(
+                                              color: scheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              delay: switch (_delay((
-                                candidate: pick.candidate,
-                                info: pick.info,
-                                episode: pick.episode!,
-                              ))) {
-                                final delay? => '播出后 ${_span(delay)}发布',
-                                null => '',
-                              },
-                              title: pick.candidate.release.title,
-                              style: tabular,
-                            ),
-                        ],
-                      ),
+                              const SizedBox(height: Gap.xs),
+                              for (final pick in picks.take(3))
+                                MotionSwap(
+                                  value: pick.candidate.candidateId,
+                                  scale: 1,
+                                  alignment: Alignment.centerLeft,
+                                  child: _PickRow(
+                                    episode: pick.episode!.label,
+                                    group: resourceGroupLabel(pick.info),
+                                    file: _fileLabels((
+                                      candidate: pick.candidate,
+                                      info: pick.info,
+                                      episode: pick.episode!,
+                                    )),
+                                    size: resourceSizeLabel(
+                                      pick.candidate.release,
+                                      units,
+                                    ),
+                                    delay: switch (_delay((
+                                      candidate: pick.candidate,
+                                      info: pick.info,
+                                      episode: pick.episode!,
+                                    ))) {
+                                      final delay? => '播出后 ${_span(delay)}发布',
+                                      null => '',
+                                    },
+                                    title: pick.candidate.release.title,
+                                    style: tabular,
+                                  ),
+                                ),
+                            ],
+                          ),
+                  ),
+                ),
               ),
             ),
             if (earlier.isNotEmpty || offerWatching || subscription != null)
