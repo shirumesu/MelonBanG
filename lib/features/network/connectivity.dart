@@ -144,7 +144,8 @@ class ConnectivityCheck extends ChangeNotifier {
     }
   }
 
-  /// Probes every target, four at a time.
+  /// Probes every target, four at a time, after looking for the proxy again:
+  /// a test usually follows changing it.
   Future<void> runAll() async {
     final run = ++_run;
     final list = targets;
@@ -171,6 +172,7 @@ class ConnectivityCheck extends ChangeNotifier {
     }
 
     try {
+      await proxy.refresh();
       await Future.wait([for (var i = 0; i < 4; i++) worker()]);
     } finally {
       client.close();

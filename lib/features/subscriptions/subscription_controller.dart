@@ -11,6 +11,7 @@ import '../../domain/episode_release.dart';
 import '../../domain/release_traits.dart';
 import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
+import '../acquisition/online_candidates.dart';
 import '../acquisition/release_search.dart';
 import '../acquisition/resource_metadata.dart';
 import '../acquisition/title_matching.dart';
@@ -542,13 +543,21 @@ class SubscriptionController extends ChangeNotifier {
       // Restored tasks tell which episodes are cached already.
       await downloads.ready;
       final subject = await detail(id);
-      final result = await _search(subject);
-      if (result.sources.isEmpty) {
+      final searches = await Future.wait<Object?>([
+        _search(subject),
+        if (subscription.filter.online) _searchOnline(subject),
+      ]);
+      final result = searches.first as ReleaseSearchResult;
+      final online = searches.length > 1
+          ? searches[1] as OnlineReleaseResult
+          : null;
+      // Online sources answering are enough: with every BT site down, they
+      // fill in the episodes as they would before any group's release.
+      final sites = [...result.sources, ...?online?.sources];
+      if (sites.isEmpty) {
         throw StateError('没有可用的资源站，请在「数据源」中启用');
       }
-      if (result.sources.every(
-        (source) => source.status == SearchStatus.error,
-      )) {
+      if (sites.every((source) => source.status == SearchStatus.error)) {
         throw StateError('资源站都没有响应，稍后会再试');
       }
       // Ended, or stopped caching here, while the sites answered: nothing
@@ -560,6 +569,7 @@ class SubscriptionController extends ChangeNotifier {
         subscription,
         subject,
         result.candidates,
+        online?.releases ?? const [],
       );
       if (_asked.remove(id)) {
         found = _found(subscription, subject, judged, started);
@@ -630,7 +640,9 @@ class SubscriptionController extends ChangeNotifier {
             episode.id)
           judgement,
     ];
-    if (files.isEmpty) return '${episode.label}还没有字幕组发布';
+    // An online entry of a quality the filter takes would have been cached.
+    final online = subscription.filter.online ? '，在线源也没有合适的' : '';
+    if (files.isEmpty) return '${episode.label}还没有字幕组发布$online';
     final reasons = <String, int>{};
     for (final judgement in files) {
       final reason = switch (judgement.verdict) {
@@ -644,19 +656,22 @@ class SubscriptionController extends ChangeNotifier {
         files.length == 1 ? reason : '$reason $count 个',
     ].join('、');
     return '${episode.label}找到 ${files.length} 个文件，'
-        '${files.length == 1 ? '' : '都'}没有选：$why';
+        '${files.length == 1 ? '' : '都'}没有选：$why$online';
   }
 
   /// Judges [candidates] for [subscription] and caches the releases chosen,
-  /// noting the rest; returns the judgements and the episodes whose cache
-  /// did start, which a failed one is not.
+  /// then the [online] entries filling in episodes without one, noting the
+  /// rest; returns the judgements and the episodes whose cache did start,
+  /// which a failed one is not.
   Future<({List<ReleaseJudgement> judged, List<Episode> started})> _apply(
     Subscription subscription,
     Subject subject,
     List<ReleaseCandidate> candidates,
+    List<OnlineRelease> online,
   ) async {
     final revisions = preferences.revisions;
     final groups = preferredGroups();
+    final held = _held(subscription, subject);
     var replaceable = <int, String>{};
     if (revisions == RevisionPolicy.replaceUnwatched) {
       try {
@@ -665,7 +680,7 @@ class SubscriptionController extends ChangeNotifier {
           for (final episode in progress.episodes)
             if (!episode.watched)
               if (subscription.ledger[episode.id] case final entry?
-                  when !entry.revision && entry.taskId != null)
+                  when !entry.revision && !entry.online && entry.taskId != null)
                 episode.id: entry.title,
         };
       } catch (_) {
@@ -680,7 +695,7 @@ class SubscriptionController extends ChangeNotifier {
       candidates: candidates,
       wanted: (episode) => _wanted(subscription, subject, episode),
       revisions: revisions,
-      held: _held(subscription, subject),
+      held: held,
       replaceable: replaceable,
       known: {for (final entry in subscription.ledger.values) entry.identity},
     );
@@ -760,6 +775,50 @@ class SubscriptionController extends ChangeNotifier {
       }
     }
     noteSkipped();
+    final filling = pickOnline(
+      filter: subscription.filter,
+      releases: online,
+      wanted: (episode) => _wanted(subscription, subject, episode),
+      held: held,
+      // A group's release whose cache failed to start is tried again by
+      // the next check, rather than taken from a site meanwhile.
+      chosen: {
+        for (final judgement in judged)
+          if (judgement.download) ?judgement.episode?.id,
+      },
+    );
+    for (final release in filling.values) {
+      if (!_caching(subscription)) return (judged: judged, started: started);
+      final episode = release.episode;
+      try {
+        final task = await downloads.addOnline(
+          release.entry.ref,
+          title: release.title,
+          source: release.sourceLabel,
+          subjectId: subject.id,
+          episodeId: episode.id,
+          coverUrl: subject.coverUrl,
+        );
+        subscription.ledger[episode.id] = LedgerEntry(
+          identity: release.identity,
+          title: release.title,
+          at: DateTime.now(),
+          taskId: task.id,
+          online: true,
+        );
+        started.add(episode);
+        subscription.note(
+          '开始缓存${episode.label}（在线 · ${release.source.name}）',
+          kind: SubscriptionEventKind.started,
+        );
+      } catch (e) {
+        subscription.issue = '${episode.label}没能开始缓存：${errorMessage(e)}';
+        subscription.note(
+          subscription.issue!,
+          kind: SubscriptionEventKind.failed,
+        );
+      }
+    }
     _checkFinished(subscription, subject);
     return (judged: judged, started: started);
   }
@@ -1116,6 +1175,33 @@ class SubscriptionController extends ChangeNotifier {
     void Function(ReleaseSearchResult)? onUpdate,
     RequestCancellation? cancel,
   }) => _search(subject, onUpdate: onUpdate, cancel: cancel);
+
+  /// Every entry the online sources list for [subject], as a check would
+  /// find them, for previewing what they fill in.
+  Future<OnlineReleaseResult> browseOnline(
+    Subject subject, {
+    void Function(OnlineReleaseResult)? onUpdate,
+    RequestCancellation? cancel,
+  }) => _searchOnline(subject, onUpdate: onUpdate, cancel: cancel);
+
+  /// The online sources a subscription caches from: enabled on the Sources
+  /// page, and not ones whose uploads the user has to confirm.
+  List<SourceInstance> get onlineSources => [
+    for (final source in releases.registry.usableOf(SourceKind.online))
+      if (!source.manualOnly) source,
+  ];
+
+  Future<OnlineReleaseResult> _searchOnline(
+    Subject subject, {
+    void Function(OnlineReleaseResult)? onUpdate,
+    RequestCancellation? cancel,
+  }) => onlineReleases(
+    releases.registry,
+    subject,
+    names: ResourceTerms.of(subject, null).searchNames,
+    onUpdate: onUpdate,
+    cancel: cancel,
+  );
 
   /// The BT sites' releases of [subject], searched by every catalogue name
   /// as 查找资源 searches the whole show.

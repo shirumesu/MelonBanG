@@ -33,7 +33,7 @@ class OnlineDownloads implements OnlineTransfer {
 
   /// Reads an entry's stream from its source, advertisements filtered.
   final Future<ResolvedStream> Function(StreamRef ref) resolve;
-  final _http = http.Client();
+  final _http = RoutedClient();
   static const _connections = 6;
   static const _idle = Duration(seconds: 30);
 

@@ -1,11 +1,17 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'network_routes.dart';
 import 'system_settings.dart';
 import 'settings.dart';
 
+export 'network_routes.dart';
+
 enum ProxyMode {
+  auto('自动检测'),
   off('不使用代理'),
   system('使用系统代理'),
   custom('自定义 HTTP 代理');
@@ -108,19 +114,46 @@ class ProxyServer {
   String toString() => '$host:$port';
 }
 
+/// What automatic mode found, looked for in this order.
+enum AutoRoute {
+  /// Not looked yet: requests go direct meanwhile.
+  detecting,
+
+  /// The system proxy is set: requests follow it as [ProxyMode.system].
+  system,
+
+  /// A TUN adapter takes every connection, so direct ones reach it too.
+  tun,
+
+  /// A proxy app listens on one of its usual ports without being made the
+  /// system proxy.
+  local,
+
+  /// None of these.
+  direct,
+}
+
 /// Routes the app's HTTP requests and online playback through the chosen
-/// proxy. Every `HttpClient` created after [install] asks it per request,
-/// so changing the setting applies to the next connection without
-/// recreating clients. BitTorrent peers connect directly.
+/// proxy. Every `HttpClient` created after [initialize] asks it per
+/// request, so changing the setting applies to the next connection without
+/// recreating clients; `RoutedClient`s also send a site direct once it
+/// connects only that way. BitTorrent peers connect directly.
 class NetworkProxy extends ChangeNotifier {
-  NetworkProxy(this.settings);
+  NetworkProxy(this.settings) : routes = NetworkRoutes(settings);
   final Settings settings;
+
+  /// Sites the proxy cannot reach, sent direct.
+  final NetworkRoutes routes;
+
+  /// The proxy the app's clients route by, set by [initialize].
+  static NetworkProxy? get installed => _installed;
+  static NetworkProxy? _installed;
 
   /// This device's network: never synced. The address can hold a password.
   static const modeSetting = EnumSetting(
     'network-proxy-mode',
     ProxyMode.values,
-    ProxyMode.off,
+    ProxyMode.auto,
     sync: SettingSync.local,
   );
   static const addressSetting = StringSetting(
@@ -136,6 +169,13 @@ class NetworkProxy extends ChangeNotifier {
 
   SystemProxy system = const SystemProxy();
 
+  /// What automatic mode found the last time it looked, and the local proxy
+  /// when that is what it found.
+  AutoRoute get autoRoute => _autoRoute;
+  AutoRoute _autoRoute = AutoRoute.detecting;
+  ProxyServer? _local;
+  Future<void>? _refreshing;
+
   /// The custom server, or null while [address] is invalid.
   ProxyServer? get custom {
     try {
@@ -145,27 +185,156 @@ class NetworkProxy extends ChangeNotifier {
     }
   }
 
-  /// Reads the system proxy and starts routing requests.
+  /// Starts routing requests, then looks for the proxy. A local port slow
+  /// to answer holds the window back no more than a second; requests sent
+  /// before it answers go direct.
   Future<void> initialize() async {
-    await refreshSystem();
+    _installed = this;
     HttpOverrides.global = _ProxyOverrides(this);
+    await Future.any([
+      refresh(),
+      Future<void>.delayed(const Duration(seconds: 1)),
+    ]);
   }
 
-  /// Rereads the system proxy, which can change while the app runs.
-  Future<void> refreshSystem() async {
+  /// Rereads the system proxy and, in automatic mode, looks again for a TUN
+  /// and a local proxy: any of them can change while the app runs.
+  Future<void> refresh() =>
+      _refreshing ??= _refresh().whenComplete(() => _refreshing = null);
+
+  Future<void> _refresh() async {
     final next = await SystemSettings.proxy();
-    final changed =
+    var changed =
         next.http != system.http ||
         next.https != system.https ||
         !listEquals(next.exceptions, system.exceptions);
     system = next;
+    if (mode == ProxyMode.auto) {
+      final (route, local) = next.enabled
+          ? (AutoRoute.system, null)
+          : await _detect();
+      changed |= route != _autoRoute || '$local' != '$_local';
+      _autoRoute = route;
+      _local = local;
+    }
     if (changed) notifyListeners();
   }
 
   Future<void> setMode(ProxyMode value) async {
     await settings.set(modeSetting, value);
-    if (value == ProxyMode.system) await refreshSystem();
     notifyListeners();
+    if (value == ProxyMode.system || value == ProxyMode.auto) await refresh();
+  }
+
+  /// The host a TUN's fake address and a local proxy's tunnel are tried
+  /// with: the one the app needs most.
+  static const _probeHost = 'api.bgm.tv';
+
+  /// Where proxy apps listen by default, the most common first: Clash and
+  /// Mihomo, Clash Verge, v2rayN (mixed, then HTTP), NekoBox, Hiddify,
+  /// v2rayA, Shadowsocks, ShadowsocksX-NG, Qv2ray and Surge.
+  static const _localPorts = [
+    7890,
+    7897,
+    10808,
+    10809,
+    2080,
+    12334,
+    20171,
+    1080,
+    1087,
+    8889,
+    6152,
+  ];
+
+  /// What a local proxy found on its own is not asked for: the LAN.
+  static const _privateRanges = [
+    '<local>',
+    '10.0.0.0/8',
+    '172.16.0.0/12',
+    '192.168.0.0/16',
+    '169.254.0.0/16',
+  ];
+
+  static Future<(AutoRoute, ProxyServer?)> _detect() async {
+    final (tun, local) = await (_tunActive(), _localProxy()).wait;
+    if (tun) return (AutoRoute.tun, null);
+    if (local != null) return (AutoRoute.local, local);
+    return (AutoRoute.direct, null);
+  }
+
+  /// Clash, Mihomo and sing-box in TUN mode bring up an adapter of their
+  /// own, which Mihomo addresses in 198.18.0.0/15; with fake-ip they also
+  /// answer every name with an address in that range.
+  static Future<bool> _tunActive() async {
+    bool fake(InternetAddress address) =>
+        _excepted('198.18.0.0/15', address.address);
+    final adapters = await NetworkInterface.list();
+    if (adapters.any(
+      (adapter) =>
+          _tunAdapter.hasMatch(adapter.name) || adapter.addresses.any(fake),
+    )) {
+      return true;
+    }
+    try {
+      final addresses = await InternetAddress.lookup(_probeHost)
+          .timeout(const Duration(seconds: 2));
+      return addresses.any(fake);
+    } on SocketException {
+      // Offline or without DNS: no fake answer either.
+      return false;
+    } on TimeoutException {
+      return false;
+    }
+  }
+
+  /// The names Mihomo, Clash and sing-box's Windows and Linux builds give
+  /// their adapter; macOS names every tunnel utun, its own included.
+  static final _tunAdapter = RegExp(
+    r'^(mihomo|meta|clash|sing-?box|singbox_tun|wintun)$',
+    caseSensitive: false,
+  );
+
+  static Future<ProxyServer?> _localProxy() async {
+    final answers = await Future.wait(_localPorts.map(_answersAsProxy));
+    for (final (i, port) in _localPorts.indexed) {
+      if (answers[i]) return ProxyServer('127.0.0.1', port);
+    }
+    return null;
+  }
+
+  /// Whether a proxy listens on [port] here: it opens a tunnel when asked,
+  /// which any other server listening there refuses.
+  static Future<bool> _answersAsProxy(int port) async {
+    final Socket socket;
+    try {
+      socket = await Socket.connect(
+        InternetAddress.loopbackIPv4,
+        port,
+        timeout: const Duration(milliseconds: 500),
+      );
+    } on SocketException {
+      return false;
+    }
+    // A write the port refuses shows below as no reply.
+    socket.done.ignore();
+    try {
+      socket.write(
+        'CONNECT $_probeHost:443 HTTP/1.1\r\n'
+        'Host: $_probeHost:443\r\n\r\n',
+      );
+      final reply = await socket.first.timeout(const Duration(seconds: 3));
+      return RegExp(r'^HTTP/1\.[01] 200').hasMatch(latin1.decode(reply));
+    } on SocketException {
+      return false;
+    } on TimeoutException {
+      return false;
+    } on StateError {
+      // Closed without a word.
+      return false;
+    } finally {
+      socket.destroy();
+    }
   }
 
   /// Saves a custom address; throws a [FormatException] for an invalid one.
@@ -175,8 +344,13 @@ class NetworkProxy extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// The server requests to [uri] go through, or null for a direct one.
-  ProxyServer? serverFor(Uri uri) {
+  /// The server requests to [uri] go through, or null for a direct one: the
+  /// proxy setting's, except for a site learned to connect only direct.
+  ProxyServer? serverFor(Uri uri) =>
+      routes.sendsDirect(uri.host) ? null : configuredFor(uri);
+
+  /// The server the proxy setting names for [uri], whatever was learned.
+  ProxyServer? configuredFor(Uri uri) {
     if (_loopback(uri.host)) return null;
     switch (mode) {
       case ProxyMode.off:
@@ -184,18 +358,30 @@ class NetworkProxy extends ChangeNotifier {
       case ProxyMode.custom:
         return custom;
       case ProxyMode.system:
-        if (system.exceptions.any((rule) => _excepted(rule, uri.host))) {
-          return null;
-        }
-        final address = uri.scheme == 'https'
-            ? system.https ?? system.http
-            : system.http ?? system.https;
-        if (address == null) return null;
-        try {
-          return ProxyServer.parse(address);
-        } on FormatException {
-          return null;
-        }
+        return _systemServer(uri);
+      case ProxyMode.auto:
+        return switch ((_autoRoute, _local)) {
+          (AutoRoute.system, _) => _systemServer(uri),
+          (AutoRoute.local, final server?)
+              when !_privateRanges.any((rule) => _excepted(rule, uri.host)) =>
+            server,
+          _ => null,
+        };
+    }
+  }
+
+  ProxyServer? _systemServer(Uri uri) {
+    if (system.exceptions.any((rule) => _excepted(rule, uri.host))) {
+      return null;
+    }
+    final address = uri.scheme == 'https'
+        ? system.https ?? system.http
+        : system.http ?? system.https;
+    if (address == null) return null;
+    try {
+      return ProxyServer.parse(address);
+    } on FormatException {
+      return null;
     }
   }
 
@@ -205,6 +391,13 @@ class NetworkProxy extends ChangeNotifier {
     ProxyMode.custom => custom == null ? '代理地址无效，暂时直接连接' : '经由 ${custom!}',
     ProxyMode.system =>
       !system.enabled ? '系统未设置代理，直接连接' : '经由 ${system.https ?? system.http}',
+    ProxyMode.auto => switch ((_autoRoute, _local)) {
+      (AutoRoute.detecting, _) => '正在检测代理',
+      (AutoRoute.system, _) => '经由系统代理 ${system.https ?? system.http}',
+      (AutoRoute.tun, _) => '检测到 TUN 模式，直接连接',
+      (AutoRoute.local, final server?) => '经由本机代理 $server',
+      _ => '未检测到代理，直接连接',
+    },
   };
 
   static bool _loopback(String host) {
@@ -224,9 +417,8 @@ class NetworkProxy extends ChangeNotifier {
     final name = host.toLowerCase();
     if (pattern.isEmpty) return false;
     if (pattern == '<local>') return !name.contains('.');
-    final cidr = RegExp(
-      r'^(\d{1,3}(?:\.\d{1,3}){0,3})/(\d{1,2})$',
-    ).firstMatch(pattern);
+    final cidr = RegExp(r'^(\d{1,3}(?:\.\d{1,3}){0,3})/(\d{1,2})$')
+        .firstMatch(pattern);
     if (cidr != null) {
       final address = InternetAddress.tryParse(name);
       final bits = int.parse(cidr[2]!);

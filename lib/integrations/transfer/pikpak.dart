@@ -31,7 +31,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
   @override
   final String directory;
   final PikPakClient client;
-  final _http = http.Client();
+  final _http = RoutedClient();
   @override
   CacheMethod get method => CacheMethod.pikpak;
   final _changes = StreamController<void>.broadcast();

@@ -11,6 +11,7 @@ import 'package:http/io_client.dart';
 import 'cancellation.dart';
 import 'error_message.dart';
 import 'json.dart';
+import 'proxy.dart';
 
 export 'cancellation.dart';
 
@@ -45,6 +46,125 @@ extension AbortableSend on http.Client {
         throw TimeoutException(message, timeout);
       },
     );
+  }
+}
+
+/// An HTTP client that keeps each site reachable whichever way works for
+/// it. A request goes the way the proxy setting says, unless its site was
+/// learned to connect only direct; when a GET or HEAD cannot connect that
+/// way, it is sent once the other way, and if that one connects, the site
+/// is remembered for that way ([NetworkRoutes]). Writes are never sent
+/// twice, and a proxy app that is not running teaches nothing: the request
+/// goes direct and the proxy is looked for again.
+///
+/// Without a proxy in use every request goes direct, as before.
+class RoutedClient extends http.BaseClient {
+  RoutedClient({Duration idleTimeout = const Duration(seconds: 15)})
+    : _proxy = NetworkProxy.installed {
+    HttpClient open(String Function(Uri) route) => HttpClient()
+      ..idleTimeout = idleTimeout
+      ..connectionTimeout = connectTimeout
+      ..findProxy = route;
+    _direct = IOClient(open((_) => 'DIRECT'));
+    // Asked only once a request is sent through the proxy; the setting can
+    // drop it in between, and then the request goes direct.
+    _proxied = IOClient(
+      open((uri) => _proxy?.configuredFor(uri)?.directive ?? 'DIRECT'),
+    );
+  }
+
+  /// How long a connection may take to open: a blocked site that never
+  /// answers fails over to the other way after this.
+  static const connectTimeout = Duration(seconds: 5);
+
+  final NetworkProxy? _proxy;
+  late final IOClient _direct, _proxied;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final proxy = _proxy;
+    final server = proxy?.configuredFor(request.url);
+    if (proxy == null || server == null) return _direct.send(request);
+    final host = request.url.host;
+    final direct = proxy.routes.sendsDirect(host);
+    final again = _copy(request);
+    try {
+      return await (direct ? _direct : _proxied).send(request);
+    } catch (error, stack) {
+      if (again == null || !_unreachable(error)) rethrow;
+      final proxyDown = !direct && _proxyDown(error);
+      if (proxyDown) unawaited(proxy.refresh());
+      final http.StreamedResponse response;
+      try {
+        response = await (direct ? _proxied : _direct).send(again);
+      } catch (_) {
+        // Neither way connects: the way the site was expected to work
+        // says why.
+        Error.throwWithStackTrace(error, stack);
+      }
+      if (!proxyDown) proxy.routes.learn(host, direct: !direct);
+      return response;
+    }
+  }
+
+  /// Whether [error] left the request unanswered: no connection, a refused
+  /// tunnel or a reset before the response began. A cancelled request is
+  /// not.
+  static bool _unreachable(Object error) => switch (error) {
+    http.RequestAbortedException() => false,
+    http.ClientException() || SocketException() || TlsException() => true,
+    HttpException() => true,
+    _ => false,
+  };
+
+  /// Whether [error], from a request through the proxy, is the proxy itself
+  /// not answering, as when its app closed while the system still points
+  /// at it: through a proxy the socket opens to the proxy alone, so a
+  /// refused or timed-out connection is its. A reset or a refused tunnel
+  /// is the proxy failing to reach the site.
+  static bool _proxyDown(Object error) =>
+      error is SocketException &&
+      (_noConnection.contains(error.osError?.errorCode) ||
+          error.message.startsWith('HTTP connection timed out'));
+
+  /// Errors of a connection that never opened, by system.
+  static const _noConnection = {
+    // Windows: refused (1225 for this machine's ports), timed out, network
+    // and host unreachable.
+    1225, 10061, 10060, 10051, 10065,
+    // Linux: refused, timed out, network and host unreachable.
+    111, 110, 101, 113,
+    // macOS: refused, timed out, network and host unreachable.
+    61, 60, 51, 65,
+  };
+
+  /// [request] as a second one to send, for a read whose body is known.
+  static http.BaseRequest? _copy(http.BaseRequest request) {
+    if ((request.method != 'GET' && request.method != 'HEAD') ||
+        request is! http.Request) {
+      return null;
+    }
+    final copy = switch (request) {
+      http.Abortable(:final abortTrigger) => http.AbortableRequest(
+        request.method,
+        request.url,
+        abortTrigger: abortTrigger,
+      ),
+      _ => http.Request(request.method, request.url),
+    };
+    copy
+      ..headers.addAll(request.headers)
+      ..followRedirects = request.followRedirects
+      ..maxRedirects = request.maxRedirects
+      ..persistentConnection = request.persistentConnection;
+    if (request.bodyBytes.isNotEmpty) copy.bodyBytes = request.bodyBytes;
+    return copy;
+  }
+
+  @override
+  void close() {
+    _direct.close();
+    _proxied.close();
   }
 }
 
@@ -128,8 +248,8 @@ class ApiClient {
   // for a request on an open one; Dart drops idle connections after 15 s,
   // so opening a page after reading another would connect again. Bangumi's
   // and Melon API's servers (Cloudflare) close idle connections after 398 s.
-  final client = IOClient(
-    HttpClient()..idleTimeout = const Duration(minutes: 5),
+  final http.Client client = RoutedClient(
+    idleTimeout: const Duration(minutes: 5),
   );
   http.AbortableRequest _request(
     Uri uri, {

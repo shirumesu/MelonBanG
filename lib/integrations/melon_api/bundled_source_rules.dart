@@ -1,8 +1,8 @@
 // Bundled fallback for the declarative rules served by Melon API.
 const bundledSourceRules = r'''{
   "engine": 3,
-  "version": "2026.11.06.2",
-  "updatedAt": "2026-11-06T12:00:00Z",
+  "version": "2026.11.23.1",
+  "updatedAt": "2026-11-23T12:00:00Z",
   "rules": [
     {
       "id": "modu",
@@ -100,7 +100,7 @@ const bundledSourceRules = r'''{
       "kind": "torrent",
       "minEngine": 2,
       "builtinBefore": 2,
-      "baseUrls": ["https://mikanani.me"],
+      "baseUrls": ["https://mikanime.tv", "https://mikanani.me"],
       "website": "https://mikanani.me",
       "search": {"url": "/RSS/Search?searchstr={query}"},
       "metadata": {"parser": "mikan", "url": "/Home/Search?searchstr={query}"},

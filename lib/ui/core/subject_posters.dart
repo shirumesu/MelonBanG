@@ -10,6 +10,7 @@ import '../tracking/collection_labels.dart';
 import 'cached_image.dart';
 import 'page_widgets.dart';
 import 'motion.dart';
+import 'poster_zoom.dart';
 import 'theme.dart';
 
 /// A missing or loading portrait of a character or person: the "invisible"
@@ -83,6 +84,7 @@ class SubjectPosterGrid extends StatefulWidget {
     this.personalScore = false,
     this.marked = const {},
     this.markedAt,
+    this.zoom,
   });
   final List<Subject> items;
   final ValueChanged<Subject> onOpen;
@@ -95,6 +97,9 @@ class SubjectPosterGrid extends StatefulWidget {
   /// one refresh's marks from the next.
   final Set<int> marked;
   final DateTime? markedAt;
+
+  /// Lets the grid be zoomed, which it tells where it lays out.
+  final PosterZoom? zoom;
 
   @override
   State<SubjectPosterGrid> createState() => _SubjectPosterGridState();
@@ -122,19 +127,24 @@ class _SubjectPosterGridState extends State<SubjectPosterGrid> {
     final duration = motionDuration(context, 220);
     return SliverLayoutBuilder(
       builder: (context, constraints) {
-        const spacing = Offset(16, 20);
-        final columns = (constraints.crossAxisExtent / 184).floor().clamp(1, 8);
-        final width =
-            (constraints.crossAxisExtent - (columns - 1) * spacing.dx) /
-            columns;
-        final stride = Offset(width, width / .65) + spacing;
+        const spacing = posterSpacing;
+        final extent = constraints.crossAxisExtent;
+        widget.zoom?.layout = (
+          position: Scrollable.maybeOf(context)?.position,
+          top: constraints.precedingScrollExtent,
+          extent: extent,
+          count: items.length,
+        );
+        final columns = posterColumns(extent, widget.zoom?.level ?? 0);
+        final width = (extent - (columns - 1) * spacing.dx) / columns;
+        final stride = Offset(width, width / posterAspect) + spacing;
         return SliverGrid.builder(
           itemCount: items.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
             crossAxisSpacing: spacing.dx,
             mainAxisSpacing: spacing.dy,
-            childAspectRatio: .65,
+            childAspectRatio: posterAspect,
           ),
           findChildIndexCallback: (key) =>
               indexes[(key as ValueKey<int>).value],
@@ -168,11 +178,17 @@ class _SubjectPosterGridState extends State<SubjectPosterGrid> {
 
 /// Grey posters in [SubjectPosterGrid]'s layout while the first ones load,
 /// shown once the wait has lasted [busyDelay]; [tracking] adds the
-/// progress at the end of each line, as the collection's grid has.
+/// progress at the end of each line, as the collection's grid has; [level]
+/// is the grid's zoom.
 class PosterGridSkeleton extends StatelessWidget {
-  const PosterGridSkeleton({super.key, this.tracking = false, this.rows = 2});
+  const PosterGridSkeleton({
+    super.key,
+    this.tracking = false,
+    this.rows = 2,
+    this.level = 0,
+  });
   final bool tracking;
-  final int rows;
+  final int rows, level;
 
   @override
   Widget build(BuildContext context) => DelayedBusy(
@@ -192,8 +208,8 @@ class PosterGridSkeleton extends StatelessWidget {
   );
 
   Widget _grid(BuildContext context, BoxConstraints constraints) {
-    const spacing = Offset(16, 20);
-    final columns = (constraints.maxWidth / 184).floor().clamp(1, 8);
+    const spacing = posterSpacing;
+    final columns = posterColumns(constraints.maxWidth, level);
     final width = (constraints.maxWidth - (columns - 1) * spacing.dx) / columns;
     return Wrap(
       spacing: spacing.dx,
@@ -202,7 +218,7 @@ class PosterGridSkeleton extends StatelessWidget {
         for (var i = 0; i < columns * rows; i++)
           SizedBox(
             width: width,
-            height: width / .65,
+            height: width / posterAspect,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -687,21 +703,36 @@ class PosterMeta extends StatelessWidget {
                   ),
                 ),
         ),
-        const Spacer(),
         if (tracking)
-          // Progress pulled from Bangumi cross-fades in rather than jumping.
-          MotionSwap(
-            value: item.watchedEpisodes,
-            scale: 1,
-            alignment: Alignment.centerRight,
-            child: Text(switch ((item.watchedEpisodes, item.episodeTotal)) {
-              (null, null) => '',
-              (null, final total?) => '全 $total 话',
-              (final watched?, null) => '已看 $watched 话',
-              (final watched?, final total?) => '已看 $watched/$total',
-            }, style: meta),
+          // Progress pulled from Bangumi cross-fades in rather than jumping;
+          // a zoomed-out grid's narrow poster cuts it short.
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(left: Gap.sm),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: MotionSwap(
+                  value: item.watchedEpisodes,
+                  scale: 1,
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    switch ((item.watchedEpisodes, item.episodeTotal)) {
+                      (null, null) => '',
+                      (null, final total?) => '全 $total 话',
+                      (final watched?, null) => '已看 $watched 话',
+                      (final watched?, final total?) => '已看 $watched/$total',
+                    },
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                    style: meta,
+                  ),
+                ),
+              ),
+            ),
           )
-        else
+        else ...[
+          const Spacer(),
           Row(
             mainAxisSize: MainAxisSize.min,
             spacing: Gap.sm,
@@ -712,6 +743,7 @@ class PosterMeta extends StatelessWidget {
                 Text('全 $total 话', style: meta),
             ],
           ),
+        ],
       ],
     );
   }

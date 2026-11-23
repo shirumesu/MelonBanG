@@ -348,6 +348,32 @@ class SourceRegistry extends ChangeNotifier {
     }
   }
 
+  /// The picture size [ref]'s stream states, read without playing it: a
+  /// master HLS playlist states its variants'; null when it states none.
+  Future<({int width, int height})?> streamResolution(
+    StreamRef ref, {
+    RequestCancellation? cancel,
+  }) async {
+    final id = ref.sourceId;
+    try {
+      final stream = await online(id).resolve(ref, cancel: cancel);
+      final size = stream.format == StreamFormat.hls
+          ? await playlistResolution(
+              api,
+              Uri.parse(stream.url),
+              stream.headers,
+              cancel: cancel,
+            )
+          : null;
+      succeeded(id);
+      return size;
+    } catch (error) {
+      cancel?.throwIfCancelled();
+      failed(id, error);
+      rethrow;
+    }
+  }
+
   bool _filtersAds(SourceInstance rule) =>
       object(rule.config['playlistFilter'])['foreignPathBlocks'] == true;
 

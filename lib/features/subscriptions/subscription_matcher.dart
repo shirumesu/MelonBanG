@@ -5,6 +5,7 @@ import '../../domain/release_traits.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
 import '../../domain/torrent_identity.dart';
+import '../acquisition/online_candidates.dart';
 import '../acquisition/title_matching.dart';
 import 'subscription.dart';
 
@@ -313,6 +314,43 @@ List<ReleaseJudgement> judgeReleases({
     }
   }
   return judged;
+}
+
+/// The qualities an online entry must have when a filter chooses none: a
+/// site's 720p re-encode is no stand-in for a group's file.
+const onlineQualities = {'4K', '1080p'};
+
+/// The online entry a subscription with [filter] caches for each episode
+/// [wanted], not [held] and without a group's release [chosen]: online
+/// sources fill in an episode no group has a file of yet that meets the
+/// filter, so a check finding an entry before any group's file caches it,
+/// and one finding both takes the group's. Of [releases], in their
+/// sources' order, the first at a quality the filter takes, or of
+/// [onlineQualities] when it chooses none; one of unknown quality never
+/// counts. Online entries state neither group nor subtitles, so those
+/// choices leave them be.
+Map<int, OnlineRelease> pickOnline({
+  required SubscriptionFilter filter,
+  required Iterable<OnlineRelease> releases,
+  required bool Function(Episode) wanted,
+  Set<int> held = const {},
+  Set<int> chosen = const {},
+}) {
+  if (!filter.online) return const {};
+  final picks = <int, OnlineRelease>{};
+  for (final release in releases) {
+    final id = release.episode.id;
+    if (picks.containsKey(id) ||
+        held.contains(id) ||
+        chosen.contains(id) ||
+        !wanted(release.episode)) {
+      continue;
+    }
+    final takes = filter.qualities.isEmpty ? onlineQualities : filter.qualities;
+    if (!takes.contains(release.quality)) continue;
+    picks[id] = release;
+  }
+  return picks;
 }
 
 /// How one group releases a show: the episodes of its single-episode

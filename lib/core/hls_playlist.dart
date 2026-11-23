@@ -35,6 +35,30 @@ Future<(String, Uri)> fetchPlaylist(
   throw StateError('m3u8 清单嵌套层数过多');
 }
 
+/// The picture size a master playlist states for its first variant, the
+/// one [fetchPlaylist] follows; null for a media playlist, which states
+/// none.
+Future<({int width, int height})?> playlistResolution(
+  ApiClient api,
+  Uri uri,
+  Map<String, String> headers, {
+  RequestCancellation? cancel,
+}) async {
+  final response = await api.send(uri, headers: headers, cancel: cancel);
+  final text = utf8.decode(response.bodyBytes);
+  if (!text.trimLeft().startsWith('#EXTM3U')) {
+    throw StateError('站点没有返回有效 m3u8');
+  }
+  final variant = text
+      .split(RegExp(r'\r?\n'))
+      .where((line) => line.startsWith('#EXT-X-STREAM-INF'))
+      .firstOrNull;
+  if (variant == null) return null;
+  final size = RegExp(r'RESOLUTION=(\d+)x(\d+)').firstMatch(variant);
+  if (size == null) return null;
+  return (width: int.parse(size[1]!), height: int.parse(size[2]!));
+}
+
 String _absolutePlaylist(String text, Uri base) => text
     .split(RegExp(r'\r?\n'))
     .map((line) {

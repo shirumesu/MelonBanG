@@ -8,6 +8,7 @@ import '../../domain/release_traits.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
 import '../../features/appearance/appearance.dart';
+import '../../features/acquisition/online_candidates.dart';
 import '../../features/acquisition/title_matching.dart';
 import '../../features/subscriptions/subscription_controller.dart';
 import '../../features/subscriptions/subscription_matcher.dart';
@@ -193,6 +194,14 @@ typedef _File = ({
   Episode episode,
 });
 
+/// What the filter takes for an episode: a group's release, or an online
+/// entry filling in for one.
+typedef _Pick = ({
+  Episode episode,
+  ReleaseJudgement? release,
+  OnlineRelease? online,
+});
+
 class _SubscriptionDialogState extends State<_SubscriptionDialog> {
   /// The subscription when the dialog opened. The dialog follows the live
   /// one, which a check may end meanwhile; [earlier] and [cached] stay as
@@ -243,10 +252,54 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
   bool searching = true;
   bool saving = false;
 
+  /// What the online sources list, searched once the filter includes them.
+  var onlineFound = <OnlineRelease>[];
+  bool onlineSearched = false, onlineSearching = false;
+
+  /// Set when no online source answered.
+  String? onlineError;
+
   @override
   void initState() {
     super.initState();
     unawaited(_search());
+    if (filter.online) _searchOnline();
+  }
+
+  /// Searches the online sources, once.
+  void _searchOnline() {
+    if (onlineSearched) return;
+    onlineSearched = true;
+    onlineSearching = true;
+    void show(OnlineReleaseResult result) {
+      if (!mounted) return;
+      setState(() {
+        onlineFound = result.releases;
+        onlineError =
+            result.sources.isNotEmpty &&
+                result.sources.every(
+                  (source) => source.status == SearchStatus.error,
+                )
+            ? '在线源都没有响应，检查时会再试'
+            : null;
+      });
+    }
+
+    unawaited(() async {
+      try {
+        show(
+          await widget.controller.browseOnline(
+            widget.subject,
+            onUpdate: show,
+            cancel: cancel,
+          ),
+        );
+      } on RequestCancelled {
+        // The dialog closed.
+      } finally {
+        if (mounted) setState(() => onlineSearching = false);
+      }
+    }());
   }
 
   @override
@@ -442,17 +495,78 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
   String _fileLabels(_File file) => file.info.labels.take(4).join(' ');
 
   /// The file the filter takes for each of the latest episodes, the
-  /// latest first.
-  List<ReleaseJudgement> _picks() =>
-      judgeReleases(
-          subject: widget.subject,
-          filter: filter,
-          candidates: releases,
-          wanted: (_) => true,
-          preferredGroups: widget.preferredGroups,
-          aired: widget.controller.airedAt,
-        ).where((judgement) => judgement.download).toList()
-        ..sort((a, b) => b.episode!.sort.compareTo(a.episode!.sort));
+  /// latest first: a group's, else an online entry as a check would fill
+  /// in with.
+  List<_Pick> _picks() {
+    final chosen = judgeReleases(
+      subject: widget.subject,
+      filter: filter,
+      candidates: releases,
+      wanted: (_) => true,
+      preferredGroups: widget.preferredGroups,
+      aired: widget.controller.airedAt,
+    ).where((judgement) => judgement.download).toList();
+    final online = pickOnline(
+      filter: filter,
+      releases: onlineFound,
+      wanted: (_) => true,
+      chosen: {for (final judgement in chosen) judgement.episode!.id},
+    );
+    return [
+      for (final judgement in chosen)
+        (episode: judgement.episode!, release: judgement, online: null),
+      for (final entry in online.values)
+        (episode: entry.episode, release: null, online: entry),
+    ]..sort((a, b) => b.episode.sort.compareTo(a.episode.sort));
+  }
+
+  /// [pick] in the preview; an online entry names its site and quality.
+  Widget _pickRow(
+    _Pick pick,
+    ByteUnits units,
+    TextStyle? style,
+  ) => switch (pick) {
+    (release: final release?, online: _, episode: final episode) => MotionSwap(
+      value: release.candidate.candidateId,
+      scale: 1,
+      alignment: Alignment.centerLeft,
+      child: _PickRow(
+        episode: episode.label,
+        group: resourceGroupLabel(release.info),
+        file: _fileLabels((
+          candidate: release.candidate,
+          info: release.info,
+          episode: episode,
+        )),
+        size: resourceSizeLabel(release.candidate.release, units),
+        delay: switch (_delay((
+          candidate: release.candidate,
+          info: release.info,
+          episode: episode,
+        ))) {
+          final delay? => '播出后 ${_span(delay)}发布',
+          null => '',
+        },
+        title: release.candidate.release.title,
+        style: style,
+      ),
+    ),
+    (online: final online?, release: _, episode: final episode) => MotionSwap(
+      value: online.identity,
+      scale: 1,
+      alignment: Alignment.centerLeft,
+      child: _PickRow(
+        episode: episode.label,
+        group: online.source.name,
+        file: [?online.quality, '在线'].join(' '),
+        size: '',
+        delay: '',
+        title: online.title,
+        style: style,
+      ),
+    ),
+    _ => throw StateError('预览的一集既没有字幕组文件也没有在线源'),
+  };
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -688,6 +802,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
       ),
     ];
     final picks = _picks();
+    final onlineSources = widget.controller.onlineSources;
     final tabular = small?.copyWith(
       fontFeatures: const [FontFeature.tabularFigures()],
     );
@@ -812,7 +927,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                     alignment: Alignment.topLeft,
                     child: picks.isEmpty
                         ? Text(
-                            searching
+                            searching || onlineSearching
                                 ? '正在查找符合筛选的文件…'
                                 : searchError ?? '最近没有符合筛选的文件',
                             style: small,
@@ -836,7 +951,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                                   // Until every site answers, the picks
                                   // may still change.
                                   DelayedBusy(
-                                    busy: searching,
+                                    busy: searching || onlineSearching,
                                     builder: (context, shown) => MotionReveal(
                                       visible: shown,
                                       axis: Axis.horizontal,
@@ -865,42 +980,32 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                               ),
                               const SizedBox(height: Gap.xs),
                               for (final pick in picks.take(3))
-                                MotionSwap(
-                                  value: pick.candidate.candidateId,
-                                  scale: 1,
-                                  alignment: Alignment.centerLeft,
-                                  child: _PickRow(
-                                    episode: pick.episode!.label,
-                                    group: resourceGroupLabel(pick.info),
-                                    file: _fileLabels((
-                                      candidate: pick.candidate,
-                                      info: pick.info,
-                                      episode: pick.episode!,
-                                    )),
-                                    size: resourceSizeLabel(
-                                      pick.candidate.release,
-                                      units,
-                                    ),
-                                    delay: switch (_delay((
-                                      candidate: pick.candidate,
-                                      info: pick.info,
-                                      episode: pick.episode!,
-                                    ))) {
-                                      final delay? => '播出后 ${_span(delay)}发布',
-                                      null => '',
-                                    },
-                                    title: pick.candidate.release.title,
-                                    style: tabular,
-                                  ),
-                                ),
+                                _pickRow(pick, units, tabular),
                             ],
                           ),
                   ),
                 ),
               ),
             ),
-            if (earlier.isNotEmpty || offerWatching || subscription != null)
-              const SizedBox(height: Gap.sm),
+            const SizedBox(height: Gap.sm),
+            check(
+              value: filter.online,
+              onChanged: filter.online || onlineSources.isNotEmpty
+                  ? (value) {
+                      filter = filter.copyWith(online: value);
+                      if (value) _searchOnline();
+                    }
+                  : null,
+              title: '包含在线源',
+              subtitle: switch (onlineError) {
+                _ when onlineSources.isEmpty => '没有启用的在线源，可在「数据源」中启用',
+                final error? when filter.online => error,
+                _ =>
+                  '字幕组还没发布符合筛选的文件时，先缓存在线源的。'
+                      '在线源不分字幕组和字幕，'
+                      '${filter.qualities.isEmpty ? '只用 1080p 及以上' : '按所选画质'}',
+              },
+            ),
             if (earlier.isNotEmpty)
               check(
                 value: cacheEarlier,

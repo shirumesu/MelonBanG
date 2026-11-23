@@ -30,6 +30,8 @@ SettingsSection networkSection({
                 title: '网络代理',
                 subtitle: proxy.describe(),
                 help:
+                    '自动检测：有系统代理就用系统代理；没有时，检测到 TUN 模式就直接连接，'
+                    '否则找 Clash、v2rayN 等软件常用的本机端口（7890、7897、10808 等）\n'
                     '作用于 Bangumi、资源站、弹幕、PikPak、更新和在线播放\n'
                     'BT 下载与做种不走这里的代理\n'
                     'TUN 模式会接管所有流量，BT 没速度时给 MelonBanG 加直连规则\n'
@@ -48,6 +50,33 @@ SettingsSection networkSection({
               ],
             ],
           ),
+        ),
+      ),
+      SettingsItem(
+        '直连 分流 记住 网站 自动切换 连不上 回退',
+        ListenableBuilder(
+          listenable: proxy.routes,
+          builder: (context, _) {
+            final sites = proxy.routes.direct.keys.toList().reversed.toList();
+            return SettingRow(
+              title: '改为直连的网站',
+              subtitle: sites.isEmpty
+                  ? '暂无'
+                  : sites.length <= 4
+                  ? sites.join('、')
+                  : '${sites.take(4).join('、')} 等 ${sites.length} 个',
+              help:
+                  '使用代理时，请求默认经由代理，由代理软件自己的规则分流\n'
+                  '某个网站经代理连不上、直连能连上时，自动改为直连并记在这台设备上；'
+                  '之后直连连不上时会再试代理\n'
+                  '代理软件没在运行时临时直连，不会记住\n'
+                  '5 秒内连接没建立视为连不上',
+              trailing: TextButton(
+                onPressed: sites.isEmpty ? null : proxy.routes.clear,
+                child: const Text('清空'),
+              ),
+            );
+          },
         ),
       ),
     ], title: '代理'),

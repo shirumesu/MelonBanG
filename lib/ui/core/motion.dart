@@ -130,7 +130,10 @@ class MotionReveal extends StatelessWidget {
     ),
     builder: (context, value, child) => value == 0 && !visible
         ? const SizedBox.shrink()
+        // Clipped only while unfolding: settled, a child may paint past its
+        // box, as a progress ring's stroke does by half its width.
         : ClipRect(
+            clipBehavior: value < 1 ? Clip.hardEdge : Clip.none,
             child: Align(
               alignment: alignment,
               widthFactor: axis == Axis.horizontal ? value : null,

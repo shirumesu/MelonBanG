@@ -25,6 +25,7 @@ class SubscriptionFilter {
     this.qualities = const {},
     this.languages = const {},
     this.forms = const {},
+    this.online = false,
   });
 
   factory SubscriptionFilter.fromJson(Json value) => SubscriptionFilter(
@@ -36,6 +37,7 @@ class SubscriptionFilter {
         .difference(resourceSubtitleForms.toSet()),
     forms: resourceSubtitleSelection(_strings(value['forms']))
         .intersection(resourceSubtitleForms.toSet()),
+    online: value['online'] == true,
   );
 
   /// Groups chosen by name.
@@ -52,6 +54,11 @@ class SubscriptionFilter {
   /// and of [resourceSubtitleForms]. 简体 also takes 简繁 and 简日 releases,
   /// which state 简体 among others.
   final Set<String> qualities, languages, forms;
+
+  /// Online sources fill in an episode no group has a release of yet that
+  /// meets the filter, the first listing it at a quality [qualities] takes.
+  /// Their entries state neither group nor subtitles.
+  final bool online;
 
   /// Releases of every group count.
   bool get anyGroup => groups.isEmpty && !preferred && !smart;
@@ -103,6 +110,7 @@ class SubscriptionFilter {
     Set<String>? qualities,
     Set<String>? languages,
     Set<String>? forms,
+    bool? online,
   }) => SubscriptionFilter(
     groups: groups ?? this.groups,
     preferred: preferred ?? this.preferred,
@@ -110,6 +118,7 @@ class SubscriptionFilter {
     qualities: qualities ?? this.qualities,
     languages: languages ?? this.languages,
     forms: forms ?? this.forms,
+    online: online ?? this.online,
   );
 
   Json toJson() => {
@@ -119,9 +128,10 @@ class SubscriptionFilter {
     'qualities': _ordered(qualities, resourceQualities),
     'languages': _ordered(languages, resourceSubtitleChoices),
     'forms': _ordered(forms, resourceSubtitleForms),
+    'online': online,
   };
 
-  /// `偏好字幕组  1080p  简体`.
+  /// `偏好字幕组  1080p  简体  含在线源`.
   String get label => [
     switch ((groups.length, preferred)) {
       _ when smart => '智能选择字幕组',
@@ -134,6 +144,7 @@ class SubscriptionFilter {
     if (qualities.isNotEmpty) _ordered(qualities, resourceQualities).join('、'),
     if (languages.isNotEmpty || forms.isNotEmpty)
       _ordered({...languages, ...forms}, resourceSubtitleChoices).join('、'),
+    if (online) '含在线源',
   ].join('  ');
 
   @override
@@ -309,6 +320,7 @@ class LedgerEntry {
     this.taskId,
     this.replaces,
     this.revision = false,
+    this.online = false,
     this.notified = false,
   });
 
@@ -319,6 +331,7 @@ class LedgerEntry {
     taskId: value['taskId'] as String?,
     replaces: value['replaces'] as String?,
     revision: value['revision'] == true,
+    online: value['online'] == true,
     notified: value['notified'] == true,
   );
 
@@ -330,6 +343,10 @@ class LedgerEntry {
   final String? replaces;
   final bool revision;
 
+  /// An online site's entry, not a torrent: no group's corrected release
+  /// replaces it.
+  final bool online;
+
   /// Whether its finished cache has been announced.
   bool notified;
 
@@ -340,6 +357,7 @@ class LedgerEntry {
     'taskId': taskId,
     'replaces': replaces,
     'revision': revision,
+    'online': online,
     'notified': notified,
   };
 }

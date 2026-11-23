@@ -44,10 +44,12 @@ const List<Setting<Object?>> settingsCatalog = [
   // 网络、更新与本机状态
   NetworkProxy.modeSetting,
   NetworkProxy.addressSetting,
+  NetworkRoutes.setting,
   AppUpdate.autoCheckSetting,
   AppUpdate.autoDownloadSetting,
   AppUpdate.betaSetting,
   recentSearchesSetting,
+  trackingPosterZoomSetting,
   // 设置同步自己的状态
   SettingsSync.enabledSetting,
   SettingsSync.baseSetting,
@@ -65,6 +67,14 @@ final List<SettingFamily<Object?>> settingFamilies = [
 const recentSearchesSetting = StringListSetting(
   'recentSearches',
   [],
+  sync: SettingSync.local,
+);
+
+/// How many more posters a row of the tracking page holds than standard;
+/// the same level is another size on another screen, so it stays here.
+const trackingPosterZoomSetting = IntSetting(
+  'tracking-poster-zoom',
+  0,
   sync: SettingSync.local,
 );
 

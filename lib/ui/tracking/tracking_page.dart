@@ -8,6 +8,7 @@ import '../../features/tracking/tracking_controller.dart';
 import '../core/action_feedback.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
+import '../core/poster_zoom.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -23,6 +24,7 @@ class TrackingPage extends StatefulWidget {
     required this.onUnlock,
     required this.onSaveCredentials,
     required this.onOpenSubject,
+    required this.zoom,
     this.onExplore,
   });
   final TrackingController personal;
@@ -41,6 +43,9 @@ class TrackingPage extends StatefulWidget {
   final VoidCallback onSaveCredentials;
   final ValueChanged<Subject> onOpenSubject;
   final VoidCallback? onExplore;
+
+  /// How large the grid draws posters.
+  final PosterZoom zoom;
   @override
   State<TrackingPage> createState() => _TrackingPageState();
 }
@@ -66,7 +71,11 @@ class _TrackingPageState extends State<TrackingPage> {
   Set<String> seasons = {};
   _Order order = _Order.collected;
   final search = TextEditingController();
-  late final listenable = Listenable.merge([widget.personal, widget.resume]);
+  late final listenable = Listenable.merge([
+    widget.personal,
+    widget.resume,
+    widget.zoom,
+  ]);
 
   @override
   void initState() {
@@ -217,6 +226,33 @@ class _TrackingPageState extends State<TrackingPage> {
     required bool skeleton,
     required bool waiting,
   }) {
+    return PosterZoomRegion(
+      zoom: widget.zoom,
+      child: _content(
+        context,
+        personal: personal,
+        collection: collection,
+        items: items,
+        filtered: filtered,
+        years: years,
+        seasonCounts: seasonCounts,
+        skeleton: skeleton,
+        waiting: waiting,
+      ),
+    );
+  }
+
+  Widget _content(
+    BuildContext context, {
+    required TrackingController personal,
+    required List<Subject> collection,
+    required List<Subject> items,
+    required bool filtered,
+    required Map<String, List<String>> years,
+    required Map<String, int> seasonCounts,
+    required bool skeleton,
+    required bool waiting,
+  }) {
     return PageScroll(
       children: [
         const SizedBox(height: Gap.sm),
@@ -323,7 +359,7 @@ class _TrackingPageState extends State<TrackingPage> {
         const SizedBox(height: Gap.lg),
         _accountIssue(personal),
         if (skeleton)
-          const PosterGridSkeleton(tracking: true)
+          PosterGridSkeleton(tracking: true, level: widget.zoom.level)
         else if (waiting)
           const SizedBox.shrink()
         else if (collection.isEmpty && !filtered && !personal.signedIn)
@@ -359,6 +395,7 @@ class _TrackingPageState extends State<TrackingPage> {
               personalScore: order == _Order.personal,
               marked: personal.updated,
               markedAt: personal.syncedAt,
+              zoom: widget.zoom,
             ),
           ),
       ],

@@ -40,6 +40,7 @@ import '../ui/core/cover_colors.dart';
 import '../ui/core/motion.dart';
 import '../ui/core/page_widgets.dart';
 import '../ui/core/pointer_lamp.dart';
+import '../ui/core/poster_zoom.dart';
 import '../ui/core/subject_posters.dart';
 import '../ui/core/theme.dart';
 import '../ui/core/theme_reveal.dart';
@@ -105,6 +106,12 @@ class _MelonAppState extends State<MelonApp>
   /// Which shows the home page's 继续观看 lists.
   late final continueRange = ContinuePreference(widget.settings);
   late final scheduleFilter = SchedulePreference(widget.settings);
+
+  /// How many posters a row of 追番 holds.
+  late final trackingZoom = PosterZoom(
+    widget.settings,
+    trackingPosterZoomSetting,
+  );
 
   /// Set when the window's close quits rather than going to the background.
   bool quitting = false;
@@ -747,7 +754,7 @@ class _MelonAppState extends State<MelonApp>
       case WindowFocusedEvent():
         // System colours and proxy settings can change while the app runs.
         unawaited(appearance.refreshSystemAccent());
-        unawaited(service.proxy.refreshSystem());
+        unawaited(service.proxy.refresh());
       case WindowEnteredFullScreenEvent():
         fullScreenChanged(true);
       case WindowExitedFullScreenEvent():
@@ -995,6 +1002,7 @@ class _MelonAppState extends State<MelonApp>
     playerPanel.dispose();
     continueRange.dispose();
     scheduleFilter.dispose();
+    trackingZoom.dispose();
     tray?.hide();
     search.dispose();
     searchFocus.dispose();
@@ -1460,6 +1468,7 @@ class _MelonAppState extends State<MelonApp>
           onUnlock: () => perform(personal.unlock),
           onSaveCredentials: () => perform(personal.saveCredentials),
           onExplore: focusSearch,
+          zoom: trackingZoom,
         );
       case 'subject':
         return SubjectPage(

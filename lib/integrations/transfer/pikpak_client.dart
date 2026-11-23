@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import '../../core/credentials.dart';
 import '../../core/json.dart';
+import '../../core/network.dart';
 
 class PikPakException implements Exception {
   const PikPakException(
@@ -59,7 +60,7 @@ class PikPakClient {
   PikPakClient(this.credentials);
 
   final Credentials credentials;
-  final _http = http.Client();
+  final _http = RoutedClient();
   static const _auth = 'user.mypikpak.com';
   static const _drive = 'api-drive.mypikpak.com';
   // Public web-client protocol identifiers, also used by rclone's PikPak backend:
