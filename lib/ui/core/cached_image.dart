@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/content_cache.dart';
+import 'image_sample.dart';
 
 class ContentCacheScope extends InheritedWidget {
   const ContentCacheScope({
@@ -177,13 +178,9 @@ class _CachedImage extends ImageProvider<_CachedImage> {
 
   /// Bangumi serves some "no artwork" slots as a plain white upload; treat
   /// an image whose thumbnail is a single flat colour as missing.
-  static Future<bool> _blank(Uint8List bytes) async {
-    final codec = await ui.instantiateImageCodec(bytes, targetWidth: 24);
-    final frame = await codec.getNextFrame();
-    codec.dispose();
-    final data = await frame.image.toByteData();
-    frame.image.dispose();
-    final pixels = data!.buffer.asUint8List();
+  static Future<bool> _blank(Uint8List bytes) => sampleImage(bytes, 24, _flat);
+
+  static bool _flat(Uint8List pixels) {
     for (var channel = 0; channel < 4; channel++) {
       var low = 255, high = 0;
       for (var i = channel; i < pixels.length; i += 4) {
