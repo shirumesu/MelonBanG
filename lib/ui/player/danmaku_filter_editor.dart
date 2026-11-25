@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../core/notices.dart';
 import '../../features/danmaku/danmaku_preferences.dart';
+import '../core/page_widgets.dart';
 import '../core/theme.dart';
+import '../core/tone.dart';
 
 /// The danmaku block rules: each can be switched off or removed, and new
 /// ones are keywords or /regular expressions/.
@@ -39,7 +42,6 @@ class _DanmakuFilterEditorState extends State<DanmakuFilterEditor> {
     builder: (context, _) {
       final prefs = widget.preferences;
       final scheme = Theme.of(context).colorScheme;
-      final small = Theme.of(context).textTheme.bodySmall;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -69,10 +71,7 @@ class _DanmakuFilterEditorState extends State<DanmakuFilterEditor> {
             ],
           ),
           if (prefs.filters.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: Gap.md),
-              child: Text('还没有屏蔽规则', style: small),
-            ),
+            const EmptyState.compact(text: '还没有屏蔽规则', center: false),
           for (final (index, rule) in prefs.filters.indexed)
             Padding(
               padding: const EdgeInsets.only(top: Gap.xs),
@@ -84,11 +83,7 @@ class _DanmakuFilterEditorState extends State<DanmakuFilterEditor> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: rule.invalid
-                            ? scheme.error
-                            : rule.enabled
-                            ? null
-                            : scheme.onSurfaceVariant,
+                        color: rule.enabled ? null : scheme.onSurfaceVariant,
                       ),
                     ),
                   ),
@@ -97,7 +92,10 @@ class _DanmakuFilterEditorState extends State<DanmakuFilterEditor> {
                       padding: const EdgeInsets.only(right: Gap.sm),
                       child: Text(
                         '正则无效',
-                        style: TextStyle(color: scheme.error, fontSize: FontSize.small),
+                        style: TextStyle(
+                          color: toneColor(context, NoticeTone.failed),
+                          fontSize: FontSize.small,
+                        ),
                       ),
                     ),
                   Switch(

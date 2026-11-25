@@ -33,10 +33,9 @@ String siteOf(String host) {
 }
 
 /// Sites the proxy cannot reach that answer directly, learned when a request
-/// through the proxy failed to connect and the same request sent direct
-/// went through. Every other site goes the way the proxy setting says, so
-/// the proxy app's own rules still decide. This device's network: never
-/// synced.
+/// through the proxy failed to connect and the same one sent direct went
+/// through. Other sites go the proxy setting's way, so the proxy app's own
+/// rules still decide. Never synced: it is this device's network.
 class NetworkRoutes extends ChangeNotifier {
   NetworkRoutes(this.settings) {
     for (final MapEntry(:key, :value) in object(
@@ -59,7 +58,6 @@ class NetworkRoutes extends ChangeNotifier {
   /// attempt to learn again.
   static const limit = 200;
 
-  /// Oldest first.
   final _direct = <String, DateTime>{};
 
   /// The sites sent direct and when each was learned, oldest first.

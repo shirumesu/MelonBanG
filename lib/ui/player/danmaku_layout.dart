@@ -59,9 +59,8 @@ class DanmakuLayout {
   static const horizontalGap = 20.0;
   static const verticalGap = 10.0;
 
-  /// A step back shorter than this is the clock settling onto the player's
-  /// position, not a seek: on pause it rebases from its own frame-driven
-  /// time to the shown frame's, up to a few frames earlier. Laying out
+  /// Seconds of a step back that are the clock settling onto the shown
+  /// frame on pause, up to a few frames earlier, not a seek; laying out
   /// anew there would move every comment shown to another lane.
   static const settle = .5;
   final _active = <PlacedDanmaku>[];

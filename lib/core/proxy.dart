@@ -10,9 +10,9 @@ import 'settings.dart';
 
 export 'network_routes.dart';
 
-/// How requests find their way out. Going without a proxy has no choice of
-/// its own: automatic detection connects direct when it finds none, and a
-/// saved `off` from before reads as automatic.
+/// How requests find their way out. There is no "off": automatic detection
+/// connects direct when it finds no proxy, and a saved `off` reads as
+/// automatic.
 enum ProxyMode {
   auto('自动检测'),
   system('使用系统代理'),
@@ -86,6 +86,7 @@ class ProxyServer {
       try {
         return Uri.decodeComponent(part);
       } on ArgumentError {
+        // A literal % that starts no escape is part of the password.
         return part;
       }
     }
@@ -136,10 +137,9 @@ enum AutoRoute {
 }
 
 /// Routes the app's HTTP requests and online playback through the chosen
-/// proxy. Every `HttpClient` created after [initialize] asks it per
-/// request, so changing the setting applies to the next connection without
-/// recreating clients; `RoutedClient`s also send a site direct once it
-/// connects only that way. BitTorrent peers connect directly.
+/// proxy. Every `HttpClient` made after [initialize] asks it per request, so
+/// a changed setting applies to the next connection; `RoutedClient`s also
+/// send a site direct once it connects only that way. BT peers go direct.
 class NetworkProxy extends ChangeNotifier {
   NetworkProxy(this.settings) : routes = NetworkRoutes(settings);
   final Settings settings;
@@ -173,7 +173,6 @@ class NetworkProxy extends ChangeNotifier {
 
   /// What automatic mode found the last time it looked, and the local proxy
   /// when that is what it found.
-  AutoRoute get autoRoute => _autoRoute;
   AutoRoute _autoRoute = AutoRoute.detecting;
   ProxyServer? _local;
   Future<void>? _refreshing;
@@ -249,7 +248,7 @@ class NetworkProxy extends ChangeNotifier {
     6152,
   ];
 
-  /// What a local proxy found on its own is not asked for: the LAN.
+  /// Addresses a detected local proxy is not used for: the LAN.
   static const _privateRanges = [
     '<local>',
     '10.0.0.0/8',

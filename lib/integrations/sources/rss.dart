@@ -110,15 +110,13 @@ class RssEngine implements TorrentSourceEngine {
       case 'dmhy':
         yield await _releases(dmhyMetadata, await page(uri), uri);
       case 'mikan':
-        // Mikan's pages are large and the site can be slow (2026-10-27: about
-        // 10 KB/s, a search page of 530 KB and a series page of 370 KB, past
-        // the request timeout). The series list and a series' group list sit
-        // in their first 15 KB, so only that is read; each group's feed then
-        // holds all its releases, past the search feed's 100 (2026-10-21: a
-        // whole-subject search of 二十世纪电气目录 lost a group's first two
-        // episodes). Each series publishes as it arrives, and one that fails
-        // keeps none of the others from arriving; the first failure is
-        // reported once they all have.
+        // Mikan can be slow (2026-10-27: about 10 KB/s for a 530 KB search
+        // page, past the request timeout), but the series list and a series'
+        // group list sit in the first 15 KB, so only that is read. Each
+        // group's feed holds all its releases, past the search feed's 100
+        // (2026-10-21: 二十世纪电气目录 lost a group's first two episodes).
+        // Series publish as they arrive, one failing holds back none of the
+        // others, and the first failure is thrown once all have arrived.
         final series = await _parse(
           mikanSeriesPages,
           await page(uri, end: RegExp(r'an-ul[\s\S]*?</ul>')),

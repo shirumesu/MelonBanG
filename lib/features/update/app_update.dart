@@ -63,7 +63,7 @@ class AppUpdate extends ChangeNotifier {
   bool get autoCheck => settings.get(autoCheckSetting);
   bool get autoDownload => settings.get(autoDownloadSetting);
 
-  /// Whether alpha and beta versions are offered; off by default.
+  /// Whether alpha and beta versions are offered.
   bool get beta => settings.get(betaSetting);
 
   /// Whether [version] belongs to the channel chosen now. A prerelease found,
@@ -86,10 +86,8 @@ class AppUpdate extends ChangeNotifier {
 
   Future<void> setBeta(bool value) async {
     await settings.set(betaSetting, value);
-    // Leaving the beta channel drops a downloaded prerelease, which would
-    // otherwise still install on exit. One still being checked for or
-    // downloaded is dropped when that finishes, since check returns early
-    // meanwhile.
+    // A downloaded prerelease would still install on exit; one still being
+    // checked for or downloaded is dropped when that finishes.
     if (phase == UpdatePhase.ready && !_onChannel(readyVersion!)) {
       try {
         if (await _pending.exists()) await _pending.delete(recursive: true);
@@ -257,8 +255,7 @@ class AppUpdate extends ChangeNotifier {
         phase = UpdatePhase.ready;
       } else {
         // Left the beta channel while this prerelease downloaded, and that
-        // switch's check returned early. The next start clears its files,
-        // and a new download replaces them.
+        // switch's check returned early; the next start clears its files.
         switched = true;
         this.release = null;
         phase = UpdatePhase.idle;

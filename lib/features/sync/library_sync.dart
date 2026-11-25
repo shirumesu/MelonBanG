@@ -4,6 +4,7 @@ import '../../core/json.dart';
 import '../../core/settings.dart';
 import '../../core/store.dart';
 import '../danmaku/danmaku_repository.dart';
+import '../playback/play_ranking.dart';
 import '../playback/play_selection.dart';
 import '../playback/playback_library.dart';
 import '../subscriptions/subscription_controller.dart';
@@ -29,10 +30,8 @@ enum SubscriptionSync implements Labeled {
 
 /// The subscriptions and what this device remembers per show (the source
 /// last played, the danmaku match picked by hand, where each episode was
-/// left), synced together with the settings.
-///
-/// Whether subscriptions sync, and whether those from other devices cache
-/// here, is this device's choice ([subscriptionsSetting]); their cached
+/// left), synced with the settings. Whether subscriptions sync and cache
+/// here is this device's choice ([subscriptionsSetting]); their cached
 /// files and book stay with the device that made them.
 class LibrarySync implements SyncPart {
   LibrarySync({

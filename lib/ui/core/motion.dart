@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 
+import 'theme.dart';
+
 Duration motionDuration(BuildContext context, [int milliseconds = 180]) =>
     MediaQuery.disableAnimationsOf(context)
     ? Duration.zero
@@ -96,6 +98,31 @@ class _DelayedBusyState extends State<DelayedBusy> {
 
   @override
   Widget build(BuildContext context) => widget.builder(context, _shown);
+}
+
+/// A spinner for a wait in progress, [size] square, or a still hourglass
+/// under reduced motion; primary unless [color] is given.
+class BusyIndicator extends StatelessWidget {
+  const BusyIndicator({super.key, this.size = 16, this.color});
+  final double size;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final color =
+        this.color ??
+        Theme.of(context).progressIndicatorTheme.color ??
+        Theme.of(context).colorScheme.primary;
+    return SizedBox.square(
+      dimension: size,
+      child: MediaQuery.disableAnimationsOf(context)
+          ? Icon(Icons.hourglass_empty_rounded, size: size, color: color)
+          : CircularProgressIndicator(
+              strokeWidth: size <= 12 ? 1.5 : 2,
+              color: color,
+            ),
+    );
+  }
 }
 
 /// Unfolds its child along [axis] while fading it in; folded away, the child
@@ -277,12 +304,10 @@ class MotionCount extends StatelessWidget {
   );
 }
 
-/// A list row that glides from where it was to its new place when the rows
-/// around it are added or reordered, instead of jumping, as when results
-/// arrive from several sites. [index] is its place in the list: only a
-/// change of it starts a glide, so rows pushed by a resize or a row
-/// unfolding above follow at once. [enter] fades in a row added after the
-/// list was first built.
+/// A list row that glides to its new place when rows around it are added or
+/// reordered, as when results arrive from several sites. Only a change of
+/// [index] starts a glide, so rows pushed by a resize or a row unfolding
+/// above follow at once. [enter] fades in a row added after the first build.
 class MotionSlide extends StatefulWidget {
   const MotionSlide({
     super.key,
@@ -707,7 +732,7 @@ class _MotionPulseState extends State<MotionPulse>
   );
 }
 
-/// An image's [frameBuilder] body: the picture fades in over [placeholder]
+/// An [Image.frameBuilder] body: the picture fades in over [placeholder]
 /// once decoded, and shows at once when it was already in memory. Until then
 /// the placeholder keeps the pointer, so its tooltip and tap handling apply.
 class ImageFadeIn extends StatelessWidget {
@@ -756,6 +781,65 @@ Future<T?> showMelonDialog<T>({
   ),
   builder: (context) => _DialogMotion(child: builder(context)),
 );
+
+/// Asks to confirm [title], with [message] or [content]; true only when
+/// confirmed. [destructive] is for what cannot be undone: confirming is red
+/// and cancelling takes the focus, so Enter changes nothing.
+Future<bool> showConfirmDialog(
+  BuildContext context, {
+  required String title,
+  String? message,
+  Widget? content,
+  required String confirmLabel,
+  String cancelLabel = '取消',
+  bool destructive = false,
+  bool enabled = true,
+  double width = 420,
+}) async {
+  assert((message == null) != (content == null));
+  final confirmed = await showMelonDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: SizedBox(width: width, child: content ?? Text(message!)),
+      actions: [
+        TextButton(
+          autofocus: destructive,
+          onPressed: () => Navigator.pop(context, false),
+          child: Text(cancelLabel),
+        ),
+        FilledButton(
+          style: destructive
+              ? destructiveButtonStyle(Theme.of(context).colorScheme)
+              : null,
+          onPressed: enabled ? () => Navigator.pop(context, true) : null,
+          child: Text(confirmLabel),
+        ),
+      ],
+    ),
+  );
+  return confirmed ?? false;
+}
+
+/// A dialog's title row with a close button at its end.
+class DialogHeader extends StatelessWidget {
+  const DialogHeader(this.title, {super.key});
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+      ),
+      IconButton(
+        tooltip: '关闭',
+        onPressed: () => Navigator.pop(context),
+        icon: const Icon(Icons.close),
+      ),
+    ],
+  );
+}
 
 class _DialogMotion extends StatelessWidget {
   const _DialogMotion({required this.child});

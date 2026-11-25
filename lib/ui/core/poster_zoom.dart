@@ -65,7 +65,7 @@ class PosterZoom extends ChangeNotifier {
   /// Set by the grid each time it lays out.
   PosterGridLayout? layout;
 
-  /// The columns the grid shows now.
+  /// The columns the grid shows now; null before it lays out.
   int? get columns => switch (layout) {
     final layout? => posterColumns(layout.extent, _level),
     null => null,

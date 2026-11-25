@@ -1,24 +1,23 @@
 import 'dart:async';
 import 'dart:collection';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 
 import '../../core/error_message.dart';
 import '../../core/json.dart' show coverAddress;
+import '../../core/notices.dart';
 import '../../domain/catalog.dart';
+import '../../domain/collection_edit.dart';
+import '../../domain/community.dart';
 import '../core/account_avatar.dart';
 import '../core/action_feedback.dart';
-import '../core/bbcode.dart';
+import '../core/collection_labels.dart';
+import '../core/external_link.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
-import '../core/subject_posters.dart';
-import '../../domain/collection_edit.dart';
-import '../core/external_link.dart';
 import '../core/theme.dart';
-import 'collection_labels.dart';
+import 'community_posts.dart';
 
 class SubjectCommunity extends StatefulWidget {
   const SubjectCommunity({
@@ -54,7 +53,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   int _reads = 0;
 
   /// Keeps the posts' selectable text from sharing the page's saved scroll
-  /// offset, which built each row scrolled away and springing back into view.
+  /// offset; sharing it builds each row scrolled away, springing back.
   final _storage = PageStorageBucket();
   final _feedback = ActionFeedback();
   final _commentFeedback = ActionFeedback();
@@ -218,12 +217,12 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                       ),
                     ),
                   ),
-                _PostMeta(
+                PostMeta(
                   name: name,
                   time: communityDate(entry.time),
                   details: [
                     if (segment == 'comments' && entry.score > 0)
-                      _ScoreStars(entry.score),
+                      ScoreStars(entry.score),
                     if (segment == 'comments')
                       if (collectionLabels[entry.status] case final status?)
                         Text(status, style: small),
@@ -234,8 +233,11 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                 const SizedBox(height: Gap.sm),
                 switch (segment) {
                   // Short comments stay whole; Bangumi caps them at 380.
-                  'comments' => SelectableText(entry.text, style: _postText),
-                  'reviews' => _Review(
+                  'comments' => SelectableText(
+                    entry.text,
+                    style: postTextStyle,
+                  ),
+                  'reviews' => ReviewPost(
                     summary: entry.text,
                     content: _blogs[entry.id],
                     onLoad: ({retry = false}) => setState(
@@ -247,7 +249,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                       ),
                     ),
                   ),
-                  _ => _TopicThread(
+                  _ => TopicThread(
                     posts: _topics[entry.id]!,
                     onRetry: () => setState(
                       () => _fetch(
@@ -321,7 +323,7 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
               children: [
                 Text('我的评分 ', style: small),
                 if (score > 0) ...[
-                  _ScoreStars(score),
+                  ScoreStars(score),
                   Text('  ${scoreLabels[score]}', style: scoreStyle),
                 ] else
                   Text('未评分', style: small),
@@ -376,9 +378,9 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
               Text('我', style: small),
               if (score > 0) ...[
                 const SizedBox(width: Gap.sm),
-                _ScoreStars(score),
+                ScoreStars(score),
               ],
-              Text('  ${collectionLabels[status] ?? ''}', style: small),
+              Text('  ${collectionLabels[status]!}', style: small),
               const Spacer(),
               TextButton(
                 onPressed: () => setState(() {
@@ -399,46 +401,16 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
             comment,
             style: const TextStyle(fontSize: FontSize.body, height: 1.6),
           ),
-          if (_confirmDelete)
-            ListenableBuilder(
-              listenable: _commentFeedback,
-              builder: (context, _) => Container(
-                margin: const EdgeInsets.only(top: Gap.md),
-                padding: const EdgeInsets.fromLTRB(
-                  Gap.md,
-                  Gap.xs,
-                  Gap.xs,
-                  Gap.xs,
-                ),
-                decoration: BoxDecoration(
-                  color: scheme.errorContainer.withValues(alpha: .5),
-                  borderRadius: controlBorderRadius,
-                ),
-                child: Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        '删除这条吐槽？评分、标签和收藏状态都会保留。',
-                        style: TextStyle(fontSize: FontSize.small),
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () => setState(() => _confirmDelete = false),
-                      child: const Text('取消'),
-                    ),
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        foregroundColor: scheme.error,
-                      ),
-                      onPressed: _commentFeedback.busy
-                          ? null
-                          : () => unawaited(_saveComment('')),
-                      child: const Text('删除'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          if (_confirmDelete) const SizedBox(height: Gap.sm),
+          // A second press while deleting is ignored by _commentFeedback.
+          IssueBanner(
+            issue: _confirmDelete ? '删除这条吐槽？评分、标签和收藏状态都会保留。' : null,
+            tone: NoticeTone.warning,
+            actions: [
+              NoticeAction('取消', () => setState(() => _confirmDelete = false)),
+              NoticeAction('删除', () => unawaited(_saveComment(''))),
+            ],
+          ),
         ],
       );
     }
@@ -561,10 +533,8 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
               ListenableBuilder(
                 listenable: _feedback,
                 builder: (context, _) {
-                  final rows = (_pages[segment] ?? [])
-                      .where((row) => !_own(row))
-                      .toList();
-                  // Switching between 吐槽, 评论 and 讨论 fades the list in.
+                  final loaded = _pages[segment];
+                  final rows = [...?loaded?.where((row) => !_own(row))];
                   return TweenAnimationBuilder<double>(
                     key: ValueKey(segment),
                     tween: Tween(begin: 0, end: 1),
@@ -574,34 +544,28 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
                         SliverOpacity(opacity: value, sliver: sliver),
                     child: SliverMainAxisGroup(
                       slivers: [
-                        if (rows.isEmpty)
+                        // A failure shows only in the banner above.
+                        if (rows.isEmpty && _feedback.issue == null)
                           SliverToBoxAdapter(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: Gap.md,
-                              ),
-                              child: Text(
-                                _feedback.busy
-                                    ? '正在加载…'
-                                    : _feedback.issue == null
-                                    ? '这里还没有内容'
-                                    : '内容暂时无法读取',
-                              ),
-                            ),
+                            child: loaded == null
+                                ? _EntriesSkeleton(segment: segment)
+                                : const EmptyState.compact(
+                                    text: '这里还没有内容',
+                                    center: false,
+                                  ),
                           ),
                         SliverList.builder(
                           itemCount: rows.length,
                           itemBuilder: (_, index) => _row(rows[index]),
                         ),
-                        if ((_pages[segment]?.length ?? 0) <
-                            (_totals[segment] ?? 0))
+                        if (loaded != null && loaded.length < _totals[segment]!)
                           SliverToBoxAdapter(
                             child: Center(
                               child: TextButton(
                                 onPressed: _feedback.busy
                                     ? null
                                     : () => unawaited(_load()),
-                                child: Text(_feedback.busy ? '正在加载…' : '加载更多'),
+                                child: Text(_feedback.busy ? '加载中' : '加载更多'),
                               ),
                             ),
                           ),
@@ -618,138 +582,49 @@ class _SubjectCommunityState extends State<SubjectCommunity> {
   );
 }
 
-/// Related subjects grouped by relation, as a compact list.
-class SubjectRelations extends StatefulWidget {
-  const SubjectRelations({
-    super.key,
-    required this.client,
-    required this.subjectId,
-    required this.onOpenSubject,
-  });
-  final SubjectCommunitySource client;
-  final int subjectId;
-  final ValueChanged<Subject> onOpenSubject;
+/// [segment]'s entries in grey while its first page loads.
+class _EntriesSkeleton extends StatelessWidget {
+  const _EntriesSkeleton({required this.segment});
+  final String segment;
 
-  @override
-  State<SubjectRelations> createState() => _SubjectRelationsState();
-}
-
-class _SubjectRelationsState extends State<SubjectRelations> {
-  static const _groups = ['前传', '续集', '番外', '总集篇', '其他'];
-  final _feedback = ActionFeedback();
-  List<Subject> _relations = [];
-  bool _expanded = false;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_load());
-  }
-
-  @override
-  void dispose() {
-    _feedback.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load({bool refresh = false}) => _feedback.run(() async {
-    final values = await widget.client.relations(
-      widget.subjectId,
-      refresh: refresh,
-    );
-    if (mounted) setState(() => _relations = values);
-    return null;
-  });
-
-  String _group(Subject row) {
-    final relation = '${row.relation}';
-    if (relation.contains('前传')) return '前传';
-    if (relation.contains('续集')) return '续集';
-    if (relation.contains('番外') || relation.contains('外传')) return '番外';
-    if (relation.contains('总集')) return '总集篇';
-    return '其他';
-  }
+  static const _labels = {
+    'comments': '正在加载吐槽',
+    'reviews': '正在加载评论',
+    'topics': '正在加载讨论',
+  };
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    final ordered = [
-      for (final group in _groups)
-        ..._relations.where((row) => _group(row) == group),
-    ];
-    final shown = _expanded ? ordered : ordered.take(6).toList();
-    return MelonPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('关联作品', style: text.titleSmall),
-          const SizedBox(height: Gap.xs),
-          FeedbackIssue(
-            feedback: _feedback,
-            onRetry: () => unawaited(_load(refresh: true)),
-          ),
-          ListenableBuilder(
-            listenable: _feedback,
-            builder: (context, _) => _relations.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.symmetric(vertical: Gap.sm),
-                    child: Text(
-                      _feedback.busy ? '正在加载关联作品…' : '暂无关联作品',
-                      style: text.bodySmall,
-                    ),
-                  )
-                : const SizedBox.shrink(),
-          ),
-          for (final (index, row) in shown.indexed) ...[
-            if (index == 0 || _group(shown[index - 1]) != _group(row))
+    final small = Theme.of(context).textTheme.bodySmall;
+    return DelayedBusy(
+      busy: true,
+      builder: (context, shown) => SkeletonGroup(
+        label: _labels[segment]!,
+        shown: shown,
+        child: Column(
+          children: [
+            for (final share in const [.9, .6, .75])
               Padding(
-                padding: const EdgeInsets.only(top: Gap.sm, bottom: 2),
-                child: Text(_group(row), style: text.bodySmall),
-              ),
-            InkWell(
-              borderRadius: controlBorderRadius,
-              onTap: () => widget.onOpenSubject(row),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+                padding: const EdgeInsets.symmetric(vertical: Gap.md),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(
-                      width: 40,
-                      height: 54,
-                      child: CoverFrame(
-                        radius: badgeBorderRadius,
-                        child: SubjectCover(
-                          url: row.coverUrl,
-                          title: row.title,
-                          id: row.id,
-                        ),
-                      ),
+                    const SkeletonBlock(
+                      width: 32,
+                      height: 32,
+                      radius: pillBorderRadius,
                     ),
                     const SizedBox(width: Gap.md),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            row.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: FontSize.body,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          Text(
-                            [
-                              if (row.relation != _group(row)) ?row.relation,
-                              ?row.platform,
-                              ?row.season?.year,
-                            ].join('  '),
-                            style: text.bodySmall?.copyWith(
-                              fontFeatures: const [
-                                FontFeature.tabularFigures(),
-                              ],
-                            ),
+                          SkeletonLine(style: small, width: 96),
+                          const SizedBox(height: Gap.sm),
+                          const SkeletonLine(style: postTextStyle),
+                          SkeletonLine(
+                            style: postTextStyle,
+                            widthFactor: share,
                           ),
                         ],
                       ),
@@ -757,676 +632,8 @@ class _SubjectRelationsState extends State<SubjectRelations> {
                   ],
                 ),
               ),
-            ),
           ],
-          if (ordered.length > 6)
-            TextButton(
-              onPressed: () => setState(() => _expanded = !_expanded),
-              child: Text(_expanded ? '收起' : '全部 ${ordered.length} 部'),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-const _postText = TextStyle(fontSize: FontSize.body, height: 1.6);
-
-/// A post's date as YYYY-MM-DD, or empty without one.
-String communityDate(int? seconds) {
-  if (seconds == null || seconds <= 0) return '';
-  return DateTime.fromMillisecondsSinceEpoch(seconds * 1000)
-      .toIso8601String()
-      .substring(0, 10);
-}
-
-final _compactButton = TextButton.styleFrom(
-  minimumSize: const Size(0, 28),
-  padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
-  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-);
-
-/// The author, details such as score or reply count, and the date flush
-/// right.
-class _PostMeta extends StatelessWidget {
-  const _PostMeta({
-    required this.name,
-    required this.time,
-    this.details = const [],
-  });
-  final String name, time;
-  final List<Widget> details;
-
-  @override
-  Widget build(BuildContext context) {
-    final small = Theme.of(context).textTheme.bodySmall;
-    return Row(
-      children: [
-        Expanded(
-          child: Row(
-            children: [
-              Flexible(
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: small?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
-              ),
-              for (final detail in details) ...[
-                const SizedBox(width: Gap.sm),
-                detail,
-              ],
-            ],
-          ),
         ),
-        const SizedBox(width: Gap.md),
-        Text(
-          time,
-          style: small?.copyWith(
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Scrolls back to [context] once a collapse or page change leaves its top
-/// above the view.
-void _reveal(BuildContext context) =>
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!context.mounted) return;
-      unawaited(
-        Scrollable.ensureVisible(
-          context,
-          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtStart,
-        ),
-      );
-    });
-
-/// A post in Bangumi BBCode shown to [maxLines] lines of text, with 展开 /
-/// 收起 below when it is longer; stickers, pictures and quotes count by the
-/// room they take.
-class _ClampedPost extends StatefulWidget {
-  const _ClampedPost(
-    this.source, {
-    required this.maxLines,
-    this.truncated = false,
-    this.onExpand,
-  });
-  final String source;
-  final int maxLines;
-
-  /// The post goes on past [source], so 展开 shows even when it fits.
-  final bool truncated;
-
-  /// Replaces expanding in place, for posts read in full elsewhere.
-  final VoidCallback? onExpand;
-
-  @override
-  State<_ClampedPost> createState() => _ClampedPostState();
-}
-
-class _ClampedPostState extends State<_ClampedPost>
-    with AutomaticKeepAliveClientMixin {
-  bool _expanded = false, _overflows = false;
-
-  @override
-  bool get wantKeepAlive => _expanded;
-
-  void _toggle() {
-    setState(() => _expanded = !_expanded);
-    updateKeepAlive();
-    if (!_expanded) _reveal(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return AnimatedSize(
-      duration: motionDuration(context, 260),
-      curve: Curves.easeOutCubic,
-      alignment: Alignment.topLeft,
-      child: _post(context),
-    );
-  }
-
-  Widget _post(BuildContext context) {
-    final post = BBCode(widget.source, style: _postText);
-    if (_expanded) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          post,
-          TextButton(
-            style: _compactButton,
-            onPressed: _toggle,
-            child: const Text('收起'),
-          ),
-        ],
-      );
-    }
-    final line = MediaQuery.textScalerOf(context)
-        .scale(_postText.fontSize! * _postText.height!);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _HeightClamp(
-          maxHeight: line * widget.maxLines,
-          onOverflow: (value) {
-            if (mounted && value != _overflows) {
-              setState(() => _overflows = value);
-            }
-          },
-          child: post,
-        ),
-        if (_overflows || widget.truncated)
-          TextButton(
-            style: _compactButton,
-            onPressed: widget.onExpand ?? _toggle,
-            child: const Text('展开'),
-          ),
-      ],
-    );
-  }
-}
-
-/// Shows at most [maxHeight] of its child and reports whether the rest was
-/// cut off.
-class _HeightClamp extends SingleChildRenderObjectWidget {
-  const _HeightClamp({
-    required this.maxHeight,
-    required this.onOverflow,
-    super.child,
-  });
-  final double maxHeight;
-  final ValueChanged<bool> onOverflow;
-
-  @override
-  RenderObject createRenderObject(BuildContext context) =>
-      _RenderHeightClamp(maxHeight, onOverflow);
-
-  @override
-  void updateRenderObject(
-    BuildContext context,
-    _RenderHeightClamp renderObject,
-  ) {
-    renderObject
-      ..maxHeight = maxHeight
-      ..onOverflow = onOverflow;
-  }
-}
-
-class _RenderHeightClamp extends RenderProxyBox {
-  _RenderHeightClamp(this._maxHeight, this.onOverflow);
-  double _maxHeight;
-  ValueChanged<bool> onOverflow;
-  bool? _reported;
-
-  set maxHeight(double value) {
-    if (value == _maxHeight) return;
-    _maxHeight = value;
-    markNeedsLayout();
-  }
-
-  @override
-  void performLayout() {
-    final child = this.child!;
-    child.layout(
-      constraints.copyWith(minHeight: 0, maxHeight: double.infinity),
-      parentUsesSize: true,
-    );
-    final overflows = child.size.height > _maxHeight + .5;
-    size = constraints.constrain(
-      Size(child.size.width, math.min(child.size.height, _maxHeight)),
-    );
-    if (overflows != _reported) {
-      _reported = overflows;
-      final report = onOverflow;
-      WidgetsBinding.instance.addPostFrameCallback((_) => report(overflows));
-    }
-  }
-
-  @override
-  void paint(PaintingContext context, Offset offset) {
-    if (_reported != true) return super.paint(context, offset);
-    layer = context.pushClipRect(
-      needsCompositing,
-      offset,
-      Offset.zero & size,
-      super.paint,
-      oldLayer: layer as ClipRectLayer?,
-    );
-  }
-}
-
-/// A review's summary in three lines; 展开 reads the whole post, since the
-/// listing holds only its first 120 characters.
-class _Review extends StatefulWidget {
-  const _Review({
-    required this.summary,
-    required this.content,
-    required this.onLoad,
-  });
-
-  /// Bangumi BBCode, possibly cut inside a tag.
-  final String summary;
-  final AsyncSnapshot<String>? content;
-  final void Function({bool retry}) onLoad;
-
-  @override
-  State<_Review> createState() => _ReviewState();
-}
-
-class _ReviewState extends State<_Review> with AutomaticKeepAliveClientMixin {
-  static const _summaryLimit = 120;
-  bool _expanded = false;
-
-  @override
-  bool get wantKeepAlive => _expanded;
-
-  void _toggle() {
-    setState(() => _expanded = !_expanded);
-    updateKeepAlive();
-    if (_expanded) {
-      widget.onLoad();
-    } else {
-      _reveal(context);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return AnimatedSize(
-      duration: motionDuration(context, 260),
-      curve: Curves.easeOutCubic,
-      alignment: Alignment.topLeft,
-      child: _body(context),
-    );
-  }
-
-  Widget _body(BuildContext context) {
-    final small = Theme.of(context).textTheme.bodySmall;
-    final content = widget.content;
-    if (_expanded && content != null && content.hasData) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          BBCode(content.data!, style: _postText),
-          TextButton(
-            style: _compactButton,
-            onPressed: _toggle,
-            child: const Text('收起'),
-          ),
-        ],
-      );
-    }
-    // A cut summary may end inside a tag; drop the unfinished tag.
-    final summary = widget.summary.replaceFirst(RegExp(r'\[[^\]]*$'), '');
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _ClampedPost(
-          summary,
-          maxLines: 3,
-          truncated: widget.summary.runes.length >= _summaryLimit,
-          onExpand: _toggle,
-        ),
-        if (_expanded && content != null && content.hasError)
-          Row(
-            children: [
-              Text('全文加载失败', style: small),
-              TextButton(
-                style: _compactButton,
-                onPressed: () => widget.onLoad(retry: true),
-                child: const Text('重试'),
-              ),
-            ],
-          )
-        else if (_expanded)
-          Text('正在加载全文…', style: small),
-      ],
-    );
-  }
-}
-
-/// A topic's opening post; its replies sit in a box below, closed until
-/// asked for and then shown ten floors a page.
-class _TopicThread extends StatefulWidget {
-  const _TopicThread({required this.posts, required this.onRetry});
-  final AsyncSnapshot<List<TopicPost>> posts;
-  final VoidCallback onRetry;
-
-  @override
-  State<_TopicThread> createState() => _TopicThreadState();
-}
-
-class _TopicThreadState extends State<_TopicThread>
-    with AutomaticKeepAliveClientMixin {
-  static const _perPage = 10;
-  final _replies = GlobalKey();
-
-  /// The reply page shown, or null while the replies are closed.
-  int? _page;
-
-  @override
-  bool get wantKeepAlive => _page != null;
-
-  void _show(int? page) {
-    setState(() => _page = page);
-    updateKeepAlive();
-    if (_replies.currentContext case final context?) _reveal(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    final theme = Theme.of(context);
-    final small = theme.textTheme.bodySmall;
-    final snapshot = widget.posts;
-    if (snapshot.hasError) {
-      return Row(
-        children: [
-          Text('正文加载失败', style: small),
-          TextButton(
-            style: _compactButton,
-            onPressed: widget.onRetry,
-            child: const Text('重试'),
-          ),
-        ],
-      );
-    }
-    final posts = snapshot.data;
-    if (posts == null) return Text('正在加载正文…', style: small);
-    final floors = posts.skip(1).toList();
-    final count = floors.fold(0, (n, post) => n + 1 + post.replies.length);
-    final pages = (floors.length / _perPage).ceil();
-    final page = _page;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (posts.firstOrNull case final first?)
-          _ClampedPost(first.content, maxLines: 4),
-        if (floors.isNotEmpty)
-          Container(
-            key: _replies,
-            width: double.infinity,
-            margin: const EdgeInsets.only(top: Gap.sm),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerLow,
-              borderRadius: controlBorderRadius,
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: page == null
-                ? InkWell(
-                    onTap: () => _show(0),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: Gap.md,
-                        vertical: Gap.sm,
-                      ),
-                      child: Text(
-                        '查看 $count 条回复',
-                        style: small?.copyWith(
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                    ),
-                  )
-                : Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      Gap.md,
-                      Gap.xs,
-                      Gap.md,
-                      Gap.xs,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (final (index, post)
-                            in floors
-                                .skip(page * _perPage)
-                                .take(_perPage)
-                                .indexed)
-                          _Floor(
-                            key: ValueKey(post.id),
-                            post: post,
-                            floor: page * _perPage + index + 2,
-                          ),
-                        const SizedBox(height: Gap.xs),
-                        _Pager(
-                          page: page,
-                          pages: pages,
-                          onPage: _show,
-                          onClose: () => _show(null),
-                        ),
-                      ],
-                    ),
-                  ),
-          ),
-      ],
-    );
-  }
-}
-
-/// 共 N 页, the page numbers with the current one highlighted, 上一页 /
-/// 下一页, and 收起.
-class _Pager extends StatelessWidget {
-  const _Pager({
-    required this.page,
-    required this.pages,
-    required this.onPage,
-    required this.onClose,
-  });
-  final int page, pages;
-  final ValueChanged<int> onPage;
-  final VoidCallback onClose;
-
-  /// Every page up to seven; beyond that the first, the last and those
-  /// next to the current one, with null for the gaps.
-  List<int?> get _numbers {
-    if (pages <= 7) return List.generate(pages, (index) => index);
-    final near = {
-      0,
-      page - 1,
-      page,
-      page + 1,
-      pages - 1,
-    }.where((index) => index >= 0 && index < pages).toList()..sort();
-    return [
-      for (final (index, number) in near.indexed) ...[
-        if (index > 0 && number - near[index - 1] > 1) null,
-        number,
-      ],
-    ];
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final small = Theme.of(context).textTheme.bodySmall;
-    final square = _compactButton.copyWith(
-      minimumSize: const WidgetStatePropertyAll(Size(28, 28)),
-    );
-    final quiet = square.copyWith(
-      foregroundColor: WidgetStatePropertyAll(scheme.onSurfaceVariant),
-    );
-    Widget link(String label, VoidCallback onPressed) =>
-        TextButton(style: quiet, onPressed: onPressed, child: Text(label));
-    return Wrap(
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        if (pages > 1) ...[
-          Text('共 $pages 页', style: small),
-          const SizedBox(width: Gap.sm),
-          if (page > 0) link('上一页', () => onPage(page - 1)),
-          for (final number in _numbers)
-            if (number == null)
-              Text(' … ', style: small)
-            else if (number == page)
-              TextButton(
-                style: square,
-                onPressed: null,
-                child: Text(
-                  '${number + 1}',
-                  style: TextStyle(
-                    color: scheme.primary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              )
-            else
-              link('${number + 1}', () => onPage(number)),
-          if (page < pages - 1) link('下一页', () => onPage(page + 1)),
-        ],
-        link('收起', onClose),
-      ],
-    );
-  }
-}
-
-/// One reply floor; its nested replies hang off a guide line, the first
-/// three shown until expanded.
-class _Floor extends StatefulWidget {
-  const _Floor({super.key, required this.post, required this.floor});
-  final TopicPost post;
-  final int floor;
-
-  @override
-  State<_Floor> createState() => _FloorState();
-}
-
-class _FloorState extends State<_Floor> {
-  static const _preview = 3;
-  bool _all = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final nested = widget.post.replies;
-    final shown = _all ? nested : nested.take(_preview);
-    return Padding(
-      padding: const EdgeInsets.only(top: Gap.sm),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _PostTile(post: widget.post, label: '#${widget.floor}', avatar: 24),
-          if (nested.isNotEmpty)
-            Container(
-              margin: const EdgeInsets.only(left: 11),
-              padding: const EdgeInsets.only(left: 19),
-              decoration: BoxDecoration(
-                border: Border(
-                  left: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                    width: 2,
-                  ),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (final (index, reply) in shown.indexed)
-                    _PostTile(
-                      post: reply,
-                      label: '#${widget.floor}-${index + 1}',
-                      avatar: 20,
-                    ),
-                  if (nested.length > _preview)
-                    TextButton(
-                      style: _compactButton,
-                      onPressed: () => setState(() => _all = !_all),
-                      child: Text(
-                        _all ? '收起楼中楼' : '还有 ${nested.length - _preview} 条楼中楼',
-                      ),
-                    ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PostTile extends StatelessWidget {
-  const _PostTile({
-    required this.post,
-    required this.label,
-    required this.avatar,
-  });
-  final TopicPost post;
-  final String label;
-  final double avatar;
-
-  @override
-  Widget build(BuildContext context) {
-    final small = Theme.of(context).textTheme.bodySmall;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: Gap.xs),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AccountAvatar(url: post.avatarUrl, name: post.author, size: avatar),
-          const SizedBox(width: Gap.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _PostMeta(
-                  name: post.author,
-                  time: communityDate(post.time),
-                  details: [Text(label, style: small)],
-                ),
-                const SizedBox(height: 2),
-                if (post.content.trim().isEmpty)
-                  Text('（内容已删除）', style: small)
-                else
-                  _ClampedPost(post.content, maxLines: 6),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// A 1–10 score as five stars in half steps, as Bangumi shows comments.
-class _ScoreStars extends StatelessWidget {
-  const _ScoreStars(this.score);
-  final int score;
-
-  @override
-  Widget build(BuildContext context) {
-    final empty = Theme.of(context).colorScheme.surfaceContainerHighest;
-    const size = 14.0;
-    return Tooltip(
-      message: '$score 分 ${scoreLabels[score]}',
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var star = 1; star <= 5; star++)
-            Stack(
-              children: [
-                Icon(Icons.star_rounded, size: size, color: empty),
-                ClipRect(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: (score / 2 - star + 1).clamp(0.0, 1.0),
-                    child: const Icon(
-                      Icons.star_rounded,
-                      size: size,
-                      color: gold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-        ],
       ),
     );
   }

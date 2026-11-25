@@ -86,7 +86,6 @@ class BahamutDanmaku implements DanmakuSearch {
     ];
   }
 
-  /// The anime a search for [query] finds.
   Future<List<Json>> _search(String query) async {
     final value = await api.map(
       Uri.https('api.gamer.com.tw', '/anime/v1/search.php', {'kw': query}),

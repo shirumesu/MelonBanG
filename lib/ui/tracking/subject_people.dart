@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/catalog.dart';
+import '../core/action_feedback.dart';
 import '../core/cached_image.dart';
 import '../core/external_link.dart';
+import '../core/image_viewer.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
-import '../core/subject_posters.dart';
 import '../core/theme.dart';
 import 'credit_profile.dart';
 
@@ -59,7 +60,7 @@ class SubjectPeoplePanel extends StatelessWidget {
           ),
           const SizedBox(height: Gap.md),
           if (people.isEmpty && !loading)
-            PartFailure(message: '$heading加载失败', onRetry: onRetry)
+            InlineIssue('$heading加载失败', onRetry: onRetry)
           else if (people.isEmpty)
             _PeopleSkeleton(characters: characters)
           else
@@ -104,21 +105,7 @@ class SubjectPeoplePanel extends StatelessWidget {
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '$heading（${people.length}）',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: '关闭人物列表',
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
-                  ),
+                  DialogHeader('$heading（${people.length}）'),
                   const SizedBox(height: Gap.md),
                   Expanded(
                     child: ListView.separated(
@@ -147,7 +134,6 @@ class SubjectPeoplePanel extends StatelessWidget {
     const roles = ['原作', '导演', '系列构成', '人物设定', '音乐', '动画制作', '总作画监督', '脚本'];
     int priority(String role) =>
         roles.contains(role) ? roles.indexOf(role) : roles.length;
-    // One row per person, listing every position they hold.
     final positions = <String, List<String>>{};
     final people = <String, Credit>{};
     String keyOf(Credit person) =>
@@ -208,10 +194,10 @@ class SubjectPeoplePanel extends StatelessWidget {
                 // Consume the tap instead of opening the surrounding card.
                 onTap: () {},
                 excludeFromSemantics: true,
-                child: ArtPlaceholder(label: label),
+                child: _ArtPlaceholder(label: label),
               ),
             )
-          : ArtPlaceholder(label: label),
+          : _ArtPlaceholder(label: label),
     );
     Widget preview(Widget image) {
       if (!character || url == null) return image;
@@ -219,47 +205,10 @@ class SubjectPeoplePanel extends StatelessWidget {
         message: '查看${person.title}完整立绘',
         child: InkWell(
           borderRadius: badgeBorderRadius,
-          onTap: () => showMelonDialog<void>(
-            context: context,
-            builder: (context) => Dialog(
-              child: SizedBox(
-                width: 520,
-                height: 620,
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              person.title,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: '关闭图片',
-                            onPressed: () => Navigator.pop(context),
-                            icon: const Icon(Icons.close),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: Gap.md),
-                      Expanded(
-                        child: InteractiveViewer(
-                          child: CachedImage(
-                            url: url,
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, _, _) =>
-                                const Center(child: Text('图片加载失败')),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          onTap: () => showImageViewer(
+            context,
+            address: url,
+            label: '${person.title}立绘',
           ),
           child: image,
         ),
@@ -403,8 +352,7 @@ class SubjectPeoplePanel extends StatelessWidget {
 }
 
 /// The panel's people in grey while they load, once the wait has lasted
-/// [busyDelay], in its columns: two rows of character cards (portrait,
-/// name, role, voice actor), or three of staff rows (position, name).
+/// [busyDelay].
 class _PeopleSkeleton extends StatelessWidget {
   const _PeopleSkeleton({required this.characters});
   final bool characters;
@@ -414,15 +362,9 @@ class _PeopleSkeleton extends StatelessWidget {
     busy: true,
     builder: (context, shown) => !shown
         ? const SizedBox.shrink()
-        : Semantics(
+        : SkeletonGroup(
             label: characters ? '正在加载角色' : '正在加载制作团队',
-            child: ExcludeSemantics(
-              child: MotionAppear(
-                offset: 0,
-                milliseconds: 200,
-                child: MotionPulse(child: LayoutBuilder(builder: _people)),
-              ),
-            ),
+            child: LayoutBuilder(builder: _people),
           ),
   );
 
@@ -525,18 +467,33 @@ class _PeopleSkeleton extends StatelessWidget {
       );
 }
 
-/// A part of a page that failed to load, with retrying it.
-class PartFailure extends StatelessWidget {
-  const PartFailure({super.key, required this.message, required this.onRetry});
-  final String message;
-  final VoidCallback onRetry;
+/// A missing or loading portrait of a character or person: the "invisible"
+/// Akkarin line drawing tinted to the theme, so empty slots stay neutral
+/// instead of adding colour.
+class _ArtPlaceholder extends StatelessWidget {
+  const _ArtPlaceholder({required this.label});
+  final String label;
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Text(message, style: Theme.of(context).textTheme.bodySmall),
-      const SizedBox(width: Gap.sm),
-      TextButton(onPressed: onRetry, child: const Text('重试')),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final line = scheme.onSurfaceVariant.withValues(alpha: .6);
+    return Semantics(
+      label: label,
+      image: true,
+      child: ColoredBox(
+        color: scheme.surfaceContainerHigh,
+        child: FractionallySizedBox(
+          widthFactor: .8,
+          heightFactor: .8,
+          child: Image.asset(
+            'assets/images/akkarin.png',
+            color: line,
+            fit: BoxFit.contain,
+            excludeFromSemantics: true,
+          ),
+        ),
+      ),
+    );
+  }
 }

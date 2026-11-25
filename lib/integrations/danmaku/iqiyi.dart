@@ -189,7 +189,6 @@ class IqiyiDanmaku implements DanmakuSearch {
   }
 }
 
-/// The comments of [texts], bullet files.
 List<DanmakuComment> _comments(List<String> texts) =>
     sortedComments(texts.expand(_parse));
 

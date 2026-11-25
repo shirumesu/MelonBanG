@@ -5,18 +5,21 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/notices.dart';
 import '../../domain/catalog.dart';
+import '../core/help_hint.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
+import '../core/tone.dart';
 
-/// All episodes as numbered cells, the specials after the main episodes on
-/// rows of their own behind an SP label. Click plays the episode's cache or opens
-/// its resources, right-click offers more, and a long press marks; while still pressed,
-/// dragging selects the range from the pressed cell to the pointer, so
-/// dragging back shrinks it. Releasing well outside the cells, the right
-/// button or Escape cancels the pending mark.
+/// All episodes as numbered cells, the specials on rows of their own after
+/// the main episodes, behind an SP label. A click plays the episode's cache
+/// or opens its resources, a right-click offers more and a long press marks;
+/// still pressed, dragging selects the range from the pressed cell to the
+/// pointer. Releasing well outside the cells, the right button or Escape
+/// cancels the mark.
 class EpisodeGrid extends StatefulWidget {
   const EpisodeGrid({
     super.key,
@@ -39,7 +42,7 @@ class EpisodeGrid extends StatefulWidget {
   final EpisodeStatus Function(Episode) statusOf;
   final bool Function(Episode) aired;
 
-  /// Whether the episode has a playable cache, shown as a green outline.
+  /// Whether the episode has a playable cache, shown as a primary outline.
   final bool Function(Episode) cached;
   final ValueChanged<Episode> onSelect, onOpen, onPlay;
   final void Function(List<Episode> episodes, EpisodeStatus status) onMark;
@@ -342,7 +345,6 @@ class _EpisodeGridState extends State<EpisodeGrid> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 展开 and 收起 grow and shrink the grid instead of jumping.
             AnimatedSize(
               duration: motionDuration(context, 280),
               curve: Curves.easeOutCubic,
@@ -458,27 +460,21 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                       '已缓存',
                     ),
                   if (hint == null)
-                    Tooltip(
+                    const HelpHint(
                       message: '点击观看已缓存的一话，未缓存时选择资源\n长按标为已看，按住拖动可选多话\n右键查看更多操作',
-                      child: Icon(
-                        Icons.help_outline_rounded,
-                        size: 14,
-                        color: scheme.onSurfaceVariant,
-                      ),
                     )
                   else
                     Text(
                       hint,
                       style: TextStyle(
-                        color: outside ? scheme.error : scheme.primary,
+                        color: outside
+                            ? toneColor(context, NoticeTone.warning)
+                            : scheme.primary,
                       ),
                     ),
                   if (collapsible)
                     TextButton(
-                      style: TextButton.styleFrom(
-                        minimumSize: const Size(0, 28),
-                        padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
-                      ),
+                      style: compactTextButtonStyle,
                       onPressed: () => setState(() => expanded = !expanded),
                       child: Text(expanded ? '收起' : '展开全部 $main 话'),
                     ),
@@ -524,9 +520,8 @@ class EpisodeNumber extends StatelessWidget {
   }
 }
 
-/// [EpisodeGrid]'s cells in grey while the episodes load: as many as the
-/// subject is known to have, up to the rows the collapsed grid shows, in
-/// its columns, then the legend's line. Until [shown], only the space.
+/// [EpisodeGrid]'s cells in grey while the episodes load, as many as the
+/// collapsed grid would show; until [shown], only the space.
 class EpisodeGridSkeleton extends StatelessWidget {
   const EpisodeGridSkeleton({super.key, this.count, this.shown = true});
 
@@ -538,49 +533,41 @@ class EpisodeGridSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     const gap = _EpisodeGridState._gap, height = _EpisodeGridState._height;
     final small = Theme.of(context).textTheme.bodySmall;
-    return Semantics(
-      label: shown ? '正在加载剧集' : null,
-      child: ExcludeSemantics(
-        child: Opacity(
-          opacity: shown ? 1 : 0,
-          child: MotionPulse(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final columns = math.max(
-                  1,
-                  ((constraints.maxWidth + gap) /
-                          (_EpisodeGridState._minWidth + gap))
-                      .floor(),
-                );
-                final width =
-                    (constraints.maxWidth - gap * (columns - 1)) / columns -
-                    .01;
-                final cells = (count ?? 12).clamp(
-                  1,
-                  _EpisodeGridState._rows * columns,
-                );
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: gap,
-                      runSpacing: gap,
-                      children: [
-                        for (var i = 0; i < cells; i++)
-                          SkeletonBlock(width: width, height: height),
-                      ],
-                    ),
-                    const SizedBox(height: Gap.md),
-                    SkeletonLine(
-                      style: small?.copyWith(fontSize: FontSize.caption),
-                      width: 180,
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ),
+    return SkeletonGroup(
+      label: '正在加载剧集',
+      shown: shown,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = math.max(
+            1,
+            ((constraints.maxWidth + gap) / (_EpisodeGridState._minWidth + gap))
+                .floor(),
+          );
+          final width =
+              (constraints.maxWidth - gap * (columns - 1)) / columns - .01;
+          final cells = (count ?? 12).clamp(
+            1,
+            _EpisodeGridState._rows * columns,
+          );
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [
+                  for (var i = 0; i < cells; i++)
+                    SkeletonBlock(width: width, height: height),
+                ],
+              ),
+              const SizedBox(height: Gap.md),
+              SkeletonLine(
+                style: small?.copyWith(fontSize: FontSize.caption),
+                width: 180,
+              ),
+            ],
+          );
+        },
       ),
     );
   }

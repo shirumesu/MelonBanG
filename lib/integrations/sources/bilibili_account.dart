@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
 import '../../core/credentials.dart';
 import '../../core/json.dart';
@@ -10,15 +12,14 @@ import '../../core/network.dart';
 /// A login QR code: what it encodes and the key its state is asked by.
 typedef BilibiliQr = ({String url, String key});
 
-/// Where a login QR code stands.
 enum BilibiliQrState { waiting, scanned, expired, signedIn }
 
 /// The Bilibili account the app reads as, signed in by scanning a QR code
-/// with the Bilibili app, so no password passes through the app. Its
-/// cookies go with every Bilibili API request: a guest gets a fraction of
-/// an episode's comments, an account most of them, and 大会员 the members'
-/// episodes and higher quality too. A sign-in Bilibili no longer accepts
-/// lapses back to a guest, until the next scan.
+/// with the Bilibili app so no password passes through the app. Its cookies
+/// go with every Bilibili API request: a guest gets a fraction of an
+/// episode's comments, an account most of them, and 大会员 also members'
+/// episodes and higher quality. A sign-in Bilibili stops accepting lapses
+/// to a guest.
 class BilibiliAccount extends ChangeNotifier {
   BilibiliAccount(this.api, this.credentials);
   final ApiClient api;
@@ -88,7 +89,11 @@ class BilibiliAccount extends ChangeNotifier {
         Uri.https('api.bilibili.com', '/x/web-interface/nav'),
         headers: {...headers, 'Cookie': cookie},
       );
-    } catch (_) {
+    } on http.ClientException {
+      return;
+    } on IOException {
+      return;
+    } on TimeoutException {
       return;
     }
     if (cookie != this.cookie) return;

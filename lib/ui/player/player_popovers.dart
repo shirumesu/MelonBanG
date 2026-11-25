@@ -5,8 +5,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../core/motion.dart';
+import '../core/overlay_glass.dart';
 import '../core/theme.dart';
-import 'player_theme.dart';
 
 /// A control whose popover rises above it while the pointer rests on either,
 /// and closes shortly after leaving both. Clicking the control toggles it as
@@ -271,8 +271,7 @@ class _AnchoredPanelState extends State<AnchoredPanel>
         animation: _fade,
         builder: (context, _) {
           final value = Curves.easeOutCubic.transform(_fade.value);
-          // The glass fades itself: an Opacity around its backdrop blur
-          // would blur nothing on some renderers.
+          // The panel fades its own glass ([OverlayGlass.visibility]).
           return Transform.translate(
             offset: Offset(0, 5 * (1 - value)),
             child: Transform.scale(

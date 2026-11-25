@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import '../../core/credentials.dart';
+import '../../core/hex.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
 
@@ -108,10 +109,7 @@ class PikPakClient {
 
   static String _newDeviceId() {
     final random = Random.secure();
-    return List.generate(
-      16,
-      (_) => random.nextInt(256),
-    ).map((value) => value.toRadixString(16).padLeft(2, '0')).join();
+    return hexEncode(List.generate(16, (_) => random.nextInt(256)));
   }
 
   Future<void> initialize() async {
@@ -219,7 +217,7 @@ class PikPakClient {
       'refresh_token': response['refresh_token'],
       'expires_at':
           DateTime.now().millisecondsSinceEpoch +
-          (_integer(response['expires_in'], fallback: 7200) - 60) * 1000,
+          (pikPakInt(response['expires_in'], fallback: 7200) - 60) * 1000,
     };
     await _write(tokens);
     _checkGeneration(generation);
@@ -229,7 +227,7 @@ class PikPakClient {
   Future<void> _refresh({bool force = false}) async {
     if (_tokens == null) throw const PikPakException('请先在数据源页面登录 PikPak');
     if (!force &&
-        _integer(_tokens!['expires_at']) >
+        pikPakInt(_tokens!['expires_at']) >
             DateTime.now().millisecondsSinceEpoch) {
       return;
     }
@@ -336,7 +334,7 @@ class PikPakClient {
     _checkGeneration(generation);
     _captchaToken = '${response['captcha_token'] ?? ''}';
     _captchaExpiry = DateTime.now().add(
-      Duration(seconds: _integer(response['expires_in'])),
+      Duration(seconds: pikPakInt(response['expires_in'])),
     );
     final url = Uri.tryParse('${response['url'] ?? ''}');
     if (url != null && url.scheme == 'https' && url.host.isNotEmpty) {
@@ -628,9 +626,6 @@ class PikPakClient {
       (error.code == 9 && error.reason.startsWith('captcha')) ||
       error.code == 4002;
 
-  static int _integer(dynamic value, {int fallback = 0}) =>
-      value is num ? value.toInt() : int.tryParse('$value') ?? fallback;
-
   Future<Json> _send(
     String method,
     Uri uri, {
@@ -676,7 +671,7 @@ class PikPakClient {
     } on FormatException {
       throw const PikPakException('PikPak 返回的数据无法识别');
     }
-    final code = _integer(result['error_code']);
+    final code = pikPakInt(result['error_code']);
     if (response.statusCode >= 400 || code != 0 || result['error'] != null) {
       // The server's own wording is shown only when it is Chinese.
       final described = '${result['error_description'] ?? ''}';
@@ -714,3 +709,8 @@ class PikPakClient {
     _http.close();
   }
 }
+
+/// A whole number from PikPak's JSON, which sends some as strings;
+/// [fallback] when [value] is neither.
+int pikPakInt(dynamic value, {int fallback = 0}) =>
+    value is num ? value.toInt() : int.tryParse('$value') ?? fallback;

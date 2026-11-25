@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 
-import 'motion.dart';
-import 'pointer_lamp.dart';
+import '../ui/core/motion.dart';
+import '../ui/core/pointer_lamp.dart';
 
 /// Lets a theme switch spread from where it was asked for: the window as it
 /// was stays on top while a circle of the new theme opens out from the

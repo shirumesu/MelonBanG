@@ -19,6 +19,7 @@ import '../../domain/playback_session.dart';
 import '../danmaku/danmaku_controller.dart';
 import '../danmaku/danmaku_repository.dart';
 import '../downloads/download_repository.dart';
+import 'opening_ending.dart';
 import 'playback_library.dart';
 import 'playback_preferences.dart';
 import 'super_resolution.dart';
@@ -73,7 +74,6 @@ class Playback extends ChangeNotifier {
     );
     _shaders = 'off';
     _cacheWait = 0;
-    // A new player counts its dropped frames from zero.
     _droppedFrames = 0;
     _dropSeconds.clear();
     unawaited(player.setRate(_savedRate));
@@ -192,10 +192,8 @@ class Playback extends ChangeNotifier {
     return _video!;
   }
 
-  /// Whether a video plays now; false without a player.
   bool get playing => _player?.state.playing ?? false;
 
-  /// Pauses the video, if one is open.
   Future<void> pause() async => _player?.pause();
 
   /// The open player's position, buffering, playing state and errors,
@@ -218,8 +216,8 @@ class Playback extends ChangeNotifier {
   int danmakuRevision = 0, _autoplayTicket = 0;
   String? _completedSession;
 
-  /// Finds what plays after [session]; [cancel] stops the lookup once
-  /// autoplay is cancelled.
+  /// Finds what plays after a session; the cancellation it gets ends the
+  /// lookup once autoplay is cancelled.
   Future<AutoplayTarget?> Function(
     PlaybackSession session,
     RequestCancellation cancel,
@@ -229,16 +227,16 @@ class Playback extends ChangeNotifier {
   AutoplayTarget? autoplayTarget;
   Episode? autoplayEndEpisode;
   String? autoplayMessage;
+  NoticeTone autoplayTone = NoticeTone.info;
   int autoplaySeconds = 0;
   PlaybackSession? session;
   String? uri;
   String? error, notice;
   Media? _manifest;
 
-  /// The lavf format the file being opened is forced to.
+  /// The lavf format and mpv `http-proxy` the load hook in [_create] gives
+  /// the file being opened.
   String? _lavfFormat;
-
-  /// mpv's `http-proxy` for the file being opened.
   String? _httpProxy;
   late String _hwdec;
 
@@ -250,7 +248,7 @@ class Playback extends ChangeNotifier {
       Platform.isLinux && setting == 'auto' ? 'auto-safe' : setting;
   String _shaders = 'off';
 
-  /// The player's size in physical pixels, for super-resolution output.
+  /// The shown size in physical pixels.
   Size? _display;
   Timer? _outputTimer;
 
@@ -428,7 +426,6 @@ class Playback extends ChangeNotifier {
 
   Future<void> resume() async {
     cancelAutoplay();
-    // Playing on after the end puts its message away.
     if (autoplayMessage != null) dismissAutoplayMessage();
     if (frameStepping) {
       frameStepping = false;
@@ -471,6 +468,7 @@ class Playback extends ChangeNotifier {
     await _player?.setRate(on ? 3 : _savedRate);
   }
 
+  /// Opens [next] after earlier opens; its failure reaches only the caller.
   Future<void> open(PlaybackSession next) {
     if (_closed) return Future.error(StateError('播放器已关闭'));
     final operation = _openQueue.then((_) => _open(next));
@@ -559,8 +557,8 @@ class Playback extends ChangeNotifier {
           languageCodes(settings.audioLanguage),
         );
       }
-      // An episode's place lives only in the library, as saveProgress keeps
-      // it; a key left here by an earlier version would never move on.
+      // An episode's place is read from the library, where [saveProgress]
+      // keeps it; a progress key older builds left for it would be stale.
       double? resume;
       if ((next.subjectId, next.episodeId) case (
         final subjectId?,
@@ -573,7 +571,8 @@ class Playback extends ChangeNotifier {
         resume = preferences.isSet(key) ? preferences.get(key) : null;
       }
       if (next.startSeconds != null) resume = next.startSeconds;
-      // Apply continuation while loading; open() can return before native seek is ready.
+      // The place resumes as the media's start: open() can return before a
+      // native seek would take.
       _manifest = playlist != null
           ? await Media.memory(Uint8List.fromList(utf8.encode(playlist)))
           : null;
@@ -618,9 +617,8 @@ class Playback extends ChangeNotifier {
 
   (Object, Object?, double, double, bool)? _lastProgress;
 
-  /// How long the open episode has played. One opened only for a look keeps
-  /// the saved place, and which episode and subject played last, as they
-  /// were.
+  /// How long the open episode has played. One opened only for a look leaves
+  /// the saved place and the last played episode as they were.
   final _watched = Stopwatch();
   static const _recordAfter = Duration(seconds: 10);
 
@@ -724,13 +722,13 @@ class Playback extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Loads the chosen super-resolution shaders, which mpv applies to the
-  /// current file at once.
   /// Anime4K runs as GLSL shaders in mpv's GPU renderer. media_kit falls
   /// back to software rendering on Linux with current Flutter, where the
   /// shaders do nothing (media-kit/media-kit#1404).
   static final superResolutionAvailable = !Platform.isLinux;
 
+  /// Loads the chosen super-resolution shaders, which mpv applies to the
+  /// current file at once.
   Future<void> _applyShaders() async {
     final mode = settings.superResolution;
     final platform = _player?.platform;
@@ -1036,8 +1034,12 @@ class Playback extends ChangeNotifier {
         duration.inMilliseconds / 1000,
       );
       if (openingEnding != null) notifyListeners();
+    } on TimeoutException {
+      // A stream whose duration stays unknown gets no OP/ED marks.
     } catch (_) {
-      // Without chapters there are no OP/ED marks.
+      // A player closed meanwhile has no chapters left to read.
+      if (_closed || _player?.platform != platform) return;
+      rethrow;
     }
   }
 
@@ -1103,6 +1105,8 @@ class Playback extends ChangeNotifier {
     );
   }
 
+  /// Steps a frame [forward] or back after earlier steps, returning where it
+  /// lands; its failure reaches only the caller.
   Future<Duration> stepFrame(bool forward) {
     final id = session?.id;
     final operation = _frameQueue.then(
@@ -1168,12 +1172,14 @@ class Playback extends ChangeNotifier {
       }
       if (target == null) {
         autoplayMessage = '播放已结束';
+        autoplayTone = NoticeTone.info;
         notifyListeners();
         return;
       }
       if (target.unavailable) {
         autoplayEndEpisode = target.episode;
         autoplayMessage = '${target.episode.label}暂无可直接播放的资源';
+        autoplayTone = NoticeTone.warning;
         notifyListeners();
         return;
       }
@@ -1197,6 +1203,7 @@ class Playback extends ChangeNotifier {
         return;
       }
       autoplayMessage = '自动连播已停止：${errorMessage(e)}';
+      autoplayTone = NoticeTone.warning;
       notifyListeners();
     } finally {
       if (_autoplayLookup == lookup) _autoplayLookup = null;
@@ -1215,7 +1222,6 @@ class Playback extends ChangeNotifier {
     if (changed && notify) notifyListeners();
   }
 
-  /// Puts away what autoplay said at the end of the episode.
   void dismissAutoplayMessage() {
     autoplayMessage = null;
     autoplayEndEpisode = null;
@@ -1230,15 +1236,14 @@ class Playback extends ChangeNotifier {
       await target.play();
     } catch (e) {
       autoplayMessage = '下一话打开失败：${errorMessage(e)}';
+      autoplayTone = NoticeTone.failed;
       notifyListeners();
     }
   }
 
-  /// Saves the place and closes the player, so its decoder, buffers and
-  /// textures are freed; playing again opens a new one.
-  ///
-  /// The native output is disposed once [detached] says no video texture
-  /// is drawn any more.
+  /// Saves the place and closes the player, freeing its decoder, buffers and
+  /// textures; playing again opens a new one. The native output is disposed
+  /// once [detached] says no video texture is drawn any more.
   Future<void> unload(Future<void> Function() detached) async {
     cancelAutoplay();
     await _openQueue;
@@ -1315,84 +1320,6 @@ class AutoplayTarget {
   final String sourceLabel;
   final Future<void> Function() play;
   final bool unavailable;
-}
-
-/// A chapter's span in seconds.
-typedef ChapterSpan = ({double start, double end});
-
-/// The OP and ED chapters of a file, either of which may be missing.
-class OpeningEnding {
-  const OpeningEnding({this.opening, this.ending});
-  final ChapterSpan? opening, ending;
-
-  // Fansub and BD chapters name the songs OP/ED (or misspell them, as
-  // `OPENIG`); Crunchyroll's, kept in many WEB-DL releases, name them
-  // Intro and Credits, Netflix's Credits.
-  static final _openingName = RegExp(
-    r'^\s*(op\b|op\d|open|intro\b|オープニング|片头|片頭|序曲)',
-    caseSensitive: false,
-  );
-  static final _endingName = RegExp(
-    r'^\s*(ed\b|ed\d|ending|end\s*credits|credits?\b|outro\b|エンディング|片尾)',
-    caseSensitive: false,
-  );
-
-  /// Chapters named as OP/ED, the opening in the first half and the ending
-  /// in the second; either one not named is a chapter of the usual song
-  /// length (80–95 s, or 55–65 s for 10–20 minute episodes) in the first or
-  /// last part of the episode, as Animeko does.
-  static OpeningEnding? find(
-    List<({String title, double start})> chapters,
-    double duration,
-  ) {
-    if (chapters.length < 2 || duration <= 0) return null;
-    final sorted = [...chapters]..sort((a, b) => a.start.compareTo(b.start));
-    final spans = [
-      for (final (index, chapter) in sorted.indexed)
-        (
-          title: chapter.title,
-          span: (
-            start: chapter.start,
-            end: index + 1 < sorted.length ? sorted[index + 1].start : duration,
-          ),
-        ),
-    ];
-    final half = duration / 2;
-    final (low, high) = duration > 20 * 60
-        ? (80.0, 95.0)
-        : duration > 10 * 60
-        ? (55.0, 65.0)
-        : (0.0, 0.0);
-    final songs = [
-      for (final chapter in spans)
-        if (high > 0 &&
-            chapter.span.end - chapter.span.start >= low &&
-            chapter.span.end - chapter.span.start <= high)
-          chapter.span,
-    ];
-    final opening =
-        spans
-            .where(
-              (chapter) =>
-                  chapter.span.start < half &&
-                  _openingName.hasMatch(chapter.title),
-            )
-            .firstOrNull
-            ?.span ??
-        songs.where((span) => span.start < duration * .4).firstOrNull;
-    final ending =
-        spans
-            .where(
-              (chapter) =>
-                  chapter.span.start >= half &&
-                  _endingName.hasMatch(chapter.title),
-            )
-            .lastOrNull
-            ?.span ??
-        songs.where((span) => span.start > duration * .6).lastOrNull;
-    if (opening == null && ending == null) return null;
-    return OpeningEnding(opening: opening, ending: ending);
-  }
 }
 
 /// What mpv reports about the file playing; see [Playback.details]. Rates

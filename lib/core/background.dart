@@ -5,15 +5,14 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter/services.dart';
 
 /// What the desktop does for the app while its window is closed to the
-/// background: keeping macOS from napping, and the runner's requests to
-/// quit or to end the session.
+/// background: keeping macOS from napping, Windows efficiency mode, and the
+/// runner's requests to quit or to end the session.
 abstract final class Background {
   static const _channel = MethodChannel('org.melonbang/system');
 
-  /// Takes the macOS and Windows runners' requests: [onQuit] for macOS
-  /// Command-Q, the Dock, the menu bar, logging out and shutting down, and
-  /// [onEndSession] while Windows logs out or shuts down, which ends the
-  /// process once it returns.
+  /// Takes the runners' requests: [onQuit] for any macOS quit (Command-Q,
+  /// Dock, menu bar, log out, shut down), [onEndSession] while Windows logs
+  /// out or shuts down, which ends the process once it returns.
   static void listen({
     required void Function() onQuit,
     required Future<void> Function() onEndSession,

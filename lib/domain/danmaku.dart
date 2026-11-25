@@ -188,7 +188,6 @@ abstract interface class DanmakuSender implements DanmakuProvider {
   /// Sends [comment] and returns what may still be sent.
   Future<DanmakuQuota> send(String locator, DanmakuComment comment);
 
-  /// What the viewer may still send.
   Future<DanmakuQuota> quota();
 }
 

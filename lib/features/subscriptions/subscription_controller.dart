@@ -97,7 +97,6 @@ class SubscriptionController extends ChangeNotifier {
   /// By subject id.
   final subscriptions = <int, Subscription>{};
 
-  /// Subjects being checked now.
   final _checking = <int>{};
 
   /// Subjects whose next check the user asked for; it notes what it found.
@@ -164,7 +163,6 @@ class SubscriptionController extends ChangeNotifier {
     await check(id);
   }
 
-  /// Whether the subscription of [id] is being checked now.
   bool checking(int id) => _checking.contains(id);
 
   /// Whether a check of every subscription the user asked for runs.
@@ -189,8 +187,8 @@ class SubscriptionController extends ChangeNotifier {
     var subject = await catalog.subject(id, forPlayback: true);
     try {
       subject = await tracking.withProgress(subject);
-    } catch (_) {
-      // Signed out or switching accounts: nothing counts as watched.
+    } on StateError {
+      // The account switched during the read: nothing counts as watched.
     }
     _details[id] = subject;
     return subject;
@@ -349,7 +347,7 @@ class SubscriptionController extends ChangeNotifier {
 
   /// Whether [subscription] caches [episode]: a main episode airing from
   /// the day before it was made and not marked watched (seen online, or on
-  /// another device), or chosen among the [earlier] ones.
+  /// another device), or chosen among its [Subscription.earlier] ones.
   bool _wanted(Subscription subscription, Subject subject, Episode episode) =>
       episode.main &&
       (subscription.earlier.contains(episode.id) ||
@@ -395,7 +393,7 @@ class SubscriptionController extends ChangeNotifier {
     }
     final found = <int, DownloadTask>{};
     for (final task in tasks.forSubject(subject.id)) {
-      for (final id in {?task.episodeId, ...episodeFiles(subject, task).keys}) {
+      for (final id in taskEpisodeIds(subject, task)) {
         if (found[id] == null || (!found[id]!.complete && task.complete)) {
           found[id] = task;
         }
@@ -478,7 +476,7 @@ class SubscriptionController extends ChangeNotifier {
 
   /// What [subscription] needs from the user: a failure, a cache that
   /// failed, or an episode no matching release came out for a day after it
-  /// aired.
+  /// aired (two days when the schedule gives no hour).
   SubscriptionIssue? issueOf(Subscription subscription) {
     if (subscription.finishedAt != null || subscription.paused) return null;
     if (subscription.issue case final issue?) return SubscriptionIssue(issue);
@@ -533,7 +531,7 @@ class SubscriptionController extends ChangeNotifier {
     },
   );
 
-  /// Searches [subscription]'s show once and caches what it judges new.
+  /// Checks the show of subscription [id] once, caching what it judges new.
   Future<void> check(int id) async {
     final subscription = subscriptions[id];
     if (subscription == null || !_checking.add(id)) return;
@@ -659,10 +657,9 @@ class SubscriptionController extends ChangeNotifier {
         '${files.length == 1 ? '' : '都'}没有选：$why$online';
   }
 
-  /// Judges [candidates] for [subscription] and caches the releases chosen,
-  /// then the [online] entries filling in episodes without one, noting the
-  /// rest; returns the judgements and the episodes whose cache did start,
-  /// which a failed one is not.
+  /// Judges [candidates] for [subscription], caches the chosen releases, then
+  /// the [online] entries for episodes still without one, and notes the rest;
+  /// returns the judgements and the episodes whose cache started.
   Future<({List<ReleaseJudgement> judged, List<Episode> started})> _apply(
     Subscription subscription,
     Subject subject,
@@ -683,8 +680,8 @@ class SubscriptionController extends ChangeNotifier {
                   when !entry.revision && !entry.online && entry.taskId != null)
                 episode.id: entry.title,
         };
-      } catch (_) {
-        // Without watch progress, nothing counts as unwatched.
+      } on StateError {
+        // The account switched during the read: nothing counts as unwatched.
       }
     }
     final judged = judgeReleases(
@@ -957,11 +954,10 @@ class SubscriptionController extends ChangeNotifier {
   /// The subscriptions' cache tasks that failed, as last seen.
   var _failedCaches = <String>{};
 
-  /// Subscribes to [subject] with [filter], or changes its subscription
-  /// to it, keeping what it cached; the next subscription starts from the
-  /// same filter. [earlier] episodes, of [earlierEpisodes], are cached too;
-  /// null when none were offered. With [markWatching] the show is also
-  /// marked 在看 on Bangumi.
+  /// Subscribes to [subject] with [filter], or changes its subscription to it
+  /// keeping what it cached; new subscriptions then start from [filter].
+  /// [earlier] episodes, of [earlierEpisodes], are cached too (null when none
+  /// were offered); [markWatching] also marks the show 在看 on Bangumi.
   Future<void> subscribe(
     Subject subject,
     SubscriptionFilter filter, {

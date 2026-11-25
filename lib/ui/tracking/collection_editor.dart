@@ -1,16 +1,17 @@
-import 'dart:math' as math;
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../domain/collection_edit.dart';
+import '../../core/notices.dart';
 import '../../domain/catalog.dart';
+import '../../domain/collection_edit.dart';
+import '../core/action_feedback.dart';
+import '../core/collection_labels.dart';
 import '../core/motion.dart';
 import '../core/selection_controls.dart';
-import '../core/subject_posters.dart';
+import '../core/subject_cover.dart';
 import '../core/theme.dart';
-import 'collection_labels.dart';
+import 'collection_controls.dart';
 
 /// An unsaved drawer edit.
 class CollectionDraft {
@@ -44,7 +45,7 @@ Future<CollectionChange?> showCollectionDrawer(
   transitionDuration: motionDuration(context, 220),
   pageBuilder: (_, _, _) => Align(
     alignment: Alignment.centerRight,
-    child: CollectionDrawer(
+    child: _CollectionDrawer(
       subject: subject,
       draftKey: draftKey,
       focusComment: focusComment,
@@ -59,9 +60,8 @@ Future<CollectionChange?> showCollectionDrawer(
   ),
 );
 
-class CollectionDrawer extends StatefulWidget {
-  const CollectionDrawer({
-    super.key,
+class _CollectionDrawer extends StatefulWidget {
+  const _CollectionDrawer({
     required this.subject,
     required this.draftKey,
     this.focusComment = false,
@@ -71,10 +71,10 @@ class CollectionDrawer extends StatefulWidget {
   final bool focusComment;
 
   @override
-  State<CollectionDrawer> createState() => _CollectionDrawerState();
+  State<_CollectionDrawer> createState() => _CollectionDrawerState();
 }
 
-class _CollectionDrawerState extends State<CollectionDrawer> {
+class _CollectionDrawerState extends State<_CollectionDrawer> {
   late final SubjectCollection saved =
       widget.subject.collection ?? const SubjectCollection();
   late final bool restored = CollectionDrafts.has(widget.draftKey);
@@ -291,24 +291,10 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                   child: ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     children: [
-                      if (restored && changed)
-                        Container(
-                          margin: const EdgeInsets.only(bottom: Gap.lg),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: Gap.md,
-                            vertical: Gap.sm,
-                          ),
-                          decoration: BoxDecoration(
-                            color: scheme.primaryContainer.withValues(
-                              alpha: .5,
-                            ),
-                            borderRadius: controlBorderRadius,
-                          ),
-                          child: const Text(
-                            '已恢复上次未保存的编辑',
-                            style: TextStyle(fontSize: FontSize.small),
-                          ),
-                        ),
+                      IssueBanner(
+                        issue: restored && changed ? '已恢复上次未保存的编辑' : null,
+                        tone: NoticeTone.info,
+                      ),
                       section(
                         '状态',
                         MelonSegmentedControl<CollectionStatus>(
@@ -418,12 +404,7 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
                             if (tagError case final error?)
                               Padding(
                                 padding: const EdgeInsets.only(top: Gap.sm),
-                                child: Text(
-                                  error,
-                                  style: text.bodySmall?.copyWith(
-                                    color: scheme.error,
-                                  ),
-                                ),
+                                child: InlineIssue(error),
                               ),
                             if (popular.isNotEmpty) ...[
                               const SizedBox(height: Gap.sm),
@@ -493,263 +474,4 @@ class _CollectionDrawerState extends State<CollectionDrawer> {
       ),
     );
   }
-}
-
-/// Ten clickable stars with hover preview and a score label that follows
-/// the hovered star. From the keyboard ← and → preview a score and Enter
-/// picks it. [onTap] fires even when [enabled] is false so callers can
-/// explain why scoring is unavailable.
-class StarRating extends StatefulWidget {
-  const StarRating({
-    super.key,
-    required this.value,
-    required this.onTap,
-    required this.labelWidth,
-    this.enabled = true,
-    this.size = 18,
-  });
-  final int value;
-  final ValueChanged<int> onTap;
-  final bool enabled;
-  final double size;
-
-  /// Room for the longest label, "5 不过不失" or "10 超神作".
-  final double labelWidth;
-
-  @override
-  State<StarRating> createState() => _StarRatingState();
-}
-
-class _StarRatingState extends State<StarRating> {
-  int hover = 0;
-
-  /// The star last tapped and how many taps there were, so each tap gives
-  /// that star a small bounce.
-  int popped = 0, pops = 0;
-
-  /// Whether the stars have keyboard focus and show its ring.
-  bool highlighted = false;
-
-  void _pick(int n) {
-    if (widget.enabled) {
-      setState(() {
-        popped = n;
-        pops++;
-      });
-    }
-    widget.onTap(n);
-  }
-
-  /// Moves the keyboard preview by [step] stars.
-  void _step(int step) {
-    if (!widget.enabled) return;
-    final from = hover > 0 ? hover : widget.value;
-    setState(() => hover = (from + step).clamp(1, 10));
-  }
-
-  void _confirm() {
-    final n = widget.enabled && hover > 0 ? hover : widget.value;
-    setState(() => hover = 0);
-    _pick(math.max(n, 1));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final empty = scheme.surfaceContainerHighest;
-    final shown = widget.enabled && hover > 0 ? hover : widget.value;
-    final stars = MouseRegion(
-      onExit: (_) => setState(() => hover = 0),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var n = 1; n <= 10; n++)
-            Semantics(
-              button: true,
-              label: '$n 分',
-              selected: widget.value == n,
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                onEnter: (_) => setState(() => hover = n),
-                child: GestureDetector(
-                  onTap: () => _pick(n),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: .5),
-                    child: _Star(
-                      key: ValueKey(n == popped ? pops : 0),
-                      pop: n == popped && pops > 0,
-                      lifted: widget.enabled && hover == n,
-                      size: widget.size,
-                      color: n > shown
-                          ? empty
-                          : hover > 0 && widget.enabled
-                          ? gold.withValues(alpha: .6)
-                          : widget.enabled
-                          ? gold
-                          : gold.withValues(alpha: .35),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        FocusableActionDetector(
-          shortcuts: const {
-            SingleActivator(LogicalKeyboardKey.arrowLeft): _StepIntent(-1),
-            SingleActivator(LogicalKeyboardKey.arrowRight): _StepIntent(1),
-            SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-            SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
-            SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-          },
-          actions: {
-            _StepIntent: CallbackAction<_StepIntent>(
-              onInvoke: (intent) => _step(intent.step),
-            ),
-            ActivateIntent: CallbackAction<ActivateIntent>(
-              onInvoke: (_) => _confirm(),
-            ),
-          },
-          onShowFocusHighlight: (value) => setState(() => highlighted = value),
-          // A preview left by the keyboard goes when focus does.
-          onFocusChange: (focused) {
-            if (!focused && hover > 0) setState(() => hover = 0);
-          },
-          child: Semantics(
-            label: '评分',
-            hint: '左右方向键选择，回车确认',
-            child: DecoratedBox(
-              position: DecorationPosition.foreground,
-              decoration: BoxDecoration(
-                borderRadius: badgeBorderRadius,
-                border: highlighted
-                    ? Border.all(
-                        color: scheme.primary.withValues(alpha: .7),
-                        width: 1.5,
-                        strokeAlign: BorderSide.strokeAlignOutside,
-                      )
-                    : null,
-              ),
-              child: stars,
-            ),
-          ),
-        ),
-        const SizedBox(width: Gap.sm),
-        // Fixed height: the label's size changes with hover, and a shifting
-        // row would move the stars out from under the pointer.
-        SizedBox(
-          width: widget.labelWidth,
-          height: 28,
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: ScoreText(shown),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StepIntent extends Intent {
-  const _StepIntent(this.step);
-  final int step;
-}
-
-/// One star: its colour fades as the rating passes over it, it rises under
-/// the pointer, and [pop] bounces it once when it was just tapped.
-class _Star extends StatelessWidget {
-  const _Star({
-    super.key,
-    required this.color,
-    required this.size,
-    required this.lifted,
-    required this.pop,
-  });
-  final Color color;
-  final double size;
-  final bool lifted, pop;
-
-  @override
-  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
-    tween: Tween(begin: pop ? 0 : 1, end: 1),
-    duration: motionDuration(context, 380),
-    builder: (context, bounce, child) => Transform.scale(
-      scale: 1 + math.sin(bounce * math.pi) * .3,
-      child: child,
-    ),
-    child: AnimatedScale(
-      scale: lifted ? 1.18 : 1,
-      duration: motionDuration(context, 160),
-      curve: Curves.easeOutCubic,
-      child: TweenAnimationBuilder<Color?>(
-        tween: ColorTween(end: color),
-        duration: motionDuration(context, 140),
-        builder: (context, color, _) =>
-            Icon(Icons.star_rounded, size: size, color: color),
-      ),
-    ),
-  );
-}
-
-class ScoreText extends StatelessWidget {
-  const ScoreText(this.score, {super.key});
-  final int score;
-
-  @override
-  Widget build(BuildContext context) => score <= 0
-      ? Text('未评分', style: Theme.of(context).textTheme.bodySmall)
-      : Text.rich(
-          TextSpan(
-            children: [
-              TextSpan(
-                text: '$score',
-                style: const TextStyle(
-                  fontSize: FontSize.emphasis,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
-              ),
-              TextSpan(
-                text: ' ${scoreLabels[score]}',
-                style: TextStyle(
-                  fontSize: FontSize.small,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-          maxLines: 1,
-        );
-}
-
-/// Popular tags as on/off chips.
-class TagToggles extends StatelessWidget {
-  const TagToggles({
-    super.key,
-    required this.tags,
-    required this.selected,
-    required this.onToggle,
-  });
-  final Iterable<String> tags;
-  final Set<String> selected;
-  final ValueChanged<String> onToggle;
-
-  @override
-  Widget build(BuildContext context) => Wrap(
-    spacing: Gap.sm,
-    runSpacing: Gap.sm,
-    children: [
-      for (final tag in tags)
-        FilterChip(
-          label: Text(tag),
-          side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
-          selected: selected.contains(tag),
-          onSelected: (_) => onToggle(tag),
-        ),
-    ],
-  );
 }

@@ -8,7 +8,8 @@ import 'json.dart';
 /// Stored rows keyed by scope and id, null where a row was absent.
 typedef DocumentSnapshot = Map<(String, String), Map<String, Object?>?>;
 
-/// The Dart application owns a fresh database, separate from earlier runtimes.
+/// The app's SQLite database: JSON documents by scope and id, the queue of
+/// collection edits waiting to sync, and the image cache.
 class AppStore {
   AppStore._(this.database);
   final Database database;

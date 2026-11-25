@@ -123,18 +123,14 @@ class SubscriptionPreferences extends ChangeNotifier {
   /// groups, or by any group while none are set.
   SubscriptionFilter defaultFilter(List<String> preferredGroups) {
     if (_settings.get(filterSetting) case final Map<String, dynamic> saved) {
-      try {
-        final filter = SubscriptionFilter.fromJson(saved);
-        return filter.copyWith(
-          groups: const {},
-          preferred:
-              !filter.smart &&
-              preferredGroups.isNotEmpty &&
-              (filter.preferred || filter.groups.isNotEmpty),
-        );
-      } on FormatException {
-        // A damaged value falls back to the first default.
-      }
+      final filter = SubscriptionFilter.fromJson(saved);
+      return filter.copyWith(
+        groups: const {},
+        preferred:
+            !filter.smart &&
+            preferredGroups.isNotEmpty &&
+            (filter.preferred || filter.groups.isNotEmpty),
+      );
     }
     return SubscriptionFilter(
       preferred: preferredGroups.isNotEmpty,

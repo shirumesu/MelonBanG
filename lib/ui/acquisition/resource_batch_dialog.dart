@@ -4,13 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../domain/catalog.dart';
+import '../core/help_hint.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
 
-/// One version of a resource, such as its 简日 subtitles or Baha rip: the episodes it
-/// holds and those already added from it.
+/// One version of a resource, such as its 简日 subtitles or Baha rip: the
+/// episodes it holds and those already added from it.
 typedef BatchVersion = ({Set<int> available, Set<int> added});
 
 /// Lets the user pick the episodes of one resource to download, by range
@@ -282,15 +283,8 @@ class _BatchDialogState extends State<_BatchDialog> {
       title: Row(
         children: [
           const Text('批量下载'),
-          const SizedBox(width: Gap.sm),
-          Tooltip(
-            message: '输入集数区间，或点击格子增减；按住 Shift 点击选择连续的集数',
-            child: Icon(
-              Icons.help_outline_rounded,
-              size: 18,
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
+          const SizedBox(width: Gap.xs),
+          const HelpHint(message: '输入集数区间，或点击格子增减；按住 Shift 点击选择连续的集数'),
         ],
       ),
       content: SizedBox(

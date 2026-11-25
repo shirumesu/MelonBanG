@@ -3,22 +3,26 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/cancellation.dart';
+import '../../core/error_message.dart';
+import '../../core/notices.dart';
 import '../../domain/catalog.dart';
 import '../../domain/release_traits.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
 import '../../features/appearance/appearance.dart';
 import '../../features/acquisition/online_candidates.dart';
-import '../../features/acquisition/title_matching.dart';
 import '../../features/subscriptions/subscription_controller.dart';
 import '../../features/subscriptions/subscription_matcher.dart';
-import '../acquisition/resource_widgets.dart';
+import '../acquisition/resource_labels.dart';
+import '../core/action_feedback.dart';
 import '../core/notice_cards.dart';
 import '../core/byte_units.dart';
 import '../core/motion.dart';
+import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
-import '../discovery/schedule_timelines.dart';
+import '../core/tone.dart';
+import '../discovery/release_labels.dart';
 
 /// The detail page's way to subscribe to a show still airing, or to see
 /// and change its subscription.
@@ -74,7 +78,6 @@ class SubscribeButton extends StatelessWidget {
       }
       final issue = controller.issueOf(subscription);
       final scheme = Theme.of(context).colorScheme;
-      final dark = Theme.of(context).brightness == Brightness.dark;
       return Tooltip(
         message:
             issue?.text ??
@@ -86,8 +89,8 @@ class SubscribeButton extends StatelessWidget {
             null => null,
             // An episode out late is something to know, not a failure.
             SubscriptionIssue(episode: _?) => FilledButton.styleFrom(
-              backgroundColor: goldPanel(dark),
-              foregroundColor: goldInk(dark),
+              backgroundColor: scheme.tertiaryContainer,
+              foregroundColor: scheme.onTertiaryContainer,
             ),
             _ => FilledButton.styleFrom(
               backgroundColor: scheme.errorContainer,
@@ -103,8 +106,8 @@ class SubscribeButton extends StatelessWidget {
 }
 
 /// A subscription's state in a few words: when the next episode airs, what
-/// it waits for, or what needs the user, with [warn] set for the last and
-/// [late] when that is an episode out later than usual, not a failure.
+/// it waits for, or what needs the user, with `warn` set for the last and
+/// `late` when that is an episode out later than usual, not a failure.
 ({String text, bool warn, bool late}) subscriptionStatus(
   SubscriptionController controller,
   Subscription subscription,
@@ -187,13 +190,6 @@ const _anyGroup = '\u0000any',
     _preferred = '\u0000preferred',
     _smart = '\u0000smart';
 
-/// A single-episode release of the show, as the search found it.
-typedef _File = ({
-  ReleaseCandidate candidate,
-  ResourceTitleInfo info,
-  Episode episode,
-});
-
 /// What the filter takes for an episode: a group's release, or an online
 /// entry filling in for one.
 typedef _Pick = ({
@@ -231,23 +227,11 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
       opened == null && widget.controller.preferences.cacheEarlier;
   final cancel = RequestCancellation();
 
-  /// What the show's releases offer, as one search finds them.
-  /// Groups as the resource search names them, by their most common
-  /// spelling; the traditional and simplified spellings of one group count
-  /// together.
-  final groupCounts = <String, int>{},
-      qualityCounts = <String, int>{},
-      subtitleCounts = <String, int>{};
-
-  /// Every release found, and the single-episode ones, the earliest
-  /// published first.
+  /// Every release the search found, and what they offer.
   var releases = <ReleaseCandidate>[];
-  var files = <_File>[];
+  late var survey = surveyReleases(widget.subject, const []);
 
-  /// The subtitles of [releases], read across each group's series.
-  var subtitlesOf = seriesSubtitles(const []);
-
-  /// Why the search found nothing, when no site answered.
+  /// Why the search found nothing: no site answered, or it failed.
   String? searchError;
   bool searching = true;
   bool saving = false;
@@ -312,54 +296,8 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
     void count(ReleaseSearchResult result) {
       if (!mounted) return;
       setState(() {
-        final spellings = <String, int>{};
-        for (final counts in [groupCounts, qualityCounts, subtitleCounts]) {
-          counts.clear();
-        }
-        final found = <(_File, DateTime?)>[];
-        final described = <ResourceTitleInfo>[];
-        for (final candidate in result.candidates) {
-          final info = describeResource(
-            candidate.release.title,
-            releaseGroups: candidate.release.releaseGroups,
-          );
-          described.add(info);
-          void add(Map<String, int> counts, Iterable<String> values) {
-            for (final value in values) {
-              counts[value] = (counts[value] ?? 0) + 1;
-            }
-          }
-
-          add(spellings, info.groups);
-          add(qualityCounts, [?info.quality]);
-          add(subtitleCounts, info.subtitleChoices);
-          if (info.batch || releaseRebroadcast(candidate.release.title)) {
-            continue;
-          }
-          if (releaseEpisode(widget.subject, info) case final episode?) {
-            found.add((
-              (candidate: candidate, info: info, episode: episode),
-              releasePublished(candidate.release.publishedAt),
-            ));
-          }
-        }
-        final byKey = <String, List<MapEntry<String, int>>>{};
-        for (final entry in spellings.entries) {
-          (byKey[groupKey(entry.key)] ??= []).add(entry);
-        }
-        for (final names in byKey.values) {
-          names.sort((a, b) => b.value.compareTo(a.value));
-          groupCounts[names.first.key] = names.fold(
-            0,
-            (sum, entry) => sum + entry.value,
-          );
-        }
-        found.sort(
-          (a, b) => (a.$2 ?? DateTime(0)).compareTo(b.$2 ?? DateTime(0)),
-        );
-        files = [for (final (file, _) in found) file];
         releases = result.candidates;
-        subtitlesOf = seriesSubtitles(described);
+        survey = surveyReleases(widget.subject, result.candidates);
         searchError = switch (result.sources) {
           [] => '没有可用的资源站',
           final sources
@@ -382,9 +320,11 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
       );
     } on RequestCancelled {
       // The dialog closed.
-    } catch (_) {
+    } catch (error) {
       // The menus still offer every choice, without counts.
-      if (mounted) setState(() => searchError = '查找失败');
+      if (mounted) {
+        setState(() => searchError = '查找失败：${errorMessage(error)}');
+      }
     } finally {
       if (mounted) setState(() => searching = false);
     }
@@ -419,7 +359,6 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
     );
   }
 
-  /// Turns [value] on or off in the filter's selection of [part].
   void _toggle(_Part part, String value, bool on) => setState(() {
     Set<String> toggled(Set<String> values) =>
         on ? {...values, value} : ({...values}..remove(value));
@@ -459,11 +398,12 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
 
   /// Whether [info] meets the filter's quality and subtitles, or states
   /// nothing for them.
-  bool _meets(ResourceTitleInfo info) => filter.gaps(info, subtitlesOf) != null;
+  bool _meets(ResourceTitleInfo info) =>
+      filter.gaps(info, survey.subtitlesOf) != null;
 
   /// How long after its episode aired [file] came out, when both times
   /// are known to the minute.
-  Duration? _delay(_File file) {
+  Duration? _delay(ReleaseFile file) {
     final raw = file.candidate.release.publishedAt ?? '';
     // A bare date says nothing about the hour.
     final published = raw.length > 10 ? releasePublished(raw) : null;
@@ -476,7 +416,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
   /// What [record]'s files meeting the quality and subtitles are like: how
   /// soon after airing they come out, then the latest one's tags and size.
   String _groupSummary(GroupRecord record, ByteUnits units) {
-    final latest = files
+    final latest = survey.files
         .where(
           (file) =>
               groupsMatch(file.info.groups, [record.name]) && _meets(file.info),
@@ -492,7 +432,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
   }
 
   /// `1080p MP4 简日内嵌`.
-  String _fileLabels(_File file) => file.info.labels.take(4).join(' ');
+  String _fileLabels(ReleaseFile file) => file.info.labels.take(4).join(' ');
 
   /// The file the filter takes for each of the latest episodes, the
   /// latest first: a group's, else an online entry as a check would fill
@@ -584,9 +524,6 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
     final issue = subscription == null
         ? null
         : widget.controller.issueOf(subscription);
-    // An episode out late is something to know, not a failure.
-    final late = issue?.episode != null;
-    final dark = Theme.of(context).brightness == Brightness.dark;
     final checking =
         subscription != null &&
         widget.controller.checking(subscription.subjectId);
@@ -611,14 +548,14 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
       candidates: releases,
       aired: widget.controller.airedAt,
     );
-    final judged = !searching && files.isNotEmpty;
+    final judged = !searching && survey.files.isNotEmpty;
     // Groups without a single-episode file meeting the quality and
     // subtitles, or usually a week late, leave the list unless chosen.
     bool worth(String name) => switch (records[groupKey(name)]) {
       null => !judged,
       final record => !((record.lag ?? Duration.zero) > slowGroupLag),
     };
-    final found = {...groupCounts.keys};
+    final found = {...survey.groups.keys};
     final groupNames = [
       for (final name in {...filter.groups, ...found})
         if (groupsMatch(filter.groups, [name]) || worth(name)) name,
@@ -629,7 +566,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
       final first = byPreference(a).compareTo(byPreference(b));
       return first != 0
           ? first
-          : (groupCounts[b] ?? 0).compareTo(groupCounts[a] ?? 0);
+          : (survey.groups[b] ?? 0).compareTo(survey.groups[a] ?? 0);
     });
     final ours = [
       for (final record in records.values)
@@ -686,9 +623,9 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
               '偏好字幕组',
               detail: preferred.isEmpty
                   ? '未设置'
-                  : searching && groupCounts.isEmpty
+                  : searching && survey.groups.isEmpty
                   ? null
-                  : '${groupCounts.entries.where((entry) => groupsMatch([entry.key], preferred)).fold(0, (sum, entry) => sum + entry.value)}',
+                  : '${survey.groups.entries.where((entry) => groupsMatch([entry.key], preferred)).fold(0, (sum, entry) => sum + entry.value)}',
               subtitle: preferred.isEmpty
                   ? '在 设置 › 字幕组 中设置'
                   : ours.isNotEmpty
@@ -706,11 +643,11 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                 MelonFilterOption(
                   name,
                   name,
-                  detail: counted(name, groupCounts).detail,
+                  detail: counted(name, survey.groups).detail,
                   subtitle: switch (records[groupKey(name)]) {
                     final record? => _groupSummary(record, units),
                     null when judged =>
-                      groupCounts.containsKey(name)
+                      survey.groups.containsKey(name)
                           ? '没有符合画质和字幕的单集文件'
                           : '没有找到本作的发布',
                     null => null,
@@ -719,7 +656,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
             ],
             title: searching
                 ? '正在查找本作的字幕组…'
-                : groupCounts.isEmpty
+                : survey.groups.isEmpty
                 ? searchError ?? '没有找到本作的字幕组'
                 : [
                     '本作的字幕组',
@@ -774,7 +711,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
         sections: [
           MelonFilterSection([
             for (final value in resourceQualities)
-              counted(value, qualityCounts),
+              counted(value, survey.qualities),
           ]),
         ],
         selected: filter.qualities,
@@ -790,7 +727,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
             value,
             label,
             help: help,
-            detail: counted(value, subtitleCounts).detail,
+            detail: counted(value, survey.subtitles).detail,
           ),
         ),
         selected: subtitles,
@@ -851,60 +788,36 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // How subscribing works is said before subscribing only.
-            if (intro != null) Text(intro, style: small),
-            if (issue != null) ...[
-              if (intro != null) const SizedBox(height: Gap.md),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: late ? goldPanel(dark) : scheme.errorContainer,
-                  borderRadius: panelBorderRadius,
-                ),
-                child: Padding(
-                  // Its buttons' corners sit Gap.xs inside the banner's.
-                  padding: const EdgeInsets.fromLTRB(
-                    Gap.md,
-                    Gap.xs,
-                    Gap.xs,
-                    Gap.xs,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          issue.text,
-                          style: TextStyle(
-                            fontSize: FontSize.body,
-                            color: late
-                                ? goldInk(dark)
-                                : scheme.onErrorContainer,
-                          ),
-                        ),
-                      ),
-                      if (issue.episode case final episode?)
-                        TextButton(
-                          onPressed: () => _run(
-                            () => widget.controller.keepWaiting(
-                              subscription!.subjectId,
-                              episode,
-                            ),
-                          ),
-                          child: const Text('继续等'),
-                        )
-                      else
-                        TextButton(
-                          onPressed: () => _run(
-                            () => widget.controller.retry(
-                              subscription!.subjectId,
-                            ),
-                          ),
-                          child: const Text('重试'),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
+            if (intro != null) ...[
+              Text(intro, style: small),
+              const SizedBox(height: Gap.lg),
             ],
-            if (intro != null || issue != null) const SizedBox(height: Gap.lg),
+            IssueBanner(
+              issue: issue?.text,
+              // An episode out late is something to know, not a failure.
+              tone: issue?.episode != null
+                  ? NoticeTone.warning
+                  : NoticeTone.failed,
+              actions: [
+                if (issue?.episode case final episode?)
+                  NoticeAction(
+                    '继续等',
+                    () => _run(
+                      () => widget.controller.keepWaiting(
+                        subscription!.subjectId,
+                        episode,
+                      ),
+                    ),
+                  )
+                else
+                  NoticeAction(
+                    '重试',
+                    () => _run(
+                      () => widget.controller.retry(subscription!.subjectId),
+                    ),
+                  ),
+              ],
+            ),
             Wrap(spacing: Gap.sm, runSpacing: Gap.sm, children: menus),
             const SizedBox(height: Gap.md),
             Material(
@@ -926,18 +839,21 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                     scale: 1,
                     alignment: Alignment.topLeft,
                     child: picks.isEmpty
-                        ? Text(
-                            searching || onlineSearching
-                                ? '正在查找符合筛选的文件…'
-                                : searchError ?? '最近没有符合筛选的文件',
-                            style: small,
-                          )
+                        ? switch (searchError) {
+                            final error? when !searching && !onlineSearching =>
+                              InlineIssue(error),
+                            _ => Text(
+                              searching || onlineSearching
+                                  ? '正在查找符合筛选的文件…'
+                                  : '最近没有符合筛选的文件',
+                              style: small,
+                            ),
+                          }
                         : Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // A preview: what the filter takes for
-                              // episodes already out, as it would for the
-                              // next.
+                              // What the filter takes for episodes already
+                              // out, as it would for the next.
                               Row(
                                 children: [
                                   Expanded(
@@ -959,15 +875,10 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          const SizedBox.square(
-                                            dimension: 12,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                            ),
-                                          ),
+                                          const BusyIndicator(size: 12),
                                           const SizedBox(width: Gap.xs),
                                           Text(
-                                            '还在查找',
+                                            '还在查找…',
                                             style: small?.copyWith(
                                               color: scheme.onSurfaceVariant,
                                             ),
@@ -1056,19 +967,15 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                                 ),
                               ),
                         icon: checking
-                            ? const SizedBox.square(
-                                dimension: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
+                            ? const BusyIndicator(size: 14)
                             : const Icon(Icons.refresh_rounded, size: 18),
-                        label: Text(checking ? '正在检查' : '立即检查'),
+                        label: Text(checking ? '检查中' : '立即检查'),
                       ),
                     ),
                 ],
               ),
-              if (subscription.events.isEmpty) Text('还没有动态', style: small),
+              if (subscription.events.isEmpty)
+                const EmptyState.compact(text: '还没有动态', center: false),
               for (final event in subscription.events.take(4))
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
@@ -1086,7 +993,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
                           overflow: TextOverflow.ellipsis,
                           style: small?.copyWith(
                             color: event.kind == SubscriptionEventKind.failed
-                                ? scheme.error
+                                ? toneColor(context, NoticeTone.failed)
                                 : null,
                           ),
                         ),
@@ -1132,9 +1039,7 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
   }
 }
 
-/// One episode's chosen file in the preview: the episode, the group, what
-/// the file is like, its size and how soon it came out; the full title on
-/// hover.
+/// One episode's chosen file in the preview; the full title on hover.
 class _PickRow extends StatelessWidget {
   const _PickRow({
     required this.episode,
@@ -1231,7 +1136,6 @@ Future<CloseAction?> askCloseAction(
       child: Text(
         '你订阅了 $shows 部番。留在后台时，MelonBanG 会在新一话播出后检查并缓存，'
         '播放会停止。之后可在 设置 › 订阅与缓存 中更改',
-        style: const TextStyle(fontSize: FontSize.body, height: 1.6),
       ),
     ),
     actions: [

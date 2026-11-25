@@ -26,8 +26,8 @@ Future<Json?> cachedSubjectDetail(AppStore store, int id) async {
 typedef _Load = Future<({dynamic value, String? etag})> Function(Json? cached);
 
 /// Public catalogue reads with a local cache. Subject search, details and
-/// covers come directly from Bangumi; Melon API supplies only the shared
-/// season index, broadcast schedule and regional aliases.
+/// covers come directly from Bangumi; Melon API supplies only the trending
+/// list, broadcast schedule and regional aliases.
 class CatalogRepository implements Catalog {
   CatalogRepository(this.api, this.store, this.cache)
     : bangumi = BangumiSubjects(api);
@@ -348,11 +348,10 @@ class CatalogRepository implements Catalog {
     return _subject(id, response);
   }
 
-  /// Requests the detail parts concurrently and publishes each one as it
-  /// arrives; until the base metadata does, `base` stays pending and the
-  /// page shows the parts on the card it opened from. A failed part fails
-  /// the detail after the others settle and stays pending in the last
-  /// published value.
+  /// Requests the detail parts at once and publishes each as it arrives,
+  /// with `base` pending until the base metadata does: the page shows the
+  /// parts on the card it opened from. A failed part stays pending and
+  /// fails the detail once the others settle.
   Future<Json> _detail(
     int id,
     bool forPlayback,
@@ -469,7 +468,7 @@ class CatalogRepository implements Catalog {
         try {
           await request;
         } catch (_) {
-          /* Request callers receive failures. */
+          // The callers receive the failures.
         }
       }),
     );

@@ -6,20 +6,20 @@ import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/error_message.dart';
+import '../../core/notices.dart';
 import '../../features/update/app_update.dart';
 import '../../features/update/uninstall.dart';
 import '../../integrations/github/app_releases.dart';
-import '../../core/notices.dart';
-import '../core/notice_cards.dart';
+import '../core/action_feedback.dart';
 import '../core/external_link.dart';
-import '../core/selection_controls.dart';
 import '../core/motion.dart';
+import '../core/notice_cards.dart';
 import '../core/page_widgets.dart';
+import '../core/selection_controls.dart';
 import '../core/theme.dart';
-import 'settings_page.dart';
+import '../core/tone.dart';
+import 'setting_rows.dart';
 
-/// The app's card (version, update state, project links), the update
-/// preferences and uninstalling.
 SettingsSection aboutSection({
   required AppUpdate update,
   required VoidCallback onRestart,
@@ -92,8 +92,6 @@ SettingsSection aboutSection({
   ],
 );
 
-/// The mark, wordmark and version with the update state and its action,
-/// over links to the project.
 class _AboutCard extends StatelessWidget {
   const _AboutCard({required this.update, required this.onRestart});
   final AppUpdate update;
@@ -107,6 +105,7 @@ class _AboutCard extends StatelessWidget {
       const version = AppUpdate.version;
       // A development build neither updates nor has notes of its own.
       final development = version.isEmpty;
+      final status = development ? null : _status();
       Widget link(
         String label,
         IconData icon,
@@ -170,12 +169,12 @@ class _AboutCard extends StatelessWidget {
                                 child: MelonBadge('测试版', color: coral),
                               ),
                             ],
-                            if (!development)
+                            if (status != null)
                               TextSpan(
-                                text: '   ${_status()}',
+                                text: '   $status',
                                 style: small?.copyWith(
                                   color: update.phase == UpdatePhase.failed
-                                      ? Theme.of(context).colorScheme.error
+                                      ? toneColor(context, NoticeTone.failed)
                                       : null,
                                 ),
                               ),
@@ -248,10 +247,11 @@ class _AboutCard extends StatelessWidget {
     },
   );
 
-  String _status() {
+  /// Null until the first check.
+  String? _status() {
     if (update.unavailable case final reason?) return reason;
     return switch (update.phase) {
-      UpdatePhase.idle => update.checkedAt == null ? '尚未检查更新' : '已是最新版本',
+      UpdatePhase.idle => update.checkedAt == null ? null : '已是最新版本',
       UpdatePhase.checking => '正在检查更新…',
       UpdatePhase.available => '发现新版本 ${update.release!.version}',
       UpdatePhase.downloading =>
@@ -308,36 +308,32 @@ void _showChangelog(BuildContext context) => showMelonDialog<void>(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.lg, Gap.md, Gap.xs),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${AppUpdate.version} 更新内容',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                IconButton(
-                  tooltip: '关闭',
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(Gap.xl, Gap.lg, Gap.md, Gap.xs),
+            child: DialogHeader('${AppUpdate.version} 更新内容'),
           ),
           Flexible(
             child: FutureBuilder(
               future: rootBundle.loadString('CHANGELOG.md'),
-              builder: (context, notes) => ScrollEdgeFade(
-                child: SingleChildScrollView(
+              builder: (context, notes) => switch (notes) {
+                AsyncSnapshot(:final error?) => Padding(
                   padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.xl),
-                  child: _ReleaseNotes(
+                  child: InlineIssue(errorMessage(error)),
+                ),
+                AsyncSnapshot(:final data?) => ScrollEdgeFade(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(
+                      Gap.xl,
+                      0,
+                      Gap.xl,
+                      Gap.xl,
+                    ),
                     // Its heading names the version, which the title shows.
-                    (notes.data ?? '').split('\n').skip(1).join('\n'),
+                    child: _ReleaseNotes(data.split('\n').skip(1).join('\n')),
                   ),
                 ),
-              ),
+                _ => const SizedBox.shrink(),
+              },
             ),
           ),
         ],
@@ -346,8 +342,8 @@ void _showChangelog(BuildContext context) => showMelonDialog<void>(
   ),
 );
 
-/// A release's CHANGELOG.md: `##` headings, `-` items and paragraphs, with
-/// links and emphasis reduced to their text.
+/// A release's CHANGELOG.md: headings, `-` items and paragraphs, with links
+/// and emphasis reduced to their text and GitHub alert markers dropped.
 class _ReleaseNotes extends StatelessWidget {
   const _ReleaseNotes(this.notes);
   final String notes;
@@ -461,33 +457,15 @@ class _UninstallRow extends StatelessWidget {
   }
 
   Future<void> _confirmWindows(BuildContext context) async {
-    final confirmed = await showMelonDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('卸载 MelonBanG？'),
-        content: const SizedBox(
-          width: 420,
-          child: Text(
-            'MelonBanG 会先关闭，正在进行的播放和下载会停止。随后打开的卸载程序里可以选择保留或删除追番和订阅记录、设置和已下载的番剧。',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Theme.of(context).colorScheme.onError,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('关闭并卸载'),
-          ),
-        ],
-      ),
+    final confirmed = await showConfirmDialog(
+      context,
+      title: '卸载 MelonBanG？',
+      message:
+          'MelonBanG 会先关闭，正在进行的播放和下载会停止。随后打开的卸载程序里可以选择保留或删除追番和订阅记录、设置和已下载的番剧。',
+      confirmLabel: '关闭并卸载',
+      destructive: true,
     );
-    if (confirmed == true) await onUninstall(false);
+    if (confirmed) await onUninstall(false);
   }
 
   Future<void> _confirmMacOS(BuildContext context) async {
@@ -528,7 +506,7 @@ class _MacOSUninstallDialogState extends State<_MacOSUninstallDialog> {
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               value: wipe,
-              onChanged: (value) => setState(() => wipe = value ?? false),
+              onChanged: (value) => setState(() => wipe = value!),
               title: const Text('同时删除所有数据'),
               subtitle: const Text(
                 '追番和订阅记录、播放进度、设置、登录信息和已下载的番剧会被永久删除；已同步到 Bangumi 的收藏不受影响',
@@ -551,10 +529,7 @@ class _MacOSUninstallDialogState extends State<_MacOSUninstallDialog> {
           child: const Text('取消'),
         ),
         FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: scheme.error,
-            foregroundColor: scheme.onError,
-          ),
+          style: destructiveButtonStyle(scheme),
           onPressed: () => Navigator.pop(context, wipe),
           child: Text(wipe ? '退出并删除全部' : '退出并卸载'),
         ),

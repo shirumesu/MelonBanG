@@ -3,11 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/error_message.dart';
+import '../../core/notices.dart';
 import '../../domain/danmaku.dart';
 import '../../features/danmaku/danmaku_controller.dart';
 import '../../features/playback/playback.dart';
 import '../core/action_feedback.dart';
+import '../core/page_widgets.dart';
 import '../core/theme.dart';
+import '../core/tone.dart';
 import 'danmaku_filter_editor.dart';
 
 /// The side panel's 弹幕 tab: each source with its match, a place to change
@@ -160,9 +163,6 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
     final sources = playback.session == null
         ? const <DanmakuSourceState>[]
         : danmaku.sources;
-    final muted = small?.copyWith(
-      color: Theme.of(context).colorScheme.onSurfaceVariant,
-    );
     return ListView(
       padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.lg, Gap.xl),
       children: [
@@ -191,17 +191,14 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
               if (danmaku.duplicates > 0) '已去重 ${danmaku.duplicates} 条',
               if (danmaku.thinned > 0) '按上限少显示 ${danmaku.thinned} 条',
             ].join('，'),
-            style: muted,
+            style: small,
           )
         else
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: Gap.sm),
-            child: Text('播放视频后在这里查看和更换弹幕来源', style: muted),
-          ),
+          const EmptyState.compact(text: '播放视频后在这里查看和更换弹幕来源', center: false),
         if (sources.isNotEmpty && !danmaku.preferences.enabled)
           Padding(
             padding: const EdgeInsets.only(top: Gap.xs),
-            child: Text('弹幕已隐藏，按 D 键重新显示', style: muted),
+            child: Text('弹幕已隐藏，按 D 键重新显示', style: small),
           ),
         if (loading)
           const Padding(
@@ -242,13 +239,11 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
                   : '有 ${source.candidates.length} 个可能的匹配',
             DanmakuStatus.error => source.error ?? '加载失败',
           };
-    final statusColor = !source.enabled
-        ? scheme.onSurfaceVariant
-        : switch (source.status) {
-            DanmakuStatus.error => issueColor(context),
-            DanmakuStatus.unmatched => scheme.tertiary,
-            _ => null,
-          };
+    final statusColor = switch (source.status) {
+      DanmakuStatus.error => toneColor(context, NoticeTone.failed),
+      DanmakuStatus.unmatched => toneColor(context, NoticeTone.warning),
+      _ => null,
+    };
     final statusText = Text(
       status,
       maxLines: 2,
@@ -411,14 +406,11 @@ class _PlayerDanmakuPaneState extends State<PlayerDanmakuPane> {
               ),
             ),
           if (level != null && level.$2.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: Gap.sm),
-              child: Text(
-                levels.length == 1 && level.$1.isEmpty
-                    ? '没有找到，试试原名或其他关键词'
-                    : '这里没有可加载的弹幕',
-                style: small,
-              ),
+            EmptyState.compact(
+              text: levels.length == 1 && level.$1.isEmpty
+                  ? '没有找到，试试原名或其他关键词'
+                  : '这里没有可加载的弹幕',
+              center: false,
             ),
           for (final match in level?.$2 ?? const <DanmakuCandidate>[])
             choice(match),

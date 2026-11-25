@@ -142,7 +142,7 @@ class PlaybackLibrary {
   }
 
   Future<EpisodeProgress?> progress(int subjectId, int episodeId) async {
-    final saved = await store.get('playback_progress', '$subjectId:$episodeId');
+    final saved = await store.get(progressScope, '$subjectId:$episodeId');
     return saved == null ? null : _progress(saved);
   }
 
@@ -233,7 +233,7 @@ class PlaybackLibrary {
     int subjectId,
   ) async {
     final page = await store.entries(
-      'playback_progress',
+      progressScope,
       idPrefix: '$subjectId:',
       limit: 1,
     );
@@ -250,7 +250,7 @@ class PlaybackLibrary {
   Future<Map<int, DateTime>> playedSubjects() async {
     final played = <int, DateTime>{};
     for (final MapEntry(:key, :value) in (await store.updatedAt(
-      'playback_progress',
+      progressScope,
     )).entries) {
       if (int.tryParse(key.split(':').first) case final id?) {
         played.putIfAbsent(id, () => value);
@@ -272,7 +272,7 @@ class PlaybackLibrary {
     const pageSize = 32;
     for (var offset = 0; ; offset += pageSize) {
       final page = await store.entries(
-        'playback_progress',
+        progressScope,
         idPrefix: forSubject == null ? null : '$forSubject:',
         limit: pageSize,
         offset: offset,
@@ -322,7 +322,7 @@ class PlaybackLibrary {
     }
     if (session.subjectId == null || session.episodeId == null) return;
     await store.put(
-      'playback_progress',
+      progressScope,
       '${session.subjectId}:${session.episodeId}',
       {
         'positionSeconds': ended ? 0 : position.clamp(0, duration),

@@ -8,9 +8,9 @@ import '../../domain/danmaku.dart';
 import '../../features/danmaku/danmaku_preferences.dart';
 import '../../features/playback/playback.dart';
 import '../core/motion.dart';
+import '../core/overlay_glass.dart';
 import '../core/theme.dart';
 import 'player_popovers.dart';
-import 'player_theme.dart';
 
 /// The comment field: its look on the left, sending on the right. Enter
 /// sends, an empty Enter or Escape gives the keys back to the video.

@@ -199,7 +199,6 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
     ];
   }
 
-  /// A collection video's comment count.
   int _videoComments(Json video) =>
       number(object(object(video['arc'])['stat'])['danmaku']).toInt();
 
@@ -319,7 +318,7 @@ class BilibiliDanmaku implements DanmakuSearch, DanmakuFollower {
           xml.headers['content-encoding']?.toLowerCase() == 'deflate';
       comments.addAll(await compute(_decodeXml, (bytes, deflated)));
     } catch (_) {
-      /* Segmented comments can remain available independently. */
+      // The segments below can still hold the comments.
     }
     // Six-minute segments over the whole episode, two at a time: Bilibili
     // turns away clients asking much faster. A guest gets a fraction of

@@ -3,24 +3,27 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/error_message.dart';
+import '../../core/notices.dart';
 import '../../domain/bittorrent_settings.dart';
 import '../../features/appearance/appearance.dart';
-import '../core/notice_cards.dart';
 import '../core/byte_units.dart';
+import '../core/motion.dart';
+import '../core/notice_cards.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
-import 'settings_page.dart';
+import '../core/tone.dart';
+import 'setting_rows.dart';
 
 /// Words the BT settings search matches while they wait for cache tasks.
-const bitTorrentKeywords =
+const _keywords =
     'bt 下载 做种 上传 限速 不限速 限制速度 下载速度 上传速度 同时下载 '
     '启动时继续任务 做种方案 适量分享 停止分享 持续分享 目标分享率 累计分享时间 '
     '同时分享 每任务连接上限 监听端口 dht 节点发现 upnp nat 自动端口映射 ipv6 '
     '仅连接加密用户 恢复推荐值';
 
-/// BT downloading and seeding; its settings show once cache tasks are
-/// restored, in groups like the other sections, a row each so the search
-/// finds one row.
+/// BT downloading and seeding, shown once cache tasks are restored; a row
+/// per setting, so the search finds just that row.
 SettingsSection downloadsSection({
   required ValueListenable<bool> available,
   required ValueListenable<String?> issue,
@@ -118,8 +121,8 @@ SettingsSection downloadsSection({
         : [
             SettingsGroup([
               SettingsItem(
-                bitTorrentKeywords,
-                DownloadsUnavailable(issue: issue.value),
+                _keywords,
+                _DownloadsUnavailable(issue: issue.value),
               ),
             ]),
           ],
@@ -290,8 +293,6 @@ class _BitTorrentForm extends ChangeNotifier {
     if (errors.isEmpty) _save(values);
   }
 
-  /// The draft with the typed numbers, and the fields whose numbers are
-  /// out of range.
   ({Map<String, dynamic> values, Map<String, String> errors}) _check() {
     final values = {...draft};
     final errors = <String, String>{};
@@ -347,8 +348,8 @@ class _BitTorrentForm extends ChangeNotifier {
     _saving = _saving.then((_) async {
       try {
         await onSave(settings);
-      } catch (_) {
-        error = '暂时无法保存设置，请重试';
+      } catch (failure) {
+        error = '保存失败：${errorMessage(failure)}';
         _changed();
       }
     });
@@ -495,7 +496,7 @@ class _BitTorrentForm extends ChangeNotifier {
   Widget reset(BuildContext context) => SettingRow(
     title: '恢复推荐值',
     subtitle: error,
-    subtitleColor: error == null ? null : Theme.of(context).colorScheme.error,
+    subtitleColor: error == null ? null : toneColor(context, NoticeTone.failed),
     trailing: TextButton(
       onPressed: () {
         final previous = BitTorrentSettings.fromJson({...draft});
@@ -518,18 +519,18 @@ class _BitTorrentForm extends ChangeNotifier {
 }
 
 /// Shown instead of the BT settings until download tasks are restored.
-class DownloadsUnavailable extends StatelessWidget {
-  const DownloadsUnavailable({super.key, this.issue});
+class _DownloadsUnavailable extends StatelessWidget {
+  const _DownloadsUnavailable({this.issue});
   final String? issue;
 
   @override
   Widget build(BuildContext context) => SettingRow(
     leading: issue == null
-        ? const SizedBox.square(
-            dimension: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          )
-        : Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error),
+        ? const BusyIndicator()
+        : Icon(
+            toneIcon(NoticeTone.failed),
+            color: toneColor(context, NoticeTone.failed),
+          ),
     title: issue == null ? '正在恢复缓存任务…' : '缓存任务恢复失败',
     subtitle: issue,
   );

@@ -23,7 +23,7 @@ enum SettingSync {
 /// syncs. Every setting is declared once next to the feature that owns it
 /// and listed in the app's catalog; [Settings] refuses keys it was not given.
 ///
-/// Credentials never live here: they are in the keychain ([Credentials]).
+/// Credentials never live here: they are in the keychain (`Credentials`).
 sealed class Setting<T> {
   const Setting(this.key, this.fallback, {required this.sync, this.label});
 
@@ -34,7 +34,7 @@ sealed class Setting<T> {
   final SettingSync sync;
 
   /// What the setting is called where it is changed, shown when a sync
-  /// conflict asks which side to keep. Required for synced settings.
+  /// conflict asks which side to keep; without one the dialog shows [key].
   final String? label;
 
   T read(SharedPreferences storage);
@@ -332,14 +332,13 @@ class SettingFamily<T> {
   final Setting<T> Function(String key) make;
   final SettingSync sync;
 
-  /// What the member [id] is called in a sync conflict, given
+  /// What a member is called in a sync conflict, given its id and
   /// [Settings.sourceName].
   final String Function(String id, String Function(String id) sourceName)?
   label;
 
   Setting<T> of(String id) => make('$prefix$id');
 
-  /// The id of a key in this family, or null.
   String? idOf(String key) =>
       key.startsWith(prefix) ? key.substring(prefix.length) : null;
 }
@@ -391,7 +390,6 @@ class Settings extends ChangeNotifier {
     return null;
   }
 
-  /// The family [key] belongs to, if any.
   SettingFamily<Object?>? familyOf(String key) =>
       _families.where((family) => family.idOf(key) != null).firstOrNull;
 

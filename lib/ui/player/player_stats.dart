@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
+import '../../core/error_message.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/transfer.dart';
 import '../../features/appearance/appearance.dart';
@@ -13,12 +14,12 @@ import '../../features/playback/playback.dart';
 import '../../features/update/app_update.dart';
 import '../core/byte_units.dart';
 import '../core/motion.dart';
+import '../core/overlay_glass.dart';
 import '../core/theme.dart';
-import 'player_theme.dart';
 
-/// 详细参数: what plays and how it is doing, read from mpv once a second,
-/// for seeing why a video stutters or looks wrong and for pasting into a
-/// report. Glass over the video's top left.
+/// 详细参数 over the video's top left: what plays and how, read from mpv
+/// once a second, to see why a video stutters or looks wrong and to paste
+/// into a report.
 class PlayerStatsPanel extends StatefulWidget {
   const PlayerStatsPanel({
     super.key,
@@ -70,7 +71,7 @@ class _PlayerStatsPanelState extends State<PlayerStatsPanel> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) setState(() => error = errorMessage(e));
     }
   }
 
@@ -100,10 +101,13 @@ class _PlayerStatsPanelState extends State<PlayerStatsPanel> {
             ? '缓存  ${task.title}'
             : session?.title,
       ),
-      ('文件', switch (session?.path) {
-        final path? => p.basename(path),
-        null => null,
-      }),
+      (
+        '文件',
+        switch (session?.path) {
+          final path? => p.basename(path),
+          null => null,
+        },
+      ),
       ('封装', details?.container),
       (
         '视频',
@@ -146,10 +150,13 @@ class _PlayerStatsPanelState extends State<PlayerStatsPanel> {
           _bits(details?.audioBitrate),
         ]),
       ),
-      ('音画差', switch (details?.avsync) {
-        final avsync? => '${(avsync * 1000).round()} ms',
-        null => null,
-      }),
+      (
+        '音画差',
+        switch (details?.avsync) {
+          final avsync? => '${(avsync * 1000).round()} ms',
+          null => null,
+        },
+      ),
       (
         '丢帧',
         details?.droppedFrames == null
@@ -245,11 +252,8 @@ class _PlayerStatsPanelState extends State<PlayerStatsPanel> {
                     style: TextButton.styleFrom(
                       foregroundColor: Colors.white,
                       overlayColor: Colors.white,
-                      minimumSize: const Size(0, 28),
-                      padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
-                      visualDensity: VisualDensity.compact,
                       textStyle: appFont.copyWith(fontSize: FontSize.small),
-                    ),
+                    ).merge(compactTextButtonStyle),
                     onPressed: () => unawaited(copy(rows)),
                     child: MotionSwap(
                       value: copied,

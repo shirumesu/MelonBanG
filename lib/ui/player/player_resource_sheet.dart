@@ -3,10 +3,10 @@ import 'package:flutter/services.dart';
 
 import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
+import '../../features/playback/playback.dart';
 import '../../features/playback/resource_search.dart';
 import '../acquisition/resource_search_view.dart';
 import '../core/theme.dart';
-import '../../features/playback/playback.dart';
 
 class PlayerResourceSheet extends StatefulWidget {
   const PlayerResourceSheet({
@@ -44,8 +44,8 @@ class _PlayerResourceSheetState extends State<PlayerResourceSheet> {
         null => null,
       };
 
-  /// The search for the shown chapter; a new chapter starts a new one so the
-  /// previous view never observes the change.
+  /// The search for the shown episode; another episode starts a new one, so
+  /// the previous view never sees the change.
   ResourceSearchController searchFor(Episode? episode) {
     final current = search;
     if (current != null &&

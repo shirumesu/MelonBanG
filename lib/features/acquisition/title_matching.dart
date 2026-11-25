@@ -250,6 +250,13 @@ Map<int, DownloadFile> episodeFiles(Subject subject, DownloadTask task) {
   return found;
 }
 
+/// The episodes [task] holds: the one it was cached for and those
+/// [episodeFiles] finds.
+Set<int> taskEpisodeIds(Subject subject, DownloadTask task) => {
+  ?task.episodeId,
+  ...episodeFiles(subject, task).keys,
+};
+
 /// Whether a release may hold [episode]: a single-episode release must be
 /// it, a batch must span it within or across seasons, and a special needs a
 /// special. Titles stating no episode may hold any.

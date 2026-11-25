@@ -7,9 +7,9 @@ import 'package:media_kit/media_kit.dart';
 import '../../features/playback/playback.dart';
 import '../../features/playback/super_resolution.dart';
 import '../core/motion.dart';
+import '../core/overlay_glass.dart';
 import '../core/theme.dart';
 import 'player_popovers.dart';
-import 'player_theme.dart';
 
 /// Mute button; hovering it raises a vertical volume slider above it, and the
 /// wheel adjusts volume anywhere over either.
@@ -150,7 +150,7 @@ class SpeedMenu extends StatelessWidget {
       return HoverPopover(
         onPopupChanged: onPopupChanged,
         anchor: (popover) => _TextAction(
-          label: rate == 1 ? '倍速' : speedLabel(rate),
+          label: rate == 1 ? '倍速' : _speedLabel(rate),
           open: popover.open,
           onPressed: popover.toggle,
         ),
@@ -159,11 +159,11 @@ class SpeedMenu extends StatelessWidget {
           items: [
             for (final value in rates)
               (
-                label: speedLabel(value),
+                label: _speedLabel(value),
                 selected: value == rate,
                 onPressed: () {
                   unawaited(player.setRate(value));
-                  onFeedback('倍速 ${speedLabel(value)}');
+                  onFeedback('倍速 ${_speedLabel(value)}');
                 },
               ),
           ],
@@ -317,5 +317,5 @@ class SubtitleMenu extends StatelessWidget {
   );
 }
 
-String speedLabel(double rate) =>
+String _speedLabel(double rate) =>
     '${rate == rate.roundToDouble() ? rate.toStringAsFixed(1) : rate}×';

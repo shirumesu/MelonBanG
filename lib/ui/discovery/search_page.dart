@@ -97,7 +97,12 @@ class _SearchPageState extends State<SearchPage> {
             _Filters(query: query, onQuery: widget.onQuery),
             const SizedBox(height: Gap.lg),
             if (results.isEmpty && busy)
-              const PosterGridSkeleton()
+              DelayedBusy(
+                busy: true,
+                builder: (context, shown) => shown
+                    ? const PosterGridSkeleton()
+                    : const SizedBox.shrink(),
+              )
             else if (results.isEmpty && error != null)
               EmptyState(
                 text: '暂时无法搜索',
@@ -138,10 +143,7 @@ class _SearchPageState extends State<SearchPage> {
                   child: MotionSwap(
                     value: busy,
                     child: busy
-                        ? const SizedBox.square(
-                            dimension: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
+                        ? const BusyIndicator(size: 22)
                         // Short result lists do not scroll, so loading stays reachable.
                         : TextButton.icon(
                             onPressed: discovery.loadMore,

@@ -3,8 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
-// Layout, spacing, radius and type tokens; Spec
-// topics/ui/design/foundations.md explains their use.
+// Layout, spacing, radius and type tokens; the design spec's
+// foundations.md explains their use.
 const pageGutter = 24.0;
 const titleBarHeight = 44.0;
 const sidebarWidth = 208.0;
@@ -97,7 +97,6 @@ class MelonAccent extends ThemeExtension<MelonAccent> {
         );
 }
 
-/// The theme's [MelonAccent].
 MelonAccent accentOf(BuildContext context) =>
     Theme.of(context).extension<MelonAccent>()!;
 
@@ -109,13 +108,6 @@ Color badgeInk(Color tint, bool dark) =>
 /// Coral as text, such as 现在 on the schedule: deepened in light mode to
 /// 4.5:1 on a panel.
 Color coralInk(bool dark) => dark ? coral : const Color(0xffce3d59);
-
-/// Gold as text, for a notice that is not an error, such as an episode
-/// out later than usual: at the badges' lightness, so it reads on a panel.
-Color goldInk(bool dark) => badgeInk(gold, dark);
-
-/// The panel of a notice written in [goldInk].
-Color goldPanel(bool dark) => gold.withValues(alpha: dark ? .14 : .2);
 
 /// [a] mixed into [b] by [t] in OKLab, as CSS `color-mix(in oklab, …)`:
 /// the mix keeps a hue between the two instead of greying as sRGB does.
@@ -157,7 +149,7 @@ Color mixOklab(Color a, Color b, double t) {
 
 /// The light a panel's edge catches from the pointer: a warm grey with a
 /// little of the accent in it, mid-light and low in chroma (about OKLCH
-/// 0.75 / 0.036 / 152° for mint in light mode), never a glow. [strength]
+/// 0.75 / 0.036 / 152° for mint in light mode), never a glow. `strength`
 /// scales it down in dark mode, where the same light reads brighter.
 ({Color color, double strength}) panelLamp(BuildContext context) {
   final dark = Theme.of(context).brightness == Brightness.dark;
@@ -313,6 +305,23 @@ WidgetStateBorderSide focusRing(ColorScheme scheme, [BorderSide? rest]) =>
           : rest,
     );
 
+/// A text button that fits inside a line of text or a card's last line,
+/// such as 重试 beside a failure: 28 high, tight sides.
+final compactTextButtonStyle = TextButton.styleFrom(
+  minimumSize: const Size(0, 28),
+  padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
+  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+  visualDensity: VisualDensity.compact,
+);
+
+/// The confirming [FilledButton] of something that cannot be undone, such as
+/// deleting files.
+ButtonStyle destructiveButtonStyle(ColorScheme scheme) =>
+    FilledButton.styleFrom(
+      backgroundColor: scheme.error,
+      foregroundColor: scheme.onError,
+    );
+
 /// The theme last built for each brightness: the window rebuilds on every
 /// service change and must not build an identical theme each time.
 final _themes = <bool, ({Color accent, ThemeData theme})>{};
@@ -368,6 +377,14 @@ ThemeData _appTheme(bool dark, Color accent) {
             ? const Color(0xffff8fa5)
             : const Color(0xffb54763),
         tertiary: dark ? const Color(0xffe0bd70) : const Color(0xff8f6103),
+        // Gold, not the seed's blue, so attention containers read as one
+        // colour; their text is about 7:1 on them.
+        tertiaryContainer: dark
+            ? const Color(0xff45391f)
+            : const Color(0xfffceed5),
+        onTertiaryContainer: dark
+            ? const Color(0xffffd27a)
+            : const Color(0xff6b4900),
         surface: dark ? const Color(0xff1e2430) : const Color(0xfffbfcfb),
         surfaceContainerLowest: dark
             ? const Color(0xff151922)
@@ -496,7 +513,10 @@ ThemeData _appTheme(bool dark, Color accent) {
         backgroundColor: scheme.primaryContainer,
         foregroundColor: scheme.onPrimaryContainer,
         minimumSize: const Size(64, 36),
-        padding: const EdgeInsets.symmetric(horizontal: Gap.lg, vertical: Gap.sm),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Gap.lg,
+          vertical: Gap.sm,
+        ),
         textStyle: appFont.copyWith(fontSize: 13, fontWeight: FontWeight.w700),
         shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
       ).copyWith(side: focusRing(scheme)),

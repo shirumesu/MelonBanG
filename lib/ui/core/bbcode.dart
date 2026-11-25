@@ -6,8 +6,7 @@ import 'package:flutter/material.dart';
 
 import 'cached_image.dart';
 import 'external_link.dart';
-import 'motion.dart';
-import 'subject_posters.dart' show imageDecodeWidth;
+import 'image_viewer.dart';
 import 'theme.dart';
 
 /// Bangumi BBCode as Bangumi shows it: stickers and images inline, spoilers
@@ -20,7 +19,7 @@ class BBCode extends StatefulWidget {
   final String source;
   final TextStyle? style;
 
-  /// What opening a link to [address], reading [text], does when the app
+  /// What opening a link does, given its address and text, when the app
   /// shows that page itself; null opens the browser.
   final VoidCallback? Function(Uri address, String text)? inAppLink;
 
@@ -483,7 +482,7 @@ class _Renderer {
     );
   }
 
-  /// A picture at most 360×240, opened full size on a click.
+  /// A picture at most 360×240, opened large on a click.
   InlineSpan _image(String address, {required bool hidden}) {
     const maxWidth = 360.0, maxHeight = 240.0;
     Widget frame(Widget child) =>
@@ -513,7 +512,13 @@ class _Renderer {
         child: MouseRegion(
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
-            onTap: () => _viewImage(context, address),
+            onTap: () => showImageViewer(
+              context,
+              address: address,
+              label: '图片',
+              aspectRatio: 4 / 3,
+              browsable: true,
+            ),
             child: ConstrainedBox(
               constraints: const BoxConstraints(
                 maxWidth: maxWidth,
@@ -537,49 +542,6 @@ class _Renderer {
     );
   }
 }
-
-void _viewImage(BuildContext context, String address) => showMelonDialog<void>(
-  context: context,
-  builder: (context) => Dialog(
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 960, maxHeight: 760),
-      child: Padding(
-        padding: const EdgeInsets.all(Gap.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: () => openExternal(context, address),
-                  icon: const Icon(Icons.open_in_new, size: 16),
-                  label: const Text('在浏览器打开'),
-                ),
-                IconButton(
-                  tooltip: '关闭图片',
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-            const SizedBox(height: Gap.sm),
-            Flexible(
-              child: InteractiveViewer(
-                child: CachedImage(
-                  url: address,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, _, _) =>
-                      const Center(child: Text('图片加载失败')),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  ),
-);
 
 /// CSS colours Bangumi posts use: `#rgb`, `#rrggbb` and the common names.
 Color? _cssColor(String value) {

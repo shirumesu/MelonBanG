@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
+import '../core/hex.dart';
+
 final _btih = RegExp(r'^urn:btih:([a-fA-F0-9]{40}|[A-Z2-7a-z]{32})$');
 
 String magnetInfoHash(Uri uri) {
@@ -23,15 +25,14 @@ String magnetInfoHash(Uri uri) {
         buffer &= (1 << bits) - 1;
       }
     }
-    return bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+    return hexEncode(bytes);
   }
   throw const FormatException('磁力链接缺少有效的 BT info hash');
 }
 
-/// Deduplication key of a search result: infohash when the locator carries
-/// one, otherwise the original locator. Every update of a search reads the
-/// identity of each result again, and parsing a magnet with its trackers is
-/// slow, so identities are kept.
+/// Deduplication key of a search result: its infohash when the locator has
+/// one, else the locator. Kept, since every update of a search reads each
+/// result's identity again and parsing a magnet with its trackers is slow.
 String torrentIdentity(String locator) {
   if (_identities[locator] case final identity?) return identity;
   if (_identities.length >= 8192) _identities.clear();
@@ -58,7 +59,7 @@ String _identity(String locator) {
     try {
       return magnetInfoHash(uri);
     } on FormatException {
-      /* Keep unusual locators distinct. */
+      // No BT info hash: keep the locator distinct below.
     } on ArgumentError {
       // Decoding a site's malformed percent-encoding.
       return locator;
@@ -82,8 +83,8 @@ String _identity(String locator) {
   return uri.toString();
 }
 
-/// Hash the original encoded info dictionary; trackers and comments do not
-/// change torrent identity, and decoding/re-encoding may change its byte order.
+/// The SHA-1 of the info dictionary's bytes as stored: trackers and comments
+/// do not change a torrent's identity, and re-encoding could reorder it.
 String torrentInfoHash(Uint8List bytes) {
   final reader = _BencodeReader(bytes);
   if (reader.take() != 100) throw const FormatException('种子文件格式无效');

@@ -42,9 +42,8 @@ class Notice {
   /// Clicking the card itself, such as opening the show it is about.
   final VoidCallback? onOpen;
 
-  /// Long enough to read: a few words go after four seconds, a sentence
-  /// stays longer; one with buttons waits for a decision, and a failure is
-  /// read twice.
+  /// Long enough to read: 4–9 s by length, 3 s more with buttons, and at
+  /// least 8 s for a failure.
   Duration get duration {
     final length = title.length + (detail?.length ?? 0);
     var milliseconds = (3000 + 60 * length).clamp(4000, 9000);
@@ -105,13 +104,11 @@ class ShownNotice {
   }
 }
 
-/// The notices the window shows, oldest first. Their time runs only while
-/// the window can be seen: one that arrives while it is minimized or hidden
-/// to the tray waits there until it shows again. Behind another app it
-/// still shows, so time runs there.
+/// The notices the window shows, oldest first. Their time pauses only while
+/// the window is minimized or hidden to the tray; behind another app
+/// (inactive) the cards still show, so time runs.
 ///
-/// It tells its listeners when a notice comes, goes or changes, and when
-/// one's time stops or runs again.
+/// Listeners also hear when a notice's time stops or runs again.
 class Notices extends ChangeNotifier {
   /// Cards shown at once; a new one beyond them closes the oldest.
   static const limit = 4;
@@ -156,14 +153,7 @@ class Notices extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Closes the notice shown under [key], if one is.
-  void dismissKey(Object key) {
-    for (final entry in [..._shown]) {
-      if (entry.notice.key == key) dismiss(entry);
-    }
-  }
-
-  /// Keeps [entry] while the pointer rests on it.
+  /// Pauses [entry]'s time while the pointer rests on it.
   void hold(ShownNotice entry, bool held) {
     if (entry._held == held) return;
     entry._held = held;

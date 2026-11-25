@@ -6,7 +6,7 @@ import '../core/notice_cards.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
-import 'settings_page.dart';
+import 'setting_rows.dart';
 
 /// The preferred release groups as numbered tags, dragged into order, and a
 /// field adding more: groups resource searches found, or any typed name.
@@ -59,7 +59,6 @@ class _PreferredGroupsSettingState extends State<PreferredGroupsSetting> {
     );
   }
 
-  /// Moves [name] by [step] places, from the keyboard.
   void move(String name, int step) {
     final order = [...groups];
     final from = order.indexOf(name);
@@ -161,8 +160,7 @@ class _MoveIntent extends Intent {
   final int step;
 }
 
-/// Makes a group tag a keyboard stop: Alt + ← / → move it, Delete or
-/// Backspace remove it.
+/// Makes a group tag a keyboard stop that moves and removes it.
 class _GroupKeys extends StatefulWidget {
   const _GroupKeys({
     required this.onMove,

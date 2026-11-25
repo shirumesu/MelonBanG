@@ -3,8 +3,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/notices.dart';
 import 'motion.dart';
 import 'theme.dart';
+import 'tone.dart';
 
 class MelonSegmentedControl<T> extends StatefulWidget {
   const MelonSegmentedControl({
@@ -675,9 +677,9 @@ class MelonFilterMenu<T> extends StatelessWidget {
             if (warning) ...[
               const SizedBox(width: Gap.xs),
               Icon(
-                Icons.error_outline_rounded,
+                toneIcon(NoticeTone.warning),
                 size: 15,
-                color: scheme.tertiary,
+                color: toneColor(context, NoticeTone.warning),
               ),
             ],
             const SizedBox(width: Gap.xs),

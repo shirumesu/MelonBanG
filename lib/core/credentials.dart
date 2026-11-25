@@ -25,7 +25,8 @@ class CredentialInteractionRequired implements Exception {
   String toString() => '没有获得钥匙串授权，无法同步到 Bangumi';
 }
 
-/// Cache successful reads only, and serialize reads/writes for each credential.
+/// Caches successful reads and runs each credential's reads and writes one
+/// at a time.
 class CachedCredentials implements Credentials {
   CachedCredentials(this.storage);
   final Credentials storage;
@@ -35,6 +36,7 @@ class CachedCredentials implements Credentials {
   Future<T> _serial<T>(String key, Future<T> Function() operation) {
     final previous = _pending[key] ?? Future<void>.value();
     final result = previous.then((_) => operation());
+    // The caller gets [result]'s error; the chain only waits for it.
     final settled = result.then<void>(
       (_) {},
       onError: (Object _, StackTrace _) {},
@@ -85,9 +87,9 @@ class KeyringCredentials implements Credentials {
         'allowInteraction': allowInteraction,
       });
     } on PlatformException catch (e) {
-      // Linux reports `secret` when the keyring is locked or no Secret
-      // Service runs; the quiet read at startup then waits for an unlock
-      // instead of failing the app.
+      // macOS -25308: the keychain may not ask now. Without a prompt, -25293
+      // (authorization failed) and Linux `secret` (keyring locked or no
+      // Secret Service) also wait for an unlock instead of failing startup.
       if (e.code == 'keychain_-25308' ||
           (!allowInteraction &&
               (e.code == 'keychain_-25293' || e.code == 'secret'))) {
@@ -175,6 +177,7 @@ class WindowsCredentials implements Credentials {
       // signed out until the next sign-in replaces it.
       return null;
     } on FormatException {
+      // A damaged file reads the same way.
       return null;
     }
   }

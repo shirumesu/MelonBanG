@@ -141,7 +141,12 @@ class PageScroll extends StatelessWidget {
       key: const PageStorageKey('page-scroll'),
       slivers: [
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(pageGutter, Gap.sm, pageGutter, 40),
+          padding: const EdgeInsets.fromLTRB(
+            pageGutter,
+            Gap.sm,
+            pageGutter,
+            40,
+          ),
           sliver: SliverMainAxisGroup(slivers: slivers),
         ),
       ],
@@ -414,6 +419,9 @@ class MelonBadge extends StatelessWidget {
   }
 }
 
+/// Why a page or part of one is empty, failed or found nothing, with one
+/// [action] where something can be done: a panel under the hopping melon
+/// mark, or with [EmptyState.compact] a quiet line or two inside a panel.
 class EmptyState extends StatelessWidget {
   const EmptyState({
     super.key,
@@ -421,13 +429,55 @@ class EmptyState extends StatelessWidget {
     this.detail,
     this.action,
     this.actionLabel = '重试',
-  });
+  }) : compact = false,
+       center = true;
+
+  /// No panel and no mark; [center] false starts it at the left, as a line
+  /// in a list.
+  const EmptyState.compact({
+    super.key,
+    required this.text,
+    this.detail,
+    this.action,
+    this.actionLabel = '重试',
+    this.center = true,
+  }) : compact = true;
   final String text;
   final String? detail;
   final VoidCallback? action;
   final String actionLabel;
+  final bool compact, center;
+
   @override
-  Widget build(BuildContext context) => MotionAppear(
+  Widget build(BuildContext context) =>
+      compact ? _line(context) : _panel(context);
+
+  Widget _line(BuildContext context) {
+    final small = Theme.of(context).textTheme.bodySmall;
+    final align = center ? TextAlign.center : TextAlign.start;
+    final column = Padding(
+      padding: const EdgeInsets.symmetric(vertical: Gap.md),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: center
+            ? CrossAxisAlignment.center
+            : CrossAxisAlignment.start,
+        children: [
+          Text(text, textAlign: align, style: small),
+          if (detail != null)
+            Padding(
+              padding: const EdgeInsets.only(top: Gap.xs),
+              child: Text(detail!, textAlign: align, style: small),
+            ),
+          if (action != null)
+            TextButton(onPressed: action, child: Text(actionLabel)),
+        ],
+      ),
+    );
+    return center ? Center(child: column) : column;
+  }
+
+  Widget _panel(BuildContext context) => MotionAppear(
     child: MelonPanel(
       padding: const EdgeInsets.all(32),
       child: Center(
@@ -563,7 +613,7 @@ class _ProminentButtonState extends State<ProminentButton> {
       duration: motionDuration(context, 80),
       curve: Curves.easeOut,
       // Along the button's own edge: a foregroundBuilder only wraps the
-      // label, which drew a second outline inside.
+      // label, and would draw a second outline inside.
       child: CustomPaint(
         foregroundPainter: EdgeLight(
           color: Colors.white.withValues(
@@ -578,8 +628,37 @@ class _ProminentButtonState extends State<ProminentButton> {
   }
 }
 
+/// [SkeletonBlock]s and [SkeletonLine]s standing in for loading content:
+/// read out as [label], breathing, fading in over 200 ms once [shown] and
+/// only taking the space until then. [DelayedBusy] decides [shown].
+class SkeletonGroup extends StatelessWidget {
+  const SkeletonGroup({
+    super.key,
+    required this.label,
+    required this.child,
+    this.shown = true,
+  });
+  final String label;
+  final Widget child;
+  final bool shown;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: shown ? label : null,
+    child: ExcludeSemantics(
+      child: shown
+          ? MotionAppear(
+              offset: 0,
+              milliseconds: 200,
+              child: MotionPulse(child: child),
+            )
+          : Opacity(opacity: 0, child: child),
+    ),
+  );
+}
+
 /// A grey block standing in for content that is loading, in its layout;
-/// wrap a group of them in one [MotionPulse].
+/// put a group of them in one [SkeletonGroup].
 class SkeletonBlock extends StatelessWidget {
   const SkeletonBlock({
     super.key,

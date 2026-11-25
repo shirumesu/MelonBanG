@@ -1,51 +1,24 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
+import '../../core/notices.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/transfer.dart';
 import '../../domain/resource_title.dart';
 import '../../domain/sources.dart';
-import '../../features/appearance/appearance.dart';
 import '../core/action_feedback.dart';
 import '../core/external_link.dart';
 import '../core/byte_units.dart';
 import '../core/motion.dart';
-import '../core/selection_controls.dart';
 import '../core/theme.dart';
-import 'download_labels.dart';
+import '../core/tone.dart';
+import '../downloads/download_labels.dart';
+import 'resource_labels.dart';
 
 /// Width of the download and play columns; rows and the table header share
 /// them.
-double resourceDownloadWidth({required bool labelled}) => labelled ? 84 : 36;
-double resourcePlayWidth({required bool labelled}) => labelled ? 76 : 36;
+double _downloadWidth({required bool labelled}) => labelled ? 84 : 36;
+double _playWidth({required bool labelled}) => labelled ? 76 : 36;
 const _actionGap = Gap.sm;
-
-/// The subtitle filter's sections: either script may meet a selection,
-/// while 中日双语 and 内封 each narrow it further. [option] makes a choice's
-/// option, with the label and help it shows.
-List<MelonFilterSection<String>> subtitleFilterSections(
-  MelonFilterOption<String> Function(String value, String label, String? help)
-  option,
-) => [
-  MelonFilterSection([
-    for (final value in resourceLanguages) option(value, value, null),
-  ], title: '中文字幕'),
-  MelonFilterSection([
-    option(resourceBilingual, resourceBilingual, '中文字幕旁同时有日文字幕，如简日、繁日'),
-    for (final value in resourceSubtitleForms)
-      option(
-        value,
-        '$value字幕',
-        '字幕是视频文件里单独的轨道，播放时可以关闭，有多条时（如简繁）可以切换；'
-            '内嵌字幕已压进画面，无法关闭',
-      ),
-  ], title: '只看'),
-];
-
-/// The subtitle filter's selection, such as `简体、中日双语、内封`.
-String subtitleFilterSummary(Set<String> selected) =>
-    resourceSubtitleChoices.where(selected.contains).join('、');
 
 /// A compact action of a result row: an icon, and a label when wide.
 class _ResourceAction extends StatelessWidget {
@@ -87,8 +60,8 @@ class _ResourceAction extends StatelessWidget {
               children: [
                 SizedBox.square(
                   dimension: 18,
-                  // A spinner following progress updates in place; a new
-                  // state's symbol replaces the old one.
+                  // A progress ring updates in place; a new state's symbol
+                  // replaces the old one.
                   child: MotionSwap(
                     value: switch (icon) {
                       Icon(icon: final symbol) => symbol,
@@ -142,7 +115,7 @@ class ResourceDownloadButton extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final task = this.task;
     final foreground = failed
-        ? scheme.error
+        ? toneColor(context, NoticeTone.failed)
         : task != null
         ? scheme.primary
         : scheme.onSurface;
@@ -151,7 +124,7 @@ class ResourceDownloadButton extends StatelessWidget {
       _ when spinning => (
         Padding(
           padding: const EdgeInsets.all(2),
-          child: CircularProgressIndicator(strokeWidth: 2, color: foreground),
+          child: BusyIndicator(size: 14, color: foreground),
         ),
         '加入中',
         '正在加入缓存',
@@ -194,7 +167,7 @@ class ResourceDownloadButton extends StatelessWidget {
         icon: icon,
         label: showLabel ? label : null,
         tooltip: tooltip,
-        width: resourceDownloadWidth(labelled: showLabel),
+        width: _downloadWidth(labelled: showLabel),
         background: scheme.surfaceContainerHigh,
         foreground: foreground,
         onTap: adding || spinning || task != null ? null : onPressed,
@@ -225,10 +198,7 @@ class ResourcePlayButton extends StatelessWidget {
       icon: spinning
           ? Padding(
               padding: const EdgeInsets.all(2),
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: scheme.onPrimaryContainer,
-              ),
+              child: BusyIndicator(size: 14, color: scheme.onPrimaryContainer),
             )
           : Icon(
               Icons.play_arrow_rounded,
@@ -237,7 +207,7 @@ class ResourcePlayButton extends StatelessWidget {
             ),
       label: showLabel ? (spinning ? '打开中' : '观看') : null,
       tooltip: instant || playing ? '观看' : '观看，同时下载到本机',
-      width: resourcePlayWidth(labelled: showLabel),
+      width: _playWidth(labelled: showLabel),
       background: scheme.primaryContainer,
       foreground: scheme.onPrimaryContainer,
       onTap: onPressed,
@@ -276,10 +246,7 @@ class ResourceBatchButton extends StatelessWidget {
       icon: spinning
           ? Padding(
               padding: const EdgeInsets.all(2),
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: foreground,
-              ),
+              child: BusyIndicator(size: 14, color: foreground),
             )
           : Icon(
               added ? Icons.download_done_rounded : Icons.download_rounded,
@@ -301,14 +268,6 @@ class ResourceBatchButton extends StatelessWidget {
     );
   }
 }
-
-/// Per-site status line: "动漫花园 12 条 · 蜜柑计划 搜索中 2/5".
-String resourceProviderStatus(SourceProgress source) => switch (source.status) {
-  SearchStatus.loading => '搜索中 ${source.completed}/${source.total}',
-  SearchStatus.error => '搜索失败',
-  SearchStatus.partial => '${source.resultCount} 条，部分失败',
-  SearchStatus.ready => '${source.resultCount} 条',
-};
 
 /// A running search's progress. Sites are waited on under a progress bar
 /// until [settled]; then the sites still loading, and the PikPak and release
@@ -367,46 +326,14 @@ class ResourceSearchStatus extends StatelessWidget {
   }
 }
 
-String resourceSizeLabel(TorrentRelease release, ByteUnits units) {
-  final provided = (release.sizeLabel ?? '').trim();
-  if (provided.isNotEmpty) return provided;
-  return resourceBytesLabel(release.sizeBytes ?? 0, units);
-}
-
-String resourceBytesLabel(int bytes, ByteUnits units) =>
-    bytes <= 1 ? '—' : units.format(bytes);
-
-String resourceDateLabel(TorrentRelease release) {
-  final raw = release.publishedAt ?? '';
-  var date = DateTime.tryParse(raw);
-  if (date == null && raw.isNotEmpty) {
-    try {
-      date = HttpDate.parse(raw).toLocal();
-    } on HttpException {
-      return '—';
-    }
-  }
-  if (date == null) return '—';
-  // Feeds stamp UTC; the day is the viewer's.
-  return date.toLocal().toIso8601String().substring(0, 10);
-}
-
-/// Site release groups, else the group the title credits.
-String resourceGroupLabel(ResourceTitleInfo info) => info.sourceGroups.isEmpty
-    ? info.credit ?? ''
-    : info.sourceGroups.join(' & ');
-
 // Shared by the resource table header and its rows.
 const resourceTableWidth = 760.0;
 const resourceGroupColumnWidth = 120.0;
 const resourceSizeColumnWidth = 76.0;
 const resourceDateColumnWidth = 84.0;
 
-/// Width of the action columns: download and play.
 double resourceActionsWidth({required bool wide}) =>
-    resourceDownloadWidth(labelled: wide) +
-    _actionGap +
-    resourcePlayWidth(labelled: wide);
+    _downloadWidth(labelled: wide) + _actionGap + _playWidth(labelled: wide);
 
 class ResourceResultRow extends StatelessWidget {
   const ResourceResultRow({
@@ -428,7 +355,7 @@ class ResourceResultRow extends StatelessWidget {
   final bool expanded, recommended, playing;
   final VoidCallback onExpand;
 
-  /// Annotations beside the title's, such as duration or progress.
+  /// Annotations beside the title's own, such as 上次选择.
   final List<String> notes;
 
   /// Annotations that need attention, such as match certainty or health.
@@ -510,12 +437,12 @@ class ResourceResultRow extends StatelessWidget {
       actions: (wide) => Row(
         children: [
           SizedBox(
-            width: resourceDownloadWidth(labelled: wide),
+            width: _downloadWidth(labelled: wide),
             child: download?.call(wide),
           ),
           const SizedBox(width: _actionGap),
           SizedBox(
-            width: resourcePlayWidth(labelled: wide),
+            width: _playWidth(labelled: wide),
             child: playing || onPlay != null
                 ? ResourcePlayButton(
                     onPressed: onPlay,
@@ -531,9 +458,8 @@ class ResourceResultRow extends StatelessWidget {
   }
 }
 
-/// The layout the resource rows share: a chevron and [title] over the tags,
-/// the group, size and date in columns on a wide row or in a line under the
-/// tags otherwise, then the [actions].
+/// The layout the resource rows share: the group, size and date in columns
+/// on a wide row, else in a line under the tags.
 class _ResourceRowFrame extends StatelessWidget {
   const _ResourceRowFrame({
     required this.title,
@@ -1044,12 +970,12 @@ class ResourceEpisodeRow extends StatelessWidget {
             ],
             const SizedBox(width: Gap.sm),
             SizedBox(
-              width: resourceDownloadWidth(labelled: wide),
+              width: _downloadWidth(labelled: wide),
               child: download,
             ),
             const SizedBox(width: _actionGap),
             SizedBox(
-              width: resourcePlayWidth(labelled: wide),
+              width: _playWidth(labelled: wide),
               child: play,
             ),
           ],

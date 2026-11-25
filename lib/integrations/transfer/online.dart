@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:pointycastle/export.dart';
 
 import '../../core/error_message.dart';
+import '../../core/hex.dart';
 import '../../core/hls_playlist.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
@@ -16,12 +17,11 @@ import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
 import 'records.dart';
 
-/// Online entries saved into the media cache, one task at a time. An HLS
-/// stream is fetched segment by segment over several connections, AES-128
-/// segments are decrypted, and the segments are joined into one file; a
-/// direct stream is fetched as a file, with its separate audio track beside
-/// it. Links are read from the source again when they expire. Until a task
-/// completes, playing it plays the entry from its source.
+/// Online entries saved into the media cache, one task at a time. HLS is
+/// fetched segment by segment over several connections, AES-128 segments
+/// decrypted, and joined into one file; a direct stream is fetched as a
+/// file with its separate audio track beside it. Expired links are read
+/// from the source again. Until a task completes, it plays from the source.
 class OnlineDownloads implements OnlineTransfer {
   OnlineDownloads(this.store, String directory, this.api, this.resolve)
     : directory = p.normalize(p.absolute(directory));
@@ -852,12 +852,7 @@ class _Media {
     }
     if (segments.isEmpty) throw StateError('视频清单没有分段');
     final digest = SHA256Digest().process(utf8.encode(durations.join(',')));
-    return _Media(
-      segments,
-      map,
-      [for (final byte in digest) byte.toRadixString(16).padLeft(2, '0')]
-          .join(),
-    );
+    return _Media(segments, map, hexEncode(digest));
   }
 
   static Map<String, String> _attributes(String value) => {

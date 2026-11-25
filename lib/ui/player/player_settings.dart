@@ -3,10 +3,10 @@ import 'package:flutter/material.dart';
 import '../../features/danmaku/danmaku_preferences.dart';
 import '../../features/playback/playback.dart';
 import '../core/motion.dart';
+import '../core/overlay_glass.dart';
 import '../core/theme.dart';
-import 'player_controls.dart';
+import 'player_glyphs.dart';
 import 'player_popovers.dart';
-import 'player_theme.dart';
 
 /// The playback options worth changing mid-episode, behind the gear left of
 /// super-resolution; the rest stay in settings.
@@ -306,7 +306,6 @@ class _Row extends StatelessWidget {
   );
 }
 
-/// An on/off setting: its label, and a small switch at the right.
 class _SwitchRow extends StatelessWidget {
   const _SwitchRow({
     required this.label,
@@ -331,7 +330,7 @@ class _SwitchRow extends StatelessWidget {
   );
 }
 
-/// An on/off chip: brighter when on, dimmed when off.
+/// An on/off chip, dimmed when off.
 class _Toggle extends StatelessWidget {
   const _Toggle({
     required this.label,

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/error_message.dart';
+import '../../core/notices.dart';
 import '../../domain/sources.dart';
 import '../../features/sync/library_sync.dart';
 import '../../features/sync/settings_sync.dart';
@@ -17,12 +18,12 @@ import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
-import 'settings_page.dart';
+import '../core/tone.dart';
+import 'setting_rows.dart';
 import 'sync_conflicts.dart';
 
 /// 账户与同步: the Bangumi account first, as everything personal follows
-/// it, with settings sync under it; then the other services signed in to,
-/// one compact row each that opens its sign-in in place.
+/// it; other services get one compact row each whose sign-in opens in place.
 SettingsSection accountSection({
   required TrackingController personal,
   required SettingsSync sync,
@@ -56,7 +57,7 @@ SettingsSection accountSection({
       ),
       SettingsItem(
         '订阅同步 其他设备 临时 不缓存 只同步 同步并缓存 下载',
-        _watch(
+        watch(
           library.settings,
           (context) => SettingRow(
             title: '订阅同步',
@@ -94,12 +95,6 @@ SettingsSection accountSection({
   ],
 );
 
-Widget _watch(Listenable listenable, WidgetBuilder builder) =>
-    ListenableBuilder(
-      listenable: listenable,
-      builder: (context, _) => builder(context),
-    );
-
 class _BangumiRow extends StatelessWidget {
   const _BangumiRow({
     required this.personal,
@@ -118,7 +113,7 @@ class _BangumiRow extends StatelessWidget {
       !personal.sessionExpired;
 
   @override
-  Widget build(BuildContext context) => _watch(personal, (context) {
+  Widget build(BuildContext context) => watch(personal, (context) {
     final account = personal.profile;
     final theme = Theme.of(context);
     final problem =
@@ -161,7 +156,9 @@ class _BangumiRow extends StatelessWidget {
                           ? '登录信息未保存，下次启动需重新登录'
                           : '@${account.username ?? ''}',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: problem ? theme.colorScheme.error : null,
+                        color: problem
+                            ? toneColor(context, NoticeTone.failed)
+                            : null,
                       ),
                     ),
                   ],
@@ -230,42 +227,22 @@ class _BangumiRow extends StatelessWidget {
   });
 }
 
-/// Asks before signing out of a service, with what signing out changes.
 Future<void> _confirmSignOut(
   BuildContext context, {
   required String title,
   required String message,
   required VoidCallback onSignOut,
 }) async {
-  final confirmed = await showMelonDialog<bool>(
-    context: context,
-    builder: (context) {
-      final scheme = Theme.of(context).colorScheme;
-      return AlertDialog(
-        title: Text(title),
-        content: SizedBox(width: 400, child: Text(message)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: scheme.error,
-              foregroundColor: scheme.onError,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('退出登录'),
-          ),
-        ],
-      );
-    },
+  final confirmed = await showConfirmDialog(
+    context,
+    title: title,
+    message: message,
+    confirmLabel: '退出登录',
+    destructive: true,
   );
-  if (confirmed == true) onSignOut();
+  if (confirmed) onSignOut();
 }
 
-/// The settings sync switch, where it stands, and a way to sync now; what
-/// else syncs with the settings is behind its ? mark.
 class _SyncRow extends StatefulWidget {
   const _SyncRow({required this.sync});
   final SettingsSync sync;
@@ -293,23 +270,19 @@ class _SyncRowState extends State<_SyncRow> {
   }
 
   @override
-  Widget build(BuildContext context) => _watch(widget.sync, (context) {
+  Widget build(BuildContext context) => watch(widget.sync, (context) {
     final sync = widget.sync;
-    final scheme = Theme.of(context).colorScheme;
-    final (String? subtitle, Color? color) = switch (sync.status) {
+    final (String? subtitle, NoticeTone? tone) = switch (sync.status) {
       SettingsSyncStatus.off => (null, null),
       SettingsSyncStatus.signedOut => ('登录 Bangumi 后，设置在登录同一账号的设备间同步', null),
       SettingsSyncStatus.syncing => ('正在同步…', null),
       SettingsSyncStatus.conflict => (
         '${sync.conflicts.length} 项设置在这台和其他设备上改得不一样，选好保留哪边后继续同步',
-        scheme.error,
+        NoticeTone.warning,
       ),
-      SettingsSyncStatus.failed => (
-        '同步失败：${sync.error ?? '未知错误'}',
-        scheme.error,
-      ),
+      SettingsSyncStatus.failed => ('同步失败：${sync.error!}', NoticeTone.failed),
       SettingsSyncStatus.idle => switch (sync.syncedAt) {
-        final at? => (syncedAgo(at), null),
+        final at? => (_syncedAgo(at), null),
         null => ('等待第一次同步', null),
       },
     };
@@ -319,7 +292,7 @@ class _SyncRowState extends State<_SyncRow> {
     return SettingRow(
       title: '设置同步',
       subtitle: subtitle,
-      subtitleColor: color,
+      subtitleColor: tone == null ? null : toneColor(context, tone),
       help: '订阅、偏好来源、手动匹配的弹幕、播放记录等非设置项会一起同步',
       onTap: () => unawaited(sync.setEnabled(!sync.enabled)),
       trailing: Row(
@@ -335,10 +308,7 @@ class _SyncRowState extends State<_SyncRow> {
               tooltip: '立即同步',
               onPressed: busy ? null : () => unawaited(sync.syncNow()),
               icon: busy
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
+                  ? const BusyIndicator()
                   : const Icon(Icons.sync_rounded, size: 20),
             ),
           const SizedBox(width: Gap.sm),
@@ -352,8 +322,7 @@ class _SyncRowState extends State<_SyncRow> {
   });
 }
 
-/// When settings last synced: 刚刚同步, 3 分钟前已同步, 5 月 3 日已同步.
-String syncedAgo(DateTime at) {
+String _syncedAgo(DateTime at) {
   final passed = DateTime.now().difference(at);
   if (passed.inMinutes < 1) return '刚刚同步';
   if (passed.inHours < 1) return '${passed.inMinutes} 分钟前已同步';
@@ -361,8 +330,8 @@ String syncedAgo(DateTime at) {
   return '${at.month} 月 ${at.day} 日已同步';
 }
 
-/// A service's row: its logo, its name and who is signed in, and one
-/// action; signing in opens below the row instead of in a dialog.
+/// A service's row with one action; its sign-in opens below the row instead
+/// of in a dialog.
 class _ServiceRow extends StatelessWidget {
   const _ServiceRow({
     required this.logo,
@@ -576,6 +545,7 @@ class _PikPakRowState extends State<_PikPakRow> {
                     account == null
                         ? '在 PikPak 官方页面完成验证后，再点「登录 PikPak」重试'
                         : '在 PikPak 官方页面完成验证后，回到缓存页继续下载任务',
+                    tone: NoticeTone.warning,
                   ),
                   TextButton.icon(
                     onPressed: busy
@@ -600,7 +570,6 @@ class _BilibiliRow extends StatefulWidget {
 }
 
 class _BilibiliRowState extends State<_BilibiliRow> {
-  /// The QR code shown while signing in.
   BilibiliQr? qr;
   BilibiliQrState state = BilibiliQrState.waiting;
   Timer? timer;
@@ -646,8 +615,6 @@ class _BilibiliRowState extends State<_BilibiliRow> {
     }
   }
 
-  /// Shows a new QR code and asks every two seconds whether it was
-  /// scanned, until it signs in or expires.
   Future<void> start() => run(() async {
     timer?.cancel();
     final code = await account.startLogin();
@@ -677,7 +644,7 @@ class _BilibiliRowState extends State<_BilibiliRow> {
         timer?.cancel();
       }
     } catch (failure) {
-      // A failed look is tried again on the next tick; a lasting one shows.
+      // Shown under the code while the timer keeps asking.
       if (mounted) setState(() => error = errorMessage(failure));
     } finally {
       polling = false;
@@ -693,8 +660,7 @@ class _BilibiliRowState extends State<_BilibiliRow> {
   }
 
   @override
-  Widget build(BuildContext context) => _watch(account, (context) {
-    final theme = Theme.of(context);
+  Widget build(BuildContext context) => watch(account, (context) {
     final signedIn = account.signedIn && qr == null;
     final code = qr;
     return _ServiceRow(
@@ -704,7 +670,7 @@ class _BilibiliRowState extends State<_BilibiliRow> {
           ? account.name ?? 'B 站账号'
           : account.lapsed ?? '登录后可获取更多弹幕，大会员可播放会员剧集',
       statusColor: !signedIn && account.lapsed != null
-          ? theme.colorScheme.error
+          ? toneColor(context, NoticeTone.failed)
           : null,
       badge: signedIn
           ? switch (account.membership) {

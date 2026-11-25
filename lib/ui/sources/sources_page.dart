@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/notices.dart';
 import '../../domain/danmaku.dart';
 import '../../domain/sources.dart';
 import '../../features/acquisition/source_registry.dart';
@@ -9,14 +10,15 @@ import '../../features/danmaku/danmaku_controller.dart';
 import '../../features/network/connectivity.dart';
 import '../../integrations/sources/bilibili_account.dart';
 import '../../integrations/transfer/pikpak.dart';
-import '../acquisition/resource_widgets.dart' show resourceDateLabel;
+import '../acquisition/resource_labels.dart' show resourceDateLabel;
 import '../core/action_feedback.dart';
 import '../core/external_link.dart';
+import '../core/help_hint.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
+import '../core/tone.dart';
 import '../settings/network_settings.dart' show ProbeStatus;
-import '../settings/settings_page.dart' show HelpHint;
 
 /// Every source of data the app reads, by kind: online video sites, BT
 /// indexes, the PikPak drive and danmaku providers. Built for many of each:
@@ -43,7 +45,6 @@ class SourcesPage extends StatefulWidget {
   final BilibiliAccount bilibili;
   final Future<void> Function(ResolvedStream) onPlay;
 
-  /// Opens the app's update settings.
   final VoidCallback onOpenUpdates;
 
   /// Opens Settings › 账户与同步.
@@ -53,9 +54,7 @@ class SourcesPage extends StatefulWidget {
 }
 
 class _SourcesPageState extends State<SourcesPage> {
-  final _update = ActionFeedback(),
-      _runtimeIssue = ActionFeedback(),
-      _engineIssue = ActionFeedback();
+  final _update = ActionFeedback();
   var _search = ActionFeedback(), _resolve = ActionFeedback();
   final _query = TextEditingController();
   String? _selected;
@@ -74,8 +73,8 @@ class _SourcesPageState extends State<SourcesPage> {
   _Kind? _kind;
   bool _problemsOnly = false;
 
-  /// Folded groups; all start folded, which keeps the list short now that
-  /// each kind holds several sources.
+  /// Folded groups; all start folded, keeping a list of several sources of
+  /// each kind short.
   final _folded = {..._Kind.values};
   SourceRegistry get registry => widget.registry;
   DanmakuController get danmaku => widget.danmaku;
@@ -104,8 +103,8 @@ class _SourcesPageState extends State<SourcesPage> {
       name,
       kind,
       // The switch cannot turn it back on, so say who turned it off.
-      status: instance?.disabled == true ? '维护者已停用' : label(status),
-      color: color(status),
+      status: instance?.disabled == true ? '维护者已停用' : _label(status),
+      tone: _tone(status),
       problem: switch (status) {
         SourceHealth.error ||
         SourceHealth.verification ||
@@ -134,7 +133,6 @@ class _SourcesPageState extends State<SourcesPage> {
           : enabled
           ? '已启用'
           : '已停用',
-      color: null,
       enabled: enabled,
       onToggle: unconfigured != null
           ? null
@@ -147,19 +145,14 @@ class _SourcesPageState extends State<SourcesPage> {
   @override
   void initState() {
     super.initState();
+    // A failed refresh shows as the registry's updateIssue under the title.
     unawaited(registry.refreshRules().catchError((Object _) {}));
   }
 
   @override
   void dispose() {
     _generation++;
-    for (final feedback in [
-      _update,
-      _search,
-      _resolve,
-      _runtimeIssue,
-      _engineIssue,
-    ]) {
+    for (final feedback in [_update, _search, _resolve]) {
       feedback.dispose();
     }
     _query.dispose();
@@ -167,7 +160,7 @@ class _SourcesPageState extends State<SourcesPage> {
     super.dispose();
   }
 
-  String label(SourceHealth status) => switch (status) {
+  static String _label(SourceHealth status) => switch (status) {
     SourceHealth.enabled => '已启用',
     SourceHealth.error => '失效',
     SourceHealth.verification => '需要验证',
@@ -175,12 +168,13 @@ class _SourcesPageState extends State<SourcesPage> {
     SourceHealth.disabled => '已停用',
   };
 
-  /// Only a problem has a colour; a source simply on or off has none.
-  Color? color(SourceHealth status) => switch (status) {
-    SourceHealth.error => Theme.of(context).colorScheme.error,
-    SourceHealth.verification || SourceHealth.update => gold,
+  /// Only a problem has a tone; a source simply on or off has none.
+  static NoticeTone? _tone(SourceHealth status) => switch (status) {
+    SourceHealth.error => NoticeTone.failed,
+    SourceHealth.verification || SourceHealth.update => NoticeTone.warning,
     SourceHealth.enabled || SourceHealth.disabled => null,
   };
+
   void _select(String id) {
     if (id == 'melon') unawaited(danmaku.refreshQuota());
     _generation++;
@@ -285,7 +279,6 @@ class _SourcesPageState extends State<SourcesPage> {
       final selected = all
           .where((entry) => entry.id == (_selected ?? all.first.id))
           .firstOrNull;
-      _engineIssue.issue = registry.needsUpdate ? '部分来源需要更新应用后才能使用' : null;
       return LayoutBuilder(
         builder: (context, constraints) {
           final narrow = constraints.maxWidth < 820;
@@ -326,7 +319,7 @@ class _SourcesPageState extends State<SourcesPage> {
                     Tooltip(
                       message: '在线源与 BT 索引规则 ${registry.version}',
                       child: Text(
-                        '规则更新于 ${snapshotDate(registry.snapshot.updatedAt)}',
+                        '规则更新于 ${_snapshotDate(registry.snapshot.updatedAt)}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
@@ -342,10 +335,10 @@ class _SourcesPageState extends State<SourcesPage> {
                         padding: const EdgeInsets.only(top: Gap.sm),
                         child: InlineIssue(registry.updateIssue!),
                       ),
-                    FeedbackIssue(
-                      feedback: _engineIssue,
-                      actionLabel: '检查更新',
-                      onRetry: widget.onOpenUpdates,
+                    IssueBanner(
+                      issue: registry.needsUpdate ? '部分来源需要更新应用后才能使用' : null,
+                      tone: NoticeTone.warning,
+                      actions: [NoticeAction('检查更新', widget.onOpenUpdates)],
                     ),
                   ],
                 ),
@@ -409,7 +402,7 @@ class _SourcesPageState extends State<SourcesPage> {
       final members = shown.where((entry) => entry.kind == kind).toList();
       if (members.isEmpty) continue;
       final folded = !filtering && _folded.contains(kind);
-      final issues = members.where((entry) => entry.problem).length;
+      final issues = members.where((entry) => entry.problem).toList();
       rows.add(
         FoldHeader(
           title: kind.label,
@@ -423,14 +416,19 @@ class _SourcesPageState extends State<SourcesPage> {
                   () => folded ? _folded.remove(kind) : _folded.add(kind),
                 ),
           padding: const EdgeInsets.fromLTRB(Gap.xs, Gap.md, Gap.sm, Gap.xs),
-          trailing: issues > 0
-              ? Text(
-                  '$issues 个异常',
+          trailing: issues.isEmpty
+              ? null
+              : Text(
+                  '${issues.length} 个异常',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.error,
+                    color: toneColor(
+                      context,
+                      issues.any((entry) => entry.tone == NoticeTone.failed)
+                          ? NoticeTone.failed
+                          : NoticeTone.warning,
+                    ),
                   ),
-                )
-              : null,
+                ),
         ),
       );
       rows.add(
@@ -506,9 +504,9 @@ class _SourcesPageState extends State<SourcesPage> {
         ),
         Expanded(
           child: rows.isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.all(pageGutter),
-                  child: Text('没有匹配的数据源', style: theme.textTheme.bodySmall),
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: pageGutter),
+                  child: EmptyState.compact(text: '没有匹配的数据源', center: false),
                 )
               : ListView(
                   // Each scrolling area keeps its own offset; without keys
@@ -678,7 +676,7 @@ class _SourcesPageState extends State<SourcesPage> {
       ? null
       : MelonBadge(
           entry.status,
-          color: entry.color ?? Theme.of(context).colorScheme.onSurfaceVariant,
+          color: toneColor(context, entry.tone ?? NoticeTone.info),
         );
 
   Widget _back() => Align(
@@ -701,16 +699,15 @@ class _SourcesPageState extends State<SourcesPage> {
     final domain = instance == null
         ? 'https://mypikpak.com'
         : registry.currentDomain(id);
-    _runtimeIssue.issue = registry.errors[id];
     return ListView(
       key: PageStorageKey('data-source:$id'),
       padding: const EdgeInsets.fromLTRB(pageGutter, 0, pageGutter, 40),
       children: [
         if (narrow) _back(),
         SectionTitle(title: entry.name, top: 0, trailing: _badge(entry)),
-        FeedbackIssue(
-          feedback: _runtimeIssue,
-          onRetry: manual ? () => _manualSearch(id) : null,
+        IssueBanner(
+          issue: registry.errors[id],
+          actions: [if (manual) NoticeAction('重试', () => _manualSearch(id))],
         ),
         MelonPanel(
           padding: const EdgeInsets.symmetric(
@@ -780,13 +777,7 @@ class _SourcesPageState extends State<SourcesPage> {
               _subjects.isEmpty &&
               !_search.busy &&
               _search.issue == null)
-            Padding(
-              padding: const EdgeInsets.only(top: Gap.sm),
-              child: Text(
-                '未找到结果',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
+            const EmptyState.compact(text: '未找到结果', center: false),
           if (_subjects.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: Gap.sm),
@@ -996,7 +987,7 @@ final class _Entry {
     this.name,
     this.kind, {
     required this.status,
-    required this.color,
+    this.tone,
     required this.enabled,
     required this.onToggle,
     required this.probe,
@@ -1009,7 +1000,7 @@ final class _Entry {
   final String status;
 
   /// Set only for a problem.
-  final Color? color;
+  final NoticeTone? tone;
   final bool enabled;
 
   /// Needs attention: failing, asking for verification or for an update.
@@ -1048,7 +1039,10 @@ class _SourceRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
+    final color = switch (entry.tone) {
+      final tone? => toneColor(context, tone),
+      null => null,
+    };
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: AnimatedContainer(
@@ -1076,12 +1070,9 @@ class _SourceRow extends StatelessWidget {
                     child: Container(
                       width: 8,
                       height: 8,
-                      decoration: entry.color == null
+                      decoration: color == null
                           ? null
-                          : BoxDecoration(
-                              color: entry.color,
-                              shape: BoxShape.circle,
-                            ),
+                          : BoxDecoration(color: color, shape: BoxShape.circle),
                     ),
                   ),
                   const SizedBox(width: Gap.md),
@@ -1099,10 +1090,7 @@ class _SourceRow extends StatelessWidget {
                       child: Text(
                         entry.status,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: switch (entry.color) {
-                            final color? => badgeInk(color, dark),
-                            null => null,
-                          },
+                          color: color,
                         ),
                       ),
                     ),
@@ -1124,7 +1112,7 @@ class _SourceRow extends StatelessWidget {
   }
 }
 
-String snapshotDate(DateTime? value) {
+String _snapshotDate(DateTime? value) {
   if (value == null) return '未知时间';
   return value
       .toLocal()

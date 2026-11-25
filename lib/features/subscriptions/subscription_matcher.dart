@@ -58,24 +58,18 @@ class ReleaseJudgement {
 /// this of its first one count as found together.
 const airingCheckInterval = Duration(minutes: 30);
 
-/// Judges [candidates] for a subscription with [filter]: at most one
-/// release per episode is cached, only of episodes [wanted] and not [held]
-/// (cached already, by the subscription or by hand). [replaceable] episodes,
-/// with the title of the file cached, take that group's corrected release
-/// when [revisions] allows. The first of an episode's matching files is
-/// kept, whichever subscribed group it is by, as checks running every
-/// [airingCheckInterval] would keep it: the same whether a check finds
-/// each release as it comes out or, catching up on aired episodes or after
-/// the computer slept, all at once. Following the preferred groups, of files
-/// out within [airingCheckInterval] of the first, the one by the group
-/// listed first is kept. Of that group's files of the episode, one with
-/// subtitles the player can turn off goes first, as the resource search
-/// ranks them, rather than whichever was posted a minute earlier.
-/// A smart filter takes the groups
-/// [smartGroups] picks from [candidates], with episodes timed by [aired].
-/// Subtitles are read across a group's series as the resource search reads
-/// them; a release still stating nothing for a selection only counts while
-/// the filter names one group, whose releases word it their own way.
+/// Judges [candidates] for a subscription with [filter]: at most one release
+/// per episode is cached, only of episodes [wanted] and not [held] (cached by
+/// the subscription or by hand), and none [known] already. [replaceable]
+/// episodes, by the title of their cached file, take that group's corrected
+/// release when [revisions] allows. An episode's files out within
+/// [airingCheckInterval] of its first are chosen among together, so the
+/// choice is the same whether a check finds each as it comes out or, after
+/// the computer slept, all at once. A smart filter follows the groups
+/// [smartGroups] picks, timing episodes by [aired]. Subtitles are read across
+/// a group's series; a release still stating nothing for a selection counts
+/// only while the filter names one group, whose releases word it their own
+/// way.
 List<ReleaseJudgement> judgeReleases({
   required Subject subject,
   required SubscriptionFilter filter,
@@ -222,10 +216,9 @@ List<ReleaseJudgement> judgeReleases({
         .add(skip(Verdict.download, '', episode: episode));
   }
   for (final episode in {...exact.keys, ...loose.keys}) {
-    // Releases a check would only find after it chose one: out later than
-    // the episode's first by more than a check's interval. A bare date says
-    // nothing about the hour, so such a release counts as out with the
-    // first.
+    // Releases a check would only find after it chose one: out more than a
+    // check's interval after the episode's first. A bare date says nothing
+    // of the hour, so such a release counts as out with the first.
     DateTime? at(ReleaseJudgement option) =>
         switch (option.candidate.release.publishedAt) {
           final raw? when raw.trim().length > 10 => releasePublished(raw),
@@ -321,14 +314,12 @@ List<ReleaseJudgement> judgeReleases({
 const onlineQualities = {'4K', '1080p'};
 
 /// The online entry a subscription with [filter] caches for each episode
-/// [wanted], not [held] and without a group's release [chosen]: online
-/// sources fill in an episode no group has a file of yet that meets the
-/// filter, so a check finding an entry before any group's file caches it,
-/// and one finding both takes the group's. Of [releases], in their
-/// sources' order, the first at a quality the filter takes, or of
-/// [onlineQualities] when it chooses none; one of unknown quality never
-/// counts. Online entries state neither group nor subtitles, so those
-/// choices leave them be.
+/// [wanted], not [held] and without a group's release [chosen]: an entry
+/// found before any group's file is cached, and a group's file found with
+/// one wins. Of [releases], in their sources' order, the first at a quality
+/// the filter takes, or of [onlineQualities] when it chooses none; one of
+/// unknown quality never counts. Entries state no group or subtitles, so
+/// those choices leave them be.
 Map<int, OnlineRelease> pickOnline({
   required SubscriptionFilter filter,
   required Iterable<OnlineRelease> releases,
@@ -433,6 +424,79 @@ Map<String, GroupRecord> groupRecords({
   return records;
 }
 
+/// A single-episode release of a show, as a search found it.
+typedef ReleaseFile = ({
+  ReleaseCandidate candidate,
+  ResourceTitleInfo info,
+  Episode episode,
+});
+
+/// What a search found of a show's releases; see [surveyReleases].
+typedef ReleaseSurvey = ({
+  Map<String, int> groups,
+  Map<String, int> qualities,
+  Map<String, int> subtitles,
+  List<ReleaseFile> files,
+  ResourceTitleInfo Function(ResourceTitleInfo) subtitlesOf,
+});
+
+/// What [candidates] of [subject] offer a filter: how many releases each
+/// group, quality and subtitle choice has, a group under its most common
+/// spelling with its traditional and simplified spellings counted together;
+/// the single-episode releases, the earliest published first; and their
+/// subtitles read across each group's series.
+ReleaseSurvey surveyReleases(
+  Subject subject,
+  Iterable<ReleaseCandidate> candidates,
+) {
+  final spellings = <String, int>{},
+      qualities = <String, int>{},
+      subtitles = <String, int>{};
+  void add(Map<String, int> counts, Iterable<String> values) {
+    for (final value in values) {
+      counts[value] = (counts[value] ?? 0) + 1;
+    }
+  }
+
+  final found = <(ReleaseFile, DateTime?)>[];
+  final described = <ResourceTitleInfo>[];
+  for (final candidate in candidates) {
+    final info = describeResource(
+      candidate.release.title,
+      releaseGroups: candidate.release.releaseGroups,
+    );
+    described.add(info);
+    add(spellings, info.groups);
+    add(qualities, [?info.quality]);
+    add(subtitles, info.subtitleChoices);
+    if (info.batch || releaseRebroadcast(candidate.release.title)) continue;
+    if (releaseEpisode(subject, info) case final episode?) {
+      found.add((
+        (candidate: candidate, info: info, episode: episode),
+        releasePublished(candidate.release.publishedAt),
+      ));
+    }
+  }
+  final byKey = <String, List<MapEntry<String, int>>>{};
+  for (final entry in spellings.entries) {
+    (byKey[groupKey(entry.key)] ??= []).add(entry);
+  }
+  final groups = <String, int>{};
+  for (final names in byKey.values) {
+    names.sort((a, b) => b.value.compareTo(a.value));
+    groups[names.first.key] = names.fold(0, (sum, entry) => sum + entry.value);
+  }
+  // Undated releases sort first.
+  found.sort((a, b) => (a.$2 ?? DateTime(0)).compareTo(b.$2 ?? DateTime(0)));
+  return (
+    groups: groups,
+    qualities: qualities,
+    subtitles: subtitles,
+    files: [for (final (file, _) in found) file],
+    subtitlesOf: seriesSubtitles(described),
+  );
+}
+
 /// How soon after airing the first of [records]' releases of an episode
 /// usually comes out: what subscribing to all of them waits.
 Duration? fastestLag(Iterable<GroupRecord> records) {
@@ -450,13 +514,11 @@ Duration? fastestLag(Iterable<GroupRecord> records) {
 /// following.
 const slowGroupLag = Duration(days: 7);
 
-/// The groups worth following of [records], the best first: those scoring
-/// close to the best on how soon after airing they release, how many of the
-/// show's episodes they released, and whether they are among
-/// [preferredGroups], at most three. Speed weighs most, as a group days
-/// behind misses the week's talk of an episode: a preferred group a few
-/// days late loses to one out within a day. Groups usually a week late are
-/// left out.
+/// The groups worth following of [records], at most three, the best first:
+/// those scoring close to the best on how soon after airing they release,
+/// how many of the show's episodes they released and whether they are among
+/// [preferredGroups]. Speed weighs most, as a group days late misses the
+/// week's talk of an episode; groups usually a week late are left out.
 List<GroupRecord> smartGroups(
   Iterable<GroupRecord> records,
   List<String> preferredGroups,

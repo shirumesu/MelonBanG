@@ -47,10 +47,9 @@ class DanmakuClock {
           _rate = rate;
         } else {
           _correction = error;
-          // A new rate is reported at once, but mpv keeps playing audio it
-          // buffered at the old one for a moment; switching only once the
-          // positions move toward the new rate keeps the gap from growing
-          // past the rebase threshold and jumping.
+          // mpv reports a new rate at once but plays its buffered audio at
+          // the old one a moment longer; taking the rate once the positions
+          // move its way keeps the gap under the rebase threshold.
           if (rate != _rate && (rate > _rate ? error : -error) > .1) {
             _rate = rate;
           }

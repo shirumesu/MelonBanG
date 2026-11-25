@@ -7,8 +7,12 @@ import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app_services.dart';
+import 'app_sidebar.dart';
 import 'app_tray.dart';
+import 'cover_colors.dart';
 import 'settings_catalog.dart';
+import 'theme_reveal.dart';
+import 'title_bar.dart';
 import '../core/background.dart';
 import '../core/error_message.dart';
 import '../core/network.dart';
@@ -32,33 +36,31 @@ import '../features/sync/settings_sync.dart';
 import '../features/tracking/subject_controller.dart';
 import '../features/tracking/tracking_controller.dart';
 import '../features/update/app_update.dart';
-import '../ui/acquisition/downloads_page.dart';
 import '../ui/acquisition/resource_search_view.dart';
+import '../ui/downloads/downloads_page.dart';
 import '../ui/core/action_feedback.dart';
-import '../ui/core/app_chrome.dart';
 import '../ui/core/byte_units.dart';
 import '../ui/core/cached_image.dart';
-import '../ui/core/cover_colors.dart';
 import '../ui/core/motion.dart';
 import '../ui/core/notice_cards.dart';
 import '../ui/core/page_widgets.dart';
 import '../ui/core/pointer_lamp.dart';
 import '../ui/core/poster_zoom.dart';
-import '../ui/core/subject_posters.dart';
+import '../ui/core/subject_cover.dart';
 import '../ui/core/theme.dart';
-import '../ui/core/theme_reveal.dart';
 import '../ui/discovery/calendar_page.dart';
 import '../ui/discovery/home_page.dart';
 import '../ui/discovery/search_page.dart';
 import '../ui/player/player_page.dart';
+import '../ui/settings/about_settings.dart';
 import '../ui/settings/account_settings.dart';
-import '../ui/settings/bittorrent_settings.dart';
+import '../ui/settings/downloads_settings.dart';
 import '../ui/settings/network_settings.dart';
+import '../ui/settings/setting_rows.dart';
 import '../ui/settings/settings_page.dart';
 import '../ui/settings/settings_sections.dart';
 import '../ui/settings/sync_conflicts.dart';
 import '../ui/settings/storage_settings.dart';
-import '../ui/settings/update_settings.dart';
 import '../ui/sources/sources_page.dart';
 import '../ui/subscriptions/subscription_dialogs.dart';
 import '../ui/tracking/subject_page.dart';
@@ -108,7 +110,6 @@ class _MelonAppState extends State<MelonApp>
   Rect? _miniRestore;
   bool _miniMaximized = false;
 
-  /// Theme mode, theme colour and cover colouring.
   late final appearance = Appearance(widget.settings);
 
   /// Which shows the home page's 继续观看 lists.
@@ -180,7 +181,6 @@ class _MelonAppState extends State<MelonApp>
   bool get showSidebar =>
       route == 'player' ? playerSidebarVisible : sidebarVisible;
 
-  /// Whether the current page is still loading.
   bool get loading =>
       ready &&
       switch (route) {
@@ -350,9 +350,9 @@ class _MelonAppState extends State<MelonApp>
     return homeFeedback.run(() => discovery.loadHome(refresh: true));
   }
 
-  /// Pulls the Bangumi collection and the episode progress of recently
-  /// played subjects; the tracking changes refresh the pages. A failure
-  /// keeps the saved progress and shows on the tracking page.
+  /// Pulls the Bangumi collection, whose failure keeps the saved one and
+  /// shows on the tracking page, then the episode progress of recently
+  /// played subjects; the tracking changes refresh the pages.
   Future<void> pullProgress() async {
     await personal.pull();
     await resume.pull().catchError((Object _) {});
@@ -582,8 +582,9 @@ class _MelonAppState extends State<MelonApp>
     setState(() => route = 'player');
   }
 
-  /// Detach the video texture before disposing its native rendering context.
-  /// A hidden window draws no frames, and has no texture on screen.
+  /// Waits, at most a second, for a frame without the video texture, so its
+  /// native rendering context can be disposed. A hidden window draws no
+  /// frames and has no texture on screen.
   @override
   Future<void> videoDetached() async {
     if (!window.isVisible) return;
@@ -738,7 +739,7 @@ class _MelonAppState extends State<MelonApp>
 
   void openSettings(String section) {
     settingsSection = section;
-    // Settings scroll to the section when they open.
+    // A kept settings page is built anew, so it scrolls to the section.
     if (route != 'settings') kept.remove('settings');
     navigate('settings');
   }
@@ -791,7 +792,7 @@ class _MelonAppState extends State<MelonApp>
     final active = subscriptions.active;
     if (keptAwake != active) {
       keptAwake = active;
-      unawaited(Background.keepAwake(active).catchError((Object _) {}));
+      unawaited(Background.keepAwake(active).catchError(showError));
     }
     if (subscriptions.subscriptions.isEmpty) {
       tray?.hide();
@@ -890,19 +891,22 @@ class _MelonAppState extends State<MelonApp>
           await service.update.applyOnExit(restart: restartForUpdate);
         }
       } finally {
-        // Quitting goes on without the relaunch rather than leaving a blank
-        // window, and a logout or shutdown on macOS waiting.
-        if (relaunching) await relaunchAfterExit().catchError((Object _) {});
-        tray?.hide();
-        exiting = true;
-        if (Platform.isLinux) {
-          window.close();
-        } else {
-          // The macOS runner stays open without windows and quits itself;
-          // the Windows runner posts its own WM_CLOSE, which destroys its
-          // view before leaving the message loop. window.close() would send
-          // that WM_CLOSE inside this Dart call and hang on the engine.
-          await Background.quit().catchError((Object _) {});
+        // A failed relaunch surfaces only after quitting, which must not
+        // leave a blank window, or a macOS logout or shutdown, waiting.
+        try {
+          if (relaunching) await relaunchAfterExit();
+        } finally {
+          tray?.hide();
+          exiting = true;
+          if (Platform.isLinux) {
+            window.close();
+          } else {
+            // The macOS runner stays open without windows and quits itself;
+            // the Windows runner posts its own WM_CLOSE, which destroys its
+            // view before leaving the message loop. window.close() would
+            // send that WM_CLOSE inside this Dart call and hang the engine.
+            await Background.quit();
+          }
         }
       }
     }
@@ -914,20 +918,20 @@ class _MelonAppState extends State<MelonApp>
   /// The runner waits four seconds at most, then closes the window.
   Future<void> endSession() async {
     if (mounted && !closing) setState(() => closing = true);
+    // Each step runs whether the one before failed or ran out of time; the
+    // failure then reaches the runner, which ends the session either way.
     try {
       if (ready) {
         await coordinator.close().timeout(const Duration(seconds: 1));
       }
-    } catch (_) {
-      // The services still close.
+    } finally {
+      try {
+        await service.close().timeout(const Duration(milliseconds: 2500));
+      } finally {
+        tray?.hide();
+        exiting = true;
+      }
     }
-    try {
-      await service.close().timeout(const Duration(milliseconds: 2500));
-    } catch (_) {
-      // Ends anyway.
-    }
-    tray?.hide();
-    exiting = true;
   }
 
   /// Hides the window, or minimizes it on Linux, whose desktops may have no
@@ -1387,10 +1391,6 @@ class _MelonAppState extends State<MelonApp>
     onOpenResources: openResourcePage,
   );
 
-  void setDark(bool value) => unawaited(
-    appearance.setMode(value ? ThemeChoice.dark : ThemeChoice.light),
-  );
-
   final themeReveal = GlobalKey<ThemeRevealState>();
 
   /// While the title bar's switch opens the new theme from the pointer.
@@ -1539,12 +1539,7 @@ class _MelonAppState extends State<MelonApp>
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const SizedBox.square(
-                                dimension: 12,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 1.5,
-                                ),
-                              ),
+                              const BusyIndicator(size: 12),
                               const SizedBox(width: Gap.sm),
                               Text(
                                 status,
@@ -1748,7 +1743,9 @@ class _MelonAppState extends State<MelonApp>
 const _sections = ['home', 'tracking', 'downloads', 'sources', 'settings'];
 
 /// A sidebar page kept once shown. Hidden, it keeps what it last built,
-/// stops its animations and takes no focus; shown again, it rises in.
+/// stops its animations and takes no focus; shown again, it appears at once,
+/// as a sidebar switch does in native apps: its [PageEntrance] plays on the
+/// first showing only, since fading in from dim read as a stall.
 class _KeptPage extends StatefulWidget {
   const _KeptPage({
     required super.key,
@@ -1773,9 +1770,6 @@ class _KeptPageState extends State<_KeptPage> {
       maintainState: true,
       child: ExcludeFocus(
         excluding: !widget.shown,
-        // Shown again, a kept page is already laid out and appears at once,
-        // as a sidebar switch does in native apps; fading it in from dim
-        // read as a stall.
         child: PageEntrance(child: page!),
       ),
     );

@@ -13,8 +13,9 @@ import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
 import '../../features/acquisition/online_candidates.dart';
 import '../../features/acquisition/resource_metadata.dart';
+import '../../features/acquisition/resource_results.dart';
 import '../../features/acquisition/title_matching.dart';
-import '../../features/playback/play_selection.dart';
+import '../../features/playback/play_ranking.dart';
 import '../../features/playback/resource_search.dart';
 import '../../core/notices.dart';
 import '../core/action_feedback.dart';
@@ -24,31 +25,13 @@ import '../core/byte_units.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
-import '../core/subject_posters.dart';
+import '../core/subject_cover.dart';
 import '../core/theme.dart';
+import '../core/tone.dart';
 import 'resource_batch_dialog.dart';
 import 'group_filter.dart';
-import 'resource_results.dart';
+import 'resource_labels.dart';
 import 'resource_widgets.dart';
-
-/// An entry of an upload or site subject, with the episode it plays as.
-typedef _Part = (
-  PlayCandidate candidate,
-  SourceEpisode entry,
-  Episode? episode,
-);
-
-final _episodeSuffix = RegExp(
-  r'\s-\s?\d{1,3}(?:\.5)?(?:\(\d{1,4}\))?(?:\s*(?:v\d|END|完))?(?=\s|$)|(?<![a-z])EP\s?\d{1,3}(?:\s*END)?|\bS\d{1,2}E\d{1,3}\b|(?<=^|\s)\d{1,3}\(\d{1,4}\)(?=\s|$)',
-  caseSensitive: false,
-);
-final _spaces = RegExp(r'\s+');
-
-/// The display title of a series, without the episode of its release.
-String _seriesTitle(ResourceTitleInfo info) => info.displayTitle
-    .replaceFirst(_episodeSuffix, ' ')
-    .replaceAll(_spaces, ' ')
-    .trim();
 
 /// The resource search shared by the resources page, the player's resource
 /// sheet and the source picker: a search form, pinned local filters and one
@@ -68,7 +51,7 @@ class ResourceSearchView extends StatefulWidget {
   });
   final ResourceSearchController search;
 
-  /// Plays [candidate] as [episode].
+  /// Plays a candidate as the episode given.
   final Future<void> Function(PlayCandidate candidate, Episode episode) onPlay;
 
   /// While active, a context that was never searched is searched with the
@@ -92,21 +75,26 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   final excludedProviders = <String>{};
   final qualities = <String>{}, groups = <String>{};
   final languages = <String>{}, subtitleForms = <String>{};
-  // Downloads started here, by candidate id.
+
+  /// Downloads started here, by candidate id.
   final adding = <String>{};
   final downloadErrors = <String, String>{};
   final downloadTasks = <String, String>{};
   late final StreamSubscription<TransferSnapshot> downloadChanges;
   final annotations = <String, ResourceTitleInfo>{};
-  // Entries of online subjects, by candidate id.
+
+  /// Entries of online subjects, by candidate id.
   final parts = <String, Future<List<SourceEpisode>>>{};
-  // Result rows the list showed when last built, by entry id.
+
+  /// Result rows the list showed when last built, by entry id.
   var shownEntries = <String>{};
-  // The version a series in several shows, by entry key.
+
+  /// The version a series in several shows, by entry key.
   final versionOf = <String, String>{};
 
   ResourceFamily kind = ResourceFamily.all;
-  // Whether results not stating a selected filter show, after the rest.
+
+  /// Whether results not stating a selected filter show, after the rest.
   bool showUnstated = false;
   String? opening;
   PageStorageBucket? storage;
@@ -347,24 +335,13 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
   Future<void> play(PlayCandidate candidate, Episode target) async {
     if (opening != null) return;
     if (candidate.possibleMatch) {
-      final confirmed = await showMelonDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('确认条目匹配'),
-          content: Text('请确认所选资源对应${target.label}：\n${candidate.title}'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('观看'),
-            ),
-          ],
-        ),
+      final confirmed = await showConfirmDialog(
+        context,
+        title: '确认条目匹配',
+        message: '请确认所选资源对应${target.label}：\n${candidate.title}',
+        confirmLabel: '观看',
       );
-      if (confirmed != true || !mounted) return;
+      if (!confirmed || !mounted) return;
     }
     setState(() => opening = candidate.id);
     try {
@@ -414,7 +391,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       cached: {
         for (final task in controller.downloads.snapshot().forSubject(
           subject.id,
-        )) ...{?task.episodeId, ...episodeFiles(subject, task).keys},
+        ))
+          ...taskEpisodeIds(subject, task),
       },
     );
     if (chosen == null || !mounted) return;
@@ -463,47 +441,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     if (candidate.health < 0) '最近播放失败',
   ];
 
-  /// Entries of an upload or site subject by line; each plays as the
-  /// searched episode or, for a whole-subject search, the one it names. An
-  /// upload's parts naming the searched episode come first.
-  Map<String, List<_Part>> linesOf(
-    PlayCandidate parent,
-    List<SourceEpisode> rows,
-  ) {
-    final upload = (parent.target as OnlineTarget).chooseFrom!;
-    final subject = this.subject;
-    final held = subject == null
-        ? null
-        : upload.choosePart
-        ? uploadPartEpisodes(subject, upload.title, [
-            for (final row in rows) row.part!,
-          ])
-        : [for (final row in rows) sourceEpisode(subject, row.label)];
-    final order = [for (var i = 0; i < rows.length; i++) i];
-    if (searched case final episode? when held != null) {
-      order.sort((a, b) {
-        int rank(int i) => held[i]?.id == episode.id ? 0 : 1;
-        return rank(a) - rank(b) != 0 ? rank(a) - rank(b) : a - b;
-      });
-    }
-    final lines = <String, List<_Part>>{};
-    for (final i in order) {
-      final row = rows[i];
-      (lines[row.line] ??= []).add((
-        onlinePartCandidate(parent, upload, row),
-        row,
-        searched ?? held?[i],
-      ));
-    }
-    return lines;
-  }
-
-  /// Episode ids of a line with the first entry holding each.
-  static Map<int, PlayCandidate> lineOptions(List<_Part> items) => {
-    for (final (candidate, _, target) in items.reversed)
-      if (target != null) target.id: candidate,
-  };
-
   /// Reads an online subject's entries and downloads a range of the line
   /// holding the most episodes; a failed read shows in its expanded row.
   Future<void> downloadOnline(PlayCandidate parent) async {
@@ -518,13 +455,20 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       return;
     }
     if (!mounted) return;
-    final lines = linesOf(parent, rows).entries.toList()
-      ..sort(
-        (a, b) => lineOptions(b.value).length - lineOptions(a.value).length,
-      );
+    final lines =
+        onlineLines(
+          parent,
+          rows,
+          subject: subject,
+          searched: searched,
+        ).entries.toList()..sort(
+          (a, b) =>
+              onlineLineOptions(b.value).length -
+              onlineLineOptions(a.value).length,
+        );
     final options = lines.isEmpty
         ? const <int, PlayCandidate>{}
-        : lineOptions(lines.first.value);
+        : onlineLineOptions(lines.first.value);
     if (options.isEmpty) {
       changeForm(() => expandedTitles.add(id));
       return;
@@ -680,13 +624,14 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       summary: '${includedAliases.length}',
       tooltip: '同时搜索勾选的别名',
       sections: [
-        MelonFilterSection([
-          for (final name in aliases) MelonFilterOption(name, name),
-        ], title: switch (subject?.pending?.contains('aliases')) {
-          true => 'Melon 服务暂时没有返回其他名称，只用番名搜索',
-          _ when aliases.isEmpty => '没有其他名称',
-          _ => '同时搜索这些名称',
-        }),
+        MelonFilterSection(
+          [for (final name in aliases) MelonFilterOption(name, name)],
+          title: switch (subject?.pending?.contains('aliases')) {
+            true => 'Melon 服务暂时没有返回其他名称，只用番名搜索',
+            _ when aliases.isEmpty => '没有其他名称',
+            _ => '同时搜索这些名称',
+          },
+        ),
       ],
       selected: includedAliases.toSet(),
       onToggle: (name, selected) => changeForm(
@@ -736,7 +681,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
             icon: const Icon(Icons.open_in_new, size: 15),
             label: const Text('打开站点'),
           ),
-          // Left out of searches until then, so it stays failed.
+          // Left out of searches until retried, so it stays failed.
           if (sourceRegistry.status(rule.id) == SourceHealth.verification)
             TextButton(
               onPressed: () {
@@ -902,7 +847,6 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
 
   Widget _filterBar(BuildContext context, ResourceResults results) {
     final sources = state.sites;
-    final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final background = Material.of(context).color!;
     MelonFilterOption<String> counted(String value, Map<String, int> counts) =>
@@ -1000,10 +944,13 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                               provider.sourceName,
                               detail: resourceProviderStatus(provider),
                               detailColor: switch (provider.status) {
-                                SearchStatus.error => scheme.error,
-                                SearchStatus.partial => goldInk(
-                                  Theme.of(context).brightness ==
-                                      Brightness.dark,
+                                SearchStatus.error => toneColor(
+                                  context,
+                                  NoticeTone.failed,
+                                ),
+                                SearchStatus.partial => toneColor(
+                                  context,
+                                  NoticeTone.warning,
                                 ),
                                 _ => null,
                               },
@@ -1254,7 +1201,14 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           )
         // Rows in the table's shape hold the place of results to come.
         : results.visible.isEmpty && candidates.isEmpty
-        ? const MotionAppear(offset: 0, delay: 300, child: _ResultsSkeleton())
+        ? DelayedBusy(
+            busy: true,
+            builder: (context, shown) => SkeletonGroup(
+              label: '正在搜索资源',
+              shown: shown,
+              child: const _ResultsSkeleton(),
+            ),
+          )
         : const SizedBox.shrink();
   }
 
@@ -1456,7 +1410,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                   ...versions.keys,
                 ]
               : null,
-          title: _seriesTitle(info),
+          title: resourceSeriesTitle(info),
           group: resourceGroupLabel(info),
           coverage: '第 ${episodeSpans(each.keys)} 话',
           size: bytes.isEmpty
@@ -1498,7 +1452,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                     onVersion: choose,
                     title: [
                       resourceGroupLabel(info),
-                      _seriesTitle(info),
+                      resourceSeriesTitle(info),
                     ].where((e) => e.isNotEmpty).join('  '),
                     source: [
                       best.providerLabel ?? best.provider,
@@ -1564,19 +1518,26 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       future: future,
       builder: (context, snapshot) {
         final rows = snapshot.data;
-        final lines = rows == null ? null : linesOf(candidate, rows);
+        final lines = rows == null
+            ? null
+            : onlineLines(
+                candidate,
+                rows,
+                subject: subject,
+                searched: searched,
+              );
         final matched = {
-          for (final items in lines?.values ?? const <List<_Part>>[])
+          for (final items in lines?.values ?? const <List<OnlinePart>>[])
             for (final (_, _, target) in items) ?target?.sort,
         };
         final options = lines?.values
-            .map(lineOptions)
+            .map(onlineLineOptions)
             .fold(
               <int, PlayCandidate>{},
               (a, b) => b.length > a.length ? b : a,
             );
-        Widget line(String name, List<_Part> items) {
-          final options = lineOptions(items);
+        Widget line(String name, List<OnlinePart> items) {
+          final options = onlineLineOptions(items);
           return Padding(
             padding: const EdgeInsets.fromLTRB(26, Gap.xs, Gap.sm, 0),
             child: Row(
@@ -1609,7 +1570,7 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
           );
         }
 
-        Widget part(_Part part, bool wide) {
+        Widget part(OnlinePart part, bool wide) {
           final (entry, item, target) = part;
           return ResourceEpisodeRow(
             label: item.label,
@@ -1704,7 +1665,13 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
                       ),
                     )
                   else if (rows.isEmpty)
-                    notice(Text('没有可播放的条目', style: small))
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(26, 0, Gap.sm, 0),
+                      child: EmptyState.compact(
+                        text: '没有可播放的条目',
+                        center: false,
+                      ),
+                    )
                   else
                     for (final MapEntry(key: name, value: items)
                         in lines!.entries) ...[
@@ -1780,75 +1747,62 @@ class _ResultsSkeleton extends StatelessWidget {
     builder: (context, constraints) {
       final wide = constraints.maxWidth >= resourceTableWidth;
       final title = (constraints.maxWidth - 360).clamp(120.0, 420.0);
-      return MotionPulse(
-        child: Material(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: panelBorderRadius,
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: [
-              for (final (i, share) in const [
-                1.0,
-                .8,
-                .9,
-                .65,
-                .75,
-              ].indexed) ...[
-                if (i > 0) const Divider(height: 1, indent: 16, endIndent: 16),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    Gap.lg,
-                    Gap.md,
-                    Gap.lg,
-                    Gap.md,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SkeletonBlock(width: title * share, height: 14),
-                            const SizedBox(height: Gap.sm),
-                            const Row(
-                              children: [
-                                SkeletonBlock(width: 28, height: 16),
-                                SizedBox(width: Gap.xs),
-                                SkeletonBlock(width: 52, height: 16),
-                                SizedBox(width: Gap.xs),
-                                SkeletonBlock(width: 40, height: 16),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (wide)
-                        for (final width in [
-                          resourceGroupColumnWidth,
-                          resourceSizeColumnWidth,
-                          resourceDateColumnWidth,
-                        ]) ...[
-                          const SizedBox(width: Gap.md),
-                          SizedBox(
-                            width: width,
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: SkeletonBlock(
-                                width: width * .6,
-                                height: 12,
-                              ),
-                            ),
+      return Material(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: panelBorderRadius,
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            for (final (i, share) in const [1.0, .8, .9, .65, .75].indexed) ...[
+              if (i > 0) const Divider(height: 1, indent: 16, endIndent: 16),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Gap.lg,
+                  Gap.md,
+                  Gap.lg,
+                  Gap.md,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SkeletonBlock(width: title * share, height: 14),
+                          const SizedBox(height: Gap.sm),
+                          const Row(
+                            children: [
+                              SkeletonBlock(width: 28, height: 16),
+                              SizedBox(width: Gap.xs),
+                              SkeletonBlock(width: 52, height: 16),
+                              SizedBox(width: Gap.xs),
+                              SkeletonBlock(width: 40, height: 16),
+                            ],
                           ),
                         ],
-                      SizedBox(
-                        width: Gap.sm + resourceActionsWidth(wide: wide),
                       ),
-                    ],
-                  ),
+                    ),
+                    if (wide)
+                      for (final width in [
+                        resourceGroupColumnWidth,
+                        resourceSizeColumnWidth,
+                        resourceDateColumnWidth,
+                      ]) ...[
+                        const SizedBox(width: Gap.md),
+                        SizedBox(
+                          width: width,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: SkeletonBlock(width: width * .6, height: 12),
+                          ),
+                        ),
+                      ],
+                    SizedBox(width: Gap.sm + resourceActionsWidth(wide: wide)),
+                  ],
                 ),
-              ],
+              ),
             ],
-          ),
+          ],
         ),
       );
     },

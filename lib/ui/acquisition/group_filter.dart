@@ -140,13 +140,9 @@ class _GroupFilterPanelState extends State<GroupFilterPanel> {
                       const SizedBox(width: Gap.sm),
                       if (hovered == name)
                         TextButton(
-                          style: TextButton.styleFrom(
-                            minimumSize: const Size(0, 28),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: Gap.sm,
-                            ),
-                            textStyle: appFont.copyWith(
-                              fontSize: FontSize.small,
+                          style: compactTextButtonStyle.copyWith(
+                            textStyle: WidgetStatePropertyAll(
+                              appFont.copyWith(fontSize: FontSize.small),
                             ),
                           ),
                           onPressed: () => prefer(

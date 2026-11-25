@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../domain/danmaku.dart';
+import '../../features/playback/playback.dart';
 import 'danmaku_clock.dart';
 import 'danmaku_layout.dart';
-import '../../features/playback/playback.dart';
 
 /// Clock times such as `12:34`, `1:02:03` and `02 ： 13`, `2.19`, or
 /// `1分30(秒)`. A dotted time is not followed by a unit, which marks a
@@ -39,7 +39,7 @@ class DanmakuLayer extends StatefulWidget {
   const DanmakuLayer({super.key, required this.playback, required this.onJump});
   final Playback playback;
 
-  /// A comment naming a time was clicked; seek to [seconds].
+  /// Seeks to the seconds a clicked comment names.
   final ValueChanged<double> onJump;
   @override
   State<DanmakuLayer> createState() => _DanmakuLayerState();
@@ -147,7 +147,6 @@ class _DanmakuLayerState extends State<DanmakuLayer>
     if (seconds < quiet.from || seconds >= quiet.until) _wake();
   }
 
-  /// Hidden comments request no frames.
   void _toggle() {
     if (widget.playback.danmaku.preferences.enabled) {
       _wake();
@@ -252,11 +251,7 @@ class DanmakuPainter extends CustomPainter {
 
   /// Physical pixels per logical pixel, the resolution sprites render at.
   final double ratio;
-
-  /// The time a comment at a position jumps to.
   final double? Function(Offset) targetAt;
-
-  /// The time a comment's text jumps to.
   final double? Function(String) jumpTarget;
 
   /// Comments were drawn. A paint while frames rest, such as on a resize,

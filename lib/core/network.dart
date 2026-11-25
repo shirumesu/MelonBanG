@@ -49,15 +49,11 @@ extension AbortableSend on http.Client {
   }
 }
 
-/// An HTTP client that keeps each site reachable whichever way works for
-/// it. A request goes the way the proxy setting says, unless its site was
-/// learned to connect only direct; when a GET or HEAD cannot connect that
-/// way, it is sent once the other way, and if that one connects, the site
-/// is remembered for that way ([NetworkRoutes]). Writes are never sent
-/// twice, and a proxy app that is not running teaches nothing: the request
-/// goes direct and the proxy is looked for again.
-///
-/// Without a proxy in use every request goes direct, as before.
+/// An HTTP client that reaches each site whichever way works for it: the
+/// proxy setting's way, or direct for a site learned to need it. A GET or
+/// HEAD that cannot connect is sent once the other way, and a success is
+/// remembered ([NetworkRoutes]); writes are never sent twice. A proxy app
+/// that is not running teaches nothing: the proxy is looked for again.
 class RoutedClient extends http.BaseClient {
   RoutedClient({Duration idleTimeout = const Duration(seconds: 15)})
     : _proxy = NetworkProxy.installed {
@@ -118,10 +114,9 @@ class RoutedClient extends http.BaseClient {
   };
 
   /// Whether [error], from a request through the proxy, is the proxy itself
-  /// not answering, as when its app closed while the system still points
-  /// at it: through a proxy the socket opens to the proxy alone, so a
-  /// refused or timed-out connection is its. A reset or a refused tunnel
-  /// is the proxy failing to reach the site.
+  /// not answering (its app closed while the system still points at it): the
+  /// socket opens to the proxy alone, so a refused or timed-out connection is
+  /// its, while a reset or refused tunnel is it failing to reach the site.
   static bool _proxyDown(Object error) =>
       error is SocketException &&
       (_noConnection.contains(error.osError?.errorCode) ||

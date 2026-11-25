@@ -119,10 +119,9 @@ class TaskRecords {
   }
 
   /// Deletes the record and folder of task [id] once earlier writes finish.
-  /// The folder is moved aside first: on Windows that fails while another
-  /// program, such as a player, has a file in it open, before anything is
-  /// deleted, so the task stays whole instead of its files outliving its
-  /// record where nothing lists them.
+  /// The folder is renamed first, which on Windows fails while another
+  /// program such as a player has a file in it open: the task then stays
+  /// whole instead of its files outliving the record that lists them.
   Future<void> discard(String id) async {
     await _writes;
     final folder = Directory(p.join(directory, id));

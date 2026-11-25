@@ -157,7 +157,10 @@ class AccountRepository implements Account {
         );
       }
       // The browser may have gone already; the sign-in does not depend on it.
-      await request.response.close().catchError((Object _) {});
+      await request.response.close().catchError(
+        (Object _) {},
+        test: (error) => error is IOException,
+      );
     });
     try {
       // Attach the timeout before opening the browser so cancellation is observed.
@@ -348,11 +351,13 @@ class AccountRepository implements Account {
     if (_closed || !identical(_bundle, old)) throw StateError('账号已经切换');
     final bundle = <String, dynamic>{...old, ...token, 'user': old['user']};
     // Bangumi has retired the old refresh token: keep the new one for this
-    // session even when the keychain refuses it; [credentialsUnsaved] shows.
+    // session even when the keychain refuses it.
     _bundle = bundle;
     try {
       await _saveBundle(bundle, () => !_closed && identical(_bundle, bundle));
-    } catch (_) {}
+    } catch (_) {
+      // A refused write shows as [credentialsUnsaved].
+    }
     return '${token['access_token']}';
   }
 

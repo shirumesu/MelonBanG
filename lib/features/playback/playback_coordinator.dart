@@ -14,6 +14,7 @@ import '../../domain/playback_session.dart';
 import '../../domain/sources.dart';
 import '../../domain/transfer.dart';
 import '../downloads/download_repository.dart';
+import 'play_ranking.dart';
 import 'play_selection.dart';
 import 'playback.dart';
 import 'playback_library.dart';
@@ -79,7 +80,6 @@ class PreparingPlayback {
   /// the video.
   final String? status;
 
-  /// The source picked for the episode, once chosen.
   final PlayCandidate? source;
 
   /// The download being started or streamed, whose live state is shown.
@@ -108,8 +108,8 @@ class PreparingPlayback {
 
 /// Selects a source, opens it, checks for a first frame, refreshes a failed
 /// online address once, and prepares autoplay. A source that still fails
-/// stops with its reason; another one is never picked in its place. Request tickets and cancellation keep
-/// superseded work from reaching the player.
+/// stops with its reason; another one is never picked in its place. Request
+/// tickets and cancellation keep superseded work from reaching the player.
 class PlaybackCoordinator extends ChangeNotifier {
   PlaybackCoordinator(
     this.playback,
@@ -280,7 +280,6 @@ class PlaybackCoordinator extends ChangeNotifier {
     _operations = Future.wait([_operations, write]).then((_) {});
   }
 
-  /// Marks [episode] of the player's subject watched or unwatched.
   Future<void> markEpisode(Episode episode, bool watched) => _setEpisode(
     episode.subjectId,
     episode.id,
@@ -488,7 +487,7 @@ class PlaybackCoordinator extends ChangeNotifier {
           ? (progress) {
               if (done || cancel.isCancelled) return;
               sources[progress.sourceId] = progress;
-              _preparingStep(status: searchStatus(sources.values));
+              _preparingStep(status: _searchStatus(sources.values));
             }
           : null,
     );
@@ -599,7 +598,6 @@ class PlaybackCoordinator extends ChangeNotifier {
 
   void retryPreparing() => unawaited(_perform(_retryPreparing!));
 
-  /// Plays the failed source again.
   void retryFailure() {
     final candidate = _activeCandidate;
     final item = _candidateSubject, episode = _candidateEpisode;
@@ -706,18 +704,25 @@ class PlaybackCoordinator extends ChangeNotifier {
           if (playback.error != null) throw StateError(playback.error!);
           if (picked) {
             playback.notices.show(
-              Notice(
-                '已自动选择 ${candidate.sourceLabel}',
-                key: 'playback-source',
-              ),
+              Notice('已自动选择 ${candidate.sourceLabel}', key: 'playback-source'),
             );
           }
-          // A failed write only loses the preference, not the playback.
+          // A failed write loses only the remembered source; playback goes on.
           unawaited(
             selection
                 .played(item.id, candidate)
                 .then((_) => _loadRemembered(item.id))
-                .catchError((Object _) {}),
+                .catchError((Object e) {
+                  if (_closed) return;
+                  playback.notices.show(
+                    Notice(
+                      '没能记住这次选的资源',
+                      detail: errorMessage(e),
+                      tone: NoticeTone.warning,
+                      key: 'playback-remember',
+                    ),
+                  );
+                }),
           );
           final sessionId = session.id;
           _firstFrameDeadline?.cancel();
@@ -943,9 +948,7 @@ class PlaybackCoordinator extends ChangeNotifier {
           return;
       }
       if (!_closed) {
-        playback.notices.show(
-          Notice('已开始缓存${next.label}', key: 'cache-next'),
-        );
+        playback.notices.show(Notice('已开始缓存${next.label}', key: 'cache-next'));
       }
     } on RequestCancelled {
       return;
@@ -1054,7 +1057,7 @@ class PlaybackCoordinator extends ChangeNotifier {
 }
 
 /// What a source search is waiting on, for the preparing player.
-String searchStatus(Iterable<SourceProgress> sources) {
+String _searchStatus(Iterable<SourceProgress> sources) {
   final waiting = [
     for (final source in sources)
       if (source.status == SearchStatus.loading) source.sourceName,

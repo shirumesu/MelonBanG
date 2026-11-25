@@ -56,10 +56,9 @@ const accentPresets = <AccentPreset>[
   (id: 'ink', name: '墨灰', color: Color(0xff6b7a8f)),
 ];
 
-/// The chosen theme mode, theme colour, whether subject pages take their
-/// cover's colour, and the units sizes are shown in. The system accent is
-/// reread when the window regains focus, since it can change while the app
-/// runs.
+/// Theme mode, theme colour, cover-coloured subject pages and byte units.
+/// The system accent is reread when the window regains focus, since it can
+/// change while the app runs.
 class Appearance extends ChangeNotifier {
   Appearance(this.settings) {
     settings.watch([for (final setting in all) setting.key], notifyListeners);

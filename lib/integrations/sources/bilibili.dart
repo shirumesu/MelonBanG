@@ -86,7 +86,7 @@ class BilibiliEngine implements OnlineSourceEngine {
         ).year,
         _ => null,
       },
-      episodeTotal: _integer(row['ep_size']),
+      episodeTotal: intOrNull(row['ep_size']),
       direct: direct,
       data: {'seasonId': row['season_id']},
     );
@@ -100,7 +100,7 @@ class BilibiliEngine implements OnlineSourceEngine {
       final duration = switch (row['duration']) {
         final String clock =>
           clock.split(':').fold(0, (a, b) => a * 60 + (int.tryParse(b) ?? 0)),
-        final value => _integer(value),
+        final value => intOrNull(value),
       };
       return SourceSubject(
         id: id,
@@ -109,7 +109,7 @@ class BilibiliEngine implements OnlineSourceEngine {
         description: duration == null ? null : _clock(duration),
         choosePart: true,
         durationSeconds: duration,
-        publishedAt: switch (_integer(row['pubdate'])) {
+        publishedAt: switch (intOrNull(row['pubdate'])) {
           final seconds? => DateTime.fromMillisecondsSinceEpoch(seconds * 1000),
           null => null,
         },
@@ -120,7 +120,7 @@ class BilibiliEngine implements OnlineSourceEngine {
         ],
         // Search rows count comments as `video_review`; the view API in
         // `stat`.
-        danmakuCount: _integer(
+        danmakuCount: intOrNull(
           row['video_review'] ?? object(row['stat'])['danmaku'],
         ),
         direct: direct,
@@ -200,7 +200,7 @@ class BilibiliEngine implements OnlineSourceEngine {
           SourceEpisode(
             label: 'P${page['page']} ${page['part']}',
             part: '${page['part']}',
-            description: switch (_integer(page['duration'])) {
+            description: switch (intOrNull(page['duration'])) {
               final seconds? => _clock(seconds),
               null => null,
             },
@@ -370,8 +370,6 @@ List<String> _mediaUrls(Json track) => [
 
 /// Search rows mark the matched words in `<em>`.
 String _text(Object? value) => html.parseFragment('${value ?? ''}').text ?? '';
-
-int? _integer(Object? value) => value is num ? value.toInt() : null;
 
 /// "1:02:03" or "2:03".
 String _clock(int seconds) {

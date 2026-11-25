@@ -1,7 +1,7 @@
 import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/resource_title.dart';
-import '../../features/acquisition/title_matching.dart';
+import 'title_matching.dart';
 
 /// The kind segment, like the Sources page groups: online entries, torrents
 /// over BT and torrents PikPak's index holds.
@@ -52,9 +52,8 @@ class ResourceResults {
   /// [grouping], one group's single-episode releases of a series form an
   /// entry, in each subtitle version, platform rip and quality the group
   /// made. Results not stating a selection show, after the rest, only with
-  /// [unstated]; releases
-  /// holding none of [subject]'s episodes, such as an earlier season's,
-  /// follow the rest.
+  /// [unstated]; releases holding none of [subject]'s episodes, such as an
+  /// earlier season's, follow the rest.
   ResourceResults(
     List<(PlayCandidate, ResourceTitleInfo)> annotated, {
     required Set<String> excludedProviders,
@@ -264,12 +263,11 @@ class ResourceResults {
 
   /// Results of the shown sites passing the filters, confirmed ones first;
   /// [visible] also passes the kind segment.
-  ///
-  /// [unstatedCount] are those of the shown kind not stating a selection,
-  /// shown or not.
   late final List<(PlayCandidate, ResourceTitleInfo)> matching, visible;
   late final Map<String, int> qualityCounts, groupCounts, subtitleCounts;
   late final Map<ResourceFamily, int> kindCounts;
+
+  /// Results of the shown kind not stating a selection, shown or not.
   late final int unstatedCount;
 
   /// Release groups, the most common first.

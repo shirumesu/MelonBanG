@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/error_message.dart';
+import '../../core/notices.dart';
 import 'motion.dart';
 import 'theme.dart';
+import 'tone.dart';
 
 class ActionFeedback extends ChangeNotifier {
   bool busy = false, succeeded = false;
@@ -55,15 +57,11 @@ class FeedbackButton extends StatelessWidget {
     required this.successLabel,
     required this.icon,
     required this.onPressed,
-    this.iconOnly = false,
   });
   final ActionFeedback feedback;
   final String label, runningLabel, successLabel;
   final IconData icon;
   final VoidCallback onPressed;
-
-  /// Shows only the icon, with the current label as its tooltip.
-  final bool iconOnly;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -88,17 +86,11 @@ class FeedbackButton extends StatelessWidget {
         switchInCurve: Curves.easeOut,
         switchOutCurve: Curves.easeOut,
         child: spinning
-            ? MediaQuery.disableAnimationsOf(context)
-                  ? const Icon(
-                      Icons.hourglass_empty_rounded,
-                      key: ValueKey('busy'),
-                      size: 18,
-                    )
-                  : const Padding(
-                      key: ValueKey('busy'),
-                      padding: EdgeInsets.all(1),
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
+            ? const Padding(
+                key: ValueKey('busy'),
+                padding: EdgeInsets.all(1),
+                child: BusyIndicator(),
+              )
             : Icon(
                 feedback.succeeded ? Icons.check_rounded : icon,
                 key: ValueKey(feedback.succeeded),
@@ -106,26 +98,19 @@ class FeedbackButton extends StatelessWidget {
               ),
       ),
     );
-    final primary = Theme.of(context).colorScheme.primary;
     return Semantics(
       liveRegion: true,
-      child: iconOnly
-          ? IconButton(
-              tooltip: current,
-              onPressed: feedback.busy || spinning ? null : onPressed,
-              color: feedback.succeeded ? primary : null,
-              disabledColor: primary,
-              icon: glyph,
-            )
-          : TextButton.icon(
-              onPressed: feedback.busy || spinning ? null : onPressed,
-              style: TextButton.styleFrom(disabledForegroundColor: primary),
-              icon: glyph,
-              label: _FeedbackLabel(
-                labels: [label, runningLabel, successLabel],
-                current: current,
-              ),
-            ),
+      child: TextButton.icon(
+        onPressed: feedback.busy || spinning ? null : onPressed,
+        style: TextButton.styleFrom(
+          disabledForegroundColor: Theme.of(context).colorScheme.primary,
+        ),
+        icon: glyph,
+        label: _FeedbackLabel(
+          labels: [label, runningLabel, successLabel],
+          current: current,
+        ),
+      ),
     );
   }
 }
@@ -186,44 +171,44 @@ class FeedbackIssue extends StatelessWidget {
     listenable: feedback,
     builder: (context, _) => IssueBanner(
       issue: feedback.issue,
-      onAction: onRetry,
-      actionLabel: actionLabel,
+      actions: [
+        if (onRetry case final retry?) NoticeAction(actionLabel, retry),
+      ],
     ),
   );
 }
 
-/// A tinted line naming what went wrong, unfolding while [issue] is set.
+/// A tinted strip naming what went wrong or needs a look, unfolding while
+/// [issue] is set. A whole operation failing is [NoticeTone.failed]; one
+/// part of several, with the rest still shown, [NoticeTone.warning].
 class IssueBanner extends StatefulWidget {
   const IssueBanner({
     super.key,
     required this.issue,
-    this.onAction,
-    this.actionLabel = '重试',
+    this.tone = NoticeTone.failed,
+    this.actions = const [],
   });
   final String? issue;
-
-  /// Null when the issue offers no action.
-  final VoidCallback? onAction;
-  final String actionLabel;
+  final NoticeTone tone;
+  final List<NoticeAction> actions;
 
   @override
   State<IssueBanner> createState() => _IssueBannerState();
 }
 
 class _IssueBannerState extends State<IssueBanner> {
-  /// The last issue, and its action, kept while the banner folds away.
+  /// The last issue, its tone and actions, kept while the banner folds away.
   String? _issue;
-  VoidCallback? _action;
-  String _actionLabel = '';
+  NoticeTone _tone = NoticeTone.failed;
+  List<NoticeAction> _actions = const [];
 
   @override
   Widget build(BuildContext context) {
     if (widget.issue != null) {
       _issue = widget.issue;
-      _action = widget.onAction;
-      _actionLabel = widget.actionLabel;
+      _tone = widget.tone;
+      _actions = widget.actions;
     }
-    final scheme = Theme.of(context).colorScheme;
     return MotionReveal(
       visible: widget.issue != null,
       child: _issue == null
@@ -240,15 +225,15 @@ class _IssueBannerState extends State<IssueBanner> {
                     Gap.xs,
                   ),
                   decoration: BoxDecoration(
-                    color: scheme.errorContainer.withValues(alpha: .45),
+                    color: toneContainer(context, _tone),
                     borderRadius: controlBorderRadius,
                   ),
                   child: Row(
                     children: [
                       Icon(
-                        Icons.error_outline_rounded,
+                        toneIcon(_tone),
                         size: 18,
-                        color: scheme.error,
+                        color: toneColor(context, _tone),
                       ),
                       const SizedBox(width: Gap.sm),
                       Expanded(
@@ -257,10 +242,12 @@ class _IssueBannerState extends State<IssueBanner> {
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
-                      if (_action != null)
+                      for (final action in _actions)
                         TextButton(
-                          onPressed: widget.issue == null ? null : _action,
-                          child: Text(_actionLabel),
+                          onPressed: widget.issue == null
+                              ? null
+                              : action.onPressed,
+                          child: Text(action.label),
                         ),
                     ],
                   ),
@@ -271,24 +258,20 @@ class _IssueBannerState extends State<IssueBanner> {
   }
 }
 
-/// The tone for words about something that went wrong: the error hue,
-/// drawn toward the muted text colour so a failure reads calmly.
-Color issueColor(BuildContext context) {
-  final scheme = Theme.of(context).colorScheme;
-  return Color.lerp(scheme.error, scheme.onSurfaceVariant, .3)!;
-}
-
-/// One compact line naming what went wrong, for a row, card or form whose
-/// failure belongs right beside it; [IssueBanner] for a whole panel.
+/// One line naming what went wrong or needs a look, beside the row, card or
+/// field it is about; [IssueBanner] for a whole panel. Only the icon takes
+/// [tone]'s colour.
 class InlineIssue extends StatelessWidget {
   const InlineIssue(
     this.text, {
     super.key,
+    this.tone = NoticeTone.failed,
     this.onRetry,
     this.actionLabel = '重试',
     this.maxLines,
   });
   final String text;
+  final NoticeTone tone;
 
   /// Null when the issue offers no action.
   final VoidCallback? onRetry;
@@ -297,8 +280,6 @@ class InlineIssue extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = issueColor(context);
-    final style = Theme.of(context).textTheme.bodySmall?.copyWith(color: color);
     final line = Text.rich(
       TextSpan(
         children: [
@@ -306,13 +287,17 @@ class InlineIssue extends StatelessWidget {
             alignment: PlaceholderAlignment.middle,
             child: Padding(
               padding: const EdgeInsets.only(right: Gap.sm),
-              child: Icon(Icons.error_outline_rounded, size: 14, color: color),
+              child: Icon(
+                toneIcon(tone),
+                size: 14,
+                color: toneColor(context, tone),
+              ),
             ),
           ),
           TextSpan(text: text),
         ],
       ),
-      style: style,
+      style: Theme.of(context).textTheme.bodySmall,
       maxLines: maxLines,
       overflow: maxLines == null ? null : TextOverflow.ellipsis,
     );
@@ -327,12 +312,7 @@ class InlineIssue extends StatelessWidget {
                 const SizedBox(width: Gap.xs),
                 TextButton(
                   onPressed: onRetry,
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(0, 28),
-                    padding: const EdgeInsets.symmetric(horizontal: Gap.sm),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
-                  ),
+                  style: compactTextButtonStyle,
                   child: Text(actionLabel),
                 ),
               ],

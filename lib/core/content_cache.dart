@@ -6,8 +6,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'network.dart';
 import 'store.dart';
 
-/// The image was removed or the artwork slot is blank.
-/// Retrying soon will not help.
+/// The image was removed or the artwork slot is blank; retrying soon will
+/// not help.
 class MissingImage implements Exception {
   const MissingImage(this.url);
   final String url;
@@ -218,6 +218,7 @@ class ContentCache {
       queue.close();
     }
     await _cleaning;
+    // Each request's caller gets its error; closing only waits for them.
     await Future.wait(
       _requests.values.toList().map(
         (request) => request.then<void>((_) {}, onError: (Object _) {}),

@@ -2,12 +2,22 @@ import 'catalog.dart';
 
 /// The calendar day of [instant] in UTC+8, the schedule's time zone.
 DateTime shanghaiDay(DateTime instant) {
-  final time = instant.toUtc().add(const Duration(hours: 8));
+  final time = _shanghai(instant);
   return DateTime.utc(time.year, time.month, time.day);
 }
 
-/// When an episode airs; [timed] when the schedule gives the hour, otherwise
-/// [at] is the start of its air date.
+/// The time of day of [instant] in UTC+8, as 09:05.
+String shanghaiClock(DateTime instant) {
+  final time = _shanghai(instant);
+  return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+}
+
+/// [instant] as a UTC value whose fields read UTC+8.
+DateTime _shanghai(DateTime instant) =>
+    instant.toUtc().add(const Duration(hours: 8));
+
+/// When an episode airs; `timed` when the schedule gives the hour, otherwise
+/// `at` is the start of its air date.
 typedef Release = ({DateTime at, bool timed});
 
 /// When [episode] airs. Bangumi's air date decides the day, so a skipped

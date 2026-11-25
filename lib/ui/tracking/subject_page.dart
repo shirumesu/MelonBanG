@@ -4,25 +4,31 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../core/error_message.dart';
-import '../../domain/collection_edit.dart';
+import '../../core/notices.dart';
 import '../../domain/catalog.dart';
+import '../../domain/collection_edit.dart';
+import '../../domain/community.dart';
+import '../../domain/episode_release.dart';
 import '../../features/playback/playback_library.dart';
 import '../../features/playback/resume_controller.dart';
 import '../../features/tracking/subject_controller.dart';
 import '../../features/tracking/tracking_controller.dart';
 import '../core/action_feedback.dart';
+import '../core/collection_labels.dart';
 import '../core/external_link.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
+import '../core/subject_cover.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
-import '../discovery/schedule_timelines.dart';
+import '../discovery/release_labels.dart';
+import 'collection_controls.dart';
 import 'collection_editor.dart';
-import 'collection_labels.dart';
 import 'episode_grid.dart';
 import 'subject_community.dart';
 import 'subject_people.dart';
+import 'subject_relations.dart';
 
 /// Content width at which the collection and statistics cards sit in a
 /// right column beside the main panel.
@@ -67,8 +73,7 @@ class SubjectPage extends StatelessWidget {
   final ValueChanged<SubjectQuery> onSearch;
   final ValueChanged<Object> onError;
 
-  /// The theme colour is the cover's: the main panel's top takes a wash of
-  /// it.
+  /// The theme colour is the cover's; the main panel's top takes a wash of it.
   final bool coverTint;
 
   /// The button subscribing to a show, or showing its subscription.
@@ -446,12 +451,11 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   EpisodeStatus _episodeStatus(Episode episode) =>
       _episodeOverrides[episode.id] ?? episode.status;
 
-  /// The first unwatched main episode or special aired after the run (an
-  /// OVA or 番外) past the furthest watched one, since a gap before it is
-  /// more often watched elsewhere than skipped; else the first unwatched,
-  /// else the last main episode. Specials within the run are left to
-  /// autoplay. The episode to resume takes over when it is that one or was
-  /// played for a while, not just looked at.
+  /// The first unwatched main episode, or special aired after the run, past
+  /// the furthest watched one, since a gap before it is more often watched
+  /// elsewhere than skipped; else the first unwatched, else the last main
+  /// episode. Specials within the run are left to autoplay. The episode to
+  /// resume wins when it is that one or was played for a while.
   Episode? _nextEpisode(List<Episode> episodes) {
     final last = episodes.lastIndexWhere((e) => e.main);
     final furthest = episodes.lastIndexWhere(
@@ -485,7 +489,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     return '${value ~/ 60}:${(value % 60).toString().padLeft(2, '0')}';
   }
 
-  /// The episode's name, then its state and air date.
   TextSpan _episodeSummary(Episode episode) {
     final date = episode.airDate ?? '';
     return TextSpan(
@@ -828,7 +831,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
               ProminentButton(
                 onPressed: null,
                 icon: const Icon(Icons.schedule_rounded, size: 18),
-                label: _ReleaseCountdown(release: upcoming, episode: next!),
+                label: _ReleaseCountdown(upcoming),
               )
             else if (done)
               FilledButton.tonalIcon(
@@ -894,7 +897,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                         ),
                 ),
         ),
-        // Most summaries run past three lines: their 展开简介's place.
+        // While loading, 展开简介's room: most summaries run past three lines.
         if (summaryLoading)
           const SizedBox(height: 30)
         else if (summary.length > 90)
@@ -961,7 +964,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       padding: EdgeInsets.zero,
       child: Stack(
         children: [
-          // A wash of the cover's colour over the panel's top, gone by 170px.
           if (widget.coverTint)
             Positioned(
               top: 0,
@@ -1022,13 +1024,13 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             count: widget.subject?.episodeTotal,
             shown: skeleton,
           )
-        else if (episodes.isEmpty)
+        else if (episodes.isEmpty && _failedPart('episodes'))
           Padding(
             padding: const EdgeInsets.symmetric(vertical: Gap.md),
-            child: _failedPart('episodes')
-                ? _failure('剧集加载失败')
-                : const Text('暂无剧集信息'),
+            child: InlineIssue('剧集加载失败', onRetry: widget.onRetry),
           )
+        else if (episodes.isEmpty)
+          const EmptyState.compact(text: '暂无剧集信息', center: false)
         else
           EpisodeGrid(
             episodes: episodes,
@@ -1055,9 +1057,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       ],
     );
   }
-
-  Widget _failure(String message) =>
-      PartFailure(message: message, onRetry: widget.onRetry);
 
   Widget _collectionCard(Subject item) {
     final text = Theme.of(context).textTheme;
@@ -1165,7 +1164,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                           ? null
                           : () => unawaited(_saveTags([..._tags]..remove(tag))),
                     ),
-                  _TagAdder(
+                  TagAdder(
                     tags: _tags,
                     popular: item.tags.map((tag) => tag.name).take(16).toList(),
                     blocked: status == null,
@@ -1220,21 +1219,12 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   }
 
   Widget _collectionFeedback() {
-    final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
     final Widget? content;
     if (_collectionError != null) {
       content = InlineIssue(_collectionError!);
     } else if (_nudge != null) {
-      content = Row(
-        children: [
-          Icon(Icons.info_outline_rounded, size: 15, color: scheme.primary),
-          const SizedBox(width: Gap.xs),
-          Flexible(
-            child: Text(_nudge!, style: small?.copyWith(color: scheme.primary)),
-          ),
-        ],
-      );
+      content = InlineIssue(_nudge!, tone: NoticeTone.warning);
     } else if (_savingCollection ||
         _feedback != null ||
         _undo != null ||
@@ -1246,10 +1236,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           if (_savingCollection)
             const Padding(
               padding: EdgeInsets.only(right: Gap.xs),
-              child: SizedBox.square(
-                dimension: 12,
-                child: CircularProgressIndicator(strokeWidth: 1.5),
-              ),
+              child: BusyIndicator(size: 12),
             ),
           if (_feedback != null) Text(_feedback!, style: small),
           if (_undo != null && !_savingCollection)
@@ -1318,7 +1305,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             ],
           ),
           const SizedBox(height: Gap.md),
-          // The bar fills in from the left when the card first shows.
           MotionValue(
             key: const PageStorageKey('collection-stats'),
             value: 1,
@@ -1505,126 +1491,13 @@ class _Nudge extends StatelessWidget {
   }
 }
 
-/// "+ 添加" chip opening a small tag menu: free input plus popular tags.
-class _TagAdder extends StatefulWidget {
-  const _TagAdder({
-    required this.tags,
-    required this.popular,
-    required this.blocked,
-    required this.onBlocked,
-    required this.onSave,
-  });
-  final List<String> tags, popular;
-  final bool blocked;
-  final VoidCallback onBlocked;
-
-  /// Returns a validation message, or null once saved.
-  final Future<String?> Function(List<String>) onSave;
-
-  @override
-  State<_TagAdder> createState() => _TagAdderState();
-}
-
-class _TagAdderState extends State<_TagAdder> {
-  final input = TextEditingController();
-  String? error;
-
-  @override
-  void dispose() {
-    input.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save(List<String> tags) async {
-    final message = await widget.onSave(tags);
-    if (!mounted) return;
-    setState(() => error = message);
-    if (message == null) input.clear();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final small = Theme.of(context).textTheme.bodySmall;
-    return MelonMenuAnchor(
-      onClose: () => setState(() => error = null),
-      menuChildren: [
-        // With the menu's own 4px, 12px around the field.
-        Padding(
-          padding: const EdgeInsets.all(Gap.sm),
-          child: SizedBox(
-            width: 300,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: input,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: '输入标签，回车或逗号添加',
-                    errorText: error,
-                  ),
-                  onSubmitted: (value) => unawaited(
-                    _save([...widget.tags, ...splitCollectionTags(value)]),
-                  ),
-                  onChanged: (value) {
-                    if (endsWithTagSeparator(value)) {
-                      unawaited(
-                        _save([...widget.tags, ...splitCollectionTags(value)]),
-                      );
-                    }
-                  },
-                ),
-                if (widget.popular.isNotEmpty) ...[
-                  const SizedBox(height: Gap.md),
-                  Text('大家常用', style: small),
-                  const SizedBox(height: Gap.sm),
-                  TagToggles(
-                    tags: widget.popular,
-                    selected: widget.tags.toSet(),
-                    onToggle: (tag) => unawaited(
-                      _save(
-                        widget.tags.contains(tag)
-                            ? ([...widget.tags]..remove(tag))
-                            : [...widget.tags, tag],
-                      ),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: Gap.sm),
-                Text('${widget.tags.length}/$collectionTagLimit', style: small),
-              ],
-            ),
-          ),
-        ),
-      ],
-      builder: (context, controller, _) => ActionChip(
-        avatar: const Icon(Icons.add_rounded, size: 16),
-        label: const Text('添加'),
-        visualDensity: VisualDensity.compact,
-        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        onPressed: () {
-          if (widget.blocked) {
-            widget.onBlocked();
-          } else if (controller.isOpen) {
-            controller.close();
-          } else {
-            controller.open();
-          }
-        },
-      ),
-    );
-  }
-}
-
 final _timeTag = RegExp(r'^(\d{4}(年(\d{1,2}月)?)?|\d{1,2}月)$');
 
 /// The play button's label while the next episode has not aired, kept
 /// current as the time nears.
 class _ReleaseCountdown extends StatelessWidget {
-  const _ReleaseCountdown({required this.release, required this.episode});
+  const _ReleaseCountdown(this.release);
   final Release release;
-  final Episode episode;
 
   @override
   Widget build(BuildContext context) => ShownClock(

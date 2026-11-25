@@ -97,20 +97,17 @@ class SettingsPart implements SyncPart {
       settings.describe(conflict.key, conflict.field, value);
 }
 
-/// Keeps the synced settings (and, when turned on, the subscriptions and
-/// per-show records) the same on every device signed in to the same
+/// Keeps the synced settings, the subscriptions (unless this device opts
+/// out) and the per-show records the same on every device signed in to one
 /// Bangumi account, through Melon API.
 ///
-/// Each sync reads the cloud copy, merges it three ways with the copy this
-/// device last agreed on ([mergeSettings]), applies the result here and
-/// uploads it if it differs. Uploads name the revision they were based on;
-/// when another device got in first, the merge runs again on its copy.
-///
-/// One account is expected to be used on one device at a time, so it syncs
-/// when the app starts, on sign-in, as soon as something synced changes
-/// here, and once more as the app quits ([flush]); nothing polls. A change
-/// is kept here whether or not the upload works; a failed one is retried
-/// with the next sync.
+/// Each sync merges the cloud copy three ways with the copy this device last
+/// agreed on ([mergeSettings]), applies the result and uploads it if it
+/// differs, naming the revision it was based on; when another device got in
+/// first, the merge runs again on its copy. One account is expected on one
+/// device at a time, so it syncs at start, on sign-in, on each synced change
+/// and as the app quits ([flush]); nothing polls, and a failed upload is
+/// retried with the next sync.
 class SettingsSync extends ChangeNotifier {
   SettingsSync({
     required this.api,
@@ -147,7 +144,7 @@ class SettingsSync extends ChangeNotifier {
   final Settings settings;
   final List<SyncPart> parts;
 
-  /// Melon API, or a local copy of it in tests.
+  /// Melon API's address.
   final String origin;
 
   /// The Bangumi access token; throws while signed out.
@@ -247,13 +244,10 @@ class SettingsSync extends ChangeNotifier {
   }
 
   /// Settles [conflicts]: the ids in [useRemote] take the cloud's value, the
-  /// rest keep this device's, then syncing carries on.
-  ///
-  /// The sync that follows merges again with what this device and the cloud
-  /// hold by then, as any sync does: what changed here while the choice
-  /// waited stays, and a conflicting setting changed again on either side
-  /// is asked about again rather than settled by a pick between older
-  /// values.
+  /// rest keep this device's, then syncing carries on. The next sync merges
+  /// what both sides hold by then: a change made here meanwhile stays, and a
+  /// conflicting setting changed again on either side is asked about again
+  /// rather than settled by a pick between older values.
   Future<void> resolve(Set<String> useRemote) {
     final pending = _pending;
     if (pending == null) return Future.value();
@@ -307,10 +301,9 @@ class SettingsSync extends ChangeNotifier {
     _timer = Timer(Duration.zero, () => unawaited(_start()));
   }
 
-  /// As the app quits: uploads what changed here and still waits to go up,
-  /// such as the place an episode was just left at, waiting [limit] at
-  /// most. What does not make it stays here and goes up with the sync the
-  /// next start runs.
+  /// As the app quits: uploads what still waits to go up, such as the place
+  /// an episode was just left at, for [limit] at most; what does not make it
+  /// goes up with the next start's sync.
   Future<void> flush(Duration limit) async {
     for (final part in parts) {
       if (part.enabled) part.flush();

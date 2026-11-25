@@ -28,6 +28,7 @@ import '../features/discovery/discovery_controller.dart';
 import '../features/network/connectivity.dart';
 import '../features/downloads/download_repository.dart';
 import '../features/downloads/downloads_controller.dart';
+import '../features/playback/play_ranking.dart';
 import '../features/playback/play_selection.dart';
 import '../features/playback/playback.dart';
 import '../features/playback/playback_coordinator.dart';
@@ -54,9 +55,9 @@ import '../integrations/transfer/libtorrent.dart';
 import '../integrations/transfer/online.dart';
 import '../integrations/transfer/pikpak.dart';
 import '../integrations/transfer/pikpak_client.dart';
-export '../core/json.dart';
 
-/// Application-owned Dart services. No subprocess, IPC, or legacy runtime.
+/// The services the window uses: [start] builds them in dependency order,
+/// [close] closes them in reverse.
 class AppServices {
   AppServices({
     required this.configuration,
@@ -188,7 +189,7 @@ class AppServices {
     final mediaDirectory =
         storage?.media ?? p.join(dataDirectory!, 'downloads');
     bt = LibtorrentTransfer(store, settings, mediaDirectory);
-    pikpakTransfer = PikPakTransfer(store, mediaDirectory, pikpak);
+    pikpakTransfer = PikPakTransfer(store, mediaDirectory, pikpak, notices);
     // Sources are set up below; tasks resolve entries only once running.
     final online = OnlineDownloads(
       store,
@@ -278,14 +279,7 @@ class AppServices {
       sources,
       pikpakTransfer,
     );
-    playback = Playback(
-      library,
-      downloads,
-      danmaku,
-      settings,
-      proxy,
-      notices,
-    );
+    playback = Playback(library, downloads, danmaku, settings, proxy, notices);
     selection.remember = () => playback.settings.rememberSource;
     // A subscribed show picks as its subscription does; others as a new
     // subscription would start, the preferred groups after the named ones.
@@ -384,14 +378,14 @@ class AppServices {
     try {
       await _starting;
     } catch (_) {
-      // Partially initialized services still own resources that need closing.
+      // The failed start already shows; what it did start still needs closing.
     }
     if (upload > Duration.zero) await _flushSync?.call(upload);
     api.close();
     try {
       await _restoringDownloads;
     } catch (_) {
-      // The local recovery error remains available to the downloads page.
+      // The failure already shows on the downloads page, as [downloadIssue].
     }
     Object? failure;
     StackTrace? stack;

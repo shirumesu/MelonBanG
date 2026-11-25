@@ -2,17 +2,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/notices.dart';
 import '../../domain/catalog.dart';
 import '../../features/playback/resume_controller.dart';
 import '../../features/tracking/tracking_controller.dart';
 import '../core/action_feedback.dart';
+import '../core/collection_labels.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/poster_zoom.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
-import 'collection_labels.dart';
 
 class TrackingPage extends StatefulWidget {
   const TrackingPage({
@@ -43,9 +44,8 @@ class TrackingPage extends StatefulWidget {
   final VoidCallback onSaveCredentials;
   final ValueChanged<Subject> onOpenSubject;
   final VoidCallback? onExplore;
-
-  /// How large the grid draws posters.
   final PosterZoom zoom;
+
   @override
   State<TrackingPage> createState() => _TrackingPageState();
 }
@@ -116,29 +116,26 @@ class _TrackingPageState extends State<TrackingPage> {
     if (personal.sessionExpired) {
       return IssueBanner(
         issue: 'Bangumi 登录已过期，重新登录后继续同步',
-        actionLabel: '重新登录',
-        onAction: widget.onAccountAction,
+        actions: [NoticeAction('重新登录', widget.onAccountAction)],
       );
     }
     if (personal.needsAuthorization) {
       return IssueBanner(
         issue: '没有获得钥匙串授权，收藏暂时无法与 Bangumi 同步',
-        actionLabel: '授权',
-        onAction: widget.onUnlock,
+        actions: [NoticeAction('授权', widget.onUnlock)],
       );
     }
     if (personal.credentialsUnsaved) {
       return IssueBanner(
         issue: 'Bangumi 登录未保存到钥匙串，下次启动需重新登录',
-        actionLabel: '保存',
-        onAction: widget.onSaveCredentials,
+        actions: [NoticeAction('保存', widget.onSaveCredentials)],
       );
     }
     return IssueBanner(
       issue: personal.pullError == null
           ? null
           : '无法获取 Bangumi 最新收藏，当前显示本地记录：${personal.pullError}',
-      onAction: () => personal.pull(force: true),
+      actions: [NoticeAction('重试', () => personal.pull(force: true))],
     );
   }
 
@@ -291,8 +288,7 @@ class _TrackingPageState extends State<TrackingPage> {
                 onChanged: (_) => updateFilters(() {}),
               ),
             ),
-            // Unselected it sits on the same fill as the filter menus beside
-            // it; selected, the theme's selected colour marks it.
+            // Unselected, the same fill as the filter menus beside it.
             FilterChip(
               label: const Text('7 天内更新'),
               selected: airingOnly,
@@ -349,7 +345,7 @@ class _TrackingPageState extends State<TrackingPage> {
               tooltip: '追番排序',
             ),
             if (personal.signedIn)
-              SyncStatus(
+              _SyncStatus(
                 syncing: personal.syncing,
                 syncedAt: personal.syncedAt,
                 updated: personal.updated.length,
@@ -406,9 +402,8 @@ class _TrackingPageState extends State<TrackingPage> {
 /// The pull from Bangumi, quietly at the end of the filters: a turning
 /// sync mark once it has run [busyDelay], then for a few seconds what it
 /// changed. A quick pull that changed nothing says nothing.
-class SyncStatus extends StatefulWidget {
-  const SyncStatus({
-    super.key,
+class _SyncStatus extends StatefulWidget {
+  const _SyncStatus({
     required this.syncing,
     required this.syncedAt,
     required this.updated,
@@ -420,17 +415,16 @@ class SyncStatus extends StatefulWidget {
   final int updated;
 
   @override
-  State<SyncStatus> createState() => _SyncStatusState();
+  State<_SyncStatus> createState() => _SyncStatusState();
 }
 
-class _SyncStatusState extends State<SyncStatus>
+class _SyncStatusState extends State<_SyncStatus>
     with SingleTickerProviderStateMixin {
   late final _turn = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 900),
   );
 
-  /// The result line, while it shows.
   String? _result;
   Timer? _hide;
 
@@ -438,11 +432,10 @@ class _SyncStatusState extends State<SyncStatus>
   bool _shown = false;
 
   @override
-  void didUpdateWidget(SyncStatus oldWidget) {
+  void didUpdateWidget(_SyncStatus oldWidget) {
     super.didUpdateWidget(oldWidget);
     final finished = widget.syncedAt != oldWidget.syncedAt;
     if (!finished || widget.syncedAt == null) return;
-    // Within the five minutes a page shown later still rings the posters.
     if (!_shown && widget.updated == 0) return;
     _hide?.cancel();
     _result = widget.updated == 0 ? '已同步' : '${widget.updated} 部有更新';
@@ -465,7 +458,7 @@ class _SyncStatusState extends State<SyncStatus>
     if (spinning) {
       if (!_turn.isAnimating) _turn.repeat();
     } else if (_turn.isAnimating) {
-      _turn.forward().then((_) => _turn.value = 0, onError: (_) {});
+      _turn.forward().then((_) => _turn.value = 0);
     }
   }
 

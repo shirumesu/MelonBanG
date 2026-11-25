@@ -46,8 +46,8 @@ class SubscriptionFilter {
   /// Also the preferred groups of the settings, as they stand at each check.
   final bool preferred;
 
-  /// The groups [smartGroups] picks from the show's releases at each check,
-  /// instead of named or preferred ones.
+  /// Groups picked from the show's releases at each check, by how soon and
+  /// how fully they release it, instead of named or preferred ones.
   final bool smart;
 
   /// Of [resourceQualities]; of [resourceLanguages] and [resourceBilingual];
@@ -193,8 +193,8 @@ class Subscription {
     failures: number(value['failures']).toInt(),
     issue: value['issue'] as String?,
     paused: value['paused'] == true,
-    // Saved before this was, only one from another device could be paused;
-    // since, a paused one may be this device's own.
+    // Subscriptions saved without the flag were paused only when synced
+    // from another device.
     adopted: value['adopted'] as bool? ?? value['paused'] == true,
     ledger: {
       for (final entry in object(value['ledger']).entries)
@@ -229,7 +229,7 @@ class Subscription {
   DateTime? finishedAt;
   DateTime? checkedAt;
 
-  /// Checks in a row whose every site failed.
+  /// Checks failed in a row.
   int failures;
 
   /// Why the last check or download failed, until one succeeds.

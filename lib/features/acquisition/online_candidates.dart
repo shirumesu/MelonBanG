@@ -13,12 +13,9 @@ import 'title_matching.dart';
 
 /// Searches every usable online source for one Bangumi chapter, or with no
 /// [episode] lists each matching site subject whose entry is chosen later.
-/// [onProgress] reports each source's state as its search starts and ends.
-///
-/// Sources and their site subjects run concurrently; [onUpdate] receives all
-/// rows found so far whenever a site subject adds some.
-/// Manual-only sources (uploads that need explicit confirmation) are
-/// included only when [includeManual].
+/// Sources and their site subjects run concurrently; [onUpdate] gets every
+/// row found so far as a site subject adds some. Manual-only sources, whose
+/// uploads need confirming, join only with [includeManual].
 Future<List<PlayCandidate>> onlineCandidates(
   SourceRegistry registry,
   Subject subject,
@@ -118,7 +115,7 @@ Future<List<PlayCandidate>> onlineCandidates(
       } catch (error) {
         // A dropped search reports nothing more.
         if (operation.isCancelled) return;
-        // Failed sources keep their health while others remain usable.
+        // The registry has noted the failure; the other sources go on.
         progress = progress.copyWith(
           completed: 1,
           failed: 1,
@@ -351,6 +348,55 @@ PlayCandidate onlinePartCandidate(
   possibleMatch: parent.possibleMatch,
   order: parent.order,
 );
+
+/// An entry of an upload or site subject, with the episode it plays as.
+typedef OnlinePart = (
+  PlayCandidate candidate,
+  SourceEpisode entry,
+  Episode? episode,
+);
+
+/// The entries [rows] of [parent]'s upload or site subject by line; each
+/// plays as [searched] or, for a whole-subject search, the episode of
+/// [subject] it names. An upload's parts naming [searched] come first.
+Map<String, List<OnlinePart>> onlineLines(
+  PlayCandidate parent,
+  List<SourceEpisode> rows, {
+  required Subject? subject,
+  required Episode? searched,
+}) {
+  final upload = (parent.target as OnlineTarget).chooseFrom!;
+  final held = subject == null
+      ? null
+      : upload.choosePart
+      ? uploadPartEpisodes(subject, upload.title, [
+          for (final row in rows) row.part!,
+        ])
+      : [for (final row in rows) sourceEpisode(subject, row.label)];
+  final order = [for (var i = 0; i < rows.length; i++) i];
+  if (searched case final episode? when held != null) {
+    order.sort((a, b) {
+      int rank(int i) => held[i]?.id == episode.id ? 0 : 1;
+      return rank(a) - rank(b) != 0 ? rank(a) - rank(b) : a - b;
+    });
+  }
+  final lines = <String, List<OnlinePart>>{};
+  for (final i in order) {
+    final row = rows[i];
+    (lines[row.line] ??= []).add((
+      onlinePartCandidate(parent, upload, row),
+      row,
+      searched ?? held?[i],
+    ));
+  }
+  return lines;
+}
+
+/// Episode ids of a line with the first entry holding each.
+Map<int, PlayCandidate> onlineLineOptions(List<OnlinePart> parts) => {
+  for (final (candidate, _, episode) in parts.reversed)
+    if (episode != null) episode.id: candidate,
+};
 
 PlayCandidate _candidate(
   SourceInstance rule,

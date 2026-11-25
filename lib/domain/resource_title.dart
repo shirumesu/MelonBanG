@@ -99,7 +99,7 @@ class ResourceTitleInfo {
   final String subtitles;
 }
 
-/// Filter vocabularies, in display order.
+/// The quality filter's choices, in display order.
 const resourceQualities = ['4K', '1080p', '720p'];
 
 /// The Chinese scripts of subtitles; a selection of both takes either, and
@@ -121,8 +121,8 @@ const resourceSubtitleChoices = [
   ...resourceSubtitleForms,
 ];
 
-/// Subtitle selections saved before 中日双语: 日文 selected releases with
-/// Japanese lines, now 中日双语, and of the forms only 内封 remains.
+/// A saved subtitle selection in today's choices: 日文 reads as 中日双语, and
+/// choices no longer offered (内嵌, 外挂) are dropped.
 Set<String> resourceSubtitleSelection(Iterable<String> saved) => {
   for (final value in saved)
     if (value == '日文')
@@ -195,8 +195,8 @@ int? resourceSeason(String text) {
   return null;
 }
 
-// Streaming platforms releases are ripped from; two rips of one episode by
-// one group differ by them.
+/// Streaming platforms releases are ripped from; two rips of one episode by
+/// one group differ by them.
 const _platforms = [
   'ABEMA',
   'Baha',
@@ -582,6 +582,19 @@ String subtitleName(ResourceTitleInfo info) {
   final named = [...info.languages, ...info.subtitleForms];
   return named.isEmpty ? '未标明字幕' : named.join();
 }
+
+/// [info]'s display title without the episode it releases: the title a
+/// series of its group's releases shares.
+String resourceSeriesTitle(ResourceTitleInfo info) => info.displayTitle
+    .replaceFirst(_episodeSuffix, ' ')
+    .replaceAll(_spaces, ' ')
+    .trim();
+
+final _episodeSuffix = RegExp(
+  r'\s-\s?\d{1,3}(?:\.5)?(?:\(\d{1,4}\))?(?:\s*(?:v\d|END|完))?(?=\s|$)|(?<![a-z])EP\s?\d{1,3}(?:\s*END)?|\bS\d{1,2}E\d{1,3}\b|(?<=^|\s)\d{1,3}\(\d{1,4}\)(?=\s|$)',
+  caseSensitive: false,
+);
+final _spaces = RegExp(r'\s+');
 
 /// Reads subtitles across [releases]: a group leaves them out of some titles
 /// of a series (`ASSx2` against `[简繁内封字幕]`), so a release stating none

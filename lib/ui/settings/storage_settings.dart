@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import '../../core/error_message.dart';
+import '../../core/notices.dart';
 import '../../core/storage_locations.dart';
 import '../../core/storage_usage.dart';
 import '../../features/update/uninstall.dart';
@@ -13,10 +15,8 @@ import '../core/byte_units.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
-import 'settings_page.dart';
+import 'setting_rows.dart';
 
-/// The data and media folders with their usage, moving them, and the image
-/// cache.
 SettingsSection storageSection({
   required StorageLocations? storage,
   required String dataDirectory,
@@ -32,7 +32,7 @@ SettingsSection storageSection({
     SettingsGroup([
       SettingsItem(
         '存储 缓存 应用缓存 图片 资料 清理 应用数据 媒体缓存 下载位置 迁移 空间 文件夹',
-        StorageSettings(
+        _StorageSettings(
           readCacheSize: readCacheSize,
           onClearCache: onClearCache,
           onExit: onExit,
@@ -45,12 +45,11 @@ SettingsSection storageSection({
   ],
 );
 
-/// The folder to use for the [chosen] one. Like Steam and Windows do for
-/// their libraries, a drive's root or a folder that already holds other files
-/// gets a subfolder of its own, so nothing mixes with the files there. The
-/// install directory is replaced by updates and removed on uninstall, so
-/// media there goes to its downloads folder, which both leave in place, and
-/// data cannot go there.
+/// The folder to use for the [chosen] one. A drive's root or a folder that
+/// already holds files gets a subfolder of its own, as Steam and Windows do
+/// for their libraries. Updates replace the install directory and uninstalling
+/// removes it, so media there goes to its downloads folder, which neither
+/// touches, and data cannot go there.
 Future<String> storageTarget(String chosen, {required bool media}) async {
   var target = p.normalize(chosen);
   final root =
@@ -73,31 +72,10 @@ Future<String> storageTarget(String chosen, {required bool media}) async {
       : downloads;
 }
 
-/// Whether [path] is in a folder a cloud drive keeps in sync: OneDrive on
-/// Windows; iCloud Drive and the drives of Dropbox, Google Drive and OneDrive
-/// on macOS.
-bool cloudSynced(String path) {
-  final environment = Platform.environment;
-  final roots = Platform.isWindows
-      ? [
-          environment['OneDrive'],
-          environment['OneDriveConsumer'],
-          environment['OneDriveCommercial'],
-        ].nonNulls
-      : Platform.isMacOS
-      ? [
-          p.join(environment['HOME']!, 'Library', 'Mobile Documents'),
-          p.join(environment['HOME']!, 'Library', 'CloudStorage'),
-        ]
-      : const <String>[];
-  return roots.any((root) => p.equals(root, path) || p.isWithin(root, path));
-}
-
 const _syncedNote = '此位置在网盘同步文件夹中，下载时会占用网络并可能损坏文件，建议更换';
 
-class StorageSettings extends StatefulWidget {
-  const StorageSettings({
-    super.key,
+class _StorageSettings extends StatefulWidget {
+  const _StorageSettings({
     required this.storage,
     required this.dataDirectory,
     required this.mediaDirectory,
@@ -111,14 +89,15 @@ class StorageSettings extends StatefulWidget {
   final Future<void> Function() onClearCache;
   final Future<int> Function() readCacheSize;
   @override
-  State<StorageSettings> createState() => _StorageSettingsState();
+  State<_StorageSettings> createState() => _StorageSettingsState();
 }
 
-class _StorageSettingsState extends State<StorageSettings> {
+class _StorageSettingsState extends State<_StorageSettings> {
   bool busy = false;
   String? error;
   StorageUsage? usage;
   int? cacheBytes;
+  String? usageIssue, cacheIssue;
   bool measuring = false;
   int measurement = 0;
   final cleanup = ActionFeedback();
@@ -142,7 +121,7 @@ class _StorageSettingsState extends State<StorageSettings> {
   }
 
   @override
-  void didUpdateWidget(covariant StorageSettings oldWidget) {
+  void didUpdateWidget(covariant _StorageSettings oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.dataDirectory != widget.dataDirectory ||
         oldWidget.mediaDirectory != widget.mediaDirectory) {
@@ -153,27 +132,36 @@ class _StorageSettingsState extends State<StorageSettings> {
   Future<void> refreshUsage() async {
     final request = ++measurement;
     setState(() => measuring = true);
-    (StorageUsage, int?) result;
+    (StorageUsage?, int?) values;
+    (AsyncError?, AsyncError?) errors = (null, null);
     try {
-      result = await (
+      values = await (
         StorageUsage.measure(widget.dataDirectory, widget.mediaDirectory),
         widget.readCacheSize(),
       ).wait;
-    } catch (_) {
-      result = (const StorageUsage(), null);
+    } on ParallelWaitError<
+      (StorageUsage?, int?),
+      (AsyncError?, AsyncError?)
+    > catch (failure) {
+      values = failure.values;
+      errors = failure.errors;
     }
     if (!mounted || request != measurement) return;
+    String? issue(AsyncError? error) =>
+        error == null ? null : errorMessage(error.error);
     setState(() {
-      usage = result.$1;
-      cacheBytes = result.$2;
+      usage = values.$1;
+      cacheBytes = values.$2;
+      usageIssue = issue(errors.$1);
+      cacheIssue = issue(errors.$2);
       measuring = false;
     });
   }
 
-  String usageLabel(int? bytes) {
+  String usageLabel(int? bytes, String? issue) {
     if (measuring) return '正在统计…';
-    if (bytes == null) return '暂时无法统计';
-    return '已用 ${ByteUnitsScope.of(context).format(bytes)}';
+    if (issue != null) return '无法统计：$issue';
+    return '已用 ${ByteUnitsScope.of(context).format(bytes!)}';
   }
 
   Future<void> choose(bool media) async {
@@ -206,75 +194,67 @@ class _StorageSettingsState extends State<StorageSettings> {
       final short = needed != null && needed > space.free;
       final inside = p.isWithin(AppUninstall.installation, selected);
       if (!mounted) return;
-      final confirmed = await showMelonDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(media ? '迁移媒体缓存？' : '迁移应用数据？'),
-          content: SizedBox(
-            width: 440,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('新位置'),
-                const SizedBox(height: Gap.sm),
-                SelectableText(selected),
-                if (!p.equals(selected, picked)) ...[
-                  const SizedBox(height: Gap.sm),
-                  Text(
-                    inside
-                        ? '所选位置在安装目录里，将使用其中的 downloads 文件夹，更新时不会被替换。'
-                        : '将在所选位置下新建 ${p.basename(selected)} 文件夹，不会和那里的其他文件混在一起。',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-                const SizedBox(height: Gap.sm),
-                if (short)
-                  InlineIssue(
-                    '所在磁盘可用 ${ByteUnitsScope.of(context).format(space.free)}'
-                    '，迁移约需 ${ByteUnitsScope.of(context).format(needed)}，空间不足',
-                  )
-                else
-                  Text(
-                    '所在磁盘可用 ${ByteUnitsScope.of(context).format(space.free)}'
-                    '${needed == null ? '' : '，迁移约需 ${ByteUnitsScope.of(context).format(needed)}'}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                if (media && space.system) ...[
-                  const SizedBox(height: Gap.sm),
-                  Text(
-                    '这是系统盘。番剧很占空间，系统盘空间紧张会拖慢整个系统，建议选择其他磁盘。',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-                if (cloudSynced(selected)) ...[
-                  const SizedBox(height: Gap.sm),
-                  const InlineIssue(_syncedNote),
-                ],
-                if (inside) ...[
-                  const SizedBox(height: Gap.md),
-                  const InlineIssue('卸载时选择删除数据，或手动删除安装目录，已下载的番剧会被一起删除。'),
-                ],
-                const SizedBox(height: 20),
-                const Text('重新打开应用后生效，原位置的文件会被删除；跨磁盘时会先在后台复制'),
-                const SizedBox(height: Gap.md),
-                const Text('迁移完成前请保持原位置和新位置的磁盘连接。'),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: short ? null : () => Navigator.pop(context, true),
-              child: const Text('确认迁移'),
-            ),
+      final small = Theme.of(context).textTheme.bodySmall;
+      final units = ByteUnitsScope.of(context);
+      final confirmed = await showConfirmDialog(
+        context,
+        title: media ? '迁移媒体缓存？' : '迁移应用数据？',
+        confirmLabel: '确认迁移',
+        enabled: !short,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('新位置'),
+            const SizedBox(height: Gap.sm),
+            SelectableText(selected),
+            if (!p.equals(selected, picked)) ...[
+              const SizedBox(height: Gap.sm),
+              Text(
+                inside
+                    ? '所选位置在安装目录里，将使用其中的 downloads 文件夹，更新时不会被替换。'
+                    : '将在所选位置下新建 ${p.basename(selected)} 文件夹，不会和那里的其他文件混在一起。',
+                style: small,
+              ),
+            ],
+            const SizedBox(height: Gap.sm),
+            if (short)
+              InlineIssue(
+                '所在磁盘可用 ${units.format(space.free)}'
+                '，迁移约需 ${units.format(needed)}，空间不足',
+              )
+            else
+              Text(
+                '所在磁盘可用 ${units.format(space.free)}'
+                '${needed == null ? '' : '，迁移约需 ${units.format(needed)}'}',
+                style: small,
+              ),
+            if (media && space.system) ...[
+              const SizedBox(height: Gap.sm),
+              const InlineIssue(
+                '这是系统盘。番剧很占空间，系统盘空间紧张会拖慢整个系统，建议选择其他磁盘。',
+                tone: NoticeTone.warning,
+              ),
+            ],
+            if (cloudSynced(selected)) ...[
+              const SizedBox(height: Gap.sm),
+              const InlineIssue(_syncedNote, tone: NoticeTone.warning),
+            ],
+            if (inside) ...[
+              const SizedBox(height: Gap.md),
+              const InlineIssue(
+                '卸载时选择删除数据，或手动删除安装目录，已下载的番剧会被一起删除。',
+                tone: NoticeTone.warning,
+              ),
+            ],
+            const SizedBox(height: 20),
+            const Text('重新打开应用后生效，原位置的文件会被删除；跨磁盘时会先在后台复制'),
+            const SizedBox(height: Gap.md),
+            const Text('迁移完成前请保持原位置和新位置的磁盘连接。'),
           ],
         ),
       );
-      if (confirmed != true || !mounted) return;
+      if (!confirmed || !mounted) return;
       await widget.storage!.schedule(
         dataPath: media ? null : selected,
         mediaPath: media ? selected : null,
@@ -386,7 +366,7 @@ class _StorageSettingsState extends State<StorageSettings> {
     Widget location(bool media) => SettingRow(
       title: media ? '媒体缓存' : '应用数据',
       subtitle: [
-        usageLabel(media ? usage?.mediaBytes : usage?.dataBytes),
+        usageLabel(media ? usage?.mediaBytes : usage?.dataBytes, usageIssue),
         if (widget.storage == null) '位置由启动参数指定，移除该参数后才能更改',
       ].join('；'),
       trailing: Row(
@@ -425,14 +405,14 @@ class _StorageSettingsState extends State<StorageSettings> {
       children: [
         SettingRow(
           title: '应用缓存',
-          subtitle: usageLabel(cacheBytes),
+          subtitle: usageLabel(cacheBytes, cacheIssue),
           help:
               '图片与番剧资料，超过 120 天自动清理，图片最多 100 MiB\n'
               '清理不影响已下载的视频、追番、订阅和观看进度',
           trailing: FeedbackButton(
             feedback: cleanup,
             label: '清理缓存',
-            runningLabel: '正在清理…',
+            runningLabel: '清理中',
             successLabel: '已清理',
             icon: Icons.cleaning_services_outlined,
             onPressed: clearCache,
@@ -492,7 +472,7 @@ class _StorageSetupState extends State<StorageSetup> {
     final DiskSpace result;
     try {
       result = await DiskSpace.of(measured);
-    } catch (_) {
+    } on FileSystemException {
       // Free space is a hint; the folder can be chosen without it.
       return;
     }
@@ -564,7 +544,7 @@ class _StorageSetupState extends State<StorageSetup> {
                       ),
                     if (cloudSynced(media)) ...[
                       const SizedBox(height: Gap.xs),
-                      const InlineIssue(_syncedNote),
+                      const InlineIssue(_syncedNote, tone: NoticeTone.warning),
                     ],
                     const SizedBox(height: Gap.md),
                     OutlinedButton.icon(

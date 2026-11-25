@@ -3,8 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../core/motion.dart';
+import '../core/overlay_glass.dart';
 import '../core/theme.dart';
-import 'player_theme.dart';
 
 /// Thin seek bar that thickens on hover and shows the time under the pointer.
 /// [marks] are small dots, such as where the OP ends; hovering one names it.

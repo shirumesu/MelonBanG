@@ -54,7 +54,7 @@ class DanmakuRepository {
   /// The episode last picked by hand for the subject, as (locator, episode
   /// number), which its other episodes follow.
   Future<(String, double)?> followed(int subjectId, String provider) async =>
-      switch (await store.get('danmaku_follow', '$subjectId:$provider')) {
+      switch (await store.get(followScope, '$subjectId:$provider')) {
         {'locator': final String locator, 'number': final num number} => (
           locator,
           number.toDouble(),
@@ -102,7 +102,8 @@ Episode _matchingEpisode(DanmakuTarget target, Subject detail) {
   if (episodeId != null) {
     matches = detail.episodes.where((episode) => episode.id == episodeId);
   } else {
-    // Infer only the danmaku lookup; progress/file associations require explicit identity.
+    // Only danmaku reads the episode from the file name; progress and file
+    // bindings need it stated.
     final filename = p.basenameWithoutExtension('${target.path}');
     // The same number written both ways still names one episode.
     final numbers = {

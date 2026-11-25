@@ -13,14 +13,7 @@ import '../core/selection_controls.dart';
 import '../core/theme.dart';
 import '../player/danmaku_filter_editor.dart';
 import 'preferred_groups.dart';
-import 'settings_page.dart';
-
-/// Rebuilds [builder] when [listenable] changes.
-Widget _watch(Listenable listenable, WidgetBuilder builder) =>
-    ListenableBuilder(
-      listenable: listenable,
-      builder: (context, _) => builder(context),
-    );
+import 'setting_rows.dart';
 
 Widget _menu<T>(Map<T, String> options, T value, ValueChanged<T> onSelected) =>
     MelonChoiceMenu<T>(options: options, value: value, onSelected: onSelected);
@@ -36,7 +29,7 @@ SettingsSection appearanceSection(
     SettingsGroup([
       SettingsItem(
         '主题模式 深色 浅色 跟随系统 暗色 夜间',
-        _watch(
+        watch(
           appearance,
           (context) => SettingRow(
             title: '主题模式',
@@ -55,7 +48,7 @@ SettingsSection appearanceSection(
       ),
       SettingsItem(
         '主题色 颜色 强调色 系统强调色 配色',
-        _watch(
+        watch(
           appearance,
           (context) => SettingRow(
             title: '主题色',
@@ -69,7 +62,7 @@ SettingsSection appearanceSection(
       ),
       SettingsItem(
         '封面取色 动态 动态配色 番剧封面',
-        _watch(
+        watch(
           appearance,
           (context) => SettingSwitch(
             title: '封面取色',
@@ -83,7 +76,7 @@ SettingsSection appearanceSection(
     SettingsGroup([
       SettingsItem(
         '继续观看 首页 显示范围 当季 近两季 全部 在看',
-        _watch(
+        watch(
           range,
           (context) => SettingRow(
             title: '首页继续观看',
@@ -103,7 +96,7 @@ SettingsSection appearanceSection(
       ),
       SettingsItem(
         '容量单位 大小 速度 字节 KiB MiB KB MB',
-        _watch(
+        watch(
           appearance,
           (context) => SettingRow(
             title: '容量单位',
@@ -209,7 +202,7 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
     String? help,
   }) => SettingsItem(
     '$title $keywords ${subtitle ?? ''}',
-    _watch(
+    watch(
       prefs,
       (context) => SettingSwitch(
         title: title,
@@ -230,7 +223,7 @@ SettingsSection playbackSection(PlaybackPreferences prefs) {
     String? help,
   }) => SettingsItem(
     '$title $keywords ${options.values.join(' ')} ${subtitle ?? ''}',
-    _watch(
+    watch(
       prefs,
       (context) => SettingRow(
         title: title,
@@ -329,7 +322,7 @@ SettingsSection sourcesSection(
         for (final (airing, title) in [(true, '放送中的番'), (false, '已完结的番')])
           SettingsItem(
             '$title 来源 优先级 在线 bt 优先',
-            _watch(
+            watch(
               prefs,
               (context) => SettingRow(
                 title: title,
@@ -350,7 +343,7 @@ SettingsSection sourcesSection(
           ),
         SettingsItem(
           '记住 记忆 上次 来源 线路 字幕组 偏好',
-          _watch(
+          watch(
             prefs,
             (context) => SettingSwitch(
               title: '记住每部番的来源',
@@ -368,7 +361,7 @@ SettingsSection sourcesSection(
         ),
         SettingsItem(
           '只显示 偏好 字幕组 隐藏 其他 默认 勾选',
-          _watch(
+          watch(
             prefs,
             (context) => SettingSwitch(
               title: '查找资源时只显示偏好字幕组',
@@ -394,7 +387,7 @@ SettingsSection subscriptionSection(
     SettingsGroup([
       SettingsItem(
         '缓存到 订阅 BT PikPak 自动缓存',
-        _watch(
+        watch(
           prefs,
           (context) => SettingRow(
             title: '缓存到',
@@ -418,7 +411,7 @@ SettingsSection subscriptionSection(
       ),
       SettingsItem(
         '修正版 v2 订阅 替换',
-        _watch(
+        watch(
           prefs,
           (context) => SettingRow(
             title: '修正版',
@@ -439,7 +432,7 @@ SettingsSection subscriptionSection(
       ),
       SettingsItem(
         '自动取消订阅 订阅自动删除 完结 没看',
-        _watch(
+        watch(
           prefs,
           (context) => SettingRow(
             title: '自动取消订阅',
@@ -460,7 +453,7 @@ SettingsSection subscriptionSection(
       ),
       SettingsItem(
         '关闭窗口时 后台运行 留在后台 退出 托盘 菜单栏 订阅 自动缓存',
-        _watch(
+        watch(
           prefs,
           (context) => SettingRow(
             title: '关闭窗口时',
@@ -487,7 +480,7 @@ SettingsSection subscriptionSection(
     SettingsGroup([
       SettingsItem(
         '提醒 通知 在看 更新 播出 新一话',
-        _watch(
+        watch(
           prefs,
           (context) => SettingSwitch(
             title: '在看的番剧更新时提醒',
@@ -501,7 +494,7 @@ SettingsSection subscriptionSection(
     SettingsGroup([
       SettingsItem(
         '自动 缓存 下一集 下一话 预下载 播放时',
-        _watch(
+        watch(
           playback,
           (context) => SettingSwitch(
             title: '播放时缓存下一话',
@@ -525,7 +518,7 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
     void Function(double) change,
   ) => SettingsItem(
     '弹幕 $title',
-    _watch(
+    watch(
       prefs,
       (context) => SettingSlider(
         title: title,
@@ -552,7 +545,7 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
       SettingsGroup([
         SettingsItem(
           '显示弹幕 开关',
-          _watch(
+          watch(
             prefs,
             (context) => SettingSwitch(
               title: '显示弹幕',
@@ -587,7 +580,7 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
         ),
         SettingsItem(
           '弹幕 速度 极慢 较慢 适中 较快 极快',
-          _watch(
+          watch(
             prefs,
             (context) => SettingRow(
               title: '速度',
@@ -604,7 +597,7 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
         ),
         SettingsItem(
           '弹幕 密度 稀疏 正常 密集 全部',
-          _watch(
+          watch(
             prefs,
             (context) => SettingRow(
               title: '密度',
@@ -622,7 +615,7 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
         ),
         SettingsItem(
           '弹幕 数量 上限 每集 性能 太多',
-          _watch(prefs, (context) {
+          watch(prefs, (context) {
             const limits = DanmakuPreferences.limits;
             return SettingSlider(
               title: '每集最多显示',
@@ -639,7 +632,7 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
         ),
         SettingsItem(
           '弹幕 去重 合并 重复',
-          _watch(
+          watch(
             prefs,
             (context) => SettingSwitch(
               title: '合并重复弹幕',
@@ -651,7 +644,7 @@ SettingsSection danmakuSection(DanmakuPreferences prefs) {
         ),
         SettingsItem(
           '弹幕 类型 样式 滚动 顶部 底部 彩色 描边 重叠 防挡字幕',
-          _watch(
+          watch(
             prefs,
             (context) => SettingRow(
               title: '类型与样式',

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'motion.dart';
 import 'theme.dart';
-import 'subject_posters.dart' show imageDecodeWidth;
 import 'cached_image.dart';
 
 class AccountAvatar extends StatelessWidget {

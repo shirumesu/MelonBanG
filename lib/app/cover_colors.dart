@@ -3,9 +3,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
-import '../../core/content_cache.dart';
-import '../../core/json.dart';
-import 'image_sample.dart';
+import '../core/content_cache.dart';
+import '../core/json.dart';
+import '../ui/core/image_sample.dart';
 
 /// Theme colours taken from subject covers, read from the shared image
 /// cache and kept for the rest of the run.

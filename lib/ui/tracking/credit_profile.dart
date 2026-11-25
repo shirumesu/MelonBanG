@@ -5,15 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../domain/catalog.dart';
+import '../core/action_feedback.dart';
 import '../core/bbcode.dart';
 import '../core/cached_image.dart';
 import '../core/external_link.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
-import '../core/subject_posters.dart';
+import '../core/subject_cover.dart';
 import '../core/theme.dart';
-import 'subject_people.dart';
 
 /// The character or person [credit] over the page: profile, voice parts and
 /// anime. A character or person opened from it, by a voice part or a link in
@@ -83,9 +83,13 @@ class _CreditBrowserState extends State<_CreditBrowser> {
       character: page.character,
     );
     unawaited(
-      page.profile.then((data) {
-        if (mounted) setState(() => page.data = data);
-      }, onError: (Object _) {}),
+      page.profile.then(
+        (data) {
+          if (mounted) setState(() => page.data = data);
+        },
+        // [_ProfileView]'s FutureBuilder shows the failure.
+        onError: (Object _) {},
+      ),
     );
     return page;
   }
@@ -216,9 +220,8 @@ class _CreditBrowserState extends State<_CreditBrowser> {
     );
   }
 
-  /// A page passed through, standing on its edge: its portrait and name
-  /// set vertically, one character a line, and a click goes back to it. The [nearest] one is the
-  /// way back.
+  /// A page passed through, standing on its edge; a click goes back to it,
+  /// and the [nearest] one carries the back chevron.
   Widget _spine(BuildContext context, int index, {required bool nearest}) {
     final page = pages[index];
     final scheme = Theme.of(context).colorScheme;
@@ -354,23 +357,15 @@ Widget _portrait(BuildContext context, String? url, double size) {
 }
 
 /// The profile below the header in grey while it loads, once the wait has
-/// lasted [busyDelay]: the summary's lines, then the heading and tiles of
-/// the anime, in [_ProfileView]'s paddings and the tiles' grid.
+/// lasted [busyDelay], in [_ProfileView]'s paddings and grid.
 class _ProfileSkeleton extends StatelessWidget {
   const _ProfileSkeleton();
 
   @override
   Widget build(BuildContext context) => DelayedBusy(
     busy: true,
-    builder: (context, shown) => Semantics(
-      label: shown ? '正在加载资料' : null,
-      child: ExcludeSemantics(
-        child: Opacity(
-          opacity: shown ? 1 : 0,
-          child: MotionPulse(child: _body(context)),
-        ),
-      ),
-    ),
+    builder: (context, shown) =>
+        SkeletonGroup(label: '正在加载资料', shown: shown, child: _body(context)),
   );
 
   Widget _body(BuildContext context) {
@@ -451,7 +446,6 @@ class _ProfileSkeleton extends StatelessWidget {
   }
 }
 
-/// One character's or person's profile, voice parts and anime.
 class _ProfileView extends StatelessWidget {
   const _ProfileView({
     super.key,
@@ -495,7 +489,7 @@ class _ProfileView extends StatelessWidget {
                   Gap.xl,
                 ),
                 sliver: SliverToBoxAdapter(
-                  child: PartFailure(message: '资料加载失败', onRetry: onRetry),
+                  child: InlineIssue('资料加载失败', onRetry: onRetry),
                 ),
               )
             else if (data == null)

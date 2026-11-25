@@ -2,13 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/notices.dart';
 import '../../core/proxy.dart';
 import '../../features/network/connectivity.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
-import 'settings_page.dart';
+import '../core/tone.dart';
+import 'setting_rows.dart';
 
 SettingsSection networkSection({
   required NetworkProxy proxy,
@@ -115,7 +117,12 @@ class _ProxyAddressState extends State<_ProxyAddress> {
   @override
   void deactivate() {
     if (input.text.trim() != widget.proxy.address) {
-      unawaited(widget.proxy.setAddress(input.text).catchError((Object _) {}));
+      // An invalid one is dropped: the field that would say why is gone.
+      unawaited(
+        widget.proxy
+            .setAddress(input.text)
+            .catchError((Object _) {}, test: (e) => e is FormatException),
+      );
     }
     super.deactivate();
   }
@@ -175,9 +182,8 @@ class _ProxyAddressState extends State<_ProxyAddress> {
   );
 }
 
-/// The connectivity test. Results stay in a box of bounded height however
-/// many services there are: a summary that filters them, then one row per
-/// group, opened when a group has a problem or is asked for.
+/// The connectivity test: a summary that filters the results, then one row
+/// per group, open when the group has a problem or is opened by hand.
 class _Connectivity extends StatefulWidget {
   const _Connectivity({required this.check});
   final ConnectivityCheck check;
@@ -247,10 +253,7 @@ class _ConnectivityState extends State<_Connectivity> {
             trailing: FilledButton.icon(
               onPressed: check.running ? null : check.runAll,
               icon: check.running
-                  ? const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
+                  ? const BusyIndicator()
                   : const Icon(Icons.network_check, size: 18),
               label: Text(
                 check.running
@@ -289,22 +292,19 @@ class _ConnectivityState extends State<_Connectivity> {
                       ),
                       const SizedBox(width: Gap.xs),
                       _Tally(
-                        icon: Icons.check_circle_outline,
-                        color: accentOf(context).accent,
+                        tone: NoticeTone.done,
                         count: count(ProbeState.reachable),
                         label: '正常',
                       ),
                       if (limited > 0)
                         _Tally(
-                          icon: Icons.warning_amber_rounded,
-                          color: gold,
+                          tone: NoticeTone.warning,
                           count: limited,
                           label: '受限',
                         ),
                       if (failed > 0)
                         _Tally(
-                          icon: Icons.error_outline,
-                          color: Theme.of(context).colorScheme.error,
+                          tone: NoticeTone.failed,
                           count: failed,
                           label: '失败',
                         ),
@@ -319,10 +319,7 @@ class _ConnectivityState extends State<_Connectivity> {
                       borderRadius: controlBorderRadius,
                     ),
                     child: groups.isEmpty
-                        ? const Padding(
-                            padding: EdgeInsets.all(Gap.lg),
-                            child: Text('没有需要关注的服务'),
-                          )
+                        ? const EmptyState.compact(text: '没有需要关注的服务')
                         : Padding(
                             padding: const EdgeInsets.symmetric(
                               vertical: Gap.xs,
@@ -352,6 +349,9 @@ class _ConnectivityState extends State<_Connectivity> {
     Map<String, ProbeResult> results,
   ) {
     final problems = members.where((t) => _problem(results[t.id])).length;
+    final failing = members.any(
+      (t) => results[t.id]?.state == ProbeState.failed,
+    );
     final busy = members.any((t) => results[t.id]?.state == ProbeState.running);
     final open =
         _toggled[name] ?? (_filter == _ProbeFilter.problems || problems > 0);
@@ -367,24 +367,22 @@ class _ConnectivityState extends State<_Connectivity> {
         onTap: () => setState(() => _toggled[name] = !open),
         padding: const EdgeInsets.fromLTRB(Gap.md, Gap.sm, Gap.md, Gap.sm),
         trailing: busy
-            ? const SizedBox.square(
-                dimension: 14,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
+            ? const BusyIndicator(size: 12)
             : problems > 0
             ? Text(
                 '$problems 项有问题',
                 style: small?.copyWith(
-                  color: Theme.of(context).colorScheme.error,
+                  color: toneColor(
+                    context,
+                    failing ? NoticeTone.failed : NoticeTone.warning,
+                  ),
                 ),
               )
             : ok == members.length
             ? Text(
                 '全部正常',
-                // Small text takes primary, tuned to 4.5:1; the raw accent
-                // is for icons and bars.
                 style: small?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
+                  color: toneColor(context, NoticeTone.done),
                 ),
               )
             : null,
@@ -407,14 +405,8 @@ class _ConnectivityState extends State<_Connectivity> {
 }
 
 class _Tally extends StatelessWidget {
-  const _Tally({
-    required this.icon,
-    required this.color,
-    required this.count,
-    required this.label,
-  });
-  final IconData icon;
-  final Color color;
+  const _Tally({required this.tone, required this.count, required this.label});
+  final NoticeTone tone;
   final int count;
   final String label;
 
@@ -422,7 +414,7 @@ class _Tally extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      Icon(icon, size: 16, color: color),
+      Icon(toneIcon(tone), size: 16, color: toneColor(context, tone)),
       const SizedBox(width: Gap.xs),
       Text(
         '$label $count',
@@ -470,37 +462,22 @@ class ProbeStatus extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = result;
-    final (String? text, IconData? icon, Color? color) = switch (value?.state) {
-      null || ProbeState.waiting => ('—', null, null),
-      ProbeState.running => (null, null, null),
+    final (String? text, NoticeTone? tone) = switch (value?.state) {
+      null || ProbeState.waiting => ('—', null),
+      ProbeState.running => (null, null),
       ProbeState.reachable => (
         '${value!.elapsed!.inMilliseconds} ms',
-        Icons.check_circle_outline,
-        accentOf(context).accent,
+        NoticeTone.done,
       ),
-      ProbeState.limited => (
-        'HTTP ${value!.status}',
-        Icons.warning_amber_rounded,
-        gold,
-      ),
-      ProbeState.failed => (
-        value!.error ?? '无法连接',
-        Icons.error_outline,
-        Theme.of(context).colorScheme.error,
-      ),
+      ProbeState.limited => ('HTTP ${value!.status}', NoticeTone.warning),
+      ProbeState.failed => (value!.error!, NoticeTone.failed),
     };
-    if (text == null) {
-      return const SizedBox.square(
-        dimension: 14,
-        child: CircularProgressIndicator(strokeWidth: 2),
-      );
-    }
-    final style = Theme.of(context).textTheme.bodySmall;
+    if (text == null) return const BusyIndicator(size: 12);
     final row = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (icon != null) ...[
-          Icon(icon, size: 16, color: color),
+        if (tone != null) ...[
+          Icon(toneIcon(tone), size: 16, color: toneColor(context, tone)),
           const SizedBox(width: Gap.xs),
         ],
         Flexible(
@@ -508,10 +485,8 @@ class ProbeStatus extends StatelessWidget {
             text,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: style?.copyWith(
-              color: value?.state == ProbeState.reachable ? null : color,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
           ),
         ),
       ],

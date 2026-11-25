@@ -28,7 +28,8 @@ class MoveCopy {
   final int? left;
 }
 
-/// The small bootstrap file stays in application support, outside movable data.
+/// Where the data and media folders are and their pending move, recorded in
+/// a small bootstrap file that stays in application support, outside them.
 class StorageLocations {
   StorageLocations(this.bootstrap, this.defaultData);
   final File bootstrap;
@@ -332,6 +333,26 @@ Future<bool> isEmptyFolder(String path) =>
     Directory(path)
         .list()
         .every((entry) => _systemFiles.contains(p.basename(entry.path)));
+
+/// Whether [path] is in a folder a cloud drive keeps in sync: OneDrive on
+/// Windows; iCloud Drive and the drives of Dropbox, Google Drive and OneDrive
+/// on macOS.
+bool cloudSynced(String path) {
+  final environment = Platform.environment;
+  final roots = Platform.isWindows
+      ? [
+          environment['OneDrive'],
+          environment['OneDriveConsumer'],
+          environment['OneDriveCommercial'],
+        ].nonNulls
+      : Platform.isMacOS
+      ? [
+          p.join(environment['HOME']!, 'Library', 'Mobile Documents'),
+          p.join(environment['HOME']!, 'Library', 'CloudStorage'),
+        ]
+      : const <String>[];
+  return roots.any((root) => p.equals(root, path) || p.isWithin(root, path));
+}
 
 const _marker = '.melonbang-migration';
 

@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/catalog.dart';
+import '../../domain/episode_release.dart';
 import '../../features/discovery/schedule_filter.dart';
 import '../core/action_feedback.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
-import 'schedule_timelines.dart';
+import 'broadcast_timeline.dart';
+import 'release_labels.dart';
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({
@@ -235,7 +237,7 @@ class _CalendarPageState extends State<CalendarPage> {
           on ? {...values, value} : ({...values}..remove(value));
       final (kind, name) = switch (value.split(':')) {
         [final kind, final name] => (kind, name),
-        _ => ('', ''),
+        _ => throw ArgumentError.value(value, 'value', 'Not a filter option'),
       };
       widget.filter.set(switch (kind) {
         'kind' => filter.copyWith(kinds: flip(filter.kinds, name)),
@@ -258,7 +260,9 @@ class _CalendarPageState extends State<CalendarPage> {
                   ['hide', 'long'] => '隐藏长篇',
                   ['hide', _] => '隐藏往季度',
                   [_, final name] => name,
-                  _ => null,
+                  final other => throw StateError(
+                    'Not a filter option: $other',
+                  ),
                 }
               : '${selected.length} 项',
           sections: [

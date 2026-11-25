@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/file_manager.dart';
+import '../../core/notices.dart';
 import '../../domain/catalog.dart';
 import '../../domain/transfer.dart';
 import '../../features/acquisition/title_matching.dart';
@@ -14,10 +15,10 @@ import '../core/motion.dart';
 import '../core/byte_units.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
-import '../core/subject_posters.dart';
+import '../core/subject_cover.dart';
 import '../core/theme.dart';
+import '../core/tone.dart';
 import '../subscriptions/subscription_dialogs.dart';
-import 'download_dialogs.dart';
 import 'download_labels.dart';
 import 'download_task_widgets.dart';
 
@@ -102,7 +103,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         );
     widget.hasProgress(id).then((value) {
       if (value && mounted) setState(() => played.add(id));
-    }, onError: (_) {});
+    }, onError: widget.onError);
   }
 
   Future<void> _perform(Future<void> Function() action) async {
@@ -114,28 +115,29 @@ class _DownloadsPageState extends State<DownloadsPage> {
   }
 
   Future<void> _remove(DownloadTask task) async {
-    final remove = await showMelonDialog<bool>(
-      context: context,
-      builder: (_) =>
-          RemoveDownloadDialog(message: '将移除下载任务及本机缓存文件：${task.title}'),
+    final remove = await showConfirmDialog(
+      context,
+      title: '移除缓存？',
+      message: '将移除下载任务及本机缓存文件：${task.title}',
+      confirmLabel: '移除',
+      destructive: true,
     );
-    if (remove == true) await _perform(() => widget.downloads.remove(task.id));
+    if (remove) await _perform(() => widget.downloads.remove(task.id));
   }
 
   /// Deletes one video of a finished batch.
   Future<void> _removeFile(DownloadTask task, DownloadFile file) async {
-    final remove = await showMelonDialog<bool>(
-      context: context,
-      builder: (_) => RemoveDownloadDialog(
-        title: '删除这个视频？',
-        action: '删除',
-        message: [
-          '将删除本机文件：${file.name}',
-          if (task.seeds) '删除后这个合集不再做种，其余视频仍可观看',
-        ].join('\n'),
-      ),
+    final remove = await showConfirmDialog(
+      context,
+      title: '删除这个视频？',
+      message: [
+        '将删除本机文件：${file.name}',
+        if (task.seeds) '删除后这个合集不再做种，其余视频仍可观看',
+      ].join('\n'),
+      confirmLabel: '删除',
+      destructive: true,
     );
-    if (remove == true) {
+    if (remove) {
       await _perform(() => widget.downloads.removeFiles(task.id, {file.id}));
     }
   }
@@ -159,18 +161,17 @@ class _DownloadsPageState extends State<DownloadsPage> {
       whole.length,
       (sum, ids) => sum + ids.length,
     );
-    final remove = await showMelonDialog<bool>(
-      context: context,
-      builder: (_) => RemoveDownloadDialog(
-        title: '删除所选缓存？',
-        action: '删除',
-        message: [
-          '将删除所选的 $count 项及其本机缓存文件',
-          if (files.keys.any((id) => tasks[id]!.seeds)) '删除合集中的部分视频后，该合集不再做种',
-        ].join('\n'),
-      ),
+    final remove = await showConfirmDialog(
+      context,
+      title: '删除所选缓存？',
+      message: [
+        '将删除所选的 $count 项及其本机缓存文件',
+        if (files.keys.any((id) => tasks[id]!.seeds)) '删除合集中的部分视频后，该合集不再做种',
+      ].join('\n'),
+      confirmLabel: '删除',
+      destructive: true,
     );
-    if (remove != true || !mounted) return;
+    if (!remove || !mounted) return;
     setState(_endSelection);
     // One that fails leaves the others to be deleted, and is reported.
     Object? failure;
@@ -217,7 +218,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
   void _toggle(DownloadTask task) =>
       _perform(() => widget.downloads.toggle(task));
 
-  /// Opens the subscription of [id] to change it or end it.
   Future<void> _openSubscription(int id) => _perform(() async {
     final subject = subjects[id] ?? await widget.subscriptions.detail(id);
     if (!mounted) return;
@@ -239,13 +239,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
       widget.subscriptions,
       subscription,
     );
-    final scheme = Theme.of(context).colorScheme;
-    // An episode out late is something to know, in gold; failures in red.
+    // An episode out late is something to know; failures need the user.
     final tone = !warn
         ? null
-        : late
-        ? goldInk(Theme.of(context).brightness == Brightness.dark)
-        : scheme.error;
+        : toneColor(context, late ? NoticeTone.warning : NoticeTone.failed);
     return (
       Text(
         text,
@@ -256,7 +253,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
       IconButton(
         tooltip: '订阅设置',
         onPressed: () => _openSubscription(id),
-        color: tone ?? scheme.primary,
+        color: tone ?? Theme.of(context).colorScheme.primary,
         icon: const Icon(Icons.notifications_active_rounded, size: 20),
       ),
     );
@@ -562,7 +559,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     for (final task in tasks) {
       final episodes = subject == null
           ? const <int>{}
-          : {?task.episodeId, ...episodeFiles(subject, task).keys};
+          : taskEpisodeIds(subject, task);
       if (episodes.isEmpty) {
         unknown += task.videos.length > 1 ? task.videos.length : 1;
       }
@@ -700,7 +697,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
                               MelonBadge('已缓存 $episodes 话', color: sky),
                             if (ongoing > 0) MelonBadge('进行中 $ongoing'),
                             if (failed > 0)
-                              MelonBadge('需要重试 $failed', color: scheme.error),
+                              MelonBadge(
+                                '需要重试 $failed',
+                                color: toneColor(context, NoticeTone.failed),
+                              ),
                             if (speed > 0)
                               Text(
                                 '↓ ${ByteUnitsScope.of(context).rate(speed)}',
@@ -1045,7 +1045,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ].join('\n')
             : '',
         child: _stats(context, [
-          // A finished task downloads nothing more.
           if (!task.complete)
             '↓ ${ByteUnitsScope.of(context).rate(task.downloadSpeed)}',
           if (task.seeds) ...[
@@ -1300,8 +1299,7 @@ class _SubjectTitleLinkState extends State<_SubjectTitleLink> {
 }
 
 /// The cache page in grey while its tasks are restored, once that has taken
-/// [busyDelay]: the title, the filters' places, then entries in the cards'
-/// shape (cover, title, status badge, 开始观看 and the chevron).
+/// [busyDelay]: the title, the filters and entries in the cards' shape.
 class DownloadsSkeleton extends StatelessWidget {
   const DownloadsSkeleton({super.key});
 
@@ -1311,17 +1309,7 @@ class DownloadsSkeleton extends StatelessWidget {
     builder: (context, shown) => PageScroll(
       children: [
         const SectionTitle(title: '缓存'),
-        if (shown)
-          Semantics(
-            label: '正在恢复缓存任务',
-            child: ExcludeSemantics(
-              child: MotionAppear(
-                offset: 0,
-                milliseconds: 200,
-                child: MotionPulse(child: _body(context)),
-              ),
-            ),
-          ),
+        if (shown) SkeletonGroup(label: '正在恢复缓存任务', child: _body(context)),
       ],
     ),
   );

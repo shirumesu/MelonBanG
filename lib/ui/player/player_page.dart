@@ -12,27 +12,28 @@ import '../../core/file_manager.dart';
 import '../../core/notices.dart';
 import '../../core/system_settings.dart';
 import '../../domain/catalog.dart';
+import '../../domain/community.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/playback_session.dart';
-import '../../domain/transfer.dart';
-import '../../features/appearance/appearance.dart';
 import '../../features/downloads/downloads_controller.dart';
+import '../../features/playback/opening_ending.dart';
+import '../../features/playback/play_ranking.dart';
+import '../../features/playback/playback.dart';
 import '../../features/playback/playback_coordinator.dart';
 import '../../features/playback/resource_search.dart';
-import '../acquisition/download_labels.dart';
 import '../core/motion.dart';
 import '../core/notice_cards.dart';
-import '../core/byte_units.dart';
-import '../core/subject_posters.dart';
+import '../core/overlay_glass.dart';
 import '../core/theme.dart';
 import 'danmaku.dart';
-import '../../features/playback/play_selection.dart';
-import '../../features/playback/playback.dart';
 import 'player_controls.dart';
-import 'player_library_panel.dart';
+import 'player_corner_cards.dart';
+import 'player_episodes_pane.dart';
+import 'player_preparing.dart';
 import 'player_progress_bar.dart';
 import 'player_resource_sheet.dart';
 import 'player_settings.dart';
+import 'player_side_panel.dart';
 import 'player_stats.dart';
 import 'player_theme.dart';
 
@@ -85,7 +86,6 @@ class PlayerPage extends StatefulWidget {
   final ValueChanged<Episode> onEpisode;
   final void Function(String id, String? fileId) onPlayFile;
 
-  /// Plays a chosen resource as the episode.
   final Future<void> Function(PlayCandidate candidate, Episode episode)
   onPlayCandidate;
 
@@ -119,7 +119,8 @@ class PlayerPage extends StatefulWidget {
   State<PlayerPage> createState() => PlayerPageState();
 }
 
-class PlayerPageState extends State<PlayerPage> {
+class PlayerPageState extends State<PlayerPage>
+    with SingleTickerProviderStateMixin {
   final focus = FocusNode();
   final preparingFocus = FocusNode();
   final menuCloseFocus = FocusNode();
@@ -130,7 +131,7 @@ class PlayerPageState extends State<PlayerPage> {
   final danmakuDraft = TextEditingController();
   final danmakuInput = FocusNode();
 
-  /// The comment field's empty line, drawn again for each episode.
+  /// The comment field's placeholder, picked anew for each episode.
   String danmakuHint = _danmakuHint();
 
   bool controls = true;
@@ -157,10 +158,19 @@ class PlayerPageState extends State<PlayerPage> {
   /// The last confirmation shown, kept while it fades out.
   String shownFeedback = '';
   bool shownBoost = false;
-  Timer? hideTimer, feedbackTimer, overloadTimer;
-
-  /// The super-resolution overload suggestion on screen.
+  Timer? hideTimer, feedbackTimer;
   String? overload;
+
+  /// The share of the overload card's six seconds left, run down like a
+  /// notice's: held while the pointer rests on it, closing it at zero.
+  late final overloadLeft =
+      AnimationController(
+        vsync: this,
+        duration: const Duration(seconds: 6),
+        animationBehavior: AnimationBehavior.preserve,
+      )..addStatusListener((status) {
+        if (status == AnimationStatus.dismissed) playback.dismissOverload();
+      });
   late final StreamSubscription<bool> playingSubscription;
   String? sessionId;
   int lastNotice = 0;
@@ -240,7 +250,7 @@ class PlayerPageState extends State<PlayerPage> {
     danmakuInput.dispose();
     hideTimer?.cancel();
     feedbackTimer?.cancel();
-    overloadTimer?.cancel();
+    overloadLeft.dispose();
     super.dispose();
   }
 
@@ -276,18 +286,13 @@ class PlayerPageState extends State<PlayerPage> {
     if (playback.overloaded == overload) return;
     overload = playback.overloaded;
     if (overload != null) {
-      dismissOverloadLater();
+      overloadLeft.value = 1;
+      unawaited(overloadLeft.reverse());
     } else {
-      overloadTimer?.cancel();
+      overloadLeft.stop();
     }
   }
 
-  void dismissOverloadLater() {
-    overloadTimer?.cancel();
-    overloadTimer = Timer(const Duration(seconds: 6), playback.dismissOverload);
-  }
-
-  /// Opens the side panel on [tab].
   void showPanel(PlayerPanelTab tab) {
     setState(() {
       panelTab = tab;
@@ -448,8 +453,6 @@ class PlayerPageState extends State<PlayerPage> {
     }
   }
 
-  /// Leaves fullscreen, window fullscreen or the small window, whichever is
-  /// on.
   Future<void> exitImmersive() async {
     if (widget.mini) {
       await widget.onMiniChanged(false);
@@ -601,8 +604,7 @@ class PlayerPageState extends State<PlayerPage> {
   Episode? get episode =>
       widget.subject?.episode(playback.session?.episodeId ?? -1);
 
-  /// Saves the frame on screen to the pictures folder's MelonBanG folder,
-  /// named by the show, the episode and the time in it.
+  /// Saves the frame on screen in the pictures folder's MelonBanG folder.
   Future<void> screenshot() async {
     final notices = NoticesScope.of(context);
     final at = formatTime(player.state.position.inMilliseconds / 1000)
@@ -648,8 +650,6 @@ class PlayerPageState extends State<PlayerPage> {
     }
   }
 
-  /// The video's right-click menu at [position]: the frame, the details
-  /// and the neighbouring episodes. Dark like everything over the video.
   Future<void> openMenu(Offset position) async {
     playback.cancelAutoplay();
     if (danmakuMenu) closeMenu(refocus: false);
@@ -759,7 +759,7 @@ class PlayerPageState extends State<PlayerPage> {
             onKeyEvent: handlePreparingKey,
             child: ValueListenableBuilder(
               valueListenable: widget.downloads.snapshot,
-              builder: (context, snapshot, _) => _PreparingView(
+              builder: (context, snapshot, _) => PreparingView(
                 preparing: preparing,
                 task: switch (preparing.downloadId) {
                   final id? => snapshot.task(id),
@@ -1025,7 +1025,7 @@ class PlayerPageState extends State<PlayerPage> {
                             child: ValueListenableBuilder(
                               valueListenable: widget.downloads.snapshot,
                               builder: (context, downloads, _) =>
-                                  _BufferingStatus(
+                                  BufferingStatus(
                                     opening: playback.opening,
                                     task: switch (playback.session) {
                                       PlaybackSession(
@@ -1045,7 +1045,7 @@ class PlayerPageState extends State<PlayerPage> {
                       child: MotionAppear(
                         offset: 10,
                         milliseconds: 280,
-                        child: _FailureCard(
+                        child: FailureCard(
                           reason: failure,
                           onRetry: widget.failure == null
                               ? null
@@ -1115,10 +1115,8 @@ class PlayerPageState extends State<PlayerPage> {
                     bottom: 144,
                     child: IgnorePointer(
                       child: Center(
-                        // Settles in from slightly smaller and keeps its text
-                        // while fading out; a new message resizes it smoothly.
                         // The glass fades itself: an Opacity around its blur
-                        // would blur nothing on some renderers. Faded out, it
+                        // would blur nothing on some renderers. Faded out it
                         // is not painted, so no blur runs under the video.
                         child: TweenAnimationBuilder<double>(
                           tween: Tween(end: toast ? 1 : 0),
@@ -1363,15 +1361,41 @@ class PlayerPageState extends State<PlayerPage> {
                         child: MotionAppear(
                           offset: 8,
                           milliseconds: 260,
-                          // Stays while the pointer is on it.
                           child: MouseRegion(
-                            onEnter: (_) => overloadTimer?.cancel(),
-                            onExit: (_) => dismissOverloadLater(),
-                            child: _OverloadCard(
-                              quality: mode == 'quality',
-                              onChoose: (mode) =>
-                                  unawaited(playback.setSuperResolution(mode)),
-                              onClose: playback.dismissOverload,
+                            onEnter: (_) => overloadLeft.stop(),
+                            onExit: (_) {
+                              if (overload != null) {
+                                unawaited(overloadLeft.reverse());
+                              }
+                            },
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(
+                                maxWidth: NoticeStack.width,
+                              ),
+                              child: NoticeCard(
+                                title: mode == 'quality'
+                                    ? '画面卡顿，可改用效率档'
+                                    : '画面卡顿，可关闭超分',
+                                tone: NoticeTone.warning,
+                                actions: [
+                                  if (mode == 'quality')
+                                    NoticeAction(
+                                      '改用效率档',
+                                      () => unawaited(
+                                        playback.setSuperResolution('fast'),
+                                      ),
+                                    ),
+                                  NoticeAction(
+                                    '关闭超分',
+                                    () => unawaited(
+                                      playback.setSuperResolution('off'),
+                                    ),
+                                  ),
+                                ],
+                                onClose: playback.dismissOverload,
+                                remaining: overloadLeft,
+                                glass: true,
+                              ),
                             ),
                           ),
                         ),
@@ -1385,7 +1409,6 @@ class PlayerPageState extends State<PlayerPage> {
                       child: MotionAppear(
                         offset: 6,
                         milliseconds: 200,
-                        // Reads everything again each second itself.
                         child: PlayerStatsPanel(
                           playback: playback,
                           source: widget.source,
@@ -1397,11 +1420,10 @@ class PlayerPageState extends State<PlayerPage> {
                         ),
                       ),
                     ),
-                  // Above the controls, whose gradient reaches over them: the
-                  // window's notices, newest nearest the corner, then the
-                  // player's own prompts under them. Over the transport bar
-                  // while it shows, and while autoplay counts down so its
-                  // buttons stay put.
+                  // Above the controls, whose gradient would catch its clicks:
+                  // the window's notices, then the player's prompts nearest the
+                  // corner, over the transport bar while it shows and while
+                  // autoplay counts down, so its buttons stay put.
                   AnimatedPositioned(
                     key: const ValueKey('player-corner'),
                     duration: motionDuration(context),
@@ -1410,10 +1432,10 @@ class PlayerPageState extends State<PlayerPage> {
                     bottom: controls || autoplayShown
                         ? _transportInset
                         : pageGutter,
-                    // Keeps the controls, and so the corner's place, while
-                    // the pointer is on something in it. It stays when what
-                    // it holds goes, so leaving is always heard, and lets the
-                    // pointer through where nothing is drawn.
+                    // Holds the controls, and so the corner's place, while
+                    // the pointer is in it. It stays when its cards go, so
+                    // leaving is always heard, and lets the pointer through
+                    // where nothing is drawn.
                     child: MouseRegion(
                       opaque: false,
                       onEnter: (_) {
@@ -1441,8 +1463,7 @@ class PlayerPageState extends State<PlayerPage> {
                               builder: (_, position) {
                                 final now =
                                     position.data!.inMilliseconds / 1000;
-                                // Offered until a few seconds before the song
-                                // ends.
+                                // Offered until 3 s before the song ends.
                                 bool inside(ChapterSpan? span) =>
                                     span != null &&
                                     now >= span.start &&
@@ -1464,7 +1485,7 @@ class PlayerPageState extends State<PlayerPage> {
                                     offset: 8,
                                     milliseconds: 260,
                                     child: upcoming != null
-                                        ? _Countdown(
+                                        ? CountdownCard(
                                             title: '即将跳过 $upcoming',
                                             detail:
                                                 '跳到 ${formatTime(playback.skipTarget!)}',
@@ -1484,7 +1505,7 @@ class PlayerPageState extends State<PlayerPage> {
                                               focus.requestFocus();
                                             },
                                           )
-                                        : _SkipButton(
+                                        : SkipButton(
                                             label: label!,
                                             onPressed: () {
                                               showFeedback(label);
@@ -1502,7 +1523,7 @@ class PlayerPageState extends State<PlayerPage> {
                                 offset: 8,
                                 milliseconds: 260,
                                 child: switch (playback.autoplayTarget) {
-                                  final target? => _Countdown(
+                                  final target? => CountdownCard(
                                     title: '即将播放${target.episode.label}',
                                     detail: target.sourceLabel,
                                     seconds: playback.autoplaySeconds,
@@ -1515,15 +1536,27 @@ class PlayerPageState extends State<PlayerPage> {
                                     onConfirm: playback.playAutoplay,
                                     onCancel: playback.cancelAutoplay,
                                   ),
-                                  null => _Notice(
-                                    message: playback.autoplayMessage!,
-                                    action: playback.autoplayEndEpisode == null
-                                        ? null
-                                        : '查找资源',
-                                    onAction: () => findResources(
-                                      playback.autoplayEndEpisode,
+                                  // As wide as the notices above it, and no
+                                  // wider than the small window.
+                                  null => SizedBox(
+                                    width: math.min(
+                                      NoticeStack.width,
+                                      constraints.maxWidth - 2 * pageGutter,
                                     ),
-                                    onClose: playback.dismissAutoplayMessage,
+                                    child: NoticeCard(
+                                      title: playback.autoplayMessage!,
+                                      tone: playback.autoplayTone,
+                                      actions: [
+                                        if (playback.autoplayEndEpisode
+                                            case final episode?)
+                                          NoticeAction(
+                                            '查找资源',
+                                            () => findResources(episode),
+                                          ),
+                                      ],
+                                      onClose: playback.dismissAutoplayMessage,
+                                      glass: true,
+                                    ),
                                   ),
                                 },
                               ),
@@ -1554,7 +1587,6 @@ const _danmakuHints = ['发个友善的弹幕见证当下', '请输入文本', '
 String _danmakuHint() =>
     _danmakuHints[math.Random().nextInt(_danmakuHints.length)];
 
-/// The subject's name, then the episode in a quieter style.
 class _Title extends StatelessWidget {
   const _Title({required this.title, this.episode});
   final String title;
@@ -1590,395 +1622,6 @@ class _Title extends StatelessWidget {
   }
 }
 
-/// Why playback stopped, with retrying the same source or choosing another;
-/// with neither, as for a chosen file, it leads back. In fullscreen, where
-/// no title bar leads back, it also leaves fullscreen, as the preparing
-/// view does.
-class _FailureCard extends StatelessWidget {
-  const _FailureCard({
-    required this.reason,
-    required this.onBack,
-    this.onRetry,
-    this.onChoose,
-    this.onExitFullScreen,
-    this.exitLabel = '退出全屏 (Esc)',
-  });
-  final String reason;
-  final VoidCallback onBack;
-  final VoidCallback? onRetry, onChoose, onExitFullScreen;
-
-  /// What leaving the immersive mode is called: full screen, or the small
-  /// window.
-  final String exitLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final buttonStyle = overlayOutlinedButtonStyle;
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 420),
-      margin: const EdgeInsets.all(Gap.xl),
-      padding: const EdgeInsets.all(Gap.xl),
-      decoration: const BoxDecoration(
-        color: overlaySurface,
-        borderRadius: panelBorderRadius,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.error_outline_rounded,
-            color: overlayMuted,
-            size: 28,
-          ),
-          const SizedBox(height: Gap.md),
-          Text(
-            reason,
-            textAlign: TextAlign.center,
-            maxLines: 6,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: FontSize.body,
-            ),
-          ),
-          const SizedBox(height: Gap.lg),
-          Wrap(
-            spacing: Gap.sm,
-            runSpacing: Gap.sm,
-            alignment: WrapAlignment.center,
-            children: [
-              if (onRetry != null)
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: overlayInk,
-                  ),
-                  onPressed: onRetry,
-                  child: const Text('重试'),
-                ),
-              if (onChoose != null)
-                OutlinedButton(
-                  style: buttonStyle,
-                  onPressed: onChoose,
-                  child: const Text('选择其他资源'),
-                ),
-              if (onExitFullScreen case final exit?)
-                TextButton(
-                  style: TextButton.styleFrom(foregroundColor: overlayMuted),
-                  onPressed: exit,
-                  child: Text(exitLabel),
-                )
-              else if (onRetry == null && onChoose == null)
-                OutlinedButton(
-                  style: buttonStyle,
-                  onPressed: onBack,
-                  child: const Text('返回'),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Says the GPU cannot keep up with super-resolution and offers the
-/// efficient chain or turning it off.
-class _OverloadCard extends StatelessWidget {
-  const _OverloadCard({
-    required this.quality,
-    required this.onChoose,
-    required this.onClose,
-  });
-  final bool quality;
-  final ValueChanged<String> onChoose;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    final buttonStyle = TextButton.styleFrom(
-      foregroundColor: Colors.white,
-      backgroundColor: overlayFill,
-      visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.symmetric(horizontal: Gap.md),
-      shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
-      textStyle: appFont.copyWith(
-        fontSize: FontSize.body,
-        fontWeight: FontWeight.w700,
-      ),
-    );
-    return OverlayGlass(
-      borderRadius: panelBorderRadius,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(Gap.md, Gap.xs, Gap.xs, Gap.xs),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.speed_rounded, size: 18, color: overlayMuted),
-            const SizedBox(width: Gap.sm),
-            Flexible(
-              child: Text(
-                quality ? '画面卡顿，可改用效率档' : '画面卡顿，可关闭超分',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: FontSize.body,
-                ),
-              ),
-            ),
-            const SizedBox(width: Gap.md),
-            if (quality) ...[
-              TextButton(
-                style: buttonStyle,
-                onPressed: () => onChoose('fast'),
-                child: const Text('改用效率档'),
-              ),
-              const SizedBox(width: Gap.xs),
-            ],
-            TextButton(
-              style: buttonStyle,
-              onPressed: () => onChoose('off'),
-              child: const Text('关闭超分'),
-            ),
-            IconButton(
-              tooltip: '关闭',
-              onPressed: onClose,
-              iconSize: 16,
-              visualDensity: VisualDensity.compact,
-              color: overlayMuted,
-              icon: const Icon(Icons.close_rounded),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Jumps past the OP or ED the file's chapters mark.
-class _SkipButton extends StatelessWidget {
-  const _SkipButton({required this.label, required this.onPressed});
-  final String label;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) => OverlayGlass(
-    borderRadius: panelBorderRadius,
-    child: InkWell(
-      onTap: onPressed,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(Gap.md, Gap.xs, Gap.xs, Gap.xs),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // As tall as the buttons in the other corner cards.
-            const SizedBox(height: 30),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: FontSize.body,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(width: Gap.xs),
-            const Icon(
-              Icons.keyboard_double_arrow_right_rounded,
-              size: 18,
-              color: Colors.white,
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-/// Something about to happen on its own: a ring running down its seconds,
-/// what it is and a detail under it, and buttons to call it off or do it at
-/// once.
-class _Countdown extends StatelessWidget {
-  const _Countdown({
-    required this.title,
-    required this.detail,
-    required this.seconds,
-    required this.remaining,
-    required this.confirm,
-    required this.onConfirm,
-    required this.onCancel,
-    this.ease = 300,
-  });
-
-  final String title, detail, confirm;
-  final int seconds;
-
-  /// The part of the countdown left, from 1 to 0.
-  final double remaining;
-
-  /// Milliseconds the ring takes to reach a new [remaining].
-  final int ease;
-  final VoidCallback onConfirm, onCancel;
-
-  @override
-  Widget build(BuildContext context) {
-    const tabular = [FontFeature.tabularFigures()];
-    return _GlassCard(
-      children: [
-        SizedBox.square(
-          dimension: 34,
-          child: TweenAnimationBuilder<double>(
-            tween: Tween(begin: 1, end: remaining),
-            duration: motionDuration(context, ease),
-            builder: (context, value, child) =>
-                CustomPaint(painter: _CountdownRing(value), child: child),
-            child: Center(
-              child: Text(
-                '$seconds',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: FontSize.body,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: tabular,
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: Gap.md),
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: FontSize.body,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              detail,
-              style: const TextStyle(
-                color: overlayMuted,
-                fontSize: FontSize.small,
-                fontFeatures: tabular,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(width: Gap.xl),
-        _GlassCard.button('取消', onCancel),
-        const SizedBox(width: Gap.xs),
-        _GlassCard.button(confirm, onConfirm, primary: true),
-      ],
-    );
-  }
-}
-
-/// A message in the same card, with an optional [action] and closing it.
-class _Notice extends StatelessWidget {
-  const _Notice({
-    required this.message,
-    this.action,
-    required this.onAction,
-    required this.onClose,
-  });
-  final String message;
-  final String? action;
-  final VoidCallback onAction, onClose;
-
-  @override
-  Widget build(BuildContext context) => _GlassCard(
-    children: [
-      const SizedBox(width: Gap.xs),
-      Text(
-        message,
-        style: const TextStyle(color: Colors.white, fontSize: FontSize.body),
-      ),
-      if (action case final action?) ...[
-        const SizedBox(width: Gap.xl),
-        _GlassCard.button(action, onAction, primary: true),
-      ],
-      const SizedBox(width: Gap.xs),
-      IconButton(
-        tooltip: '关闭',
-        onPressed: onClose,
-        iconSize: 16,
-        visualDensity: VisualDensity.compact,
-        color: overlayMuted,
-        icon: const Icon(Icons.close_rounded),
-      ),
-    ],
-  );
-}
-
-/// The frosted card the prompts at the video's corner share.
-class _GlassCard extends StatelessWidget {
-  const _GlassCard({required this.children});
-  final List<Widget> children;
-
-  /// White and filled when [primary], quiet otherwise.
-  static Widget button(
-    String label,
-    VoidCallback onPressed, {
-    bool primary = false,
-  }) => TextButton(
-    style: TextButton.styleFrom(
-      minimumSize: const Size(0, 30),
-      padding: const EdgeInsets.symmetric(horizontal: Gap.md),
-      shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
-      textStyle: appFont.copyWith(
-        fontSize: FontSize.body,
-        fontWeight: FontWeight.w700,
-      ),
-      foregroundColor: primary ? overlayInk : overlayMuted,
-      backgroundColor: primary ? Colors.white : null,
-      overlayColor: primary ? overlayInk : Colors.white,
-    ),
-    onPressed: onPressed,
-    child: Text(label),
-  );
-
-  @override
-  Widget build(BuildContext context) => OverlayGlass(
-    borderRadius: panelBorderRadius,
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(Gap.md, Gap.xs, Gap.xs, Gap.xs),
-      child: Row(mainAxisSize: MainAxisSize.min, children: children),
-    ),
-  );
-}
-
-/// A faint track with the part of the countdown left drawn over it from the
-/// top, clockwise.
-class _CountdownRing extends CustomPainter {
-  _CountdownRing(this.remaining);
-  final double remaining;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = (Offset.zero & size).deflate(1.5);
-    final stroke = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..strokeCap = StrokeCap.round;
-    canvas.drawOval(rect, stroke..color = Colors.white12);
-    canvas.drawArc(
-      rect,
-      -math.pi / 2,
-      2 * math.pi * remaining,
-      false,
-      stroke..color = Colors.white,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_CountdownRing old) => old.remaining != remaining;
-}
-
 /// Sits on the video's edge beside the side panel, so folding or unfolding
 /// it is a short move from either side.
 class _PanelHandle extends StatelessWidget {
@@ -2007,289 +1650,4 @@ class _PanelHandle extends StatelessWidget {
       ),
     ),
   );
-}
-
-/// What a streamed download is doing while the player waits for its data:
-/// its state, speed and connected peers.
-String? _transferLine(DownloadTask? task, ByteUnits units) =>
-    task == null || task.complete ? null : transferLine(task, units);
-
-/// Why a BT task waiting for data has no peers yet. Every tracker failing
-/// with an empty DHT table means its traffic does not get out, which a proxy
-/// routing BT to a node that drops it does.
-String? _swarmHint(DownloadTask? task) {
-  if (task == null ||
-      task.complete ||
-      task.method != CacheMethod.bt ||
-      task.swarm.peers > 0 ||
-      task.downloadSpeed > 0) {
-    return null;
-  }
-  final SwarmStats(:workingTrackers, :failedTrackers, :dhtNodes) = task.swarm;
-  if ((failedTrackers ?? 0) > 0 &&
-      (workingTrackers ?? 0) == 0 &&
-      (dhtNodes ?? 0) == 0) {
-    return '连不上 BT 网络，开着代理时请让 MelonBanG 直连';
-  }
-  return '冷门资源可能要等很久，可以在侧栏换个资源';
-}
-
-/// Shown over the video while it opens or buffers; a streamed download adds
-/// its live state, and a BT task finding no peers says why it waits.
-class _BufferingStatus extends StatelessWidget {
-  const _BufferingStatus({required this.opening, this.task});
-  final bool opening;
-  final DownloadTask? task;
-
-  @override
-  Widget build(BuildContext context) {
-    final task = this.task;
-    final line = _transferLine(task, ByteUnitsScope.of(context));
-    final hint = _swarmHint(task);
-    const shadow = [Shadow(blurRadius: 6)];
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox.square(
-            dimension: 28,
-            child: CircularProgressIndicator(
-              strokeWidth: 2.5,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: Gap.md),
-          Text(
-            opening ? '正在打开视频…' : '正在缓冲…',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: FontSize.body,
-              shadows: shadow,
-            ),
-          ),
-          if (line != null) ...[
-            const SizedBox(height: Gap.xs),
-            Text(
-              line,
-              style: const TextStyle(
-                color: overlayMuted,
-                fontSize: FontSize.small,
-                fontFeatures: [FontFeature.tabularFigures()],
-                shadows: shadow,
-              ),
-            ),
-          ],
-          if (hint != null) ...[
-            const SizedBox(height: Gap.xs),
-            Text(
-              hint,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: overlayMuted,
-                fontSize: FontSize.small,
-                shadows: shadow,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _PreparingView extends StatelessWidget {
-  const _PreparingView({
-    required this.preparing,
-    required this.onRetry,
-    required this.onChoose,
-    this.task,
-    this.onExitFullScreen,
-    this.exitLabel = '退出全屏 (Esc)',
-  });
-  final PreparingPlayback preparing;
-
-  /// The download being started or streamed.
-  final DownloadTask? task;
-  final VoidCallback? onRetry, onChoose;
-
-  /// Set in fullscreen, where no title bar leads back.
-  final VoidCallback? onExitFullScreen;
-
-  /// What leaving the immersive mode is called: full screen, or the small
-  /// window.
-  final String exitLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final failed = preparing.failed;
-    final live = _transferLine(task, ByteUnitsScope.of(context));
-    final hint = _swarmHint(task);
-    final canChoose = preparing.subject != null && preparing.episode != null;
-    const white = Colors.white;
-    const muted = overlayMuted;
-    final buttonStyle = overlayOutlinedButtonStyle;
-    return ColoredBox(
-      color: Colors.black,
-      child: Center(
-        child: MotionAppear(
-          offset: 10,
-          milliseconds: 320,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 96,
-                  height: 128,
-                  child: CoverFrame(
-                    child: SubjectCover(
-                      url: preparing.coverUrl,
-                      title: preparing.title,
-                      id: preparing.subject?.id ?? 0,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: Gap.lg),
-                Text(
-                  preparing.title,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: white,
-                    fontSize: FontSize.title,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                if (preparing.detail case final detail?) ...[
-                  const SizedBox(height: Gap.xs),
-                  Text(
-                    detail,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: muted, fontSize: FontSize.small),
-                  ),
-                ],
-                const SizedBox(height: Gap.xl),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    MotionSwap(
-                      value: failed == null,
-                      child: failed == null
-                          ? const SizedBox.square(
-                              dimension: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: white,
-                              ),
-                            )
-                          : Icon(
-                              Icons.error_outline_rounded,
-                              size: 18,
-                              color: muted,
-                            ),
-                    ),
-                    const SizedBox(width: Gap.sm),
-                    // Each step of finding and opening the video cross-fades
-                    // into the next.
-                    Flexible(
-                      child: AnimatedSize(
-                        duration: motionDuration(context, 220),
-                        curve: Curves.easeOutCubic,
-                        child: MotionSwap(
-                          value: failed ?? preparing.status,
-                          scale: 1,
-                          milliseconds: 220,
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            failed ?? preparing.status ?? '正在查找资源…',
-                            style: TextStyle(
-                              color: muted,
-                              fontSize: FontSize.body,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                if (preparing.source case final source?
-                    when failed == null) ...[
-                  const SizedBox(height: Gap.xs),
-                  // The source's name stands out from the site listing it.
-                  Text.rich(
-                    TextSpan(
-                      children: [
-                        const TextSpan(text: '已选择 '),
-                        if (source.sourceName.isNotEmpty)
-                          TextSpan(
-                            text: '${source.sourceName}  ',
-                            style: const TextStyle(color: white),
-                          ),
-                        TextSpan(text: source.site),
-                      ],
-                    ),
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: muted,
-                      fontSize: FontSize.small,
-                    ),
-                  ),
-                ],
-                if (failed == null && live != null) ...[
-                  const SizedBox(height: Gap.xs),
-                  Text(
-                    live,
-                    style: const TextStyle(
-                      color: muted,
-                      fontSize: FontSize.small,
-                      fontFeatures: [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ],
-                if (failed == null && hint != null) ...[
-                  const SizedBox(height: Gap.xs),
-                  Text(
-                    hint,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: muted, fontSize: FontSize.small),
-                  ),
-                ],
-                const SizedBox(height: Gap.lg),
-                Wrap(
-                  spacing: Gap.sm,
-                  runSpacing: Gap.sm,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    if (failed != null)
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: white,
-                          foregroundColor: overlayInk,
-                        ),
-                        onPressed: onRetry,
-                        child: const Text('重试'),
-                      ),
-                    if (canChoose)
-                      OutlinedButton(
-                        style: buttonStyle,
-                        onPressed: onChoose,
-                        child: const Text('选择资源'),
-                      ),
-                    if (onExitFullScreen case final exit?)
-                      TextButton(
-                        style: TextButton.styleFrom(foregroundColor: muted),
-                        onPressed: exit,
-                        child: Text(exitLabel),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }

@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/notices.dart';
-import '../player/player_theme.dart';
 import 'motion.dart';
+import 'overlay_glass.dart';
 import 'selection_controls.dart';
 import 'theme.dart';
+import 'tone.dart';
 
 /// Gives the pages the window's [Notices], so any of them can show one.
 class NoticesScope extends InheritedWidget {
@@ -227,34 +228,84 @@ class _NoticeTileState extends State<_NoticeTile>
     super.dispose();
   }
 
-  void act(VoidCallback action) {
-    widget.onClose();
+  @override
+  Widget build(BuildContext context) {
+    final notice = widget.entry.notice;
+    return SizeTransition(
+      sizeFactor: curve,
+      axisAlignment: -1,
+      child: FadeTransition(
+        opacity: curve,
+        child: SlideTransition(
+          position: Tween(
+            begin: const Offset(.12, 0),
+            end: Offset.zero,
+          ).animate(curve),
+          child: Padding(
+            padding: const EdgeInsets.only(top: Gap.sm),
+            child: MouseRegion(
+              onEnter: (_) => widget.onHold(true),
+              onExit: (_) => widget.onHold(false),
+              child: NoticeCard(
+                title: notice.title,
+                detail: notice.detail,
+                tone: notice.tone,
+                actions: notice.actions,
+                onOpen: notice.onOpen,
+                onClose: widget.onClose,
+                // A card waiting on a decision has no time to run down.
+                remaining: notice.sticky ? null : countdown,
+                glass: widget.glass,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A message card: [tone]'s icon, [title], [detail] and [actions]; an action
+/// or a tap on the card ([onOpen]) also calls [onClose]. [remaining] runs a
+/// line down its foot. Needs a bounded width ([NoticeStack.width]); shows no
+/// tooltips, so it works outside any [Overlay]. [glass] is for the video.
+class NoticeCard extends StatelessWidget {
+  const NoticeCard({
+    super.key,
+    required this.title,
+    this.detail,
+    this.tone = NoticeTone.info,
+    this.actions = const [],
+    this.onOpen,
+    this.onClose,
+    this.remaining,
+    this.glass = false,
+  });
+  final String title;
+  final String? detail;
+  final NoticeTone tone;
+  final List<NoticeAction> actions;
+  final VoidCallback? onOpen;
+
+  /// Null for a card without a close button.
+  final VoidCallback? onClose;
+
+  /// From 1 to 0; null for no line.
+  final Animation<double>? remaining;
+  final bool glass;
+
+  void _act(VoidCallback action) {
+    onClose?.call();
     action();
   }
 
   @override
   Widget build(BuildContext context) {
-    final notice = widget.entry.notice;
-    final glass = widget.glass;
     final scheme = Theme.of(context).colorScheme;
     final ink = glass ? Colors.white : scheme.onSurface;
     final muted = glass ? overlayMuted : scheme.onSurfaceVariant;
-    final (icon, tint) = switch (notice.tone) {
-      NoticeTone.info => (Icons.notifications_none_rounded, muted),
-      NoticeTone.done => (
-        Icons.check_circle_outline_rounded,
-        glass ? Colors.white : scheme.primary,
-      ),
-      NoticeTone.warning => (
-        Icons.error_outline_rounded,
-        glass ? Colors.white : scheme.tertiary,
-      ),
-      NoticeTone.failed => (
-        Icons.error_outline_rounded,
-        glass ? overlayTheme.colorScheme.error : scheme.error,
-      ),
-    };
-    final detail = notice.detail;
+    final tint = toneColor(context, tone, glass: glass);
+    final detail = this.detail;
     final content = Padding(
       padding: const EdgeInsets.fromLTRB(Gap.md, Gap.md, Gap.xs, Gap.md),
       child: Row(
@@ -262,7 +313,7 @@ class _NoticeTileState extends State<_NoticeTile>
         children: [
           Padding(
             padding: const EdgeInsets.only(top: 1),
-            child: Icon(icon, size: 18, color: tint),
+            child: Icon(toneIcon(tone), size: 18, color: tint),
           ),
           const SizedBox(width: Gap.sm),
           Expanded(
@@ -270,7 +321,7 @@ class _NoticeTileState extends State<_NoticeTile>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  notice.title,
+                  title,
                   style: appFont.copyWith(
                     fontSize: FontSize.body,
                     height: 1.45,
@@ -293,30 +344,18 @@ class _NoticeTileState extends State<_NoticeTile>
                     ),
                   ),
                 ],
-                if (notice.actions.isNotEmpty) ...[
+                if (actions.isNotEmpty) ...[
                   const SizedBox(height: Gap.xs),
                   Wrap(
                     spacing: Gap.xs,
                     children: [
-                      for (final action in notice.actions)
+                      for (final (index, action) in actions.indexed)
                         TextButton(
-                          style: TextButton.styleFrom(
-                            minimumSize: const Size(0, 28),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: Gap.sm,
-                            ),
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            visualDensity: VisualDensity.compact,
-                            foregroundColor: glass ? Colors.white : null,
-                            overlayColor: glass ? Colors.white : null,
-                            textStyle: appFont.copyWith(
-                              fontSize: FontSize.body,
-                              fontWeight: glass
-                                  ? FontWeight.w700
-                                  : FontWeight.w400,
-                            ),
-                          ),
-                          onPressed: () => act(action.onPressed),
+                          // On glass the first action is the white one.
+                          style: glass
+                              ? overlayTextButtonStyle(primary: index == 0)
+                              : compactTextButtonStyle,
+                          onPressed: () => _act(action.onPressed),
                           child: Text(action.label),
                         ),
                     ],
@@ -326,27 +365,28 @@ class _NoticeTileState extends State<_NoticeTile>
             ),
           ),
           const SizedBox(width: Gap.xs),
-          // No tooltip: the stack may sit outside any overlay.
-          Semantics(
-            button: true,
-            label: '关闭',
-            child: IconButton(
-              onPressed: widget.onClose,
-              iconSize: 16,
-              visualDensity: VisualDensity.compact,
-              color: muted,
-              style: IconButton.styleFrom(
-                minimumSize: const Size.square(28),
-                padding: EdgeInsets.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          if (onClose case final close?)
+            Semantics(
+              button: true,
+              label: '关闭',
+              child: IconButton(
+                onPressed: close,
+                iconSize: 16,
+                visualDensity: VisualDensity.compact,
+                color: muted,
+                style: IconButton.styleFrom(
+                  minimumSize: const Size.square(28),
+                  padding: EdgeInsets.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: const Icon(Icons.close_rounded),
               ),
-              icon: const Icon(Icons.close_rounded),
             ),
-          ),
         ],
       ),
     );
-    final open = notice.onOpen;
+    final open = onOpen;
+    final remaining = this.remaining;
     final body = Stack(
       children: [
         AnimatedSize(
@@ -355,59 +395,37 @@ class _NoticeTileState extends State<_NoticeTile>
           alignment: Alignment.topCenter,
           child: open == null
               ? content
-              : InkWell(onTap: () => act(open), child: content),
+              : InkWell(onTap: () => _act(open), child: content),
         ),
-        // A card waiting on a decision has no time to run down.
-        if (!notice.sticky)
+        if (remaining != null)
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
             height: 2,
             child: AnimatedBuilder(
-              animation: countdown,
+              animation: remaining,
               builder: (_, _) => FractionallySizedBox(
                 alignment: Alignment.centerLeft,
-                widthFactor: countdown.value,
+                widthFactor: remaining.value,
                 child: ColoredBox(color: tint.withValues(alpha: .5)),
               ),
             ),
           ),
       ],
     );
-    final card = glass
-        ? OverlayGlass(borderRadius: panelBorderRadius, child: body)
-        : DecoratedBox(
-            decoration: BoxDecoration(
-              color: menuSurface(context),
-              borderRadius: panelBorderRadius,
-              boxShadow: panelShadows(context),
-            ),
-            child: ClipRRect(borderRadius: panelBorderRadius, child: body),
-          );
-    return SizeTransition(
-      sizeFactor: curve,
-      axisAlignment: -1,
-      child: FadeTransition(
-        opacity: curve,
-        child: SlideTransition(
-          position: Tween(
-            begin: const Offset(.12, 0),
-            end: Offset.zero,
-          ).animate(curve),
-          child: Padding(
-            padding: const EdgeInsets.only(top: Gap.sm),
-            child: Semantics(
-              liveRegion: true,
-              child: MouseRegion(
-                onEnter: (_) => widget.onHold(true),
-                onExit: (_) => widget.onHold(false),
-                child: card,
+    return Semantics(
+      liveRegion: true,
+      child: glass
+          ? OverlayGlass(borderRadius: panelBorderRadius, child: body)
+          : DecoratedBox(
+              decoration: BoxDecoration(
+                color: menuSurface(context),
+                borderRadius: panelBorderRadius,
+                boxShadow: panelShadows(context),
               ),
+              child: ClipRRect(borderRadius: panelBorderRadius, child: body),
             ),
-          ),
-        ),
-      ),
     );
   }
 }

@@ -153,6 +153,7 @@ class SourceRegistry extends ChangeNotifier {
         // A damaged cache falls back to the bundled rules until refreshed.
       }
     }
+    // A failed refresh is shown as [updateIssue] on the Sources page.
     unawaited(refreshRules().catchError((Object _) {}));
   }
 

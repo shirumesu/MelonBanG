@@ -35,8 +35,8 @@ class DanmakuSourceState {
 }
 
 /// The current session's danmaku: per-source state and merged comments.
-/// Each load holds a per-source ticket; a newer load or a new
-/// session discards older results.
+/// Each load holds a per-source ticket; a newer load or a new session
+/// discards older results.
 class DanmakuController extends ChangeNotifier {
   DanmakuController(this.repository, this.preferences) {
     preferences.addListener(_preferencesChanged);
@@ -444,10 +444,9 @@ class DanmakuController extends ChangeNotifier {
   }
 
   /// Linear multiway merge of the enabled sources' sorted lists. A comment
-  /// with the same text, simplified/traditional spelling ignored, as one
-  /// from another source within [copyWindow] seconds is a synced copy and
-  /// dropped; the kept comment shows the simplified spelling. Others
-  /// repeating it a moment apart, as viewers do at a big scene, stay.
+  /// matching one from another source within [copyWindow] seconds, in either
+  /// Chinese script, is a synced copy and dropped, the kept one shown in
+  /// simplified spelling; viewers repeating it a moment apart stay.
   void _merge({DanmakuComment? sent}) {
     final lists = [
       for (final source in sources)

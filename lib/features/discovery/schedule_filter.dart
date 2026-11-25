@@ -16,12 +16,10 @@ enum AdultFilter {
   final String label;
 }
 
-/// Bangumi's R18 mark, or a TV show its users tag 里番 (or R18) as much as
-/// its leading tag, such as an 8-episode short whose uncensored cut is the
-/// point. Shows tagged 卖肉 (fanservice) are not R18: those are ordinary TV
-/// series whose users weigh the fanservice, from a gag comedy to a romance.
-/// Bangumi keeps R18-marked subjects out of TV schedules, so the tags are
-/// what tells a schedule's R18 shows apart.
+/// Bangumi's R18 mark, or 里番, R18 and 18禁 tags counting at least 5 and
+/// 30% of the leading tag. Bangumi keeps R18-marked subjects out of TV
+/// schedules, so the tags tell a schedule's R18 shows apart; 卖肉
+/// (fanservice) does not count, as it marks ordinary series.
 bool isAdult(Subject subject) {
   if (subject.nsfw) return true;
   final lead = subject.tags.fold(0, (most, tag) => _max(most, tag.count));

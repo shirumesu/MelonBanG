@@ -1,7 +1,3 @@
-import 'dart:async';
-import 'dart:math' as math;
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/error_message.dart';
@@ -10,25 +6,19 @@ import '../../domain/play_candidate.dart';
 import '../../domain/playback_session.dart';
 import '../../domain/transfer.dart';
 import '../../features/acquisition/title_matching.dart';
-import '../../features/playback/play_selection.dart';
-import '../../features/playback/playback.dart';
-import '../acquisition/download_labels.dart';
-import '../acquisition/download_task_widgets.dart';
+import '../../features/playback/play_ranking.dart';
 import '../core/action_feedback.dart';
-import '../core/account_avatar.dart';
-import '../core/bbcode.dart';
 import '../core/byte_units.dart';
-import '../core/external_link.dart';
+import '../core/help_hint.dart';
 import '../core/motion.dart';
-import '../core/selection_controls.dart';
-import '../core/subject_posters.dart';
+import '../core/subject_cover.dart';
 import '../core/theme.dart';
+import '../downloads/download_labels.dart';
+import '../downloads/download_task_widgets.dart';
 import '../tracking/episode_grid.dart';
-import '../tracking/subject_community.dart';
-import 'player_danmaku_panel.dart';
 
 /// A download of one episode: a task cached for it, or the episode's video
-/// in a batch; [file] is null until the task's files are known.
+/// in a batch; `file` is null until the task's files are known.
 typedef EpisodeCache = ({DownloadTask task, DownloadFile? file});
 
 extension on EpisodeCache {
@@ -39,214 +29,15 @@ extension on EpisodeCache {
   bool get playable => file != null && task.playable;
 }
 
-enum PlayerPanelTab { episodes, discussion, danmaku }
-
-/// The panel beside the video: the subject's episodes with the playing
-/// source and cache, the episode's Bangumi comments, and danmaku sources.
-/// It follows the app's light or dark theme.
-class PlayerSidePanel extends StatefulWidget {
-  const PlayerSidePanel({
-    super.key,
-    required this.playback,
-    required this.community,
-    required this.subject,
-    required this.session,
-    required this.source,
-    required this.downloads,
-    required this.tab,
-    required this.onTab,
-    required this.onEpisode,
-    required this.onFindResources,
-    required this.onPlayFile,
-    required this.onToggleTask,
-    required this.onMarkEpisode,
-    required this.onOpenSubject,
-    required this.onError,
-    this.remembered,
-    required this.onForgetSource,
-  });
-  final Playback playback;
-  final SubjectCommunitySource community;
-  final Subject? subject;
-  final PlaybackSession? session;
-
-  /// The source chosen for the session, when one was.
-  final PlayCandidate? source;
-
-  /// The source the subject remembers for its next episodes.
-  final RememberedSource? remembered;
-  final VoidCallback onForgetSource;
-  final ValueListenable<TransferSnapshot> downloads;
-  final PlayerPanelTab tab;
-  final ValueChanged<PlayerPanelTab> onTab;
-  final ValueChanged<Episode> onEpisode;
-  final ValueChanged<Episode?> onFindResources;
-  final void Function(String id, String? fileId) onPlayFile;
-  final Future<void> Function(DownloadTask) onToggleTask;
-  final Future<void> Function(Episode episode, bool watched) onMarkEpisode;
-  final ValueChanged<Subject> onOpenSubject;
-  final ValueChanged<Object> onError;
-
-  @override
-  State<PlayerSidePanel> createState() => _PlayerSidePanelState();
-}
-
-class _PlayerSidePanelState extends State<PlayerSidePanel> {
-  Episode? get current => switch ((widget.subject, widget.session)) {
-    (final subject?, PlaybackSession(:final episodeId?)) => subject.episode(
-      episodeId,
-    ),
-    _ => null,
-  };
-
-  Future<void> mark(Episode episode, bool watched) async {
-    try {
-      await widget.onMarkEpisode(episode, watched);
-    } catch (e) {
-      widget.onError(e);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final small = Theme.of(context).textTheme.bodySmall;
-    final subject = widget.subject;
-    final episode = current;
-    final linked = widget.session?.subjectId != null;
-    final tab = linked ? widget.tab : PlayerPanelTab.danmaku;
-    return Material(
-      color: scheme.surface,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.lg, Gap.md, 0),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        subject?.title ?? widget.session?.title ?? '播放器',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleSmall
-                            ?.copyWith(fontSize: FontSize.emphasis),
-                      ),
-                      if (episode != null) ...[
-                        const SizedBox(height: Gap.xs),
-                        Text(
-                          episodeLabel(episode),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: small,
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                if (subject != null && linked) ...[
-                  const SizedBox(width: Gap.sm),
-                  _DetailButton(onPressed: () => widget.onOpenSubject(subject)),
-                ],
-              ],
-            ),
-          ),
-          if (linked)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.lg, 0),
-              child: MelonSegmentedControl<PlayerPanelTab>(
-                options: const {
-                  PlayerPanelTab.episodes: '剧集',
-                  PlayerPanelTab.discussion: '讨论',
-                  PlayerPanelTab.danmaku: '弹幕',
-                },
-                value: tab,
-                onChanged: widget.onTab,
-              ),
-            ),
-          Expanded(
-            // Tabs cross-fade rather than cut.
-            child: MotionSwap(
-              value: tab,
-              scale: 1,
-              milliseconds: 200,
-              alignment: Alignment.topCenter,
-              child: SizedBox.expand(
-                child: switch (tab) {
-                  // Only this pane follows download progress.
-                  PlayerPanelTab.episodes =>
-                    ValueListenableBuilder<TransferSnapshot>(
-                      key: ValueKey('episodes:${widget.session?.subjectId}'),
-                      valueListenable: widget.downloads,
-                      builder: (context, downloads, _) => _EpisodesPane(
-                        subject: subject,
-                        session: widget.session,
-                        source: widget.source,
-                        remembered: widget.remembered,
-                        onForgetSource: widget.onForgetSource,
-                        downloads: downloads,
-                        onEpisode: widget.onEpisode,
-                        onFindResources: widget.onFindResources,
-                        onPlayFile: widget.onPlayFile,
-                        onToggleTask: widget.onToggleTask,
-                        onMark: mark,
-                      ),
-                    ),
-                  PlayerPanelTab.discussion => _DiscussionPane(
-                    key: ValueKey('discussion:${episode?.id}'),
-                    community: widget.community,
-                    episode: episode,
-                  ),
-                  PlayerPanelTab.danmaku => PlayerDanmakuPane(
-                    playback: widget.playback,
-                    title: subject?.title ?? widget.session?.title,
-                  ),
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// `第 N 话  标题`, without a placeholder title.
 String episodeLabel(Episode episode) => episode.title == '未命名'
     ? episode.placedLabel
     : '${episode.placedLabel}  ${episode.title}';
 
-/// Leaves the player for the subject's detail page.
-class _DetailButton extends StatelessWidget {
-  const _DetailButton({required this.onPressed});
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return TextButton.icon(
-      style: TextButton.styleFrom(
-        minimumSize: const Size(0, 30),
-        padding: const EdgeInsets.symmetric(horizontal: Gap.md),
-        backgroundColor: scheme.surfaceContainerHigh,
-        foregroundColor: scheme.onSurface,
-        shape: const RoundedRectangleBorder(borderRadius: badgeBorderRadius),
-        textStyle: appFont.copyWith(fontSize: FontSize.small),
-      ),
-      onPressed: onPressed,
-      icon: const Icon(Icons.info_outline_rounded, size: 15),
-      label: const Text('番剧详情'),
-    );
-  }
-}
-
 /// The playing source, every episode as a cell, and the subject's cache.
-class _EpisodesPane extends StatefulWidget {
-  const _EpisodesPane({
+class PlayerEpisodesPane extends StatefulWidget {
+  const PlayerEpisodesPane({
+    super.key,
     required this.subject,
     required this.session,
     required this.source,
@@ -272,10 +63,10 @@ class _EpisodesPane extends StatefulWidget {
   final Future<void> Function(Episode episode, bool watched) onMark;
 
   @override
-  State<_EpisodesPane> createState() => _EpisodesPaneState();
+  State<PlayerEpisodesPane> createState() => _PlayerEpisodesPaneState();
 }
 
-class _EpisodesPaneState extends State<_EpisodesPane> {
+class _PlayerEpisodesPaneState extends State<PlayerEpisodesPane> {
   static const columns = 6, cellHeight = 40.0, cellGap = 8.0;
   static const specialsHeader = 36.0;
   final scroll = ScrollController();
@@ -425,7 +216,6 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
   bool aired(Episode episode) =>
       !(episode.aired?.isAfter(DateTime.now()) ?? false);
 
-  /// The hovered episode: title, then its state.
   Widget episodeLine(Episode episode, List<EpisodeCache> caches) {
     final small = Theme.of(context).textTheme.bodySmall;
     final cache =
@@ -633,7 +423,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
             null,
           )
         : (Colors.transparent, scheme.onSurface, scheme.outlineVariant);
-    // A cache shows as a green outline on any cell but the playing one.
+    // A cache shows as a primary outline on any cell but the playing one.
     final border = cached && !playing
         ? scheme.primary.withValues(alpha: .45)
         : outline;
@@ -783,14 +573,7 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
             ],
           ),
         ),
-        Tooltip(
-          message: '点击观看：有缓存直接观看，否则按来源设置选择资源\n右键：查找资源、标为已看',
-          child: Icon(
-            Icons.help_outline_rounded,
-            size: 16,
-            color: scheme.onSurfaceVariant,
-          ),
-        ),
+        const HelpHint(message: '点击观看：有缓存直接观看，否则按来源设置选择资源\n右键：查找资源、标为已看'),
       ],
     );
   }
@@ -907,264 +690,3 @@ class _EpisodesPaneState extends State<_EpisodesPane> {
     );
   }
 }
-
-/// The episode's Bangumi comments, oldest first like the site.
-class _DiscussionPane extends StatefulWidget {
-  const _DiscussionPane({
-    super.key,
-    required this.community,
-    required this.episode,
-  });
-  final SubjectCommunitySource community;
-  final Episode? episode;
-
-  @override
-  State<_DiscussionPane> createState() => _DiscussionPaneState();
-}
-
-class _DiscussionPaneState extends State<_DiscussionPane> {
-  List<TopicPost>? posts;
-  String? error;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(load());
-  }
-
-  Future<void> load({bool refresh = false}) async {
-    final episode = widget.episode;
-    if (episode == null) return;
-    if (refresh) {
-      setState(() {
-        error = null;
-        posts = null;
-      });
-    }
-    try {
-      final result = await widget.community.episodeComments(
-        episode.id,
-        refresh: refresh,
-      );
-      if (mounted) setState(() => posts = result);
-    } catch (e) {
-      if (mounted) setState(() => error = errorMessage(e));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final small = Theme.of(context).textTheme.bodySmall;
-    final episode = widget.episode;
-    if (episode == null) {
-      return Center(child: Text('这个视频没有对应的剧集', style: small));
-    }
-    final posts = this.posts;
-    final header = Padding(
-      padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.sm, Gap.sm, Gap.xs),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              posts == null ? '本话吐槽' : '本话吐槽  ${posts.length} 条',
-              style: small,
-            ),
-          ),
-          TextButton.icon(
-            onPressed: () =>
-                openExternal(context, 'https://bgm.tv/ep/${episode.id}'),
-            icon: const Icon(Icons.open_in_new, size: 15),
-            label: const Text('在 Bangumi 打开'),
-          ),
-        ],
-      ),
-    );
-    final Widget body;
-    if (error != null) {
-      body = Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('吐槽加载失败', style: small),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: Gap.lg),
-              child: Text(
-                error!,
-                textAlign: TextAlign.center,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: small,
-              ),
-            ),
-            TextButton(
-              onPressed: () => load(refresh: true),
-              child: const Text('重试'),
-            ),
-          ],
-        ),
-      );
-    } else if (posts == null) {
-      body = const Center(
-        child: SizedBox.square(
-          dimension: 22,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-      );
-    } else if (posts.isEmpty) {
-      body = Center(child: Text('这一话还没有吐槽', style: small));
-    } else {
-      body = ListView.separated(
-        padding: const EdgeInsets.fromLTRB(Gap.lg, 0, Gap.lg, Gap.xl),
-        itemCount: posts.length,
-        separatorBuilder: (_, _) => Divider(
-          height: 1,
-          color: Theme.of(context).colorScheme.outlineVariant,
-        ),
-        itemBuilder: (_, index) =>
-            _Comment(post: posts[index], floor: index + 1),
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        header,
-        Expanded(child: body),
-      ],
-    );
-  }
-}
-
-class _Comment extends StatefulWidget {
-  const _Comment({required this.post, required this.floor});
-  final TopicPost post;
-  final int floor;
-
-  @override
-  State<_Comment> createState() => _CommentState();
-}
-
-class _CommentState extends State<_Comment> {
-  static const _preview = 2;
-  bool all = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final post = widget.post;
-    final replies = post.replies;
-    final shown = all ? replies : replies.take(_preview).toList();
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: Gap.md),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AccountAvatar(url: post.avatarUrl, name: post.author, size: 28),
-          const SizedBox(width: Gap.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _byline(context, post, '#${widget.floor}'),
-                const SizedBox(height: 2),
-                _text(context, post),
-                if (replies.isNotEmpty) ...[
-                  const SizedBox(height: Gap.sm),
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(
-                      Gap.md,
-                      Gap.sm,
-                      Gap.md,
-                      Gap.sm,
-                    ),
-                    decoration: BoxDecoration(
-                      color: scheme.surfaceContainerLow,
-                      borderRadius: badgeBorderRadius,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (final (index, reply) in shown.indexed)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: Gap.xs,
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _byline(
-                                  context,
-                                  reply,
-                                  '#${widget.floor}-${index + 1}',
-                                ),
-                                const SizedBox(height: 2),
-                                _text(context, reply),
-                              ],
-                            ),
-                          ),
-                        if (replies.length > _preview)
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton(
-                              style: TextButton.styleFrom(
-                                minimumSize: const Size(0, 28),
-                                padding: EdgeInsets.zero,
-                              ),
-                              onPressed: () => setState(() => all = !all),
-                              child: Text(
-                                all
-                                    ? '收起回复'
-                                    : '还有 ${replies.length - _preview} 条回复',
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _byline(BuildContext context, TopicPost post, String floor) {
-    final small = Theme.of(context).textTheme.bodySmall;
-    return Row(
-      children: [
-        Flexible(
-          child: Text(
-            post.author,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: small?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-          ),
-        ),
-        const SizedBox(width: Gap.sm),
-        Text(floor, style: small),
-        const Spacer(),
-        Text(
-          communityDate(post.time),
-          style: small?.copyWith(
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _text(BuildContext context, TopicPost post) =>
-      post.content.trim().isEmpty
-      ? Text('（内容已删除）', style: Theme.of(context).textTheme.bodySmall)
-      : BBCode(
-          post.content,
-          style: const TextStyle(fontSize: FontSize.body, height: 1.55),
-        );
-}
-
-/// Room the panel takes beside the video.
-double sidePanelWidth(double contentWidth) =>
-    math.min(contentWidth < 900 ? 296.0 : 336.0, contentWidth * .45);

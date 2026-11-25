@@ -8,7 +8,6 @@ import 'dart:async';
 
 import '../core/json.dart';
 
-int? _int(Object? value) => value is num ? value.toInt() : null;
 double? _double(Object? value) => value is num ? value.toDouble() : null;
 String? _text(Object? value) => value is String ? value : null;
 List<String> _strings(Object? value) =>
@@ -86,7 +85,9 @@ class Credit {
   factory Credit.fromJson(Map<String, dynamic> value) {
     final images = object(value['images']);
     return Credit(
-      id: _int(value['characterId'] ?? value['personId'] ?? value['id']) ?? 0,
+      id:
+          intOrNull(value['characterId'] ?? value['personId'] ?? value['id']) ??
+          0,
       name: _text(value['name']) ?? '',
       nameCn: _text(value['nameCn']) ?? _text(value['displayName']),
       role: _text(value['role']) ?? _text(value['relation']),
@@ -161,8 +162,8 @@ class Episode {
   });
 
   factory Episode.fromJson(Map<String, dynamic> value) => Episode(
-    id: _int(value['episodeId']) ?? 0,
-    subjectId: _int(value['subjectId']) ?? 0,
+    id: intOrNull(value['episodeId']) ?? 0,
+    subjectId: intOrNull(value['subjectId']) ?? 0,
     sort: _double(value['ep'] ?? value['sort']) ?? 0,
     absolute: _double(value['absolute']),
     main: const [null, 0, 'main'].contains(value['type']),
@@ -170,7 +171,7 @@ class Episode {
     name: _text(value['name']),
     nameCn: _text(value['nameCn']) ?? _text(value['displayName']),
     airDate: _text(value['airdate']) ?? _text(value['airDate']),
-    durationSeconds: _int(value['duration']),
+    durationSeconds: intOrNull(value['duration']),
     status: value['status'] is String
         ? EpisodeStatus.parse(value['status'] as String)
         : EpisodeStatus.unwatched,
@@ -341,7 +342,7 @@ class Subject {
     final stats = object(value['collectionStats']);
     final collection = value['collection'];
     return Subject(
-      id: _int(value['subjectId'] ?? value['id']) ?? 0,
+      id: intOrNull(value['subjectId'] ?? value['id']) ?? 0,
       name: _text(value['name']),
       nameCn: _text(value['nameCn']) ?? _text(value['displayName']),
       displayName: _text(value['displayName']),
@@ -352,17 +353,19 @@ class Subject {
       season: season.isEmpty
           ? null
           : Season(
-              year: _int(season['year']) ?? int.tryParse('${season['year']}'),
+              year:
+                  intOrNull(season['year']) ??
+                  int.tryParse('${season['year']}'),
               label: _text(season['label']),
             ),
-      episodeTotal: _int(value['episodeTotal']),
+      episodeTotal: intOrNull(value['episodeTotal']),
       score: _double(value['score'] ?? rating['score']),
-      rank: _int(value['rank']),
-      ratingCount: _int(value['ratingCount']),
-      collectionTotal: _int(value['collectionTotal']),
+      rank: intOrNull(value['rank']),
+      ratingCount: intOrNull(value['ratingCount']),
+      collectionTotal: intOrNull(value['collectionTotal']),
       tags: [
         for (final tag in objects(value['tags']))
-          SubjectTag('${tag['name']}', _int(tag['count'])),
+          SubjectTag('${tag['name']}', intOrNull(tag['count'])),
       ],
       metaTags: _strings(value['metaTags']),
       aliases: [
@@ -378,7 +381,7 @@ class Subject {
       ],
       collectionStats: {
         for (final status in CollectionStatus.values)
-          status: ?_int(stats[status.key]),
+          status: ?intOrNull(stats[status.key]),
       },
       characters: objects(value['characters']).map(Credit.fromJson).toList(),
       staff: objects(value['staff']).map(Credit.fromJson).toList(),
@@ -390,7 +393,7 @@ class Subject {
       collection: collection is Map
           ? SubjectCollection(
               status: CollectionStatus.tryParse(collection['status']),
-              score: _int(collection['score']) ?? 0,
+              score: intOrNull(collection['score']) ?? 0,
               tags: _strings(collection['tags']),
               comment: _text(collection['comment']) ?? '',
             )
@@ -398,8 +401,8 @@ class Subject {
       // Bangumi as its pages show it: progress another client set beyond
       // the episode count reads as the count.
       watchedEpisodes: switch ((
-        _int(value['watchedEpisodes']),
-        _int(value['episodeTotal']),
+        intOrNull(value['watchedEpisodes']),
+        intOrNull(value['episodeTotal']),
       )) {
         (final watched?, final total?) when watched > total => total,
         (final watched, _) => watched,
@@ -425,7 +428,7 @@ class Subject {
   final Map<CollectionStatus, int> collectionStats;
   final List<Credit> characters, staff;
 
-  /// Main episodes only.
+  /// In broadcast order, specials included ([Episode.main]).
   final List<Episode> episodes;
 
   /// Whether the detail (with an episode list) has been received.
@@ -547,7 +550,7 @@ SubjectCollection? _collectionRow(Map<String, dynamic> value) {
       ? null
       : SubjectCollection(
           status: status,
-          score: _int(value['userScore']) ?? 0,
+          score: intOrNull(value['userScore']) ?? 0,
           tags: _strings(value['collectionTags']),
           comment: _text(value['comment']) ?? '',
           collectedAt: DateTime.tryParse('${value['collectedAt'] ?? ''}'),
@@ -756,88 +759,6 @@ class AccountProfile {
   );
   final String userId;
   final String? username, nickname, avatarUrl;
-}
-
-/// A post on a subject's community tab.
-class CommunityEntry {
-  const CommunityEntry({
-    required this.id,
-    required this.userId,
-    required this.author,
-    this.avatarUrl,
-    this.score = 0,
-    this.status,
-    this.replies = 0,
-    this.title,
-    this.text = '',
-    this.time,
-  });
-  final int id;
-  final String userId, author;
-  final String? avatarUrl, title;
-  final int score, replies;
-  final CollectionStatus? status;
-  final String text;
-
-  /// Unix seconds.
-  final int? time;
-}
-
-/// A post in a discussion topic, with the replies nested under it.
-class TopicPost {
-  const TopicPost({
-    required this.id,
-    required this.author,
-    this.avatarUrl,
-    this.time,
-    this.content = '',
-    this.replies = const [],
-  });
-  final int id;
-  final String author;
-  final String? avatarUrl;
-
-  /// Unix seconds.
-  final int? time;
-
-  /// Bangumi BBCode.
-  final String content;
-  final List<TopicPost> replies;
-}
-
-class CommunityPage {
-  const CommunityPage({required this.entries, required this.total});
-  final List<CommunityEntry> entries;
-  final int total;
-}
-
-/// A subject's community posts and related subjects, as the signed-in
-/// account sees them.
-abstract interface class SubjectCommunitySource {
-  /// The account whose view is shown; changes on sign-in and sign-out.
-  String get userId;
-  AccountProfile? get profile;
-
-  /// One page of `comments`, `reviews` or `topics`.
-  Future<CommunityPage> page(
-    int subjectId,
-    String segment, {
-    int offset = 0,
-    bool refresh = false,
-  });
-
-  /// A discussion topic: its opening post, then the replies.
-  Future<List<TopicPost>> topic(int topicId);
-
-  /// The full BBCode of a review, whose listing holds only its start.
-  Future<String> blog(int entryId);
-
-  /// An episode's comments, oldest first, each with its replies.
-  Future<List<TopicPost>> episodeComments(
-    int episodeId, {
-    bool refresh = false,
-  });
-  Future<List<Subject>> relations(int subjectId, {bool refresh = false});
 }
 
 /// Cover addresses known for subjects, shared across pages.

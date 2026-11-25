@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 
+import '../../core/notices.dart';
 import '../../domain/transfer.dart';
 import '../core/motion.dart';
 import '../core/byte_units.dart';
 import '../core/page_widgets.dart';
 import '../core/theme.dart';
+import '../core/tone.dart';
 import 'download_labels.dart';
 
 // Shared by the cache page and the player's cache list, so a task reads and
 // acts the same in both.
 
 /// Status and origin badges, progress and speed of a task, with a progress
-/// bar while it downloads.
+/// bar until it completes.
 class DownloadTaskStatus extends StatelessWidget {
   const DownloadTaskStatus({super.key, required this.task});
   final DownloadTask task;
@@ -103,8 +105,8 @@ class DownloadPlayButton extends StatelessWidget {
 }
 
 /// Pauses or resumes the download, or stops or resumes seeding; hidden when
-/// the task has nothing to toggle. An icon button in rows of a list, or
-/// beside a task's watch button a labelled one in the same shape.
+/// the task has nothing to toggle. An icon button in rows of a list;
+/// [labelled], an outlined button beside a task's watch button.
 class DownloadToggleButton extends StatelessWidget {
   const DownloadToggleButton({
     super.key,
@@ -197,8 +199,8 @@ Future<void> chooseDownloadVideo(
   ),
 );
 
-/// A task's status, red when it failed and blue once complete; nothing for
-/// a finished task that does not seed, which needs no badge.
+/// A task's status in the failure colour when it failed, blue once complete,
+/// else the accent; nothing for a finished task that does not seed.
 class DownloadStatusBadge extends StatelessWidget {
   const DownloadStatusBadge(this.task, {super.key});
   final DownloadTask task;
@@ -213,10 +215,10 @@ class DownloadStatusBadge extends StatelessWidget {
     return MelonBadge(
       downloadStatus(task),
       color: task.status == DownloadStatus.failed
-          ? Theme.of(context).colorScheme.error
+          ? toneColor(context, NoticeTone.failed)
           : task.complete
           ? sky
-          : mint,
+          : accentOf(context).accent,
     );
   }
 }

@@ -155,9 +155,9 @@ class PlaybackPreferences extends ChangeNotifier {
   bool onlineFirst(Subject subject) =>
       (subject.finished() ? completedPriority : airingPriority) == 'online';
 
-  /// Release groups whose releases rank first, most preferred first. Kept
-  /// as text split at commas, semicolons and 、, half or full width, as it
-  /// was once typed; names themselves may hold spaces (`Nekomoe kissaten`).
+  /// Release groups whose releases rank first, most preferred first. Stored
+  /// as typed text, split at commas, semicolons and 、 of either width; names
+  /// themselves may hold spaces (`Nekomoe kissaten`).
   List<String> get preferredGroups => [
     for (final name
         in settings.get(preferredGroupsSetting).split(RegExp('[,，;；、]')))

@@ -38,7 +38,8 @@ class TrackingRepository {
   final _heldScores = <String, int>{};
   final changes = StreamController<void>.broadcast();
 
-  /// Uploads the edits a previous run left queued.
+  /// Uploads the edits a previous run left queued; those that fail stay
+  /// queued for the next pull or edit of their subject.
   void start() {
     if (!_closed) unawaited(_uploadQueued().catchError((Object _) {}));
   }
@@ -279,6 +280,7 @@ class TrackingRepository {
   Future<T> _inOrder<T>(String user, int subjectId, Future<T> Function() task) {
     final key = '$user:$subjectId';
     final result = (_subjectQueues[key] ?? Future.value()).then((_) => task());
+    // The caller gets [result]'s error; the queue only waits for it.
     final settled = result.then<void>(
       (_) {},
       onError: (Object _, StackTrace _) {},

@@ -11,6 +11,7 @@ import '../../domain/transfer.dart';
 import '../downloads/download_repository.dart';
 import '../acquisition/resource_metadata.dart';
 import '../acquisition/source_registry.dart';
+import 'play_ranking.dart';
 import 'play_selection.dart';
 import 'playback.dart';
 
@@ -141,10 +142,9 @@ class ResourceSearchController extends ChangeNotifier {
     final progress = <String, SourceProgress>{};
     Timer? pending;
     // Results and progress arrive in bursts (a page of torrents, a PikPak
-    // lookup per torrent). Showing them ranks everything found and lays the
-    // page out on the thread that also handles input and moves the window,
-    // so each update waits three times as long as the last one took, which
-    // leaves most of that thread free however slow the machine or build.
+    // lookup per torrent). Ranking and laying them out runs on the thread
+    // that handles input and moves the window, so each update waits three
+    // times as long as the last one took, leaving most of that thread free.
     var interval = const Duration(milliseconds: 120);
     void show() {
       pending?.cancel();

@@ -60,7 +60,11 @@ Future<String> _copy(Directory folder, String name) async {
       await partial.rename(file.path);
     } on FileSystemException {
       // The other copy got there first, and mpv may already read it.
-      await partial.delete().catchError((Object _) => partial);
+      try {
+        await partial.delete();
+      } on FileSystemException {
+        // A partial file left behind only takes space.
+      }
       if (!await file.exists()) rethrow;
     }
   }

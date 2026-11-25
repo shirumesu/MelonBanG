@@ -13,7 +13,7 @@ class DanmakuFilter {
     if (isRegex) {
       try {
         expression = RegExp(pattern, caseSensitive: false);
-      } on FormatException catch (_) {
+      } on FormatException {
         invalid = true;
       }
     }

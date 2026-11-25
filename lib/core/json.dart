@@ -7,6 +7,7 @@ Json object(dynamic value) =>
 List<Json> objects(dynamic value) =>
     value is List ? value.map(object).toList() : [];
 double number(dynamic value) => value is num ? value.toDouble() : 0;
+int? intOrNull(Object? value) => value is num ? value.toInt() : null;
 String newId() => base64Url
     .encode(List.generate(18, (_) => Random.secure().nextInt(256)))
     .replaceAll('=', '');

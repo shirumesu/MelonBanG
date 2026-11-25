@@ -1,4 +1,5 @@
 import '../../domain/catalog.dart';
+import '../../domain/community.dart';
 import 'account.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
@@ -33,6 +34,7 @@ class BangumiPrivateClient implements SubjectCommunitySource {
       try {
         headers['Authorization'] = 'Bearer ${await account.accessToken()}';
       } catch (_) {
+        // The pages are public: a login that cannot be used reads as a guest.
         if (user != account.userId) rethrow;
       }
     }

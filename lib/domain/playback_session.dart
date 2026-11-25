@@ -58,7 +58,6 @@ class PlaybackSession {
   /// Overrides saved progress, e.g. when recovering mid-episode.
   final double? startSeconds;
 
-  /// Progress storage key.
   String get progressKey => resumeKey ?? url;
 
   PlaybackSession startingAt(double seconds) => PlaybackSession(

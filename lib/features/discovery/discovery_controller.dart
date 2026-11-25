@@ -53,10 +53,9 @@ class DiscoveryController extends ChangeNotifier {
   bool searching = false;
   int _searchTicket = 0, _homeTicket = 0, _calendarTicket = 0;
 
-  /// Loads trending and today's schedule, showing cached values first.
-  /// Returns a message when either failed.
-  /// A newer load replaces an older one still running, whose results and
-  /// failures are dropped.
+  /// Loads trending and today's schedule, showing cached values first, and
+  /// returns a message when either failed. A newer load drops the results
+  /// and failures of one still running.
   Future<String?> loadHome({bool refresh = false}) async {
     final ticket = ++_homeTicket;
     bool current() => ticket == _homeTicket;

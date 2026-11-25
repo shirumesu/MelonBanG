@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import '../../core/error_message.dart';
 import '../../core/json.dart';
 import '../../core/network.dart';
+import '../../core/notices.dart';
 import '../../core/store.dart';
 import '../../domain/torrent_identity.dart';
 import '../../domain/sources.dart';
@@ -17,20 +18,20 @@ import 'pikpak_client.dart';
 import 'records.dart';
 
 /// PikPak as a download accelerator: files are read from its CDN over
-/// several connections into the media cache, and served to the player from
-/// there while they arrive. Content PikPak already stores is leased without
-/// a drive file; other resources are downloaded by PikPak's servers into the
-/// drive first, and that copy is deleted once the local copy is complete.
-/// Resources PikPak refuses to download fail with the reason; switching to BT
-/// is the user's choice.
+/// several connections into the media cache and served to the player as
+/// they arrive. Content PikPak already stores is leased without a drive
+/// file; anything else PikPak's servers download into the drive first, and
+/// that copy is deleted once the local one is complete. A resource PikPak
+/// refuses fails with the reason; switching to BT is the user's choice.
 class PikPakTransfer implements TorrentTransfer, CloudIndex {
-  PikPakTransfer(this.store, String directory, this.client)
+  PikPakTransfer(this.store, String directory, this.client, this.notices)
     : directory = p.normalize(p.absolute(directory));
 
   final AppStore store;
   @override
   final String directory;
   final PikPakClient client;
+  final Notices notices;
   final _http = RoutedClient();
   @override
   CacheMethod get method => CacheMethod.pikpak;
@@ -63,7 +64,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     for (final task in await _saved.restore()) {
       for (final file in objects(task['files'])) {
         file['mediaKind'] =
-            mayBeVideo('${file['name']}', _integer(file['size']))
+            mayBeVideo('${file['name']}', pikPakInt(file['size']))
             ? 'video'
             : 'other';
       }
@@ -400,12 +401,12 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
       if (remote['phase'] == 'PHASE_TYPE_ERROR') {
         task.remove('cloudTaskId');
         task.remove('cloudProgress');
-        client.deleteOffline(cloudTaskId).ignore();
+        _dropDriveCopy(cloudTaskId);
         throw StateError(
           'PikPak 云端下载失败：${remote['message'] ?? remote['phase']}',
         );
       }
-      task['cloudProgress'] = (_integer(remote['progress']) / 100).clamp(
+      task['cloudProgress'] = (pikPakInt(remote['progress']) / 100).clamp(
         0.0,
         1.0,
       );
@@ -502,8 +503,25 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     task['downloadSpeedBytesPerSecond'] = 0;
     // The drive copy only fed the local one.
     if (task.remove('cloudTaskId') case final String cloud) {
-      client.deleteOffline(cloud).ignore();
+      _dropDriveCopy(cloud);
     }
+  }
+
+  /// Deletes the drive copy of cloud task [id]. One left behind keeps using
+  /// the drive's quota and nothing else removes it, so a failure says so.
+  void _dropDriveCopy(String id) {
+    unawaited(
+      client.deleteOffline(id).catchError((Object error) {
+        notices.show(
+          Notice(
+            'PikPak 网盘里的副本没能删除',
+            detail: '仍占用网盘空间，可在 PikPak 里手动删除（${errorMessage(error)}）',
+            tone: NoticeTone.warning,
+            key: 'pikpak-drive-copy',
+          ),
+        );
+      }),
+    );
   }
 
   /// Counts speeds once a second while anything downloads.
@@ -549,7 +567,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
 
   Future<void> _reconcile(Json task) async {
     for (final file in objects(task['files'])) {
-      final size = _integer(file['size']);
+      final size = pikPakInt(file['size']);
       if (await File('${file['path']}').exists() &&
           await File('${file['path']}').length() == size) {
         file['complete'] = true;
@@ -577,7 +595,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     for (final file in (task['files'] as List).cast<Json>()) {
       final fetch = _fetches['${task['id']}/${file['id']}'];
       if (fetch != null) file['ranges'] = fetch.have.toJson();
-      final size = _integer(file['size']);
+      final size = pikPakInt(file['size']);
       final have = _Ranges.fromJson(file['ranges']).total;
       file['downloadedBytes'] = have;
       file['progress'] = file['complete'] == true
@@ -741,7 +759,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     }
     if (task['cloudTaskId'] case final String cloud when client.isSignedIn) {
       // Also cancels a cloud download still running.
-      client.deleteOffline(cloud).ignore();
+      _dropDriveCopy(cloud);
     }
     _emit();
   }
@@ -902,6 +920,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     _closed = true;
     _ticker?.cancel();
     if (_runningId != null) await _stopWorker(_runningId!);
+    // The callers receive add and removal failures.
     await Future.wait(
       _adding.values.map(
         (value) => value.then<void>((_) {}, onError: (Object _) {}),
@@ -909,7 +928,6 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     );
     await Future.wait(
       _removing.values.map(
-        // The caller receives removal failures.
         (value) => value.then<void>((_) {}, onError: (Object _) {}),
       ),
     );
@@ -939,8 +957,6 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     '.flv',
     '.rmvb',
   }.contains(p.extension(name).toLowerCase());
-  static int _integer(dynamic value) =>
-      value is num ? value.toInt() : int.tryParse('$value') ?? 0;
   static String _relativePath(String raw) => p.joinAll(
     raw
         .replaceAll('\\', '/')
@@ -955,7 +971,7 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
 /// otherwise in file order; the background download and playback share it.
 class _Fetch {
   _Fetch(this.transfer, this.task, this.file)
-    : size = PikPakTransfer._integer(file['size']),
+    : size = pikPakInt(file['size']),
       have = _Ranges.fromJson(file['ranges']);
 
   /// PikPak refuses a ninth simultaneous connection to one signed link.
@@ -1324,7 +1340,6 @@ class _Ranges {
     return offset;
   }
 
-  /// The start of the first range after [offset].
   int? nextStart(int offset) {
     for (final start in _starts) {
       if (start > offset) return start;

@@ -24,6 +24,15 @@ class ContentCacheScope extends InheritedWidget {
       cache != oldWidget.cache;
 }
 
+/// The width to decode a picture drawn [width] logical pixels wide at: the
+/// device pixels, rounded up to a step of 64 so nearby sizes share one
+/// decode.
+int imageDecodeWidth(BuildContext context, double width) =>
+    ((width * MediaQuery.devicePixelRatioOf(context) / 64).ceil() * 64).clamp(
+      64,
+      2048,
+    );
+
 ImageProvider cachedImageProvider(
   BuildContext context,
   String url, {

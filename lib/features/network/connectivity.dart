@@ -35,13 +35,11 @@ class ProbeResult {
 }
 
 /// Checks whether each service answers, through the current proxy setting.
-/// Any HTTP response counts as reachable; 403, 451 and 5xx usually mean a
-/// block or an outage and are reported as limited. That holds only for an
-/// address the app itself requests: a front page can sit behind a bot
-/// challenge or forbid listing while the API under it stays open
-/// (api.gamer.com.tw, share.acgnx.se and api.wujinapi.com all answer 403 at
-/// the root and 200 where the app reads), so those hosts are probed where
-/// the app reads.
+/// Any HTTP response counts as reachable, but 403, 451 and 5xx (usually a
+/// block or an outage) as limited. Hosts are probed where the app reads: a
+/// front page can sit behind a bot challenge while the API stays open
+/// (api.gamer.com.tw, share.acgnx.se and api.wujinapi.com answer 403 at the
+/// root and 200 there).
 class ConnectivityCheck extends ChangeNotifier {
   ConnectivityCheck(this.sources, this.proxy);
   final SourceRegistry sources;

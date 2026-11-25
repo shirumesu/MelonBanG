@@ -12,10 +12,9 @@ abstract interface class UserFacingError implements Exception {
   String get userMessage;
 }
 
-/// The text shown to the user for [error]: one plain sentence saying what
-/// went wrong, without addresses, status codes or library diagnostics. The
-/// app's own failures carry a Chinese message; system and library failures
-/// are named by kind.
+/// One plain sentence for the user saying what [error] was, without
+/// addresses, status codes or diagnostics: the app's own Chinese message, or
+/// the kind of a system or library failure.
 String errorMessage(Object error) => _clean(switch (error) {
   String() => error,
   UserFacingError() => error.userMessage,

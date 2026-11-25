@@ -22,6 +22,8 @@ class LibtorrentTransfer implements TorrentTransfer {
     // Seeding changed on another device.
     preferences.watch([settingsSetting.key], () {
       if (!preferences.changedBySync || _closed) return;
+      // A failed save shows on its task, and a failed restore reaches the
+      // caller of [initialize].
       unawaited(
         _apply(
           BitTorrentSettings.fromJson(object(preferences.get(settingsSetting))),
@@ -171,8 +173,11 @@ class LibtorrentTransfer implements TorrentTransfer {
         task['fingerprint'] = task['kind'] == 'magnet'
             ? magnetInfoHash(Uri.parse('${task['input']}'))
             : torrentInfoHash(await File('${task['input']}').readAsBytes());
-      } catch (_) {
-        // Attachment below reports unavailable or invalid metadata per task.
+      } on FormatException {
+        // An invalid magnet or torrent: attaching below fails the task.
+      } on FileSystemException {
+        // A torrent file that is gone: attaching below fails the task unless
+        // its resume data stands in.
       }
       _tasks['${task['id']}'] = task;
     }
@@ -403,7 +408,7 @@ class LibtorrentTransfer implements TorrentTransfer {
         task['status'] = 'failed';
       } else if (task['seedingStopped'] == true && task['complete'] == true) {
         task['status'] = 'completed';
-        task['seedStopReason'] = 'manual';
+        task['seedStopReason'] = SeedStop.manual.name;
       } else if (task['manualPaused'] == true) {
         task['status'] = 'paused';
       } else if (task['complete'] == true) {
@@ -796,12 +801,11 @@ class LibtorrentTransfer implements TorrentTransfer {
     await _deleteFolder(id, '${task['savePath']}');
   }
 
-  /// Deletes the folder of task [id]: the engine deletes the files it wrote
-  /// but not the folder, and a task whose torrent already left the session,
-  /// as after [removeFiles], leaves the rest of its files to it. The engine
-  /// lets go of the files a moment after removing the torrent, so the
-  /// folder is tried a few times; one still held, as by another program,
-  /// fails the removal with where it is, for the user to delete.
+  /// Deletes the folder of task [id], which the engine leaves behind, with
+  /// the files of a task whose torrent already left the session, as after
+  /// [removeFiles]. The engine lets go of files a moment after removing a
+  /// torrent, so the delete is retried; a folder still held, as by another
+  /// program, fails the removal with its path for the user to delete.
   Future<void> _deleteFolder(String id, String path) async {
     if (!p.isWithin(directory, path) || p.basename(path) != id) return;
     final folder = Directory(path);
@@ -821,7 +825,7 @@ class LibtorrentTransfer implements TorrentTransfer {
     }
   }
 
-  /// Deletes a task's record and its metadata.
+  /// Deletes a task's record, metadata and resume data.
   Future<void> _discard(Json task) async {
     await _writes;
     await store.remove('downloads', '${task['id']}');
@@ -968,14 +972,15 @@ class LibtorrentTransfer implements TorrentTransfer {
       await _loadingPreferences;
       await _restoring;
     } catch (_) {
-      // Dispose any engine created before recovery failed.
+      // The callers of [loadPreferences] and [initialize] have the failure;
+      // an engine started before it is still disposed below.
     }
     await Future.wait(
       _adding.values.toList().map((operation) async {
         try {
           await operation;
         } catch (_) {
-          /* The caller receives add failures. */
+          // The caller receives add failures.
         }
       }),
     );
@@ -984,7 +989,7 @@ class LibtorrentTransfer implements TorrentTransfer {
         try {
           await operation;
         } catch (_) {
-          /* The caller receives removal failures. */
+          // The caller receives removal failures.
         }
       }),
     );
