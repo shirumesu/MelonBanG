@@ -18,6 +18,9 @@ import 'player_theme.dart';
 /// the less used ones, then the frame steps; see [PlayerControls._buttons].
 const _fullWidth = 720.0, _trimmedWidth = 620.0, _bareWidth = 520.0;
 
+/// The small window's width below which volume leaves its bar too.
+const _miniVolumeWidth = 400.0;
+
 /// Room before a glyph that starts [margin] units into Material's 24-unit
 /// grid, drawn at [size] in the middle of a button [side] wide.
 double _inset(double side, double size, double margin) =>
@@ -50,11 +53,11 @@ class PlayerControls extends StatelessWidget {
     required this.danmakuInput,
     required this.onDanmakuInputDone,
     required this.danmakuHint,
+    required this.mini,
+    required this.onMini,
     this.danmakuMenuFocus,
     this.danmakuMenuGroup,
     this.onDanmakuMenuOutside,
-    this.onPrevious,
-    this.onNext,
   });
   final Playback playback;
   final bool fullScreen, windowFullScreen, danmakuMenuOpen;
@@ -81,6 +84,12 @@ class PlayerControls extends StatelessWidget {
   final String danmakuHint;
   final ValueChanged<bool> onPopupChanged;
   final VoidCallback onWindowFullScreen;
+
+  /// The small window above the others: the bar keeps playing, volume,
+  /// the time, the danmaku and a smaller comment field, the way back to
+  /// the full window and fullscreen.
+  final bool mini;
+  final VoidCallback onMini;
   final double? dragging;
   final ValueChanged<double> onDragStart;
   final ValueChanged<double> onDragChanged;
@@ -89,9 +98,6 @@ class PlayerControls extends StatelessWidget {
   final VoidCallback onFullscreen;
   final ValueChanged<String> onFeedback;
   final ValueChanged<bool> onStepFrame;
-
-  /// Shown together, each disabled at its end of the episodes.
-  final VoidCallback? onPrevious, onNext;
   Player get player => playback.player;
 
   @override
@@ -108,7 +114,7 @@ class PlayerControls extends StatelessWidget {
   ];
 
   Widget _transport(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(0, 56, 0, Gap.sm),
+    padding: EdgeInsets.fromLTRB(0, mini ? Gap.xl : 56, 0, Gap.sm),
     decoration: const BoxDecoration(
       gradient: LinearGradient(
         begin: Alignment.topCenter,
@@ -161,24 +167,24 @@ class PlayerControls extends StatelessWidget {
       );
 
   /// The button row for a video [width] wide. Below [_fullWidth] the buttons
-  /// shrink; below [_trimmedWidth] volume (still on ↑↓), subtitles and window
-  /// fullscreen leave; below [_bareWidth] the frame steps (still on , and .)
-  /// leave too.
+  /// shrink; below [_trimmedWidth] volume (still on ↑↓), subtitles, the
+  /// small window and window fullscreen leave; below [_bareWidth] the frame
+  /// steps (still on , and .) leave too. The small window keeps small
+  /// buttons and none of the menus or frame steps, and volume while it is
+  /// [_miniVolumeWidth] wide.
   Widget _buttons(double width) {
-    final compact = width < _fullWidth;
-    final trimmed = width < _trimmedWidth;
-    final bare = width < _bareWidth;
+    final compact = mini || width < _fullWidth;
+    final trimmed = mini || width < _trimmedWidth;
+    final bare = mini || width < _bareWidth;
+    final volume = mini ? width >= _miniVolumeWidth : !trimmed;
     final side = compact ? 32.0 : 36.0;
     final padding = compact ? 4.0 : 6.0;
     final icon = compact ? 20.0 : 22.0;
     final play = compact ? 26.0 : 28.0;
     final fullscreenIcon = compact ? 22.0 : 24.0;
     final gap = compact ? Gap.sm : Gap.lg;
-    final episodes = onPrevious != null || onNext != null;
     // Line the first and last glyphs up with the title and the timeline.
-    final leading = episodes
-        ? _inset(side, icon, 6)
-        : _inset(math.max(side, play + padding * 2), play, 8);
+    final leading = _inset(math.max(side, play + padding * 2), play, 8);
     final trailing = _inset(
       math.max(side, fullscreenIcon + padding * 2),
       fullscreenIcon,
@@ -212,12 +218,7 @@ class PlayerControls extends StatelessWidget {
         ),
         child: Row(
           children: [
-            _left(
-              episodes: episodes,
-              play: play,
-              volume: !trimmed,
-              frames: !bare,
-            ),
+            _left(play: play, volume: volume, frames: !bare),
             SizedBox(width: gap),
             Expanded(
               child: LayoutBuilder(
@@ -225,8 +226,14 @@ class PlayerControls extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     ..._danmaku(),
+                    // Beside the two danmaku buttons, where it fits.
                     if (playback.danmaku.sendable &&
-                        constraints.maxWidth >= DanmakuComposer.minWidth + 80)
+                        constraints.maxWidth >=
+                            (mini
+                                    ? DanmakuComposer.compactMinWidth
+                                    : DanmakuComposer.minWidth) +
+                                side * 2 +
+                                Gap.sm)
                       Flexible(
                         child: DanmakuComposer(
                           playback: playback,
@@ -236,6 +243,7 @@ class PlayerControls extends StatelessWidget {
                           onFeedback: onFeedback,
                           onDone: onDanmakuInputDone,
                           hint: danmakuHint,
+                          compact: mini,
                         ),
                       ),
                   ],
@@ -255,24 +263,12 @@ class PlayerControls extends StatelessWidget {
   }
 
   Widget _left({
-    required bool episodes,
     required double play,
     required bool volume,
     required bool frames,
   }) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      if (episodes)
-        IconHover(
-          child: IconButton(
-            tooltip: '上一话',
-            onPressed: onPrevious,
-            icon: const GestureIcon(
-              IconGesture.back,
-              child: Icon(Icons.skip_previous_rounded),
-            ),
-          ),
-        ),
       StreamBuilder<bool>(
         stream: player.stream.playing,
         initialData: player.state.playing,
@@ -294,17 +290,6 @@ class PlayerControls extends StatelessWidget {
           ),
         ),
       ),
-      if (episodes)
-        IconHover(
-          child: IconButton(
-            tooltip: '下一话',
-            onPressed: onNext,
-            icon: const GestureIcon(
-              IconGesture.forward,
-              child: Icon(Icons.skip_next_rounded),
-            ),
-          ),
-        ),
       if (frames) ...[
         IconHover(
           child: IconButton(
@@ -389,38 +374,64 @@ class PlayerControls extends StatelessWidget {
   }) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      PlaybackMenu(playback: playback, onPopupChanged: onPopupChanged),
-      if (Playback.superResolutionAvailable)
-        SuperResolutionMenu(
-          playback: playback,
-          onPopupChanged: onPopupChanged,
-          compact: compact,
-        ),
-      SpeedMenu(
-        player: player,
-        onPopupChanged: onPopupChanged,
-        onFeedback: onFeedback,
-      ),
-      if (!trimmed) ...[
-        SubtitleMenu(playback: playback, onPopupChanged: onPopupChanged),
+      if (mini)
         IconHover(
           child: IconButton(
-            tooltip: windowFullScreen ? '退出窗口全屏' : '窗口全屏',
-            onPressed: onWindowFullScreen,
-            icon: GestureIcon(
+            tooltip: '回到窗口 (Esc)',
+            onPressed: onMini,
+            icon: const GestureIcon(
               IconGesture.swell,
-              child: MotionSwap(
-                value: windowFullScreen,
+              child: Icon(Icons.open_in_full_rounded, size: 16),
+            ),
+          ),
+        )
+      else ...[
+        PlaybackMenu(playback: playback, onPopupChanged: onPopupChanged),
+        if (Playback.superResolutionAvailable)
+          SuperResolutionMenu(
+            playback: playback,
+            onPopupChanged: onPopupChanged,
+            compact: compact,
+          ),
+        SpeedMenu(
+          player: player,
+          onPopupChanged: onPopupChanged,
+          onFeedback: onFeedback,
+        ),
+        if (!trimmed) ...[
+          SubtitleMenu(playback: playback, onPopupChanged: onPopupChanged),
+          IconHover(
+            child: IconButton(
+              tooltip: '小窗播放',
+              onPressed: onMini,
+              icon: GestureIcon(
+                IconGesture.swell,
                 child: Icon(
-                  windowFullScreen
-                      ? Icons.close_fullscreen_rounded
-                      : Icons.open_in_full_rounded,
-                  size: compact ? 16 : 18,
+                  Icons.picture_in_picture_alt_rounded,
+                  size: compact ? 18 : 20,
                 ),
               ),
             ),
           ),
-        ),
+          IconHover(
+            child: IconButton(
+              tooltip: windowFullScreen ? '退出窗口全屏' : '窗口全屏',
+              onPressed: onWindowFullScreen,
+              icon: GestureIcon(
+                IconGesture.swell,
+                child: MotionSwap(
+                  value: windowFullScreen,
+                  child: Icon(
+                    windowFullScreen
+                        ? Icons.close_fullscreen_rounded
+                        : Icons.open_in_full_rounded,
+                    size: compact ? 16 : 18,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ],
       IconHover(
         child: IconButton(

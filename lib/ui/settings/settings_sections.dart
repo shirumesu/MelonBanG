@@ -486,6 +486,20 @@ SettingsSection subscriptionSection(
     ], title: '订阅'),
     SettingsGroup([
       SettingsItem(
+        '提醒 通知 在看 更新 播出 新一话',
+        _watch(
+          prefs,
+          (context) => SettingSwitch(
+            title: '在看的番剧更新时提醒',
+            subtitle: '订阅的番剧在缓存好后提醒',
+            value: prefs.airingReminder,
+            onChanged: prefs.setAiringReminder,
+          ),
+        ),
+      ),
+    ], title: '提醒'),
+    SettingsGroup([
+      SettingsItem(
         '自动 缓存 下一集 下一话 预下载 播放时',
         _watch(
           playback,
@@ -688,7 +702,9 @@ SettingsSection shortcutsSection() => SettingsSection(
         ('弹幕开关', 'D'),
         ('发弹幕', 'Enter'),
         ('全屏', 'F / F11 / 双击画面'),
-        ('退出全屏', 'Esc'),
+        ('退出全屏 / 小窗', 'Esc'),
+        ('小窗回到窗口', '双击小窗'),
+        ('截图 / 详细参数', '右键画面'),
         ('搜索番剧', 'Ctrl / ⌘ + F'),
         ('返回', 'Alt + ← / ⌘ + ['),
         if (Platform.isMacOS) ('打开设置', '⌘ + ,'),

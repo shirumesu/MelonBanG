@@ -340,26 +340,3 @@ class InlineIssue extends StatelessWidget {
     );
   }
 }
-
-/// Shows [text] in the app's snackbar, the one place transient messages
-/// and failures without a place of their own appear. A new message replaces
-/// the one showing instead of queueing behind it, so a burst of messages
-/// never keeps the bar up long after the actions that caused them.
-void showMessage(
-  ScaffoldMessengerState? messenger,
-  String text, {
-  String? actionLabel,
-  VoidCallback? onAction,
-}) {
-  if (messenger == null) return;
-  messenger
-    ..clearSnackBars()
-    ..showSnackBar(
-      SnackBar(
-        content: Text(text),
-        action: actionLabel == null || onAction == null
-            ? null
-            : SnackBarAction(label: actionLabel, onPressed: onAction),
-      ),
-    );
-}

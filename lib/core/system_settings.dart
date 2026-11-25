@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 
 /// The proxy servers the operating system is set to, as `host:port`.
 class SystemProxy {
@@ -26,6 +27,37 @@ class SystemProxy {
 /// current user's registry, Linux from GNOME settings and the environment.
 abstract final class SystemSettings {
   static const _channel = MethodChannel('org.melonbang/system');
+
+  /// The user's pictures folder: the one Windows records for the user, or
+  /// the XDG user directories name on Linux; ~/Pictures, where each system
+  /// puts it, when neither names one.
+  static Future<String> picturesFolder() async {
+    final home =
+        Platform.environment[Platform.isWindows ? 'USERPROFILE' : 'HOME'];
+    if (home == null || home.isEmpty) throw StateError('找不到用户文件夹');
+    if (Platform.isWindows) {
+      // The expanded path of the folder the user moved it to, kept here
+      // for programs that read it.
+      final folder = _Registry.string(
+        r'Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders',
+        'My Pictures',
+      );
+      if (folder != null && folder.isNotEmpty) return folder;
+    } else if (Platform.isLinux) {
+      final config =
+          Platform.environment['XDG_CONFIG_HOME'] ?? p.join(home, '.config');
+      final dirs = File(p.join(config, 'user-dirs.dirs'));
+      if (await dirs.exists()) {
+        for (final line in await dirs.readAsLines()) {
+          final match = RegExp(
+            r'^XDG_PICTURES_DIR="(.*)"$',
+          ).firstMatch(line.trim());
+          if (match != null) return match[1]!.replaceFirst(r'$HOME', home);
+        }
+      }
+    }
+    return p.join(home, 'Pictures');
+  }
 
   /// The system accent colour, or null when it cannot be read.
   static Future<Color?> accentColor() async {

@@ -6,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 
 import '../../core/error_message.dart';
 import '../../core/network.dart';
+import '../../core/notices.dart';
 import '../tracking/tracking_repository.dart';
 import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
@@ -154,7 +155,14 @@ class PlaybackCoordinator extends ChangeNotifier {
             // A fresh address often ends the stall; past that the stream
             // keeps going and the choice of another source stays the user's.
             if (_onlineRefreshed) {
-              playback.showNotice('一直在缓冲，可以在侧栏换个资源');
+              playback.notices.show(
+                const Notice(
+                  '一直在缓冲',
+                  detail: '可以在侧栏换个资源',
+                  tone: NoticeTone.warning,
+                  key: 'playback-buffering',
+                ),
+              );
             } else {
               unawaited(_recover('播放反复长时间缓冲'));
             }
@@ -697,7 +705,12 @@ class PlaybackCoordinator extends ChangeNotifier {
           await playback.open(session);
           if (playback.error != null) throw StateError(playback.error!);
           if (picked) {
-            playback.showNotice('已自动选择 ${candidate.sourceLabel}');
+            playback.notices.show(
+              Notice(
+                '已自动选择 ${candidate.sourceLabel}',
+                key: 'playback-source',
+              ),
+            );
           }
           // A failed write only loses the preference, not the playback.
           unawaited(
@@ -904,7 +917,9 @@ class PlaybackCoordinator extends ChangeNotifier {
       if (_closed || cancel.isCancelled) return;
       final chosen = picked.chosen;
       if (chosen == null || describeCandidate(chosen).batch) {
-        playback.showNotice('没有找到${next.label}的同类资源，未自动缓存');
+        playback.notices.show(
+          Notice('没有找到${next.label}的同类资源，未自动缓存', key: 'cache-next'),
+        );
         return;
       }
       switch (chosen.target) {
@@ -927,12 +942,23 @@ class PlaybackCoordinator extends ChangeNotifier {
         default:
           return;
       }
-      if (!_closed) playback.showNotice('已开始缓存${next.label}');
+      if (!_closed) {
+        playback.notices.show(
+          Notice('已开始缓存${next.label}', key: 'cache-next'),
+        );
+      }
     } on RequestCancelled {
       return;
     } catch (e) {
       if (!_closed) {
-        playback.showNotice('自动缓存下一话失败：${errorMessage(e)}');
+        playback.notices.show(
+          Notice(
+            '自动缓存下一话失败',
+            detail: errorMessage(e),
+            tone: NoticeTone.failed,
+            key: 'cache-next',
+          ),
+        );
       }
     }
   }

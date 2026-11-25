@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/bittorrent_settings.dart';
 import '../../features/appearance/appearance.dart';
-import '../core/action_feedback.dart';
+import '../core/notice_cards.dart';
 import '../core/byte_units.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
@@ -502,7 +502,7 @@ class _BitTorrentForm extends ChangeNotifier {
         load(const BitTorrentSettings());
         commit();
         showMessage(
-          ScaffoldMessenger.maybeOf(context),
+          NoticesScope.of(context),
           '已恢复推荐值',
           actionLabel: '撤销',
           onAction: () {

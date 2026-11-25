@@ -13,7 +13,7 @@ import '../../features/acquisition/title_matching.dart';
 import '../../features/subscriptions/subscription_controller.dart';
 import '../../features/subscriptions/subscription_matcher.dart';
 import '../acquisition/resource_widgets.dart';
-import '../core/action_feedback.dart';
+import '../core/notice_cards.dart';
 import '../core/byte_units.dart';
 import '../core/motion.dart';
 import '../core/selection_controls.dart';
@@ -403,14 +403,14 @@ class _SubscriptionDialogState extends State<_SubscriptionDialog> {
 
   /// Ends [subscription], with a way back: its book and events go with it.
   void _unsubscribe(Subscription subscription) {
-    final messenger = ScaffoldMessenger.maybeOf(context);
+    final notices = NoticesScope.of(context);
     final controller = widget.controller;
     final onError = widget.onError;
     unawaited(
       _run(() async {
         await controller.unsubscribe(subscription.subjectId);
         showMessage(
-          messenger,
+          notices,
           '已取消订阅 ${subscription.title}，缓存的剧集保留',
           actionLabel: '撤销',
           onAction: () => controller.restore(subscription).catchError(onError),

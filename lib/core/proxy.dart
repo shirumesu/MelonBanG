@@ -10,9 +10,11 @@ import 'settings.dart';
 
 export 'network_routes.dart';
 
+/// How requests find their way out. Going without a proxy has no choice of
+/// its own: automatic detection connects direct when it finds none, and a
+/// saved `off` from before reads as automatic.
 enum ProxyMode {
   auto('自动检测'),
-  off('不使用代理'),
   system('使用系统代理'),
   custom('自定义 HTTP 代理');
 
@@ -353,8 +355,6 @@ class NetworkProxy extends ChangeNotifier {
   ProxyServer? configuredFor(Uri uri) {
     if (_loopback(uri.host)) return null;
     switch (mode) {
-      case ProxyMode.off:
-        return null;
       case ProxyMode.custom:
         return custom;
       case ProxyMode.system:
@@ -387,7 +387,6 @@ class NetworkProxy extends ChangeNotifier {
 
   /// What the current setting means, for the settings page.
   String describe() => switch (mode) {
-    ProxyMode.off => '直接连接',
     ProxyMode.custom => custom == null ? '代理地址无效，暂时直接连接' : '经由 ${custom!}',
     ProxyMode.system =>
       !system.enabled ? '系统未设置代理，直接连接' : '经由 ${system.https ?? system.http}',

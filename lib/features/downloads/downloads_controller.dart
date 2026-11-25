@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
+import '../../core/file_manager.dart';
 import '../../domain/transfer.dart';
 import 'download_repository.dart';
 
@@ -74,42 +75,14 @@ class DownloadsController {
     if (file == null) throw StateError('还没有文件');
     for (final path in [file.path, '${file.path}.part']) {
       if (await File(path).exists()) {
-        return _show(p.normalize(path), select: true);
+        return showInFileManager(p.normalize(path), select: true);
       }
     }
     final folder = p.dirname(file.path);
-    if (await Directory(folder).exists()) return _show(p.normalize(folder));
-    throw StateError('文件尚未开始下载');
-  }
-
-  static Future<void> _show(String path, {bool select = false}) async {
-    if (Platform.isMacOS) {
-      await Process.run('open', [if (select) '-R', path]);
-    } else if (Platform.isLinux) {
-      // Nautilus, Dolphin and Nemo select a file through this interface.
-      if (select) {
-        final shown = await Process.run('gdbus', [
-          'call',
-          '--session',
-          '--dest=org.freedesktop.FileManager1',
-          '--object-path=/org/freedesktop/FileManager1',
-          '--method=org.freedesktop.FileManager1.ShowItems',
-          // A quote would end the GVariant string; it is valid escaped.
-          "['${Uri.file(path).toString().replaceAll("'", '%27')}']",
-          '',
-        ]);
-        if (shown.exitCode == 0) return;
-      }
-      await Process.start('xdg-open', [
-        select ? p.dirname(path) : path,
-      ], mode: ProcessStartMode.detached);
-    } else {
-      // Explorer exits with 1 even when it opened the window.
-      await Process.start('explorer.exe', [
-        if (select) '/select,',
-        path,
-      ], mode: ProcessStartMode.detached);
+    if (await Directory(folder).exists()) {
+      return showInFileManager(p.normalize(folder));
     }
+    throw StateError('文件尚未开始下载');
   }
 
   Future<void> close() => _subscription.cancel();

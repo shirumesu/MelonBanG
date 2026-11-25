@@ -1,9 +1,8 @@
 import Cocoa
 import FlutterMacOS
-import UserNotifications
 
 @main
-class AppDelegate: FlutterAppDelegate, UNUserNotificationCenterDelegate {
+class AppDelegate: FlutterAppDelegate {
   override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
     // Route Command-Q, the Dock, the menu bar, logging out and shutting down
     // through Dart's playback and download shutdown lifecycle, also while
@@ -43,27 +42,5 @@ class AppDelegate: FlutterAppDelegate, UNUserNotificationCenterDelegate {
     guard let window = NSApp.windows.first(where: { $0 is MainFlutterWindow }) else { return }
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
-  }
-
-  func userNotificationCenter(
-    _ center: UNUserNotificationCenter,
-    willPresent notification: UNNotification,
-    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-  ) {
-    completionHandler([.banner, .list])
-  }
-
-  /// Brings the window back on the downloads page, where the cached episode
-  /// a notification is about can be played.
-  func userNotificationCenter(
-    _ center: UNUserNotificationCenter,
-    didReceive response: UNNotificationResponse,
-    withCompletionHandler completionHandler: @escaping () -> Void
-  ) {
-    showMainWindow()
-    if let subject = response.notification.request.content.userInfo["subjectId"] as? Int {
-      MainFlutterWindow.systemChannel?.invokeMethod("openNotification", arguments: subject)
-    }
-    completionHandler()
   }
 }

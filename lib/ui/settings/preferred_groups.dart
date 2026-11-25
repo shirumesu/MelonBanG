@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../features/playback/playback_preferences.dart';
-import '../core/action_feedback.dart';
+import '../core/notice_cards.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/theme.dart';
@@ -48,7 +48,7 @@ class _PreferredGroupsSettingState extends State<PreferredGroupsSetting> {
     if (index < 0) return;
     save([...groups]..removeAt(index));
     showMessage(
-      ScaffoldMessenger.maybeOf(context),
+      NoticesScope.of(context),
       '已移除 $name',
       actionLabel: '撤销',
       onAction: () {

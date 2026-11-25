@@ -1,11 +1,9 @@
 import Cocoa
 import FlutterMacOS
 import Security
-import UserNotifications
 
 class MainFlutterWindow: NSWindow {
-  /// Carries the runner's requests to Dart: quitting and opening a
-  /// notification.
+  /// Carries the runner's requests to Dart: quitting.
   static var systemChannel: FlutterMethodChannel?
 
   /// Set once Dart has shut its services down, so quitting proceeds.
@@ -55,8 +53,6 @@ class MainFlutterWindow: NSWindow {
       Self.handleSystem(call, result: result)
     }
     Self.systemChannel = system
-    UNUserNotificationCenter.current().delegate =
-      NSApp.delegate as? UNUserNotificationCenterDelegate
 
     super.awakeFromNib()
 
@@ -141,27 +137,6 @@ class MainFlutterWindow: NSWindow {
       if let http = server("HTTP") { proxy["http"] = http }
       if let https = server("HTTPS") { proxy["https"] = https }
       result(proxy)
-    case "notify":
-      guard let arguments = call.arguments as? [String: Any],
-        let title = arguments["title"] as? String
-      else {
-        result(nil)
-        return
-      }
-      let content = UNMutableNotificationContent()
-      content.title = title
-      content.body = arguments["body"] as? String ?? ""
-      if let subject = arguments["subjectId"] as? Int {
-        content.userInfo = ["subjectId": subject]
-      }
-      let center = UNUserNotificationCenter.current()
-      // Asks once; later calls return the saved answer.
-      center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-        guard granted else { return }
-        center.add(UNNotificationRequest(
-          identifier: UUID().uuidString, content: content, trigger: nil))
-      }
-      result(nil)
     case "keepAwake":
       let on = call.arguments as? Bool ?? false
       if on, activity == nil {

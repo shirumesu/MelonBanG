@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/file_manager.dart';
 import '../../domain/catalog.dart';
 import '../../domain/transfer.dart';
 import '../../features/acquisition/title_matching.dart';
@@ -1089,13 +1089,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
             TextButton.icon(
               onPressed: () => _perform(() => widget.downloads.reveal(task)),
               icon: const Icon(Icons.folder_open_outlined, size: 18),
-              label: Text(
-                Platform.isMacOS
-                    ? '在访达中显示'
-                    : Platform.isWindows
-                    ? '在资源管理器中显示'
-                    : '在文件管理器中显示',
-              ),
+              label: Text(showInFileManagerLabel),
             ),
           if (removable)
             TextButton.icon(

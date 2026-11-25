@@ -58,6 +58,12 @@ class DanmakuLayout {
   static const fixedLifetime = 3.8;
   static const horizontalGap = 20.0;
   static const verticalGap = 10.0;
+
+  /// A step back shorter than this is the clock settling onto the player's
+  /// position, not a seek: on pause it rebases from its own frame-driven
+  /// time to the shown frame's, up to a few frames earlier. Laying out
+  /// anew there would move every comment shown to another lane.
+  static const settle = .5;
   final _active = <PlacedDanmaku>[];
   Object? _configuration;
   int? _revision;
@@ -122,7 +128,7 @@ class DanmakuLayout {
     final staying = Set<DanmakuComment>.identity();
     if (_configuration != configuration ||
         _time == null ||
-        time < _time! ||
+        time < _time! - settle ||
         time - _time! > lifetime) {
       _active.clear();
       _injected.clear();

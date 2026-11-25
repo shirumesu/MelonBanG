@@ -9,7 +9,8 @@ import '../../core/error_message.dart';
 import '../../features/update/app_update.dart';
 import '../../features/update/uninstall.dart';
 import '../../integrations/github/app_releases.dart';
-import '../core/action_feedback.dart';
+import '../../core/notices.dart';
+import '../core/notice_cards.dart';
 import '../core/external_link.dart';
 import '../core/selection_controls.dart';
 import '../core/motion.dart';
@@ -445,13 +446,17 @@ class _UninstallRow extends StatelessWidget {
   };
 
   Future<void> _openFolder(BuildContext context, String path) async {
-    final messages = ScaffoldMessenger.of(context);
+    final notices = NoticesScope.of(context);
     try {
       if (!await launchUrl(Uri.directory(path))) {
         throw StateError('没有可以打开文件夹的程序');
       }
     } catch (error) {
-      showMessage(messages, '打开失败：${errorMessage(error)}');
+      showMessage(
+        notices,
+        '打开失败：${errorMessage(error)}',
+        tone: NoticeTone.failed,
+      );
     }
   }
 

@@ -68,6 +68,15 @@ class SubscriptionPreferences extends ChangeNotifier {
     label: '订阅与缓存 › 自动取消订阅',
   );
 
+  /// Whether a new episode of a show being watched, and not subscribed,
+  /// is told when it airs.
+  static const airingReminderSetting = BoolSetting(
+    'airingReminder',
+    true,
+    sync: SettingSync.synced,
+    label: '订阅与缓存 › 在看的番剧更新时提醒',
+  );
+
   /// The last answer of the subscribe dialog's checkbox on this device.
   static const cacheEarlierSetting = BoolSetting(
     'subscriptionEarlier',
@@ -86,6 +95,7 @@ class SubscriptionPreferences extends ChangeNotifier {
     methodSetting,
     revisionsSetting,
     autoUnsubscribeSetting,
+    airingReminderSetting,
     cacheEarlierSetting,
     filterSetting,
   ];
@@ -99,6 +109,8 @@ class SubscriptionPreferences extends ChangeNotifier {
   RevisionPolicy get revisions => _settings.get(revisionsSetting);
 
   AutoUnsubscribe get autoUnsubscribe => _settings.get(autoUnsubscribeSetting);
+
+  bool get airingReminder => _settings.get(airingReminderSetting);
 
   /// Whether a new subscription also caches the episodes aired before it,
   /// as the last one offered did.
@@ -144,6 +156,8 @@ class SubscriptionPreferences extends ChangeNotifier {
       _settings.set(revisionsSetting, value);
   Future<void> setAutoUnsubscribe(AutoUnsubscribe value) =>
       _settings.set(autoUnsubscribeSetting, value);
+  Future<void> setAiringReminder(bool value) =>
+      _settings.set(airingReminderSetting, value);
   Future<void> setCacheEarlier(bool value) =>
       _settings.set(cacheEarlierSetting, value);
   Future<void> setDefaultFilter(SubscriptionFilter value) =>

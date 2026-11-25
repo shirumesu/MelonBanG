@@ -16,7 +16,9 @@ import '../../features/acquisition/resource_metadata.dart';
 import '../../features/acquisition/title_matching.dart';
 import '../../features/playback/play_selection.dart';
 import '../../features/playback/resource_search.dart';
+import '../../core/notices.dart';
 import '../core/action_feedback.dart';
+import '../core/notice_cards.dart';
 import '../core/external_link.dart';
 import '../core/byte_units.dart';
 import '../core/motion.dart';
@@ -239,8 +241,9 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     } catch (error) {
       if (mounted) {
         showMessage(
-          ScaffoldMessenger.of(context),
+          NoticesScope.of(context),
           '搜索失败：${errorMessage(error)}',
+          tone: NoticeTone.failed,
         );
       }
     }
@@ -320,7 +323,8 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
     if (open == null || count == 0 || !mounted) return;
     final title = subject?.title;
     showMessage(
-      ScaffoldMessenger.of(context),
+      NoticesScope.of(context),
+      tone: NoticeTone.done,
       switch ((title, count)) {
         (null, 1) => '已加入缓存',
         (null, _) => '已将 $count 话加入缓存',
@@ -367,7 +371,11 @@ class _ResourceSearchViewState extends State<ResourceSearchView> {
       await widget.onPlay(candidate, target);
     } catch (error) {
       if (mounted) {
-        showMessage(ScaffoldMessenger.of(context), errorMessage(error));
+        showMessage(
+          NoticesScope.of(context),
+          errorMessage(error),
+          tone: NoticeTone.failed,
+        );
       }
     } finally {
       if (mounted) setState(() => opening = null);

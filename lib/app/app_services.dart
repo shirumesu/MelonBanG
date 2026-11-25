@@ -12,6 +12,7 @@ import '../core/content_cache.dart';
 import '../core/credentials.dart';
 import '../core/error_message.dart';
 import '../core/network.dart';
+import '../core/notices.dart';
 import '../core/proxy.dart';
 import '../core/service_configuration.dart';
 import '../core/settings.dart';
@@ -70,6 +71,10 @@ class AppServices {
   /// Every saved setting; see the catalog.
   final Settings settings;
   final api = ApiClient();
+
+  /// The cards in the window's corner; services post to it, the window
+  /// shows it.
+  final notices = Notices();
   late final Credentials credentials;
 
   /// A data directory set for the process, which skips storage locations.
@@ -273,7 +278,14 @@ class AppServices {
       sources,
       pikpakTransfer,
     );
-    playback = Playback(library, downloads, danmaku, settings, proxy);
+    playback = Playback(
+      library,
+      downloads,
+      danmaku,
+      settings,
+      proxy,
+      notices,
+    );
     selection.remember = () => playback.settings.rememberSource;
     // A subscribed show picks as its subscription does; others as a new
     // subscription would start, the preferred groups after the named ones.

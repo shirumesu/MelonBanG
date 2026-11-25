@@ -5,7 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:path/path.dart' as p;
 
+import '../../core/error_message.dart';
+import '../../core/file_manager.dart';
+import '../../core/notices.dart';
+import '../../core/system_settings.dart';
 import '../../domain/catalog.dart';
 import '../../domain/play_candidate.dart';
 import '../../domain/playback_session.dart';
@@ -16,6 +21,7 @@ import '../../features/playback/playback_coordinator.dart';
 import '../../features/playback/resource_search.dart';
 import '../acquisition/download_labels.dart';
 import '../core/motion.dart';
+import '../core/notice_cards.dart';
 import '../core/byte_units.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
@@ -27,6 +33,7 @@ import 'player_library_panel.dart';
 import 'player_progress_bar.dart';
 import 'player_resource_sheet.dart';
 import 'player_settings.dart';
+import 'player_stats.dart';
 import 'player_theme.dart';
 
 class PlayerPage extends StatefulWidget {
@@ -58,6 +65,9 @@ class PlayerPage extends StatefulWidget {
     required this.onRetryFailure,
     required this.onMarkEpisode,
     required this.onOpenSubject,
+    required this.mini,
+    required this.onMiniChanged,
+    required this.onDragWindow,
   });
   final Playback playback;
   final ResourceSearchController Function() newResourceSearch;
@@ -99,6 +109,12 @@ class PlayerPage extends StatefulWidget {
   final VoidCallback onRetryFailure;
   final Future<void> Function(Episode episode, bool watched) onMarkEpisode;
   final ValueChanged<Subject> onOpenSubject;
+
+  /// The player alone in a small window above the others; dragging the
+  /// video moves it.
+  final bool mini;
+  final Future<void> Function(bool) onMiniChanged;
+  final VoidCallback onDragWindow;
   @override
   State<PlayerPage> createState() => PlayerPageState();
 }
@@ -123,6 +139,9 @@ class PlayerPageState extends State<PlayerPage> {
   bool resourcesOpen = false;
   int? resourceEpisode;
   bool danmakuMenu = false;
+
+  /// 详细参数 over the video's top left.
+  bool stats = false;
   PlayerPanelTab panelTab = PlayerPanelTab.episodes;
 
   /// → held past [_boostDelay] plays at 3× until released; a tap seeks.
@@ -147,7 +166,8 @@ class PlayerPageState extends State<PlayerPage> {
   int lastNotice = 0;
   Playback get playback => widget.playback;
   Player get player => playback.player;
-  bool get immersive => widget.fullScreen || widget.windowFullScreen;
+  bool get immersive =>
+      widget.fullScreen || widget.windowFullScreen || widget.mini;
 
   @override
   void initState() {
@@ -170,7 +190,8 @@ class PlayerPageState extends State<PlayerPage> {
       resourceEpisode = null;
     }
     if (oldWidget.fullScreen != widget.fullScreen ||
-        oldWidget.windowFullScreen != widget.windowFullScreen) {
+        oldWidget.windowFullScreen != widget.windowFullScreen ||
+        oldWidget.mini != widget.mini) {
       danmakuMenu = false;
       controls = true;
       // Shell changes reparent the player; restore focus after it reattaches.
@@ -427,9 +448,12 @@ class PlayerPageState extends State<PlayerPage> {
     }
   }
 
-  /// Leaves fullscreen or window fullscreen, whichever is on.
+  /// Leaves fullscreen, window fullscreen or the small window, whichever is
+  /// on.
   Future<void> exitImmersive() async {
-    if (widget.fullScreen) {
+    if (widget.mini) {
+      await widget.onMiniChanged(false);
+    } else if (widget.fullScreen) {
       await widget.onFullScreenChanged(false);
     } else if (widget.windowFullScreen) {
       await widget.onWindowFullScreenChanged(false);
@@ -528,7 +552,11 @@ class PlayerPageState extends State<PlayerPage> {
         event.logicalKey == LogicalKeyboardKey.f11) {
       unawaited(fullscreen());
     } else if (event.logicalKey == LogicalKeyboardKey.escape) {
-      unawaited(exitImmersive());
+      if (immersive) {
+        unawaited(exitImmersive());
+      } else if (stats) {
+        setState(() => stats = false);
+      }
     } else if (event.logicalKey == LogicalKeyboardKey.keyM) {
       final muting = player.state.volume > 0;
       unawaited(playback.toggleMute());
@@ -573,6 +601,144 @@ class PlayerPageState extends State<PlayerPage> {
   Episode? get episode =>
       widget.subject?.episode(playback.session?.episodeId ?? -1);
 
+  /// Saves the frame on screen to the pictures folder's MelonBanG folder,
+  /// named by the show, the episode and the time in it.
+  Future<void> screenshot() async {
+    final notices = NoticesScope.of(context);
+    final at = formatTime(player.state.position.inMilliseconds / 1000)
+        .replaceAll(':', '-');
+    final name = safeFileName(
+      [
+        widget.subject?.title ?? playback.session?.title ?? 'MelonBanG',
+        ?episode?.label,
+        at,
+      ].join(' '),
+    );
+    try {
+      final folder = p.join(await SystemSettings.picturesFolder(), 'MelonBanG');
+      final file = await playback.screenshot(folder, name);
+      notices.show(
+        Notice(
+          '已保存截图',
+          detail: p.basename(file.path),
+          tone: NoticeTone.done,
+          key: 'screenshot',
+          actions: [
+            NoticeAction(
+              showInFileManagerLabel,
+              () => unawaited(
+                showInFileManager(
+                  file.path,
+                  select: true,
+                ).catchError((Object e) => widget.onError(e)),
+              ),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      notices.show(
+        Notice(
+          '截图失败',
+          detail: errorMessage(e),
+          tone: NoticeTone.failed,
+          key: 'screenshot',
+        ),
+      );
+    }
+  }
+
+  /// The video's right-click menu at [position]: the frame, the details
+  /// and the neighbouring episodes. Dark like everything over the video.
+  Future<void> openMenu(Offset position) async {
+    playback.cancelAutoplay();
+    if (danmakuMenu) closeMenu(refocus: false);
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final previous = previousEpisode, next = nextEpisode;
+    final episodes =
+        widget.subject != null && playback.session?.episodeId != null;
+    final playable = playback.uri != null && !playback.opening;
+    PopupMenuItem<String> item(
+      String value,
+      String label, {
+      bool enabled = true,
+      bool checked = false,
+    }) => PopupMenuItem(
+      value: value,
+      enabled: enabled,
+      height: 34,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 20,
+            child: checked
+                ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
+                : null,
+          ),
+          const SizedBox(width: Gap.xs),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: FontSize.body,
+              color: enabled ? Colors.white : Colors.white38,
+            ),
+          ),
+        ],
+      ),
+    );
+    final choice = await showMenu<String>(
+      context: context,
+      color: overlaySurface,
+      shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
+      menuPadding: const EdgeInsets.all(Gap.xs),
+      popUpAnimationStyle: AnimationStyle(
+        duration: motionDuration(context, 150),
+        reverseDuration: motionDuration(context, 100),
+        curve: Curves.easeOutCubic,
+      ),
+      position: RelativeRect.fromRect(
+        position & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        item('screenshot', '截图', enabled: playable),
+        if (!widget.mini) item('stats', '详细参数', checked: stats),
+        if (episodes) ...[
+          const PopupMenuDivider(height: 9, color: Colors.white12),
+          item('previous', '上一话', enabled: previous != null),
+          item('next', '下一话', enabled: next != null),
+        ],
+      ],
+    );
+    if (!mounted) return;
+    focus.requestFocus();
+    switch (choice) {
+      case 'screenshot':
+        unawaited(screenshot());
+      case 'stats':
+        setState(() => stats = !stats);
+      case 'previous' when previous != null:
+        widget.onEpisode(previous);
+      case 'next' when next != null:
+        widget.onEpisode(next);
+    }
+  }
+
+  /// The notices in the bottom right of a page with no video, where the
+  /// rest of the app shows them; the small window has no room for them.
+  Widget notices() => Positioned(
+    key: const ValueKey('player-notices'),
+    bottom: pageGutter,
+    right: pageGutter,
+    child: widget.mini
+        ? const SizedBox.shrink()
+        : NoticeStack(notices: NoticesScope.of(context), glass: true),
+  );
+
+  /// Whether autoplay counts down or says why it did not, in the corner.
+  bool get autoplayShown =>
+      playback.autoplayTarget != null || playback.autoplayMessage != null;
+
   @override
   Widget build(BuildContext context) => Theme(
     data: playerTheme(Theme.of(context)),
@@ -584,38 +750,51 @@ class PlayerPageState extends State<PlayerPage> {
 
   Widget body(BuildContext context) {
     if (widget.preparing case final preparing?) {
-      return Focus(
-        focusNode: preparingFocus,
-        autofocus: true,
-        onKeyEvent: handlePreparingKey,
-        child: ValueListenableBuilder(
-          valueListenable: widget.downloads.snapshot,
-          builder: (context, snapshot, _) => _PreparingView(
-            preparing: preparing,
-            task: switch (preparing.downloadId) {
-              final id? => snapshot.task(id),
-              null => null,
-            },
-            onRetry: widget.onRetryPreparing,
-            onChoose: widget.onChoosePreparing,
-            onExitFullScreen: immersive
-                ? () => unawaited(exitImmersive())
-                : null,
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Focus(
+            focusNode: preparingFocus,
+            autofocus: true,
+            onKeyEvent: handlePreparingKey,
+            child: ValueListenableBuilder(
+              valueListenable: widget.downloads.snapshot,
+              builder: (context, snapshot, _) => _PreparingView(
+                preparing: preparing,
+                task: switch (preparing.downloadId) {
+                  final id? => snapshot.task(id),
+                  null => null,
+                },
+                onRetry: widget.onRetryPreparing,
+                onChoose: widget.onChoosePreparing,
+                onExitFullScreen: immersive
+                    ? () => unawaited(exitImmersive())
+                    : null,
+                exitLabel: widget.mini ? '回到窗口 (Esc)' : '退出全屏 (Esc)',
+              ),
+            ),
           ),
-        ),
+          notices(),
+        ],
       );
     }
     if (playback.uri == null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.play_circle_outline, size: 48),
-            const SizedBox(height: Gap.lg),
-            Text(playback.error ?? '选一部作品，开始观看'),
-            TextButton(onPressed: widget.onBack, child: const Text('返回')),
-          ],
-        ),
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.play_circle_outline, size: 48),
+                const SizedBox(height: Gap.lg),
+                Text(playback.error ?? '选一部作品，开始观看'),
+                TextButton(onPressed: widget.onBack, child: const Text('返回')),
+              ],
+            ),
+          ),
+          notices(),
+        ],
       );
     }
     return LayoutBuilder(
@@ -787,7 +966,16 @@ class PlayerPageState extends State<PlayerPage> {
                       }
                       reveal();
                     },
-                    onDoubleTap: fullscreen,
+                    onSecondaryTapUp: (details) =>
+                        unawaited(openMenu(details.globalPosition)),
+                    // The small window has no title bar: the video moves
+                    // it, and a double click brings the window back.
+                    onPanStart: widget.mini
+                        ? (_) => widget.onDragWindow()
+                        : null,
+                    onDoubleTap: widget.mini
+                        ? () => unawaited(widget.onMiniChanged(false))
+                        : fullscreen,
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         // Super-resolution renders at the shown size.
@@ -871,6 +1059,7 @@ class PlayerPageState extends State<PlayerPage> {
                           onExitFullScreen: immersive
                               ? () => unawaited(exitImmersive())
                               : null,
+                          exitLabel: widget.mini ? '回到窗口 (Esc)' : '退出全屏 (Esc)',
                         ),
                       ),
                     ),
@@ -1144,16 +1333,10 @@ class PlayerPageState extends State<PlayerPage> {
                                               showPanel(PlayerPanelTab.danmaku),
                                   ),
                                 ),
-                                onPrevious: switch (previousEpisode) {
-                                  null => null,
-                                  final previous => () => widget.onEpisode(
-                                    previous,
-                                  ),
-                                },
-                                onNext: switch (nextEpisode) {
-                                  null => null,
-                                  final next => () => widget.onEpisode(next),
-                                },
+                                mini: widget.mini,
+                                onMini: () => unawaited(
+                                  widget.onMiniChanged(!widget.mini),
+                                ),
                                 onPopupChanged: (value) {
                                   controlsPopup = value;
                                   reveal();
@@ -1168,79 +1351,6 @@ class PlayerPageState extends State<PlayerPage> {
                       ),
                     ),
                   ),
-                  // Above the controls, whose gradient reaches over them.
-                  if (playback.openingEnding case final marks?)
-                    StreamBuilder<Duration>(
-                      stream: player.stream.position,
-                      initialData: player.state.position,
-                      builder: (_, position) {
-                        final now = position.data!.inMilliseconds / 1000;
-                        // Offered until a few seconds before the song ends.
-                        bool inside(ChapterSpan? span) =>
-                            span != null &&
-                            now >= span.start &&
-                            now < span.end - 3;
-                        final (label, target) = inside(marks.opening)
-                            ? ('跳过 OP', marks.opening!.end)
-                            : inside(marks.ending)
-                            ? ('跳过 ED', marks.ending!.end)
-                            : (null, 0.0);
-                        final upcoming = playback.upcomingSkip;
-                        if ((label == null && upcoming == null) ||
-                            failure != null) {
-                          return const SizedBox.shrink();
-                        }
-                        return AnimatedPositioned(
-                          duration: motionDuration(context),
-                          curve: Curves.easeOutCubic,
-                          right: pageGutter,
-                          bottom: controls ? _transportInset : pageGutter,
-                          // Keeps the controls, and so its place, while the
-                          // pointer is on it.
-                          child: MouseRegion(
-                            onEnter: (_) {
-                              controlsHovered = true;
-                              reveal();
-                            },
-                            onExit: (_) {
-                              controlsHovered = false;
-                              reveal();
-                            },
-                            child: MotionAppear(
-                              key: ValueKey(upcoming ?? label),
-                              offset: 8,
-                              milliseconds: 260,
-                              child: upcoming != null
-                                  ? _Countdown(
-                                      title: '即将跳过 $upcoming',
-                                      detail:
-                                          '跳到 ${formatTime(playback.skipTarget!)}',
-                                      seconds: playback.skipCountdown,
-                                      // Five seconds of the media count down.
-                                      remaining: ((playback.skipAt - now) / 5)
-                                          .clamp(0, 1),
-                                      confirm: '立即跳过',
-                                      onConfirm: () {
-                                        playback.skipNow();
-                                        focus.requestFocus();
-                                      },
-                                      onCancel: () {
-                                        playback.cancelSkip();
-                                        focus.requestFocus();
-                                      },
-                                    )
-                                  : _SkipButton(
-                                      label: label!,
-                                      onPressed: () {
-                                        showFeedback(label);
-                                        unawaited(seekTo(target));
-                                      },
-                                    ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
                   if (playback.overloaded case final mode? when failure == null)
                     AnimatedPositioned(
                       duration: motionDuration(context),
@@ -1267,39 +1377,161 @@ class PlayerPageState extends State<PlayerPage> {
                         ),
                       ),
                     ),
-                  if (playback.autoplayTarget != null ||
-                      playback.autoplayMessage != null)
+                  if (stats && !widget.mini)
                     Positioned(
-                      right: pageGutter,
-                      bottom: _transportInset,
+                      key: const ValueKey('player-stats'),
+                      top: 56,
+                      left: pageGutter,
                       child: MotionAppear(
-                        offset: 8,
-                        milliseconds: 260,
-                        child: switch (playback.autoplayTarget) {
-                          final target? => _Countdown(
-                            title: '即将播放${target.episode.label}',
-                            detail: target.sourceLabel,
-                            seconds: playback.autoplaySeconds,
-                            // Five seconds tick one at a time; the ring runs
-                            // through each toward the next.
-                            remaining: (playback.autoplaySeconds - 1) / 5,
-                            ease: 1000,
-                            confirm: '立即播放',
-                            onConfirm: playback.playAutoplay,
-                            onCancel: playback.cancelAutoplay,
-                          ),
-                          null => _Notice(
-                            message: playback.autoplayMessage!,
-                            action: playback.autoplayEndEpisode == null
-                                ? null
-                                : '查找资源',
-                            onAction: () =>
-                                findResources(playback.autoplayEndEpisode),
-                            onClose: playback.dismissAutoplayMessage,
-                          ),
-                        },
+                        offset: 6,
+                        milliseconds: 200,
+                        // Reads everything again each second itself.
+                        child: PlayerStatsPanel(
+                          playback: playback,
+                          source: widget.source,
+                          downloads: widget.downloads.snapshot,
+                          onClose: () {
+                            setState(() => stats = false);
+                            focus.requestFocus();
+                          },
+                        ),
                       ),
                     ),
+                  // Above the controls, whose gradient reaches over them: the
+                  // window's notices, newest nearest the corner, then the
+                  // player's own prompts under them. Over the transport bar
+                  // while it shows, and while autoplay counts down so its
+                  // buttons stay put.
+                  AnimatedPositioned(
+                    key: const ValueKey('player-corner'),
+                    duration: motionDuration(context),
+                    curve: Curves.easeOutCubic,
+                    right: pageGutter,
+                    bottom: controls || autoplayShown
+                        ? _transportInset
+                        : pageGutter,
+                    // Keeps the controls, and so the corner's place, while
+                    // the pointer is on something in it. It stays when what
+                    // it holds goes, so leaving is always heard, and lets the
+                    // pointer through where nothing is drawn.
+                    child: MouseRegion(
+                      opaque: false,
+                      onEnter: (_) {
+                        controlsHovered = true;
+                        reveal();
+                      },
+                      onExit: (_) {
+                        controlsHovered = false;
+                        reveal();
+                      },
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          // The small window has no room for them.
+                          if (!widget.mini)
+                            NoticeStack(
+                              notices: NoticesScope.of(context),
+                              glass: true,
+                            ),
+                          if (playback.openingEnding case final marks?)
+                            StreamBuilder<Duration>(
+                              stream: player.stream.position,
+                              initialData: player.state.position,
+                              builder: (_, position) {
+                                final now =
+                                    position.data!.inMilliseconds / 1000;
+                                // Offered until a few seconds before the song
+                                // ends.
+                                bool inside(ChapterSpan? span) =>
+                                    span != null &&
+                                    now >= span.start &&
+                                    now < span.end - 3;
+                                final (label, target) = inside(marks.opening)
+                                    ? ('跳过 OP', marks.opening!.end)
+                                    : inside(marks.ending)
+                                    ? ('跳过 ED', marks.ending!.end)
+                                    : (null, 0.0);
+                                final upcoming = playback.upcomingSkip;
+                                if ((label == null && upcoming == null) ||
+                                    failure != null) {
+                                  return const SizedBox.shrink();
+                                }
+                                return Padding(
+                                  padding: const EdgeInsets.only(top: Gap.sm),
+                                  child: MotionAppear(
+                                    key: ValueKey(upcoming ?? label),
+                                    offset: 8,
+                                    milliseconds: 260,
+                                    child: upcoming != null
+                                        ? _Countdown(
+                                            title: '即将跳过 $upcoming',
+                                            detail:
+                                                '跳到 ${formatTime(playback.skipTarget!)}',
+                                            seconds: playback.skipCountdown,
+                                            // Five seconds of the media
+                                            // count down.
+                                            remaining:
+                                                ((playback.skipAt - now) / 5)
+                                                    .clamp(0, 1),
+                                            confirm: '立即跳过',
+                                            onConfirm: () {
+                                              playback.skipNow();
+                                              focus.requestFocus();
+                                            },
+                                            onCancel: () {
+                                              playback.cancelSkip();
+                                              focus.requestFocus();
+                                            },
+                                          )
+                                        : _SkipButton(
+                                            label: label!,
+                                            onPressed: () {
+                                              showFeedback(label);
+                                              unawaited(seekTo(target));
+                                            },
+                                          ),
+                                  ),
+                                );
+                              },
+                            ),
+                          if (autoplayShown)
+                            Padding(
+                              padding: const EdgeInsets.only(top: Gap.sm),
+                              child: MotionAppear(
+                                offset: 8,
+                                milliseconds: 260,
+                                child: switch (playback.autoplayTarget) {
+                                  final target? => _Countdown(
+                                    title: '即将播放${target.episode.label}',
+                                    detail: target.sourceLabel,
+                                    seconds: playback.autoplaySeconds,
+                                    // Five seconds tick one at a time; the ring
+                                    // runs through each toward the next.
+                                    remaining:
+                                        (playback.autoplaySeconds - 1) / 5,
+                                    ease: 1000,
+                                    confirm: '立即播放',
+                                    onConfirm: playback.playAutoplay,
+                                    onCancel: playback.cancelAutoplay,
+                                  ),
+                                  null => _Notice(
+                                    message: playback.autoplayMessage!,
+                                    action: playback.autoplayEndEpisode == null
+                                        ? null
+                                        : '查找资源',
+                                    onAction: () => findResources(
+                                      playback.autoplayEndEpisode,
+                                    ),
+                                    onClose: playback.dismissAutoplayMessage,
+                                  ),
+                                },
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1369,10 +1601,15 @@ class _FailureCard extends StatelessWidget {
     this.onRetry,
     this.onChoose,
     this.onExitFullScreen,
+    this.exitLabel = '退出全屏 (Esc)',
   });
   final String reason;
   final VoidCallback onBack;
   final VoidCallback? onRetry, onChoose, onExitFullScreen;
+
+  /// What leaving the immersive mode is called: full screen, or the small
+  /// window.
+  final String exitLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -1429,7 +1666,7 @@ class _FailureCard extends StatelessWidget {
                 TextButton(
                   style: TextButton.styleFrom(foregroundColor: overlayMuted),
                   onPressed: exit,
-                  child: const Text('退出全屏 (Esc)'),
+                  child: Text(exitLabel),
                 )
               else if (onRetry == null && onChoose == null)
                 OutlinedButton(
@@ -1867,6 +2104,7 @@ class _PreparingView extends StatelessWidget {
     required this.onChoose,
     this.task,
     this.onExitFullScreen,
+    this.exitLabel = '退出全屏 (Esc)',
   });
   final PreparingPlayback preparing;
 
@@ -1876,6 +2114,10 @@ class _PreparingView extends StatelessWidget {
 
   /// Set in fullscreen, where no title bar leads back.
   final VoidCallback? onExitFullScreen;
+
+  /// What leaving the immersive mode is called: full screen, or the small
+  /// window.
+  final String exitLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -2039,7 +2281,7 @@ class _PreparingView extends StatelessWidget {
                       TextButton(
                         style: TextButton.styleFrom(foregroundColor: muted),
                         onPressed: exit,
-                        child: const Text('退出全屏 (Esc)'),
+                        child: Text(exitLabel),
                       ),
                   ],
                 ),

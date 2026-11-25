@@ -7,9 +7,11 @@ import 'dart:ui' show Size;
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:path/path.dart' as p;
 
 import '../../core/cancellation.dart';
 import '../../core/error_message.dart';
+import '../../core/notices.dart';
 import '../../core/proxy.dart';
 import '../../core/settings.dart';
 import '../../domain/catalog.dart';
@@ -28,6 +30,7 @@ class Playback extends ChangeNotifier {
     this.danmaku,
     this.preferences,
     this.proxy,
+    this.notices,
   ) {
     settings = PlaybackPreferences(preferences);
     danmaku.addListener(_danmakuChanged);
@@ -175,6 +178,10 @@ class Playback extends ChangeNotifier {
 
   /// Online media goes through the app's proxy; local streams never do.
   final NetworkProxy proxy;
+
+  /// Messages about the playback that are not answers to a key or a click,
+  /// such as a part of the file that failed or the next episode caching.
+  final Notices notices;
   Player? _player;
   VideoController? _video;
 
@@ -350,7 +357,13 @@ class Playback extends ChangeNotifier {
     // A subtitle or audio file beside the video that cannot be read leaves
     // the video playing without it.
     if (line.startsWith('Can not open external file')) {
-      showNotice('有外挂字幕或音轨没能加载');
+      notices.show(
+        const Notice(
+          '有外挂字幕或音轨没能加载',
+          tone: NoticeTone.warning,
+          key: 'playback-sidecar',
+        ),
+      );
       return;
     }
     if (error != null || _errorCheck != null || _player == null) return;
@@ -385,7 +398,15 @@ class Playback extends ChangeNotifier {
     if (_closed || _player != player || session?.id != sessionId) return;
     if (error != null) return;
     if (!fatal) {
-      if (player.state.playing) showNotice('播放时出了点小问题，不影响观看');
+      if (player.state.playing) {
+        notices.show(
+          const Notice(
+            '播放时出了点小问题，不影响观看',
+            tone: NoticeTone.warning,
+            key: 'playback-glitch',
+          ),
+        );
+      }
       if (player.state.completed) _ended();
       return;
     }
@@ -736,7 +757,9 @@ class Playback extends ChangeNotifier {
       if (_closed || _player?.platform != platform) return;
       _shaders = 'off';
       _announceSwitch = false;
-      showNotice('超分辨率不可用：${errorMessage(e)}');
+      notices.show(
+        Notice('超分辨率不可用', detail: errorMessage(e), tone: NoticeTone.failed),
+      );
     }
     // The output takes its new size at once, so the first frame drawn at it
     // already has the new shaders. Until then the player keeps showing the
@@ -1016,6 +1039,68 @@ class Playback extends ChangeNotifier {
     } catch (_) {
       // Without chapters there are no OP/ED marks.
     }
+  }
+
+  /// Saves the frame on screen with its subtitles, at the video's own size
+  /// and without super-resolution, as a PNG named [name] in [folder]; a name
+  /// already taken gets a number.
+  Future<File> screenshot(String folder, String name) async {
+    final platform = _player?.platform;
+    if (uri == null || opening || platform is! NativePlayer) {
+      throw StateError('现在没有可以截图的画面');
+    }
+    await Directory(folder).create(recursive: true);
+    var file = File(p.join(folder, '$name.png'));
+    for (var number = 2; await file.exists(); number++) {
+      file = File(p.join(folder, '$name ($number).png'));
+    }
+    // mpv logs a failure instead of returning it; the file tells.
+    await platform.command(['screenshot-to-file', file.path, 'subtitles']);
+    if (!await file.exists()) throw StateError('mpv 没有写出截图文件');
+    return file;
+  }
+
+  /// What mpv reports about the file playing, for the player's 详细参数;
+  /// null without one. A value mpv does not know is null.
+  Future<PlaybackDetails?> details() async {
+    final platform = _player?.platform;
+    if (uri == null || platform is! NativePlayer) return null;
+    Future<String?> text(String name) async {
+      final value = await platform.getProperty(name);
+      return value.isEmpty ? null : value;
+    }
+
+    Future<int?> whole(String name) async =>
+        int.tryParse(await text(name) ?? '');
+    Future<double?> real(String name) async =>
+        double.tryParse(await text(name) ?? '');
+    return PlaybackDetails(
+      container: await text('file-format'),
+      videoCodec: await text('video-format'),
+      width: await whole('video-params/w'),
+      height: await whole('video-params/h'),
+      fps: await real('container-fps'),
+      // Hardware frames name their surface here and what they hold in
+      // hw-pixelformat.
+      pixelFormat:
+          await text('video-params/hw-pixelformat') ??
+          await text('video-params/pixelformat'),
+      primaries: await text('video-params/primaries'),
+      gamma: await text('video-params/gamma'),
+      videoBitrate: await whole('video-bitrate'),
+      hwdec: await text('hwdec-current'),
+      audioCodec: await text('audio-codec-name'),
+      sampleRate: await whole('audio-params/samplerate'),
+      channels: await whole('audio-params/channel-count'),
+      audioBitrate: await whole('audio-bitrate'),
+      avsync: await real('avsync'),
+      droppedFrames: await whole('frame-drop-count'),
+      decoderDroppedFrames: await whole('decoder-frame-drop-count'),
+      cacheSeconds: await real('demuxer-cache-duration'),
+      cacheSpeed: await whole('cache-speed'),
+      mpv: await text('mpv-version'),
+      ffmpeg: await text('ffmpeg-version'),
+    );
   }
 
   Future<Duration> stepFrame(bool forward) {
@@ -1308,4 +1393,37 @@ class OpeningEnding {
     if (opening == null && ending == null) return null;
     return OpeningEnding(opening: opening, ending: ending);
   }
+}
+
+/// What mpv reports about the file playing; see [Playback.details]. Rates
+/// are in bits per second, [cacheSpeed] in bytes per second.
+class PlaybackDetails {
+  const PlaybackDetails({
+    this.container,
+    this.videoCodec,
+    this.width,
+    this.height,
+    this.fps,
+    this.pixelFormat,
+    this.primaries,
+    this.gamma,
+    this.videoBitrate,
+    this.hwdec,
+    this.audioCodec,
+    this.sampleRate,
+    this.channels,
+    this.audioBitrate,
+    this.avsync,
+    this.droppedFrames,
+    this.decoderDroppedFrames,
+    this.cacheSeconds,
+    this.cacheSpeed,
+    this.mpv,
+    this.ffmpeg,
+  });
+  final String? container, videoCodec, pixelFormat, primaries, gamma, hwdec;
+  final String? audioCodec, mpv, ffmpeg;
+  final int? width, height, videoBitrate, sampleRate, channels, audioBitrate;
+  final int? droppedFrames, decoderDroppedFrames, cacheSpeed;
+  final double? fps, avsync, cacheSeconds;
 }

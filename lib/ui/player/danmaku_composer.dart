@@ -24,6 +24,7 @@ class DanmakuComposer extends StatefulWidget {
     required this.onFeedback,
     required this.onDone,
     required this.hint,
+    this.compact = false,
   });
   final Playback playback;
   final TextEditingController draft;
@@ -35,8 +36,15 @@ class DanmakuComposer extends StatefulWidget {
   /// The empty field's line while it can send.
   final String hint;
 
+  /// The small window's: the field and sending only, the look kept as set
+  /// in the full window.
+  final bool compact;
+
   /// The narrowest it is shown at; the field keeps about eight characters.
   static const minWidth = 220.0;
+
+  /// The narrowest the [compact] one is shown at, about six characters.
+  static const compactMinWidth = 136.0;
 
   @override
   State<DanmakuComposer> createState() => _DanmakuComposerState();
@@ -109,8 +117,10 @@ class _DanmakuComposerState extends State<DanmakuComposer> {
     // loads; either way it counts down here.
     if (wait > 0 && !(_tick?.isActive ?? false)) _countDown();
     return ConstrainedBox(
-      constraints: const BoxConstraints(
-        minWidth: DanmakuComposer.minWidth,
+      constraints: BoxConstraints(
+        minWidth: widget.compact
+            ? DanmakuComposer.compactMinWidth
+            : DanmakuComposer.minWidth,
         maxWidth: 400,
       ),
       child: ListenableBuilder(
@@ -134,12 +144,16 @@ class _DanmakuComposerState extends State<DanmakuComposer> {
             ),
             child: Row(
               children: [
-                _SendStyleMenu(
-                  preferences: danmaku.preferences,
-                  onPopupChanged: widget.onPopupChanged,
-                ),
-                Container(width: 1, height: 16, color: Colors.white12),
-                const SizedBox(width: Gap.sm),
+                if (widget.compact)
+                  const SizedBox(width: Gap.md)
+                else ...[
+                  _SendStyleMenu(
+                    preferences: danmaku.preferences,
+                    onPopupChanged: widget.onPopupChanged,
+                  ),
+                  Container(width: 1, height: 16, color: Colors.white12),
+                  const SizedBox(width: Gap.sm),
+                ],
                 Expanded(
                   child: TextField(
                     controller: widget.draft,

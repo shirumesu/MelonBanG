@@ -12,11 +12,13 @@ import 'settings_catalog.dart';
 import '../core/background.dart';
 import '../core/error_message.dart';
 import '../core/network.dart';
+import '../core/notices.dart';
 import '../core/settings.dart';
 import '../features/acquisition/resource_metadata.dart';
 import '../domain/catalog.dart';
 import '../domain/play_candidate.dart';
 import '../features/appearance/appearance.dart';
+import '../features/discovery/airing_reminders.dart';
 import '../features/discovery/discovery_controller.dart';
 import '../features/downloads/downloads_controller.dart';
 import '../features/playback/playback.dart';
@@ -38,6 +40,7 @@ import '../ui/core/byte_units.dart';
 import '../ui/core/cached_image.dart';
 import '../ui/core/cover_colors.dart';
 import '../ui/core/motion.dart';
+import '../ui/core/notice_cards.dart';
 import '../ui/core/page_widgets.dart';
 import '../ui/core/pointer_lamp.dart';
 import '../ui/core/poster_zoom.dart';
@@ -80,7 +83,6 @@ class MelonApp extends StatefulWidget {
 class _MelonAppState extends State<MelonApp>
     with WidgetsBindingObserver
     implements PlaybackShell {
-  final messages = GlobalKey<ScaffoldMessengerState>();
   final navigation = GlobalKey<NavigatorState>();
   final playerPageKey = GlobalKey<PlayerPageState>();
 
@@ -99,6 +101,12 @@ class _MelonAppState extends State<MelonApp>
   String route = 'home', selectedSection = 'home';
   bool ready = false, fullScreen = false;
   bool closing = false, sidebarVisible = true, windowFullScreen = false;
+
+  /// The player alone in a small window above the others, and where the
+  /// window was before it, to go back to.
+  bool miniPlayer = false;
+  Rect? _miniRestore;
+  bool _miniMaximized = false;
 
   /// Theme mode, theme colour and cover colouring.
   late final appearance = Appearance(widget.settings);
@@ -125,6 +133,7 @@ class _MelonAppState extends State<MelonApp>
 
   /// The tray icon while there are subscriptions.
   AppTray? tray;
+  AiringReminders? reminders;
   bool? keptAwake;
   CoverColors? covers;
 
@@ -198,14 +207,7 @@ class _MelonAppState extends State<MelonApp>
     unawaited(appearance.refreshSystemAccent());
     recentSearches = widget.settings.get(recentSearchesSetting);
     windowListener = window.addListener(windowEvent);
-    Background.listen(
-      onQuit: quit,
-      onOpenSubject: (_) {
-        showWindow();
-        navigate('downloads');
-      },
-      onEndSession: endSession,
-    );
+    Background.listen(onQuit: quit, onEndSession: endSession);
     unawaited(boot());
   }
 
@@ -232,20 +234,20 @@ class _MelonAppState extends State<MelonApp>
         service.subscriptions,
       ])..addListener(servicesChanged);
       downloads.availability.addListener(availabilityChanged);
-      service.subscriptions.onCached = (subscription, episode) => unawaited(
-        Background.notify(
-          '${subscription.title} ${episode?.label ?? '新一话'}已缓存',
-          subscription.ledger[episode?.id]?.title ?? '',
-          subjectId: subscription.subjectId,
-        ),
-      );
-      service.subscriptions.onEnded = (subscription, reason) => unawaited(
-        Background.notify(
-          '${subscription.title} 已取消订阅',
-          '$reason；已缓存的文件都还在',
-          subjectId: subscription.subjectId,
-        ),
-      );
+      final showCache = NoticeAction('查看缓存', () => navigate('downloads'));
+      service.subscriptions.onCached = (subscription, episode) =>
+          service.notices.show(
+            Notice(
+              '${subscription.title} ${episode?.label ?? '新一话'}已缓存',
+              detail: subscription.ledger[episode?.id]?.title,
+              tone: NoticeTone.done,
+              actions: [showCache],
+            ),
+          );
+      service.subscriptions.onEnded = (subscription, reason) =>
+          service.notices.show(
+            Notice('${subscription.title} 已取消订阅', detail: '$reason；已缓存的文件都还在'),
+          );
       service.subscriptions.onCheckedAll = (found) {
         if (found.isEmpty) return;
         final lines = [
@@ -254,14 +256,31 @@ class _MelonAppState extends State<MelonApp>
             '${subscription.title}：$text',
           if (found.length > 4) '另有 ${found.length - 4} 部，在各自的订阅动态里',
         ];
-        unawaited(
-          Background.notify(
+        service.notices.show(
+          Notice(
             '检查完 ${found.length} 部订阅',
-            lines.join('\n'),
-            subjectId: found.length == 1 ? found.keys.single.subjectId : null,
+            detail: lines.join('\n'),
+            actions: [showCache],
+            key: 'subscriptions-checked',
           ),
         );
       };
+      updatePhase = service.update.phase;
+      service.update.addListener(updateChanged);
+      reminders = AiringReminders(
+        calendar: () => discovery.calendar,
+        watching: () => personal.watching,
+        subscribed: (id) => switch (service.subscriptions.subscriptions[id]) {
+          final subscription? =>
+            subscription.finishedAt == null && !subscription.paused,
+          null => false,
+        },
+        episodes: (id) => resume.watching[id]?.episodes,
+        enabled: () => service.subscriptions.preferences.airingReminder,
+        reloadCalendar: discovery.loadCalendar,
+        notices: service.notices,
+        onOpen: (subject) => unawaited(openSubject(subject)),
+      )..start();
       service.subscriptions.addListener(syncTray);
       downloads.active.addListener(syncTray);
       service.sync.addListener(syncConflicted);
@@ -370,6 +389,7 @@ class _MelonAppState extends State<MelonApp>
     if (ready) coordinator.leave();
     if (route != 'player') return;
     if (fullScreen) unawaited(setFullScreen(false));
+    if (miniPlayer) unawaited(setMiniPlayer(false));
     windowFullScreen = false;
     coordinator.stop(refreshPlaybackAvailability);
   }
@@ -435,7 +455,8 @@ class _MelonAppState extends State<MelonApp>
   void focusSearch() {
     if (fullScreen) unawaited(setFullScreen(false));
     // The title-bar search is hidden only while the player fills the window.
-    final needsNavigation = route == 'player' && windowFullScreen;
+    final needsNavigation =
+        route == 'player' && (windowFullScreen || miniPlayer);
     void focus() {
       if (!mounted) return;
       searchFocus.requestFocus();
@@ -455,7 +476,60 @@ class _MelonAppState extends State<MelonApp>
 
   @override
   void showError(Object e) =>
-      showMessage(messages.currentState, errorMessage(e));
+      showMessage(service.notices, errorMessage(e), tone: NoticeTone.failed);
+
+  /// The update's phase when last seen, so each change is told once.
+  UpdatePhase? updatePhase;
+
+  /// Tells of a downloaded update, of one found while downloads wait for a
+  /// click, and of a download that failed. The settings page says the same
+  /// in place, so nothing shows while it is open.
+  void updateChanged() {
+    final update = service.update;
+    final previous = updatePhase;
+    updatePhase = update.phase;
+    if (previous == update.phase || route == 'settings') return;
+    final notices = service.notices;
+    switch (update.phase) {
+      case UpdatePhase.ready:
+        notices.show(
+          Notice(
+            '新版本 ${update.readyVersion} 已下载',
+            detail: '重启后生效',
+            tone: NoticeTone.done,
+            sticky: true,
+            key: 'update',
+            actions: [
+              NoticeAction('重启以更新', restartToUpdate),
+              NoticeAction('更新内容', () => openSettings('about')),
+            ],
+          ),
+        );
+      case UpdatePhase.available when !update.autoDownload:
+        notices.show(
+          Notice(
+            '发现新版本 ${update.release!.version}',
+            key: 'update',
+            actions: [
+              NoticeAction('下载', () => unawaited(update.download())),
+              NoticeAction('更新内容', () => openSettings('about')),
+            ],
+          ),
+        );
+      case UpdatePhase.failed when previous == UpdatePhase.downloading:
+        notices.show(
+          Notice(
+            '新版本没能下载',
+            detail: update.error,
+            tone: NoticeTone.failed,
+            key: 'update',
+            actions: [NoticeAction('重试', () => unawaited(update.download()))],
+          ),
+        );
+      default:
+        break;
+    }
+  }
 
   Future<void> perform(Future<void> Function() action) async {
     try {
@@ -884,6 +958,15 @@ class _MelonAppState extends State<MelonApp>
   /// does now, unless a video still plays on.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Notices wait while the window cannot be seen. Inactive is a window
+    // still on screen with another app in front, as the small window often
+    // is; their time runs there.
+    service.notices.away = switch (state) {
+      AppLifecycleState.resumed || AppLifecycleState.inactive => false,
+      AppLifecycleState.hidden ||
+      AppLifecycleState.paused ||
+      AppLifecycleState.detached => true,
+    };
     Background.yieldResources(
       (state == AppLifecycleState.hidden ||
               state == AppLifecycleState.paused) &&
@@ -949,7 +1032,8 @@ class _MelonAppState extends State<MelonApp>
     _fullScreenTransition = null;
   }
 
-  Future<void> setFullScreen(bool value) {
+  Future<void> setFullScreen(bool value) async {
+    if (value && miniPlayer) await setMiniPlayer(false);
     return _fullScreenOperations = _fullScreenOperations.then(
       (_) => perform(() async {
         if (!mounted || closing) return;
@@ -973,11 +1057,68 @@ class _MelonAppState extends State<MelonApp>
   }
 
   Future<void> setWindowFullScreen(bool value) async {
+    if (value && miniPlayer) await setMiniPlayer(false);
     if (fullScreen) {
       await setFullScreen(false);
       if (fullScreen) return;
     }
     if (mounted) setState(() => windowFullScreen = value);
+  }
+
+  /// Width of the small window's video; its height follows the video.
+  static const _miniWidth = 480.0;
+
+  /// Puts the player alone in a small window above every other one, in the
+  /// bottom right of where the window was, shaped like the video; leaving
+  /// puts the window back where and as it was.
+  Future<void> setMiniPlayer(bool value) async {
+    if (value == miniPlayer || closing) return;
+    if (value) {
+      if (fullScreen) {
+        await setFullScreen(false);
+        if (fullScreen || !mounted) return;
+      }
+      final area = window.contentBounds.toRect();
+      _miniMaximized = window.isMaximized;
+      if (_miniMaximized) window.unmaximize();
+      _miniRestore = window.bounds.toRect();
+      final state = playback.player.state;
+      final aspect = switch ((state.width, state.height)) {
+        (final width?, final height?) when width > 0 && height > 0 =>
+          width / height,
+        _ => 16 / 9,
+      };
+      final size = Size(_miniWidth, (_miniWidth / aspect).roundToDouble());
+      setState(() {
+        miniPlayer = true;
+        windowFullScreen = false;
+      });
+      window
+        ..isWindowControlButtonsVisible = false
+        ..minimumSize = Size(320, 320 / aspect).toNative()
+        ..aspectRatio = aspect
+        ..isAlwaysOnTop = true
+        ..isVisibleOnAllWorkspaces = true
+        ..contentBounds =
+            (Offset(
+                      area.right - size.width - Gap.lg,
+                      area.bottom - size.height - Gap.lg,
+                    ) &
+                    size)
+                .toNative();
+    } else {
+      setState(() => miniPlayer = false);
+      window
+        ..isAlwaysOnTop = false
+        ..isVisibleOnAllWorkspaces = false
+        ..aspectRatio = 0;
+      if (_miniRestore case final bounds?) window.bounds = bounds.toNative();
+      window
+        ..minimumSize = const Size(960, 640).toNative()
+        ..isWindowControlButtonsVisible = true;
+      if (_miniMaximized) window.maximize();
+      _miniRestore = null;
+    }
   }
 
   @override
@@ -989,6 +1130,7 @@ class _MelonAppState extends State<MelonApp>
       service.subscriptions.removeListener(syncTray);
       downloads.active.removeListener(syncTray);
       service.sync.removeListener(syncConflicted);
+      service.update.removeListener(updateChanged);
     }
     unawaited(
       (ready ? coordinator.close() : Future<void>.value()).whenComplete(
@@ -998,6 +1140,7 @@ class _MelonAppState extends State<MelonApp>
     for (final subscription in subscriptions) {
       unawaited(subscription.cancel());
     }
+    reminders?.dispose();
     homeFeedback.dispose();
     playerPanel.dispose();
     continueRange.dispose();
@@ -1032,19 +1175,34 @@ class _MelonAppState extends State<MelonApp>
           key: themeReveal,
           child: ByteUnitsScope(
             units: appearance.byteUnits,
-            child: ready
-                ? ContentCacheScope(
-                    cache: service.cache,
-                    child: SubjectCoverScope(
-                      covers: service.catalog,
-                      child: child!,
+            child: NoticesScope(
+              notices: service.notices,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ready
+                      ? ContentCacheScope(
+                          cache: service.cache,
+                          child: SubjectCoverScope(
+                            covers: service.catalog,
+                            child: child!,
+                          ),
+                        )
+                      : child!,
+                  // Over every page and dialog; the player shows them on
+                  // the video instead.
+                  if (route != 'player')
+                    Positioned(
+                      right: Gap.lg,
+                      bottom: Gap.lg,
+                      child: NoticeStack(notices: service.notices),
                     ),
-                  )
-                : child!,
+                ],
+              ),
+            ),
           ),
         ),
       ),
-      scaffoldMessengerKey: messages,
       navigatorKey: navigation,
       theme: theme,
       home: CallbackShortcuts(
@@ -1080,7 +1238,7 @@ class _MelonAppState extends State<MelonApp>
               child: Scaffold(
                 body: Column(
                   children: [
-                    if (!fullScreen)
+                    if (!fullScreen && !miniPlayer)
                       AppTitleBar(
                         window: window,
                         immersive: route == 'player' && windowFullScreen,
@@ -1108,6 +1266,7 @@ class _MelonAppState extends State<MelonApp>
                       child: Row(
                         children: [
                           if (!fullScreen &&
+                              !miniPlayer &&
                               !(route == 'player' && windowFullScreen))
                             MotionReveal(
                               visible: showSidebar,
@@ -1215,6 +1374,9 @@ class _MelonAppState extends State<MelonApp>
     onRetryFailure: coordinator.retryFailure,
     onMarkEpisode: coordinator.markEpisode,
     onOpenSubject: openPlayerSubject,
+    mini: miniPlayer,
+    onMiniChanged: setMiniPlayer,
+    onDragWindow: window.startDragging,
     subject: coordinator.subject,
     preparing: coordinator.preparing,
     onRetryPreparing: coordinator.retryPreparing,
