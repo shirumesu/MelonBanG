@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../core/error_message.dart';
 import '../../core/notices.dart';
@@ -170,6 +171,13 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   int _nudges = 0;
   bool _savingCollection = false;
   bool _summaryExpanded = false, _infoExpanded = false, _tagsExpanded = false;
+
+  /// Wide layout: 我的收藏 and 收藏统计 stacked, which the main panel matches,
+  /// and the summary's room there, both as last laid out.
+  double? _sideHeight, _summaryRoom;
+  final _sideKey = GlobalKey(), _summaryKey = GlobalKey();
+  final _heroTopKey = GlobalKey(), _heroBottomKey = GlobalKey();
+  bool _fitScheduled = false;
   Timer? _feedbackTimer;
   final _episodeOverrides = <int, EpisodeStatus>{};
   String? _episodeError;
@@ -521,65 +529,18 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     return PageScroll(
       children: [
         const SizedBox(height: Gap.md),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final hero = DelayedBusy(
-              busy: _loadingPart('base') || _episodesLoading,
-              builder: (context, skeleton) => _hero(item, skeleton: skeleton),
-            );
-            final cards = [_collectionCard(item), ?_statsCard(item)];
-            if (constraints.maxWidth >= _wideLayout) {
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: hero),
-                  const SizedBox(width: Gap.lg),
-                  SizedBox(
-                    width: homeSideColumnWidth,
-                    child: Column(
-                      children: [
-                        for (final (index, card) in cards.indexed) ...[
-                          if (index > 0) const SizedBox(height: Gap.lg),
-                          card,
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            }
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                hero,
-                const SizedBox(height: Gap.lg),
-                if (constraints.maxWidth >= 600 && cards.length > 1)
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: cards[0]),
-                      const SizedBox(width: Gap.lg),
-                      Expanded(child: cards[1]),
-                    ],
-                  )
-                else
-                  for (final (index, card) in cards.indexed) ...[
-                    if (index > 0) const SizedBox(height: Gap.lg),
-                    card,
-                  ],
-              ],
-            );
-          },
-        ),
-        const SizedBox(height: Gap.lg),
-        PageSliver(child: _lower(item)),
+        PageSliver(child: _columns(item)),
       ],
     );
   }
 
-  Widget _lower(Subject item) {
+  /// Wide, two columns that each run on by themselves: the main panel heads
+  /// the left, 我的收藏 and 收藏统计 the right, so unfolding the summary moves
+  /// only what sits under the main panel.
+  Widget _columns(Subject item) {
     final subjectId = item.id;
     final user = widget.community.userId;
+    final cards = [_collectionCard(item), ?_statsCard(item)];
     final main = [?_charactersPanel(item), ?_staffPanel(item)];
     final side = [
       ?_infoPanel(item),
@@ -604,11 +565,35 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         child: child,
       ),
     );
+    Widget hero({required bool wide}) => DelayedBusy(
+      busy: _loadingPart('base') || _episodesLoading,
+      builder: (context, skeleton) =>
+          _hero(item, skeleton: skeleton, wide: wide),
+    );
     return SliverLayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.crossAxisExtent < _wideLayout) {
+        final width = constraints.crossAxisExtent;
+        if (width < _wideLayout) {
           return SliverMainAxisGroup(
-            slivers: [...main.map(box), ...side.map(box), community],
+            slivers: [
+              box(hero(wide: false)),
+              if (width >= 600 && cards.length > 1)
+                box(
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: cards[0]),
+                      const SizedBox(width: Gap.lg),
+                      Expanded(child: cards[1]),
+                    ],
+                  ),
+                )
+              else
+                ...cards.map(box),
+              ...main.map(box),
+              ...side.map(box),
+              community,
+            ],
           );
         }
         return SliverCrossAxisGroup(
@@ -616,14 +601,32 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             SliverCrossAxisExpanded(
               flex: 1,
               sliver: SliverMainAxisGroup(
-                slivers: [...main.map(box), community],
+                slivers: [box(hero(wide: true)), ...main.map(box), community],
               ),
             ),
             SliverConstrainedCrossAxis(
               maxExtent: homeSideColumnWidth + Gap.lg,
               sliver: SliverPadding(
                 padding: const EdgeInsets.only(left: Gap.lg),
-                sliver: SliverMainAxisGroup(slivers: side.map(box).toList()),
+                sliver: SliverMainAxisGroup(
+                  slivers: [
+                    box(
+                      _LayoutProbe(
+                        key: _sideKey,
+                        onLayout: _scheduleFit,
+                        child: Column(
+                          children: [
+                            for (final (index, card) in cards.indexed) ...[
+                              if (index > 0) const SizedBox(height: Gap.lg),
+                              card,
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    ...side.map(box),
+                  ],
+                ),
               ),
             ),
           ],
@@ -632,9 +635,47 @@ class _SubjectDetailState extends State<_SubjectDetail> {
     );
   }
 
+  /// Measures once after a frame that laid out the main panel, its summary
+  /// or the cards beside it.
+  void _scheduleFit() {
+    if (_fitScheduled) return;
+    _fitScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fitScheduled = false;
+      if (mounted) _fit();
+    });
+  }
+
+  /// In the wide layout, gives the summary the main panel's room left beside
+  /// 我的收藏 and 收藏统计, so both columns end level.
+  void _fit() {
+    double? height(GlobalKey key) =>
+        switch (key.currentContext?.findRenderObject()) {
+          final RenderBox box when box.hasSize => box.size.height,
+          _ => null,
+        };
+    final side = height(_sideKey);
+    final top = height(_heroTopKey);
+    final bottom = height(_heroBottomKey);
+    final summary = height(_summaryKey);
+    final room =
+        side == null || top == null || bottom == null || summary == null
+        ? null
+        : side - _heroPadding * 2 - (top + bottom - summary);
+    bool moved(double? a, double? b) =>
+        a == null || b == null ? a != b : (a - b).abs() > .5;
+    if (moved(side, _sideHeight) || moved(room, _summaryRoom)) {
+      setState(() {
+        _sideHeight = side;
+        _summaryRoom = room;
+      });
+    }
+  }
+
   /// The main panel; [skeleton] once the parts still loading have taken
-  /// [busyDelay], when grey lines hold their places.
-  Widget _hero(Subject item, {required bool skeleton}) {
+  /// [busyDelay], when grey lines hold their places. [wide] beside 我的收藏
+  /// and 收藏统计, whose height it fills.
+  Widget _hero(Subject item, {required bool skeleton, required bool wide}) {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     final episodes = item.episodes;
@@ -685,8 +726,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
         )
         .toList();
     final score = item.score ?? 0;
-    final summaryLoading = item.summary == null && _loadingPart('base');
-    final summary = item.summary ?? '暂无简介';
     final info = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -858,105 +897,75 @@ class _SubjectDetailState extends State<_SubjectDetail> {
           ],
         ),
         const SizedBox(height: Gap.lg),
-        AnimatedSize(
-          duration: motionDuration(context, 260),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topLeft,
-          // Selectable folded too: copying it shouldn't need unfolding.
-          child: summaryLoading
-              ? Column(
-                  children: [
-                    for (final share in const [1.0, .94, .58])
-                      SkeletonLine(
-                        style: const TextStyle(
-                          fontSize: FontSize.body,
-                          height: 1.75,
-                        ),
-                        widthFactor: share,
-                        shown: skeleton,
-                      ),
-                  ],
-                )
-              : SelectionArea(
-                  child: _summaryExpanded
-                      ? Text(
-                          summary,
-                          style: const TextStyle(
-                            fontSize: FontSize.body,
-                            height: 1.75,
-                          ),
-                        )
-                      : Text(
-                          summary.replaceAll(RegExp(r'\s+'), ' '),
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: FontSize.body,
-                            height: 1.75,
-                          ),
-                        ),
-                ),
-        ),
-        // While loading, 展开简介's room: most summaries run past three lines.
-        if (summaryLoading)
-          const SizedBox(height: 30)
-        else if (summary.length > 90)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton(
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 30),
-              ),
-              onPressed: () =>
-                  setState(() => _summaryExpanded = !_summaryExpanded),
-              child: Text(_summaryExpanded ? '收起简介' : '展开简介'),
-            ),
+        _LayoutProbe(
+          key: _summaryKey,
+          onLayout: _scheduleFit,
+          child: _summary(
+            item,
+            skeleton: skeleton,
+            room: wide ? _summaryRoom : null,
           ),
+        ),
       ],
     );
+    // Given a height to fill, the room a whole summary line can't take
+    // opens above the episodes, which stay level with the cards beside.
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final narrow = constraints.maxWidth < 580;
-            final cover = SizedBox(
-              width: narrow ? 112 : 158,
-              child: AspectRatio(
-                aspectRatio: .75,
-                child: CoverFrame(
-                  shadow: true,
-                  child: SubjectCover(
-                    url: item.coverUrl,
-                    title: item.title,
-                    id: item.id,
-                    viewable: true,
+        _LayoutProbe(
+          key: _heroTopKey,
+          onLayout: _scheduleFit,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final narrow = constraints.maxWidth < 580;
+              final cover = SizedBox(
+                width: narrow ? 112 : 158,
+                child: AspectRatio(
+                  aspectRatio: .75,
+                  child: CoverFrame(
+                    shadow: true,
+                    child: SubjectCover(
+                      url: item.coverUrl,
+                      title: item.title,
+                      id: item.id,
+                      viewable: true,
+                    ),
                   ),
                 ),
-              ),
-            );
-            return narrow
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      cover,
-                      const SizedBox(height: Gap.lg),
-                      info,
-                    ],
-                  )
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      cover,
-                      const SizedBox(width: Gap.xl),
-                      Expanded(child: info),
-                    ],
-                  );
-          },
+              );
+              return narrow
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        cover,
+                        const SizedBox(height: Gap.lg),
+                        info,
+                      ],
+                    )
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        cover,
+                        const SizedBox(width: Gap.xl),
+                        Expanded(child: info),
+                      ],
+                    );
+            },
+          ),
         ),
-        const Divider(height: Gap.xl),
-        _episodeSection(episodes, next, skeleton: skeleton),
+        _LayoutProbe(
+          key: _heroBottomKey,
+          onLayout: _scheduleFit,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Divider(height: Gap.xl),
+              _episodeSection(episodes, next, skeleton: skeleton),
+            ],
+          ),
+        ),
       ],
     );
     final wash = accentOf(context).accent;
@@ -983,10 +992,129 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                 ),
               ),
             ),
-          Padding(padding: const EdgeInsets.all(20), child: content),
+          Padding(
+            padding: const EdgeInsets.all(_heroPadding),
+            child: switch (_sideHeight) {
+              final side? when wide => ConstrainedBox(
+                constraints: BoxConstraints(minHeight: side - _heroPadding * 2),
+                child: content,
+              ),
+              _ => content,
+            },
+          ),
         ],
       ),
     );
+  }
+
+  /// The summary, folded to three lines or, given [room], to as many as
+  /// fill it beside 展开简介; all of it, in paragraphs if they fit, when it
+  /// fits.
+  Widget _summary(
+    Subject item, {
+    required bool skeleton,
+    required double? room,
+  }) => LayoutBuilder(
+    builder: (context, constraints) {
+      final loading = item.summary == null && _loadingPart('base');
+      final summary = item.summary ?? '暂无简介';
+      final flat = summary.replaceAll(RegExp(r'\s+'), ' ');
+      final width = constraints.maxWidth;
+      final bottoms = loading
+          ? const <double>[]
+          : _lineBottoms(context, flat, width);
+      bool fits(double? bottom) => room != null && (bottom ?? 0) <= room + .5;
+      final whole =
+          room != null &&
+          !loading &&
+          fits(_lineBottoms(context, summary, width).lastOrNull);
+      final lines = fits(bottoms.lastOrNull)
+          ? bottoms.length
+          : math.max(
+              3,
+              room == null
+                  ? 0
+                  : bottoms.where((b) => b <= room - _toggleHeight + .5).length,
+            );
+      final folded = !_summaryExpanded && bottoms.length > lines;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AnimatedSize(
+            duration: motionDuration(context, 260),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topLeft,
+            // Selectable folded too: copying it shouldn't need unfolding.
+            child: loading
+                ? Column(
+                    children: [
+                      for (final share in const [1.0, .94, .58])
+                        SkeletonLine(
+                          style: _summaryStyle,
+                          widthFactor: share,
+                          shown: skeleton,
+                        ),
+                    ],
+                  )
+                : SelectionArea(
+                    child: whole || _summaryExpanded
+                        ? Text(summary, style: _summaryStyle)
+                        : Text(
+                            flat,
+                            maxLines: lines,
+                            overflow: TextOverflow.ellipsis,
+                            style: _summaryStyle,
+                          ),
+                  ),
+          ),
+          // While loading, 展开简介's room: most summaries run past three
+          // lines.
+          if (loading)
+            const SizedBox(height: _toggleHeight)
+          else if (folded || (_summaryExpanded && !whole))
+            SizedBox(
+              height: _toggleHeight,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(0, _toggleHeight),
+                  ),
+                  onPressed: () =>
+                      setState(() => _summaryExpanded = !_summaryExpanded),
+                  child: Text(_summaryExpanded ? '收起简介' : '展开简介'),
+                ),
+              ),
+            ),
+        ],
+      );
+    },
+  );
+
+  /// Where each line of [text] ends, from the top, set as the summary
+  /// [width] wide.
+  List<double> _lineBottoms(BuildContext context, String text, double width) {
+    final defaults = DefaultTextStyle.of(context);
+    var style = defaults.style.merge(_summaryStyle);
+    if (MediaQuery.boldTextOf(context)) {
+      style = style.merge(const TextStyle(fontWeight: FontWeight.bold));
+    }
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      locale: Localizations.maybeLocaleOf(context),
+      textHeightBehavior:
+          defaults.textHeightBehavior ??
+          DefaultTextHeightBehavior.maybeOf(context),
+    )..layout(maxWidth: width);
+    final bottoms = [
+      for (final line in painter.computeLineMetrics())
+        line.baseline + line.descent,
+    ];
+    painter.dispose();
+    return bottoms;
   }
 
   Widget _episodeSection(
@@ -1488,6 +1616,38 @@ class _Nudge extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+const _heroPadding = 20.0;
+const _toggleHeight = 30.0;
+const _summaryStyle = TextStyle(fontSize: FontSize.body, height: 1.75);
+
+/// Calls [onLayout] each time its child is laid out, so a size read after
+/// that frame is current.
+class _LayoutProbe extends SingleChildRenderObjectWidget {
+  const _LayoutProbe({super.key, required this.onLayout, super.child});
+  final VoidCallback onLayout;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderLayoutProbe(onLayout);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderLayoutProbe renderObject,
+  ) => renderObject.onLayout = onLayout;
+}
+
+class _RenderLayoutProbe extends RenderProxyBox {
+  _RenderLayoutProbe(this.onLayout);
+  VoidCallback onLayout;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    onLayout();
   }
 }
 
