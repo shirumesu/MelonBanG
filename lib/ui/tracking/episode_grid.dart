@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/notices.dart';
 import '../../domain/catalog.dart';
+import '../core/context_menu.dart';
 import '../core/help_hint.dart';
 import '../core/motion.dart';
 import '../core/page_widgets.dart';
@@ -163,24 +164,13 @@ class _EpisodeGridState extends State<EpisodeGrid> {
 
   Future<void> _menu(Offset position, Episode episode) async {
     final watched = widget.statusOf(episode) == EpisodeStatus.watched;
-    final action = await showMenu<String>(
-      context: context,
-      color: menuSurface(context),
-      popUpAnimationStyle: AnimationStyle(
-        duration: motionDuration(context, 150),
-        reverseDuration: motionDuration(context, 100),
-        curve: Curves.easeOutCubic,
-      ),
-      position: RelativeRect.fromLTRB(
-        position.dx,
-        position.dy,
-        position.dx,
-        position.dy,
-      ),
+    final action = await showContextMenu<String>(
+      context,
+      position: position,
       items: [
-        const PopupMenuItem(value: 'play', child: Text('观看')),
-        const PopupMenuItem(value: 'resources', child: Text('查找资源')),
-        PopupMenuItem(value: 'mark', child: Text(watched ? '标为未看' : '标为已看')),
+        contextMenuItem('play', '观看'),
+        contextMenuItem('resources', '查找资源'),
+        contextMenuItem('mark', watched ? '标为未看' : '标为已看'),
       ],
     );
     switch (action) {

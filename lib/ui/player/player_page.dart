@@ -21,6 +21,7 @@ import '../../features/playback/play_ranking.dart';
 import '../../features/playback/playback.dart';
 import '../../features/playback/playback_coordinator.dart';
 import '../../features/playback/resource_search.dart';
+import '../core/context_menu.dart';
 import '../core/motion.dart';
 import '../core/notice_cards.dart';
 import '../core/overlay_glass.dart';
@@ -653,7 +654,6 @@ class PlayerPageState extends State<PlayerPage>
   Future<void> openMenu(Offset position) async {
     playback.cancelAutoplay();
     if (danmakuMenu) closeMenu(refocus: false);
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final previous = previousEpisode, next = nextEpisode;
     final episodes =
         widget.subject != null && playback.session?.episodeId != null;
@@ -686,20 +686,12 @@ class PlayerPageState extends State<PlayerPage>
         ],
       ),
     );
-    final choice = await showMenu<String>(
-      context: context,
+    final choice = await showContextMenu<String>(
+      context,
+      position: position,
       color: overlaySurface,
       shape: const RoundedRectangleBorder(borderRadius: controlBorderRadius),
       menuPadding: const EdgeInsets.all(Gap.xs),
-      popUpAnimationStyle: AnimationStyle(
-        duration: motionDuration(context, 150),
-        reverseDuration: motionDuration(context, 100),
-        curve: Curves.easeOutCubic,
-      ),
-      position: RelativeRect.fromRect(
-        position & const Size(1, 1),
-        Offset.zero & overlay.size,
-      ),
       items: [
         item('screenshot', '截图', enabled: playable),
         if (!widget.mini) item('stats', '详细参数', checked: stats),

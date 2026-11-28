@@ -13,6 +13,9 @@ import 'theme.dart';
 
 /// Posters in a grid. When the order or set of items changes, posters that
 /// stay glide to their new cells and new ones fade in.
+/// Opens the menu of a poster's subject at a point of the window.
+typedef PosterMenu = void Function(Subject item, Offset position);
+
 class SubjectPosterGrid extends StatefulWidget {
   const SubjectPosterGrid({
     super.key,
@@ -24,9 +27,13 @@ class SubjectPosterGrid extends StatefulWidget {
     this.marked = const {},
     this.markedAt,
     this.zoom,
+    this.onMenu,
   });
   final List<Subject> items;
   final ValueChanged<Subject> onOpen;
+
+  /// Opens a poster's menu where it was secondary clicked.
+  final PosterMenu? onMenu;
   final bool tracking, statusBadge;
 
   /// Shows the user's own score instead of the public one.
@@ -100,6 +107,7 @@ class _SubjectPosterGridState extends State<SubjectPosterGrid> {
                 const Duration(milliseconds: 300),
             child: SubjectPoster(
               onOpen: widget.onOpen,
+              onMenu: widget.onMenu,
               item: items[i],
               tracking: widget.tracking,
               statusBadge: widget.statusBadge,
@@ -276,9 +284,11 @@ class SubjectPoster extends StatefulWidget {
     this.statusBadge = true,
     this.personalScore = false,
     this.mark,
+    this.onMenu,
   });
   final Subject item;
   final ValueChanged<Subject> onOpen;
+  final PosterMenu? onMenu;
   final bool tracking, statusBadge, personalScore;
 
   /// Set when a refresh just changed the subject: a ring lights the cover
@@ -301,6 +311,10 @@ class _SubjectPosterState extends State<SubjectPoster> {
     final status = item.status;
     return InkWell(
       onTap: () => widget.onOpen(item),
+      onSecondaryTapUp: switch (widget.onMenu) {
+        final onMenu? => (details) => onMenu(item, details.globalPosition),
+        null => null,
+      },
       onHover: (value) => setState(() => hovered = value),
       onFocusChange: (value) => setState(() => focused = value),
       onHighlightChanged: (value) => setState(() => pressed = value),

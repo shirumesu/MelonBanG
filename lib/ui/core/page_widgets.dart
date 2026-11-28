@@ -405,7 +405,9 @@ class MelonBadge extends StatelessWidget {
         child: Text(text),
       ),
     );
-    if (onTap == null) return badge;
+    if (onTap == null) {
+      return tooltip == null ? badge : Tooltip(message: tooltip, child: badge);
+    }
     return Tooltip(
       message: tooltip ?? '',
       child: Material(

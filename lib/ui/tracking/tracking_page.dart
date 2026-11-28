@@ -14,6 +14,7 @@ import '../core/poster_zoom.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_posters.dart';
 import '../core/theme.dart';
+import 'collection_menu.dart';
 
 class TrackingPage extends StatefulWidget {
   const TrackingPage({
@@ -26,6 +27,7 @@ class TrackingPage extends StatefulWidget {
     required this.onSaveCredentials,
     required this.onOpenSubject,
     required this.zoom,
+    required this.menu,
     this.onExplore,
   });
   final TrackingController personal;
@@ -45,6 +47,7 @@ class TrackingPage extends StatefulWidget {
   final ValueChanged<Subject> onOpenSubject;
   final VoidCallback? onExplore;
   final PosterZoom zoom;
+  final CollectionMenu menu;
 
   @override
   State<TrackingPage> createState() => _TrackingPageState();
@@ -385,6 +388,8 @@ class _TrackingPageState extends State<TrackingPage> {
           PageSliver(
             child: SubjectPosterGrid(
               onOpen: widget.onOpenSubject,
+              onMenu: (item, position) =>
+                  unawaited(widget.menu.show(context, item, position)),
               items: items,
               tracking: true,
               statusBadge: false,

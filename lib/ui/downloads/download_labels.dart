@@ -62,3 +62,52 @@ String toggleLabel(TaskToggle toggle) => switch (toggle) {
   TaskToggle.stopSeeding => '停止做种',
   TaskToggle.resumeSeeding => '继续做种',
 };
+
+/// The BT counters behind a task's status, for its tooltip: how the swarm
+/// is found while it downloads, and what it gave back; null for PikPak and
+/// online tasks.
+String? transferDetails(DownloadTask task, ByteUnits units) {
+  if (!task.seeds) return null;
+  final swarm = task.swarm;
+  final active =
+      task.status == DownloadStatus.downloading ||
+      task.status == DownloadStatus.seeding;
+  return [
+    if (!task.complete && swarm.trackers != null) ...[
+      '发现 ${swarm.knownPeers ?? 0} 个节点',
+      'Tracker ${swarm.workingTrackers ?? 0}/${swarm.trackers} 可用',
+      (swarm.dhtNodes ?? 0) < 0 ? 'DHT 已关闭' : 'DHT ${swarm.dhtNodes ?? 0} 个节点',
+    ],
+    if (active) '${swarm.peers} 个连接',
+    if (active) '↑ ${units.rate(task.uploadSpeed)}',
+    '已上传 ${units.format(task.uploadedBytes)}',
+    '分享率 ${task.totalBytes > 0 ? (task.uploadedBytes / task.totalBytes).toStringAsFixed(2) : '0.00'}',
+    if (task.complete) '做种 ${seedTime(task.seedSeconds)}',
+  ].join('\n');
+}
+
+/// Said under a BT download that can find no peer at all: no tracker
+/// answers, DHT has no nodes and no peer is known.
+String? stalledHint(DownloadTask task) {
+  final swarm = task.swarm;
+  final stalled =
+      task.seeds &&
+      !task.complete &&
+      swarm.trackers != null &&
+      (task.status == DownloadStatus.metadata ||
+          task.status == DownloadStatus.downloading) &&
+      swarm.peers == 0 &&
+      (swarm.knownPeers ?? 0) == 0 &&
+      (swarm.failedTrackers ?? 0) > 0 &&
+      (swarm.workingTrackers ?? 0) == 0 &&
+      (swarm.dhtNodes ?? 0) <= 0;
+  return stalled ? '没有找到下载节点，请检查网络是否允许 BT，或换一个资源' : null;
+}
+
+/// `45 分钟`, `3 小时 20 分钟`.
+String seedTime(double seconds) {
+  final minutes = seconds ~/ 60;
+  if (minutes < 60) return '$minutes 分钟';
+  final rest = minutes % 60;
+  return '${minutes ~/ 60} 小时${rest == 0 ? '' : ' $rest 分钟'}';
+}

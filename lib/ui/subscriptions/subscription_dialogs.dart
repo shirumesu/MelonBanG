@@ -13,6 +13,7 @@ import '../../features/appearance/appearance.dart';
 import '../../features/acquisition/online_candidates.dart';
 import '../../features/subscriptions/subscription_controller.dart';
 import '../../features/subscriptions/subscription_matcher.dart';
+import '../../features/tracking/tracking_controller.dart';
 import '../acquisition/resource_labels.dart';
 import '../core/action_feedback.dart';
 import '../core/notice_cards.dart';
@@ -143,6 +144,13 @@ class SubscribeButton extends StatelessWidget {
 /// Whether subscribing can also mark the show 在看 on Bangumi: not offered
 /// while signed out, offered but off while syncing is paused.
 enum MarkWatching { unavailable, paused, available }
+
+MarkWatching markWatchingFor(TrackingController personal) =>
+    personal.profile == null
+    ? MarkWatching.unavailable
+    : personal.needsAuthorization || personal.sessionExpired
+    ? MarkWatching.paused
+    : MarkWatching.available;
 
 /// Subscribes to [subject], or shows and changes its subscription: the
 /// filter, what the user has to act on and what it did lately.

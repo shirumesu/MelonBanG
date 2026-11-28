@@ -44,6 +44,15 @@ class ResumeController extends ChangeNotifier {
     for (final item in await library.recent()) item.subject.id,
   });
 
+  /// Where [subjectId] was left, without making it the subject [resumeOf]
+  /// and [playableOf] answer for.
+  Future<PlaybackResume?> resumeFor(int subjectId) async =>
+      (await library.recent(
+        limit: 1,
+        forSubject: subjectId,
+        accept: tracking.leavesUnwatched,
+      )).firstOrNull;
+
   Future<void> refresh(int? subjectId) async {
     final ticket = ++_ticket;
     final accept = tracking.leavesUnwatched;

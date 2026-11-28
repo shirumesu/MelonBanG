@@ -9,6 +9,7 @@ import '../../features/acquisition/title_matching.dart';
 import '../../features/playback/play_ranking.dart';
 import '../core/action_feedback.dart';
 import '../core/byte_units.dart';
+import '../core/context_menu.dart';
 import '../core/help_hint.dart';
 import '../core/motion.dart';
 import '../core/subject_cover.dart';
@@ -493,25 +494,13 @@ class _PlayerEpisodesPaneState extends State<PlayerEpisodesPane> {
   }
 
   Future<void> menu(Episode episode, Offset position, bool playing) async {
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    final choice = await showMenu<String>(
-      context: context,
-      popUpAnimationStyle: AnimationStyle(
-        duration: motionDuration(context, 150),
-        reverseDuration: motionDuration(context, 100),
-        curve: Curves.easeOutCubic,
-      ),
-      position: RelativeRect.fromRect(
-        position & const Size(1, 1),
-        Offset.zero & overlay.size,
-      ),
+    final choice = await showContextMenu<String>(
+      context,
+      position: position,
       items: [
-        if (!playing) const PopupMenuItem(value: 'play', child: Text('观看')),
-        const PopupMenuItem(value: 'resources', child: Text('查找资源')),
-        PopupMenuItem(
-          value: 'mark',
-          child: Text(episode.watched ? '标为未看' : '标为已看'),
-        ),
+        if (!playing) contextMenuItem('play', '观看'),
+        contextMenuItem('resources', '查找资源'),
+        contextMenuItem('mark', episode.watched ? '标为未看' : '标为已看'),
       ],
     );
     switch (choice) {

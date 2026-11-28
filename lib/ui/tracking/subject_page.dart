@@ -10,6 +10,7 @@ import '../../domain/catalog.dart';
 import '../../domain/collection_edit.dart';
 import '../../domain/community.dart';
 import '../../domain/episode_release.dart';
+import '../../features/playback/next_episode.dart';
 import '../../features/playback/playback_library.dart';
 import '../../features/playback/resume_controller.dart';
 import '../../features/tracking/subject_controller.dart';
@@ -459,35 +460,10 @@ class _SubjectDetailState extends State<_SubjectDetail> {
   EpisodeStatus _episodeStatus(Episode episode) =>
       _episodeOverrides[episode.id] ?? episode.status;
 
-  /// The first unwatched main episode, or special aired after the run, past
-  /// the furthest watched one, since a gap before it is more often watched
-  /// elsewhere than skipped; else the first unwatched, else the last main
-  /// episode. Specials within the run are left to autoplay. The episode to
-  /// resume wins when it is that one or was played for a while.
-  Episode? _nextEpisode(List<Episode> episodes) {
-    final last = episodes.lastIndexWhere((e) => e.main);
-    final furthest = episodes.lastIndexWhere(
-      (e) => _episodeStatus(e) == EpisodeStatus.watched,
-    );
-    final unwatched = episodes.indexed.where(
-      (e) =>
-          (e.$2.main || e.$1 > last) &&
-          _episodeStatus(e.$2) != EpisodeStatus.watched,
-    );
-    final next =
-        (unwatched.where((e) => e.$1 > furthest).firstOrNull ??
-                unwatched.firstOrNull)
-            ?.$2 ??
-        (last < 0 ? episodes.firstOrNull : episodes[last]);
-    final resumed = episodes.where(_isResume).firstOrNull;
-    return resumed != null && (resumed == next || widget.resume!.engaged)
-        ? resumed
-        : next;
-  }
+  Episode? _nextEpisode(List<Episode> episodes) =>
+      nextEpisode(episodes, statusOf: _episodeStatus, resume: widget.resume);
 
-  bool _isResume(Episode episode) =>
-      widget.resume?.episodeId == episode.id &&
-      (widget.resume?.position ?? 0) > 0;
+  bool _isResume(Episode episode) => resumesAt(widget.resume, episode);
 
   bool? _available(Episode episode) =>
       widget.cachedEpisodeIds?.contains(episode.id);

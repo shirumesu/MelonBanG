@@ -60,6 +60,11 @@ class TrackingController extends ChangeNotifier {
       .where((item) => item.status == CollectionStatus.watching)
       .toList();
 
+  /// Saves [change] to a subject's entry; the collection reloads on the
+  /// change it reports.
+  Future<void> saveCollection(int subjectId, CollectionChange change) =>
+      tracking.setCollection(subjectId, change);
+
   void setFilter(CollectionStatus value) {
     filter = value;
     notifyListeners();

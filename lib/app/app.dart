@@ -20,11 +20,13 @@ import '../core/notices.dart';
 import '../core/settings.dart';
 import '../features/acquisition/resource_metadata.dart';
 import '../domain/catalog.dart';
+import '../domain/episode_release.dart';
 import '../domain/play_candidate.dart';
 import '../features/appearance/appearance.dart';
 import '../features/discovery/airing_reminders.dart';
 import '../features/discovery/discovery_controller.dart';
 import '../features/downloads/downloads_controller.dart';
+import '../features/playback/next_episode.dart';
 import '../features/playback/playback.dart';
 import '../features/playback/playback_coordinator.dart';
 import '../features/playback/resource_search.dart';
@@ -63,6 +65,7 @@ import '../ui/settings/sync_conflicts.dart';
 import '../ui/settings/storage_settings.dart';
 import '../ui/sources/sources_page.dart';
 import '../ui/subscriptions/subscription_dialogs.dart';
+import '../ui/tracking/collection_menu.dart';
 import '../ui/tracking/subject_page.dart';
 import '../ui/tracking/tracking_page.dart';
 
@@ -654,6 +657,32 @@ class _MelonAppState extends State<MelonApp>
       // The closing dialog still listens until its route is gone.
       search.cancel();
     }
+  }
+
+  /// Plays [item] where its subject page's play button would: the episode
+  /// to resume, else the next one not watched, once it has aired.
+  Future<void> watchNext(Subject item) async {
+    final detail = await service.tracking.subject(item.id, forPlayback: true);
+    final left = await resume.resumeFor(item.id);
+    final episode = nextEpisode(
+      detail.episodes,
+      statusOf: (episode) => episode.status,
+      resume: left,
+    );
+    if (episode == null) throw StateError('「${item.title}」还没有剧集信息');
+    final airings = [
+      for (final day in discovery.calendar)
+        for (final entry in day.items)
+          if (entry.id == item.id) ?entry.airingAt,
+    ];
+    if (!resumesAt(left, episode) && !episodeAired(episode, airings)) {
+      throw StateError('${episode.label}还没有播出');
+    }
+    await coordinator.prepare(
+      detail,
+      episode,
+      () => coordinator.selectEpisode(detail, episode),
+    );
   }
 
   /// Opens the resources page for [subject], or one of its chapters, seeded
@@ -1632,6 +1661,15 @@ class _MelonAppState extends State<MelonApp>
           onSaveCredentials: () => perform(personal.saveCredentials),
           onExplore: focusSearch,
           zoom: trackingZoom,
+          menu: CollectionMenu(
+            personal: personal,
+            subscriptions: service.subscriptions,
+            preferredGroups: () => playback.settings.preferredGroups,
+            played: (id) => resume.played.containsKey(id),
+            onWatch: (item) => perform(() => watchNext(item)),
+            onFindResources: findResources,
+            onError: showError,
+          ),
         );
       case 'subject':
         return SubjectPage(
@@ -1675,11 +1713,7 @@ class _MelonAppState extends State<MelonApp>
             subject: subject,
             preferredGroups: () => playback.settings.preferredGroups,
             onError: showError,
-            markWatching: personal.profile == null
-                ? MarkWatching.unavailable
-                : personal.needsAuthorization || personal.sessionExpired
-                ? MarkWatching.paused
-                : MarkWatching.available,
+            markWatching: markWatchingFor(personal),
           ),
         );
       case 'resources':

@@ -8,17 +8,21 @@ import '../../core/notices.dart';
 import '../../domain/catalog.dart';
 import '../../domain/transfer.dart';
 import '../../features/acquisition/title_matching.dart';
+import '../../features/downloads/cache_selection.dart';
 import '../../features/downloads/downloads_controller.dart';
 import '../../features/subscriptions/subscription_controller.dart';
 import '../core/action_feedback.dart';
-import '../core/motion.dart';
 import '../core/byte_units.dart';
+import '../core/context_menu.dart';
+import '../core/motion.dart';
 import '../core/page_widgets.dart';
 import '../core/selection_controls.dart';
 import '../core/subject_cover.dart';
 import '../core/theme.dart';
 import '../core/tone.dart';
 import '../subscriptions/subscription_dialogs.dart';
+import 'cache_rows.dart';
+import 'cache_selection_bar.dart';
 import 'download_labels.dart';
 import 'download_task_widgets.dart';
 
@@ -66,24 +70,18 @@ class _DownloadsPageState extends State<DownloadsPage> {
   ]);
   String filter = '全部';
   String statusFilter = '全部状态';
+
+  /// The entries opened to their rows, by [_entryOf].
   final expanded = <String>{};
   final subjects = <int, Subject>{};
   final played = <int>{};
   final _requested = <int>{};
 
-  /// Subjects shown as a group of tasks; one stays a group while its tasks
-  /// are deleted down to the last, rather than turning into a lone task
-  /// under the pointer.
-  final _grouped = <int>{};
-
   /// The entries each group of the list showed last, by id.
   final shown = <String, Set<String>>{};
 
-  /// While on, tasks and the videos of finished batches can be ticked and
-  /// deleted together.
-  bool selecting = false;
-  final selectedTasks = <String>{};
-  final selectedFiles = <(String, String)>{};
+  /// Rows picked to delete together; only rows of open entries stay picked.
+  final selection = CacheSelection();
 
   void _loadSubject(int id) {
     if (!_requested.add(id)) return;
@@ -117,9 +115,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
   Future<void> _remove(DownloadTask task) async {
     final remove = await showConfirmDialog(
       context,
-      title: '移除缓存？',
-      message: '将移除下载任务及本机缓存文件：${task.title}',
-      confirmLabel: '移除',
+      title: '删除缓存？',
+      message: '将删除下载任务及本机缓存文件：${task.title}',
+      confirmLabel: '删除',
       destructive: true,
     );
     if (remove) await _perform(() => widget.downloads.remove(task.id));
@@ -142,38 +140,43 @@ class _DownloadsPageState extends State<DownloadsPage> {
     }
   }
 
-  /// Deletes the ticked tasks and videos; a batch whose videos are all
-  /// ticked goes as a whole.
+  /// Deletes every cache of an entry.
+  Future<void> _removeEntry(String title, List<DownloadTask> tasks) async {
+    final remove = await showConfirmDialog(
+      context,
+      title: '删除这部番的全部缓存？',
+      message: '将删除「$title」的 ${tasks.length} 项缓存及其本机文件',
+      confirmLabel: '删除',
+      destructive: true,
+    );
+    if (remove) await _removeAll(tasks.map((task) => task.id), const {});
+  }
+
+  /// Deletes the picked rows; a batch whose videos are all picked goes as
+  /// a whole.
   Future<void> _removeSelected(TransferSnapshot snapshot) async {
     final tasks = {for (final task in snapshot.tasks) task.id: task};
-    final whole = selectedTasks.where(tasks.containsKey).toSet();
-    final files = <String, Set<String>>{};
-    for (final (id, fileId) in selectedFiles) {
-      if (tasks.containsKey(id)) files.putIfAbsent(id, () => {}).add(fileId);
-    }
-    for (final id in files.keys.toList()) {
-      if (tasks[id]!.videos.every((video) => files[id]!.contains(video.id))) {
-        files.remove(id);
-        whole.add(id);
-      }
-    }
-    final count = files.values.fold(
-      whole.length,
-      (sum, ids) => sum + ids.length,
-    );
+    final (tasks: whole, :files) = selection.resolve(tasks);
     final remove = await showConfirmDialog(
       context,
       title: '删除所选缓存？',
       message: [
-        '将删除所选的 $count 项及其本机缓存文件',
+        '将删除所选的 ${selection.length} 项及其本机缓存文件',
         if (files.keys.any((id) => tasks[id]!.seeds)) '删除合集中的部分视频后，该合集不再做种',
       ].join('\n'),
       confirmLabel: '删除',
       destructive: true,
     );
     if (!remove || !mounted) return;
-    setState(_endSelection);
-    // One that fails leaves the others to be deleted, and is reported.
+    setState(selection.clear);
+    await _removeAll(whole, files);
+  }
+
+  /// One that fails leaves the others to be deleted, and is reported.
+  Future<void> _removeAll(
+    Iterable<String> tasks,
+    Map<String, Set<String>> files,
+  ) async {
     Object? failure;
     Future<void> attempt(Future<void> Function() action) async {
       try {
@@ -183,7 +186,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
       }
     }
 
-    for (final id in whole) {
+    for (final id in tasks) {
       await attempt(() => widget.downloads.remove(id));
     }
     for (final MapEntry(key: id, value: fileIds) in files.entries) {
@@ -191,29 +194,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
     }
     if (failure case final error?) widget.onError(error);
   }
-
-  void _endSelection() {
-    selecting = false;
-    selectedTasks.clear();
-    selectedFiles.clear();
-  }
-
-  /// Ticks or unticks whole tasks; a ticked task's videos need no ticks.
-  void _select(Iterable<DownloadTask> tasks, bool value) => setState(() {
-    for (final task in tasks) {
-      if (value) {
-        selectedTasks.add(task.id);
-        selectedFiles.removeWhere((file) => file.$1 == task.id);
-      } else {
-        selectedTasks.remove(task.id);
-      }
-    }
-  });
-
-  Widget _taskCheck(DownloadTask task) => Checkbox(
-    value: selectedTasks.contains(task.id),
-    onChanged: (value) => _select([task], value!),
-  );
 
   void _toggle(DownloadTask task) =>
       _perform(() => widget.downloads.toggle(task));
@@ -232,9 +212,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   /// The subscription's state under the title, and its button beside the
   /// watch button; nothing for a show without one.
-  (Widget, Widget)? _subscription(int id) {
+  (Widget, Widget)? _subscription(int? id) {
     final subscription = widget.subscriptions.subscriptions[id];
-    if (subscription == null) return null;
+    if (id == null || subscription == null) return null;
     final (:text, :warn, :late) = subscriptionStatus(
       widget.subscriptions,
       subscription,
@@ -259,18 +239,162 @@ class _DownloadsPageState extends State<DownloadsPage> {
     );
   }
 
-  /// Holds the keys while selecting: Escape ends it, Delete deletes.
-  final _selectionKeys = FocusNode(debugLabel: 'downloads selection');
-
-  void _startSelection() {
-    setState(() => selecting = true);
-    _selectionKeys.requestFocus();
+  /// A click on a row: Ctrl or Cmd adds or removes it, Shift picks the rows
+  /// from the last clicked one.
+  void _click(String entry, List<CachePick> rows, CachePick pick) {
+    final keys = HardwareKeyboard.instance;
+    setState(
+      () => selection.click(
+        entry,
+        rows,
+        pick,
+        toggle: keys.isControlPressed || keys.isMetaPressed,
+        range: keys.isShiftPressed,
+      ),
+    );
   }
 
-  @override
-  void dispose() {
-    _selectionKeys.dispose();
-    super.dispose();
+  /// The menu of a row, a task or one video of a batch. On a row outside
+  /// the picks it picks that row alone first; on one of several picks it
+  /// acts on them all.
+  Future<void> _rowMenu(
+    Offset position,
+    TransferSnapshot snapshot,
+    String entry,
+    DownloadTask task, [
+    DownloadFile? file,
+  ]) async {
+    final pick = (task: task.id, file: file?.id);
+    final pickable = file == null || task.complete;
+    if (pickable && !selection.contains(pick)) {
+      setState(() => selection.only(entry, pick));
+    }
+    if (pickable && selection.length > 1) {
+      final choice = await showContextMenu<String>(
+        context,
+        position: position,
+        items: [
+          contextMenuItem(
+            'delete',
+            '删除所选 ${selection.length} 项',
+            destructive: true,
+          ),
+          contextMenuItem('clear', '取消选择'),
+        ],
+      );
+      switch (choice) {
+        case 'delete':
+          await _removeSelected(snapshot);
+        case 'clear':
+          setState(selection.clear);
+      }
+      return;
+    }
+    final batch = task.videos.length > 1;
+    final blocked = playBlocked(task);
+    final toggle = file == null ? task.toggle : null;
+    final choice = await showContextMenu<String>(
+      context,
+      position: position,
+      items: [
+        if (file != null || !batch)
+          contextMenuItem('play', '观看', enabled: blocked == null),
+        if (toggle != null) contextMenuItem('toggle', toggleLabel(toggle)),
+        if (task.files.isNotEmpty)
+          contextMenuItem('reveal', showInFileManagerLabel),
+        if (file == null || task.complete) ...[
+          const PopupMenuDivider(height: 9),
+          contextMenuItem(
+            'delete',
+            file != null
+                ? '删除这个视频'
+                : batch
+                ? '删除整个合集'
+                : '删除',
+            destructive: true,
+          ),
+        ],
+      ],
+    );
+    switch (choice) {
+      case 'play':
+        widget.onPlay(task.id, (file ?? task.videos.single).id);
+      case 'toggle':
+        _toggle(task);
+      case 'reveal':
+        await _perform(() => widget.downloads.reveal(task));
+      case 'delete' when file != null:
+        await _removeFile(task, file);
+      case 'delete':
+        await _remove(task);
+    }
+  }
+
+  /// The menu of an entry's card.
+  Future<void> _entryMenu(
+    Offset position,
+    TransferSnapshot snapshot,
+    String title,
+    List<DownloadTask> tasks,
+  ) async {
+    final subjectId = tasks.first.subjectId;
+    final subscribed = widget.subscriptions.subscriptions.containsKey(
+      subjectId,
+    );
+    final choice = await showContextMenu<String>(
+      context,
+      position: position,
+      items: [
+        if (subjectId != null) contextMenuItem('subject', '番剧详情'),
+        if (subscribed) contextMenuItem('subscription', '订阅设置'),
+        if (subjectId != null) const PopupMenuDivider(height: 9),
+        contextMenuItem('delete', '删除全部缓存', destructive: true),
+      ],
+    );
+    switch (choice) {
+      case 'subject':
+        widget.onOpenSubject(subjectId!);
+      case 'subscription':
+        await _openSubscription(subjectId!);
+      case 'delete':
+        // Every cache of the show, also those the filters hide.
+        await _removeEntry(
+          title,
+          subjectId == null ? tasks : snapshot.forSubject(subjectId),
+        );
+    }
+  }
+
+  /// The tasks the filters show.
+  List<DownloadTask> _visible(List<DownloadTask> tasks) => tasks.where((t) {
+    final category = switch (filter) {
+      '进行中' => !t.complete,
+      '已缓存' => t.complete,
+      '订阅中' => widget.subscriptions.subscriptions.containsKey(t.subjectId),
+      _ => true,
+    };
+    final status = switch (statusFilter) {
+      '已暂停' => t.status == DownloadStatus.paused,
+      '失败' => t.status == DownloadStatus.failed,
+      '做种中' => t.status == DownloadStatus.seeding,
+      _ => true,
+    };
+    return category && status;
+  }).toList();
+
+  /// Picks stay while their row shows: deleted rows, rows the filters hide
+  /// and rows of closed entries are let go.
+  void _prune(List<DownloadTask> visible) {
+    final shownTasks = {
+      for (final task in visible)
+        if (expanded.contains(_entryOf(task))) task.id: task,
+    };
+    selection.retain((pick) {
+      final task = shownTasks[pick.task];
+      if (task == null) return false;
+      return pick.file == null ||
+          (task.complete && task.videos.any((video) => video.id == pick.file));
+    });
   }
 
   @override
@@ -278,51 +402,38 @@ class _DownloadsPageState extends State<DownloadsPage> {
     listenable: _changes,
     builder: (context) {
       final snapshot = widget.downloads.snapshot.value;
-      void delete() {
-        if (selectedTasks.isNotEmpty || selectedFiles.isNotEmpty) {
-          unawaited(_removeSelected(snapshot));
-        }
-      }
-
-      return CallbackShortcuts(
-        bindings: selecting
-            ? {
-                const SingleActivator(LogicalKeyboardKey.escape): () =>
-                    setState(_endSelection),
-                const SingleActivator(LogicalKeyboardKey.delete): delete,
-                const SingleActivator(LogicalKeyboardKey.backspace): delete,
-              }
-            : const {},
-        child: Focus(
-          focusNode: _selectionKeys,
-          child: _page(context, snapshot),
-        ),
+      final visible = _visible(snapshot.tasks);
+      _prune(visible);
+      final tasks = {for (final task in snapshot.tasks) task.id: task};
+      return Stack(
+        children: [
+          Positioned.fill(child: _page(context, snapshot, visible)),
+          Positioned(
+            left: pageGutter,
+            right: pageGutter,
+            bottom: Gap.lg,
+            child: Center(
+              child: CacheSelectionBar(
+                count: selection.length,
+                bytes: selection.bytes(tasks),
+                onDelete: () => _removeSelected(snapshot),
+                onClear: () => setState(selection.clear),
+              ),
+            ),
+          ),
+        ],
       );
     },
   );
 
-  Widget _page(BuildContext context, TransferSnapshot snapshot) {
+  Widget _page(
+    BuildContext context,
+    TransferSnapshot snapshot,
+    List<DownloadTask> visible,
+  ) {
     final tasks = snapshot.tasks;
     final subscriptions = widget.subscriptions;
-    final visible = tasks.where((t) {
-      final category = switch (filter) {
-        '进行中' => !t.complete,
-        '已缓存' => t.complete,
-        '订阅中' => subscriptions.subscriptions.containsKey(t.subjectId),
-        _ => true,
-      };
-      final status = switch (statusFilter) {
-        '已暂停' => t.status == DownloadStatus.paused,
-        '失败' => t.status == DownloadStatus.failed,
-        '做种中' => t.status == DownloadStatus.seeding,
-        _ => true,
-      };
-      return category && status;
-    }).toList();
     final speed = tasks.fold<int>(0, (sum, t) => sum + t.downloadSpeed);
-    final allSelected =
-        visible.isNotEmpty &&
-        visible.every((task) => selectedTasks.contains(task.id));
     // A subject's tasks, however they were cached, form one entry.
     final entries = <List<DownloadTask>>[];
     final bySubject = <int, List<DownloadTask>>{};
@@ -378,60 +489,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     }
     return PageScroll(
       children: [
-        SectionTitle(
-          title: '缓存',
-          trailing: selecting
-              ? Wrap(
-                  spacing: Gap.sm,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Text(
-                      '已选 ${selectedTasks.length + selectedFiles.length} 项',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    // Of the tasks the filters show.
-                    TextButton(
-                      onPressed: visible.isEmpty
-                          ? null
-                          : () => _select(visible, !allSelected),
-                      child: Text(allSelected ? '全不选' : '全选'),
-                    ),
-                    Tooltip(
-                      message: '退出批量删除（Esc）',
-                      child: TextButton(
-                        onPressed: () => setState(_endSelection),
-                        child: const Text('取消'),
-                      ),
-                    ),
-                    Tooltip(
-                      message: '删除所选（Delete）',
-                      child: FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Theme.of(context)
-                              .colorScheme
-                              .errorContainer,
-                          foregroundColor: Theme.of(context)
-                              .colorScheme
-                              .onErrorContainer,
-                        ),
-                        onPressed:
-                            selectedTasks.isEmpty && selectedFiles.isEmpty
-                            ? null
-                            : () => _removeSelected(snapshot),
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        label: const Text('删除'),
-                      ),
-                    ),
-                  ],
-                )
-              : tasks.isEmpty
-              ? null
-              : TextButton.icon(
-                  onPressed: _startSelection,
-                  icon: const Icon(Icons.checklist_rounded, size: 18),
-                  label: const Text('批量删除'),
-                ),
-        ),
+        const SectionTitle(title: '缓存'),
         Wrap(
           spacing: Gap.md,
           runSpacing: Gap.md,
@@ -507,7 +565,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     enter: arriving.contains(id),
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: Gap.md),
-                      child: _entry(context, group.$2[index]),
+                      child: _entry(context, snapshot, group.$2[index]),
                     ),
                   );
                 },
@@ -526,28 +584,29 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   }),
             actionLabel: tasks.isEmpty ? '去探索' : '清除筛选',
           ),
+        // Room to scroll the last rows out from under the selection bar.
+        if (CacheSelectionBar.shows(selection.length))
+          const SizedBox(height: 56),
       ],
     );
   }
 
   /// A subject's entry keeps its subject's key as tasks join it.
-  static String _entryId(List<DownloadTask> tasks) =>
-      switch (tasks.first.subjectId) {
-        final id? => 'subject:$id',
-        null => tasks.first.id,
-      };
+  static String _entryOf(DownloadTask task) => switch (task.subjectId) {
+    final id? => 'subject:$id',
+    null => task.id,
+  };
 
-  Widget _entry(BuildContext context, List<DownloadTask> tasks) {
+  static String _entryId(List<DownloadTask> tasks) => _entryOf(tasks.first);
+
+  Widget _entry(
+    BuildContext context,
+    TransferSnapshot snapshot,
+    List<DownloadTask> tasks,
+  ) {
     final subjectId = tasks.first.subjectId;
     if (subjectId != null) _loadSubject(subjectId);
-    final subject = subjects[subjectId];
-    if (tasks.length == 1 &&
-        !_grouped.contains(subjectId) &&
-        !widget.subscriptions.subscriptions.containsKey(subjectId)) {
-      return _task(context, tasks.single, subject);
-    }
-    _grouped.add(subjectId!);
-    return _group(context, subject, subjectId, tasks);
+    return _group(context, snapshot, subjects[subjectId], tasks);
   }
 
   /// How many episodes [tasks] hold: two files of one episode count once,
@@ -624,28 +683,89 @@ class _DownloadsPageState extends State<DownloadsPage> {
     return [for (final (_, task) in indexed) task];
   }
 
-  /// One subject's tasks: watching continues where it was left, and the
-  /// entry expands into a compact row per task.
+  /// The episode a task holds, `合集` for a batch, `—` when unknown.
+  static String _episodeLabel(Subject? subject, DownloadTask task) {
+    final episode = switch (task.episodeId) {
+      final id? => subject?.episode(id),
+      null => null,
+    };
+    return episode?.label ?? (task.videos.length > 1 ? '合集' : '—');
+  }
+
+  /// A batch's videos in episode order, each with its episode's label.
+  static List<(DownloadFile, String)> _batchVideos(
+    Subject? subject,
+    DownloadTask task,
+  ) {
+    final episodes = <String, Episode>{
+      if (subject != null)
+        for (final MapEntry(key: id, value: file) in episodeFiles(
+          subject,
+          task,
+        ).entries)
+          file.id: subject.episode(id)!,
+    };
+    final videos = [...task.videos]
+      ..sort((a, b) {
+        final byEpisode = (episodes[a.id]?.sort ?? double.infinity).compareTo(
+          episodes[b.id]?.sort ?? double.infinity,
+        );
+        return byEpisode != 0 ? byEpisode : a.name.compareTo(b.name);
+      });
+    return [for (final file in videos) (file, episodes[file.id]?.label ?? '—')];
+  }
+
+  /// An entry: a show's tasks, or a task of no known show. Clicking the card
+  /// opens a row per task and per video of a batch, which can be picked; a
+  /// lone task's card also shows that task's state and its pause button.
   Widget _group(
     BuildContext context,
+    TransferSnapshot snapshot,
     Subject? subject,
-    int subjectId,
     List<DownloadTask> tasks,
   ) {
-    final key = 'subject:$subjectId';
+    final subjectId = tasks.first.subjectId;
+    final key = _entryId(tasks);
     final open = expanded.contains(key);
     final ordered = _ordered(subject, tasks);
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
+    final units = ByteUnitsScope.of(context);
+    final lone = tasks.length == 1 ? tasks.single : null;
     final complete = tasks.where((t) => t.complete);
     final done = complete.length;
     final failed = tasks.where((t) => t.status == DownloadStatus.failed).length;
     final ongoing = tasks.length - done - failed;
     final episodes = _episodeCount(subject, complete);
+    final size = complete.fold<int>(0, (sum, t) => sum + t.totalBytes);
     final speed = tasks.fold<int>(0, (sum, t) => sum + t.downloadSpeed);
-    final ticked = tasks.where((t) => selectedTasks.contains(t.id)).length;
     final title = subject?.title ?? ordered.first.title;
     final subscription = _subscription(subjectId);
+    void openSubject() => widget.onOpenSubject(subjectId!);
+    void toggleOpen() =>
+        setState(() => open ? expanded.remove(key) : expanded.add(key));
+    final videos = {
+      for (final task in ordered)
+        if (task.videos.length > 1) task.id: _batchVideos(subject, task),
+    };
+    // The rows a Shift click ranges over, in the order they show.
+    final rows = <CachePick>[
+      for (final task in ordered) ...[
+        (task: task.id, file: null),
+        if (task.complete)
+          for (final (file, _)
+              in videos[task.id] ?? const <(DownloadFile, String)>[])
+            (task: task.id, file: file.id),
+      ],
+    ];
+    final loneIssues = [
+      if (lone != null && !open) ...[
+        if ((lone.errorMessage ?? lone.persistenceError) case final issue?)
+          InlineIssue(issue),
+        if (stalledHint(lone) case final hint?)
+          InlineIssue(hint, tone: NoticeTone.warning),
+      ],
+    ];
     return MelonPanel(
       padding: EdgeInsets.zero,
       child: Column(
@@ -653,84 +773,103 @@ class _DownloadsPageState extends State<DownloadsPage> {
         children: [
           InkWell(
             customBorder: CardTheme.of(context).shape,
-            onTap: () =>
-                setState(() => open ? expanded.remove(key) : expanded.add(key)),
+            onTap: toggleOpen,
+            onSecondaryTapUp: (details) =>
+                _entryMenu(details.globalPosition, snapshot, title, tasks),
             child: Padding(
               padding: const EdgeInsets.all(Gap.lg),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (selecting)
-                    Checkbox(
-                      tristate: true,
-                      value: ticked == tasks.length
-                          ? true
-                          : ticked == 0
-                          ? false
-                          : null,
-                      onChanged: (_) => _select(tasks, ticked < tasks.length),
-                    ),
-                  _SubjectCoverLink(
-                    url: subject?.coverUrl ?? ordered.first.coverUrl,
-                    title: title,
-                    id: subjectId,
-                    onOpen: () => widget.onOpenSubject(subjectId),
-                  ),
-                  const SizedBox(width: Gap.lg),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _SubjectTitleLink(
-                          title: title,
-                          onOpen: () => widget.onOpenSubject(subjectId),
-                        ),
-                        const SizedBox(height: Gap.sm),
-                        Wrap(
-                          spacing: Gap.sm,
-                          runSpacing: Gap.xs,
-                          crossAxisAlignment: WrapCrossAlignment.center,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _SubjectCoverLink(
+                        url: subject?.coverUrl ?? ordered.first.coverUrl,
+                        title: title,
+                        id: subjectId ?? 0,
+                        onOpen: subjectId == null ? null : openSubject,
+                      ),
+                      const SizedBox(width: Gap.lg),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (done == tasks.length)
-                              Text('$episodes 话', style: small)
-                            else if (done > 0)
-                              MelonBadge('已缓存 $episodes 话', color: sky),
-                            if (ongoing > 0) MelonBadge('进行中 $ongoing'),
-                            if (failed > 0)
-                              MelonBadge(
-                                '需要重试 $failed',
-                                color: toneColor(context, NoticeTone.failed),
+                            _SubjectTitleLink(
+                              title: title,
+                              onOpen: subjectId == null ? null : openSubject,
+                            ),
+                            const SizedBox(height: Gap.sm),
+                            if (lone != null)
+                              DownloadTaskStatus(
+                                task: lone,
+                                details: true,
+                                size: true,
+                              )
+                            else
+                              Wrap(
+                                spacing: Gap.sm,
+                                runSpacing: Gap.xs,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  if (done == tasks.length)
+                                    Text('$episodes 话', style: small)
+                                  else if (done > 0)
+                                    MelonBadge('已缓存 $episodes 话', color: sky),
+                                  if (ongoing > 0) MelonBadge('进行中 $ongoing'),
+                                  if (failed > 0)
+                                    MelonBadge(
+                                      '需要重试 $failed',
+                                      color: toneColor(
+                                        context,
+                                        NoticeTone.failed,
+                                      ),
+                                    ),
+                                  if (size > 0)
+                                    Text(units.format(size), style: small),
+                                  if (speed > 0)
+                                    Text(
+                                      '↓ ${units.rate(speed)}',
+                                      style: small,
+                                    ),
+                                ],
                               ),
-                            if (speed > 0)
-                              Text(
-                                '↓ ${ByteUnitsScope.of(context).rate(speed)}',
-                                style: small,
-                              ),
+                            if (subscription case (final status, _)) ...[
+                              const SizedBox(height: Gap.xs),
+                              status,
+                            ],
                           ],
                         ),
-                        if (subscription case (final status, _)) ...[
-                          const SizedBox(height: Gap.xs),
-                          status,
+                      ),
+                      const SizedBox(width: Gap.md),
+                      // Buttons of different heights centre on one line.
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (subscription case (_, final button)) button,
+                          _watchButton(subject, ordered),
+                          if (lone?.toggle != null) ...[
+                            const SizedBox(width: Gap.sm),
+                            DownloadToggleButton(
+                              task: lone!,
+                              onToggle: _toggle,
+                              labelled: true,
+                            ),
+                          ],
+                          IconButton(
+                            tooltip: open ? '收起' : '展开剧集',
+                            onPressed: toggleOpen,
+                            icon: ExpandChevron(open: open),
+                          ),
                         ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: Gap.md),
-                  // Buttons of different heights centre on one line.
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (subscription case (_, final button)) button,
-                      _watchButton(subject, ordered),
-                      IconButton(
-                        tooltip: open ? '收起' : '展开剧集',
-                        onPressed: () => setState(
-                          () => open ? expanded.remove(key) : expanded.add(key),
-                        ),
-                        icon: ExpandChevron(open: open),
                       ),
                     ],
                   ),
+                  for (final issue in loneIssues)
+                    Padding(
+                      padding: const EdgeInsets.only(top: Gap.md),
+                      child: issue,
+                    ),
                 ],
               ),
             ),
@@ -751,8 +890,47 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      for (final task in ordered)
-                        _episodeRow(context, subject, task),
+                      for (final task in ordered) ...[
+                        CacheTaskRow(
+                          task: task,
+                          label: _episodeLabel(subject, task),
+                          selected: selection.contains((
+                            task: task.id,
+                            file: null,
+                          )),
+                          onTap: () =>
+                              _click(key, rows, (task: task.id, file: null)),
+                          onMenu: (position) =>
+                              _rowMenu(position, snapshot, key, task),
+                          onToggle: _toggle,
+                          onPlay: widget.onPlay,
+                          onRemove: () => _remove(task),
+                        ),
+                        for (final (file, label)
+                            in videos[task.id] ??
+                                const <(DownloadFile, String)>[])
+                          CacheVideoRow(
+                            task: task,
+                            file: file,
+                            label: label,
+                            selected: selection.contains((
+                              task: task.id,
+                              file: file.id,
+                            )),
+                            onTap: task.complete
+                                ? () => _click(key, rows, (
+                                    task: task.id,
+                                    file: file.id,
+                                  ))
+                                : null,
+                            onMenu: (position) =>
+                                _rowMenu(position, snapshot, key, task, file),
+                            onPlay: widget.onPlay,
+                            onRemove: task.complete
+                                ? () => _removeFile(task, file)
+                                : null,
+                          ),
+                      ],
                     ],
                   ),
                 ),
@@ -798,406 +976,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
       ),
     );
   }
-
-  /// A compact row for one task of a group; clicking it shows its details.
-  Widget _episodeRow(
-    BuildContext context,
-    Subject? subject,
-    DownloadTask task,
-  ) {
-    final scheme = Theme.of(context).colorScheme;
-    final small = Theme.of(context).textTheme.bodySmall;
-    final episode = switch (task.episodeId) {
-      final id? => subject?.episode(id),
-      null => null,
-    };
-    final label = switch (episode) {
-      final episode? => episode.label,
-      null when task.videos.length > 1 => '合集',
-      null => '—',
-    };
-    final details = expanded.contains(task.id);
-    final progress = task.progress.clamp(0.0, 1.0);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        InkWell(
-          // The rows sit Gap.sm inside the entry's panel.
-          borderRadius: insetRadius(panelBorderRadius, Gap.sm),
-          onTap: () => setState(
-            () => details ? expanded.remove(task.id) : expanded.add(task.id),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(Gap.sm, 2, 0, 2),
-            child: Row(
-              children: [
-                if (selecting) _taskCheck(task),
-                SizedBox(
-                  width: 64,
-                  child: Text(
-                    label,
-                    style: const TextStyle(fontSize: FontSize.body),
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    task.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: small,
-                  ),
-                ),
-                const SizedBox(width: Gap.md),
-                if (downloadOrigin(task) case final origin?) ...[
-                  MelonBadge(origin, color: scheme.onSurfaceVariant),
-                  if (DownloadStatusBadge.shows(task))
-                    const SizedBox(width: Gap.sm),
-                ],
-                DownloadStatusBadge(task),
-                if (!task.complete && task.cloudProgress == null)
-                  SizedBox(
-                    width: 44,
-                    child: Text(
-                      '${(progress * 100).floor()}%',
-                      textAlign: TextAlign.end,
-                      style: small,
-                    ),
-                  ),
-                const SizedBox(width: Gap.xs),
-                DownloadToggleButton(task: task, onToggle: _toggle, size: 20),
-                DownloadPlayButton(task: task, onPlay: widget.onPlay),
-                IconButton(
-                  tooltip: '移除任务与缓存',
-                  onPressed: () => _remove(task),
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (!task.complete)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(72, 0, Gap.sm, Gap.xs),
-            child: MotionValue(
-              value: task.cloudProgress ?? progress,
-              builder: (context, value) => LinearProgressIndicator(
-                value: value,
-                minHeight: 2,
-                borderRadius: pillBorderRadius,
-                backgroundColor: scheme.surfaceContainerLow,
-              ),
-            ),
-          ),
-        if ((task.errorMessage ?? task.persistenceError) case final issue?)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(72, 0, Gap.sm, Gap.xs),
-            child: InlineIssue(issue),
-          ),
-        MotionReveal(
-          visible: details,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(72, Gap.xs, Gap.sm, Gap.sm),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              // The row above already has the remove button.
-              children: _details(context, task, subject, removable: false),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _task(BuildContext context, DownloadTask task, Subject? subject) {
-    final id = task.id;
-    final details = expanded.contains(id);
-    void toggle() =>
-        setState(() => details ? expanded.remove(id) : expanded.add(id));
-    return MelonPanel(
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Like a group, the whole entry opens its details.
-          InkWell(
-            customBorder: CardTheme.of(context).shape,
-            onTap: toggle,
-            child: Padding(
-              padding: const EdgeInsets.all(Gap.lg),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (selecting) _taskCheck(task),
-                      _SubjectCoverLink(
-                        url: task.coverUrl,
-                        title: task.title,
-                        id: task.subjectId ?? 0,
-                        onOpen: switch (task.subjectId) {
-                          final id? => () => widget.onOpenSubject(id),
-                          null => null,
-                        },
-                      ),
-                      const SizedBox(width: Gap.lg),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _SubjectTitleLink(
-                              title: task.title,
-                              onOpen: switch (task.subjectId) {
-                                final id? => () => widget.onOpenSubject(id),
-                                null => null,
-                              },
-                            ),
-                            const SizedBox(height: Gap.sm),
-                            DownloadTaskStatus(task: task),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: Gap.md),
-                      // Buttons of different heights centre on one line.
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _watchButton(subject, [task]),
-                          if (task.toggle != null) ...[
-                            const SizedBox(width: Gap.sm),
-                            DownloadToggleButton(
-                              task: task,
-                              onToggle: _toggle,
-                              labelled: true,
-                            ),
-                          ],
-                          IconButton(
-                            tooltip: details ? '收起详情' : '详情',
-                            onPressed: toggle,
-                            icon: ExpandChevron(open: details),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  if ((task.errorMessage ?? task.persistenceError)
-                      case final issue?)
-                    Padding(
-                      padding: const EdgeInsets.only(top: Gap.md),
-                      child: InlineIssue(issue),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          MotionReveal(
-            visible: details,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(Gap.lg, 0, Gap.lg, Gap.lg),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Divider(height: 1),
-                  const SizedBox(height: Gap.md),
-                  ..._details(context, task, subject, removable: true),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Files, transfer counters and actions of [task], shown on request. The
-  /// file name shows only where it differs from the title above it.
-  List<Widget> _details(
-    BuildContext context,
-    DownloadTask task,
-    Subject? subject, {
-    required bool removable,
-  }) {
-    final swarm = task.swarm;
-    final files = task.files;
-    return [
-      if (task.videos.length > 1) ...[
-        _videos(context, task, subject),
-        const SizedBox(height: Gap.sm),
-      ] else if (files.length > 1 ||
-          (files.length == 1 && files.single.name != task.title)) ...[
-        Text(
-          files.length == 1
-              ? files.single.name
-              : '${files.first.name} 等 ${files.length} 个文件',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        const SizedBox(height: Gap.sm),
-      ],
-      // How the swarm is found shows on hover over the transfer line.
-      Tooltip(
-        message: task.seeds && !task.complete && swarm.trackers != null
-            ? [
-                '发现 ${swarm.knownPeers ?? 0} 个节点',
-                'Tracker ${swarm.workingTrackers ?? 0}/${swarm.trackers} 可用',
-                (swarm.dhtNodes ?? 0) < 0
-                    ? 'DHT 已关闭'
-                    : 'DHT ${swarm.dhtNodes ?? 0} 个节点',
-              ].join('\n')
-            : '',
-        child: _stats(context, [
-          if (!task.complete)
-            '↓ ${ByteUnitsScope.of(context).rate(task.downloadSpeed)}',
-          if (task.seeds) ...[
-            '↑ ${ByteUnitsScope.of(context).rate(task.uploadSpeed)}',
-            '${swarm.peers} 个连接',
-            '分享率 ${task.totalBytes > 0 ? (task.uploadedBytes / task.totalBytes).toStringAsFixed(2) : '0.00'}',
-          ],
-        ]),
-      ),
-      // Said only when no peer can be found at all.
-      if (task.seeds &&
-          !task.complete &&
-          swarm.trackers != null &&
-          (task.status == DownloadStatus.metadata ||
-              task.status == DownloadStatus.downloading) &&
-          swarm.peers == 0 &&
-          (swarm.knownPeers ?? 0) == 0 &&
-          (swarm.failedTrackers ?? 0) > 0 &&
-          (swarm.workingTrackers ?? 0) == 0 &&
-          (swarm.dhtNodes ?? 0) <= 0)
-        Padding(
-          padding: const EdgeInsets.only(top: Gap.xs),
-          child: Text(
-            '没有找到下载节点，请检查网络是否允许 BT，或换一个资源',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ),
-      if (task.seeds && task.complete) ...[
-        const SizedBox(height: Gap.xs),
-        _stats(context, [
-          '已上传 ${ByteUnitsScope.of(context).format(task.uploadedBytes)}',
-          '做种 ${_seedTime(task.seedSeconds)}',
-        ]),
-      ],
-      const SizedBox(height: Gap.sm),
-      Wrap(
-        spacing: Gap.sm,
-        runSpacing: Gap.xs,
-        children: [
-          if (files.isNotEmpty)
-            TextButton.icon(
-              onPressed: () => _perform(() => widget.downloads.reveal(task)),
-              icon: const Icon(Icons.folder_open_outlined, size: 18),
-              label: Text(showInFileManagerLabel),
-            ),
-          if (removable)
-            TextButton.icon(
-              onPressed: () => _remove(task),
-              icon: const Icon(Icons.delete_outline, size: 18),
-              label: const Text('移除任务与缓存'),
-            ),
-        ],
-      ),
-    ];
-  }
-
-  /// A batch's videos in episode order, each to watch and, once the batch
-  /// is finished, to delete on its own.
-  Widget _videos(BuildContext context, DownloadTask task, Subject? subject) {
-    final small = Theme.of(context).textTheme.bodySmall;
-    final episodes = <String, Episode>{
-      if (subject != null)
-        for (final MapEntry(key: id, value: file) in episodeFiles(
-          subject,
-          task,
-        ).entries)
-          file.id: subject.episode(id)!,
-    };
-    final videos = [...task.videos]
-      ..sort((a, b) {
-        final byEpisode = (episodes[a.id]?.sort ?? double.infinity).compareTo(
-          episodes[b.id]?.sort ?? double.infinity,
-        );
-        return byEpisode != 0 ? byEpisode : a.name.compareTo(b.name);
-      });
-    final blocked = playBlocked(task);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (final file in videos)
-          Row(
-            children: [
-              if (selecting && task.complete)
-                Checkbox(
-                  value:
-                      selectedTasks.contains(task.id) ||
-                      selectedFiles.contains((task.id, file.id)),
-                  onChanged: selectedTasks.contains(task.id)
-                      ? null
-                      : (value) => setState(
-                          () => value!
-                              ? selectedFiles.add((task.id, file.id))
-                              : selectedFiles.remove((task.id, file.id)),
-                        ),
-                ),
-              SizedBox(
-                width: 64,
-                child: Text(switch (episodes[file.id]) {
-                  final episode? => episode.label,
-                  null => '—',
-                }, style: const TextStyle(fontSize: FontSize.body)),
-              ),
-              Expanded(
-                child: Text(
-                  file.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: small,
-                ),
-              ),
-              const SizedBox(width: Gap.md),
-              Text(
-                [
-                  ByteUnitsScope.of(context).format(file.size),
-                  if (file.progress < 1) '${(file.progress * 100).floor()}%',
-                ].join('  '),
-                style: small,
-              ),
-              IconButton(
-                tooltip: blocked ?? '观看',
-                onPressed: blocked != null
-                    ? null
-                    : () => widget.onPlay(task.id, file.id),
-                icon: const Icon(Icons.play_arrow_rounded, size: 20),
-              ),
-              if (task.complete)
-                IconButton(
-                  tooltip: '删除这个视频',
-                  onPressed: () => _removeFile(task, file),
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                ),
-            ],
-          ),
-      ],
-    );
-  }
-
-  /// `45 分钟`, `3 小时 20 分钟`.
-  static String _seedTime(double seconds) {
-    final minutes = seconds ~/ 60;
-    if (minutes < 60) return '$minutes 分钟';
-    final rest = minutes % 60;
-    return '${minutes ~/ 60} 小时${rest == 0 ? '' : ' $rest 分钟'}';
-  }
-
-  Widget _stats(BuildContext context, List<String> values) => Wrap(
-    spacing: Gap.lg,
-    runSpacing: Gap.xs,
-    children: [
-      for (final value in values)
-        Text(value, style: Theme.of(context).textTheme.bodySmall),
-    ],
-  );
 }
 
 /// A cache entry's cover; with a subject it opens the detail page, showing

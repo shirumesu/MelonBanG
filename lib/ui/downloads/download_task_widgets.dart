@@ -15,8 +15,17 @@ import 'download_labels.dart';
 /// Status and origin badges, progress and speed of a task, with a progress
 /// bar until it completes.
 class DownloadTaskStatus extends StatelessWidget {
-  const DownloadTaskStatus({super.key, required this.task});
+  const DownloadTaskStatus({
+    super.key,
+    required this.task,
+    this.details = false,
+    this.size = false,
+  });
   final DownloadTask task;
+
+  /// The status shows the BT counters on hover; [size] adds the size of a
+  /// finished task.
+  final bool details, size;
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +40,8 @@ class DownloadTaskStatus extends StatelessWidget {
           runSpacing: Gap.xs,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            if (DownloadStatusBadge.shows(task)) DownloadStatusBadge(task),
+            if (DownloadStatusBadge.shows(task))
+              DownloadStatusBadge(task, details: details),
             if (downloadOrigin(task) case final origin?)
               MelonBadge(
                 origin,
@@ -47,6 +57,11 @@ class DownloadTaskStatus extends StatelessWidget {
             if (task.status == DownloadStatus.seeding)
               Text(
                 '↑ ${ByteUnitsScope.of(context).rate(task.uploadSpeed)}',
+                style: small,
+              ),
+            if (size && task.complete && task.totalBytes > 0)
+              Text(
+                ByteUnitsScope.of(context).format(task.totalBytes),
                 style: small,
               ),
           ],
@@ -202,8 +217,11 @@ Future<void> chooseDownloadVideo(
 /// A task's status in the failure colour when it failed, blue once complete,
 /// else the accent; nothing for a finished task that does not seed.
 class DownloadStatusBadge extends StatelessWidget {
-  const DownloadStatusBadge(this.task, {super.key});
+  const DownloadStatusBadge(this.task, {super.key, this.details = false});
   final DownloadTask task;
+
+  /// Shows the BT counters behind the status on hover.
+  final bool details;
 
   /// Whether [task] has a status worth a badge.
   static bool shows(DownloadTask task) =>
@@ -214,6 +232,9 @@ class DownloadStatusBadge extends StatelessWidget {
     if (!shows(task)) return const SizedBox.shrink();
     return MelonBadge(
       downloadStatus(task),
+      tooltip: details
+          ? transferDetails(task, ByteUnitsScope.of(context))
+          : null,
       color: task.status == DownloadStatus.failed
           ? toneColor(context, NoticeTone.failed)
           : task.complete
