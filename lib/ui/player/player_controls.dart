@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 
+import '../../domain/playback_session.dart';
 import '../../features/playback/playback.dart';
 import '../core/motion.dart';
 import '../core/overlay_glass.dart';
@@ -125,18 +126,28 @@ class PlayerControls extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: pageGutter),
-            child: StreamBuilder<Duration>(
-              stream: player.stream.buffer,
-              initialData: player.state.buffer,
-              builder: (_, buffer) => _position(
-                (current, duration) => PlayerProgressBar(
-                  position: dragging ?? current,
-                  duration: duration,
-                  buffered: buffer.data!.inMilliseconds / 1000,
-                  marks: _marks,
-                  onDragStart: onDragStart,
-                  onDragChanged: onDragChanged,
-                  onDragEnd: onDragEnd,
+            // A download played as it arrives grows while paused too.
+            child: StreamBuilder<void>(
+              stream: playback.session?.streamId == null
+                  ? null
+                  : playback.downloads.changes.stream,
+              builder: (_, _) => StreamBuilder<Duration>(
+                stream: player.stream.buffer,
+                initialData: player.state.buffer,
+                builder: (_, buffer) => _position(
+                  (current, duration) => PlayerProgressBar(
+                    position: dragging ?? current,
+                    duration: duration,
+                    available: _available(
+                      current,
+                      duration,
+                      buffer.data!.inMilliseconds / 1000,
+                    ),
+                    marks: _marks,
+                    onDragStart: onDragStart,
+                    onDragChanged: onDragChanged,
+                    onDragEnd: onDragEnd,
+                  ),
                 ),
               ),
             ),
@@ -149,6 +160,35 @@ class PlayerControls extends StatelessWidget {
       ),
     ),
   );
+
+  /// What plays without waiting, as `[start, end)` seconds. mpv's [buffered]
+  /// end only says what it read ahead into memory, at most media_kit's
+  /// 32 MiB, so a complete file counts whole and a download played as it
+  /// arrives adds what is on disk, its bytes spread evenly over [duration].
+  List<(double, double)> _available(
+    double current,
+    double duration,
+    double buffered,
+  ) {
+    final session = playback.session;
+    if (session == null) return [(0, buffered)];
+    if (!session.remote) return [(0, duration)];
+    if (session
+        case PlaybackSession(
+          :final downloadId?,
+          :final streamId?,
+          :final fileSize?,
+        )
+        when fileSize > 0) {
+      final ranges = playback.downloads.streamedRanges(downloadId, streamId);
+      return [
+        (current, buffered),
+        for (final (start, end) in ranges ?? const <(int, int)>[])
+          (start / fileSize * duration, end / fileSize * duration),
+      ];
+    }
+    return [(0, buffered)];
+  }
 
   /// Rebuilds [builder] as the playhead moves, in seconds.
   Widget _position(Widget Function(double current, double duration) builder) =>

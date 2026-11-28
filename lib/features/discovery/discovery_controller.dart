@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../core/error_message.dart';
@@ -145,6 +147,69 @@ class DiscoveryController extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  /// The Monday of the schedule week shown, `yyyy-MM-dd`; this week's until
+  /// another is chosen.
+  String get weekMonday => _weekMonday ?? mondayOf(catalog.scheduleDate);
+  String? _weekMonday;
+  ScheduleWeek? week;
+  bool weekLoading = false;
+  String? weekError;
+  int _weekTicket = 0, _weekRetries = 0;
+  Timer? _weekRetry;
+
+  /// The Monday, `yyyy-MM-dd`, of the week holding [date].
+  static String mondayOf(String date) {
+    final day = DateTime.parse('${date}T00:00:00Z');
+    return day
+        .subtract(Duration(days: day.weekday - 1))
+        .toIso8601String()
+        .substring(0, 10);
+  }
+
+  /// Loads the schedule week starting [monday], by default the one shown,
+  /// showing a cached copy first; a failure stays in [weekError]. While the
+  /// Melon API is still fetching some shows' details, the week loads again
+  /// a little later, a few times.
+  Future<void> loadWeek([String? monday]) async {
+    final target = monday ?? weekMonday;
+    final ticket = ++_weekTicket;
+    _weekRetry?.cancel();
+    if (target != weekMonday) {
+      _weekRetries = 0;
+      week = null;
+    }
+    _weekMonday = target;
+    weekLoading = true;
+    weekError = null;
+    notifyListeners();
+    void show(ScheduleWeek value) {
+      if (ticket != _weekTicket) return;
+      week = value;
+      notifyListeners();
+    }
+
+    try {
+      show(await catalog.week(target, onCached: show));
+      if (ticket == _weekTicket && week!.incomplete > 0 && _weekRetries++ < 5) {
+        // The API keeps a week missing details for a minute.
+        _weekRetry = Timer(const Duration(seconds: 65), () => loadWeek(target));
+      }
+    } catch (e) {
+      if (ticket == _weekTicket) weekError = errorMessage(e);
+    } finally {
+      if (ticket == _weekTicket) {
+        weekLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _weekRetry?.cancel();
+    super.dispose();
   }
 
   /// Starts a new search for [query].

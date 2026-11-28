@@ -900,6 +900,10 @@ class PikPakTransfer implements TorrentTransfer, CloudIndex {
     }
   }
 
+  @override
+  List<(int, int)>? streamedRanges(int streamId) =>
+      _streams[streamId]?.have.spans;
+
   Future<void> _persist(Json task) {
     _updateProgress(task);
     return _saved.put(task);
@@ -1371,5 +1375,9 @@ class _Ranges {
 
   List<List<int>> toJson() => [
     for (var i = 0; i < _starts.length; i++) [_starts[i], _ends[i]],
+  ];
+
+  List<(int, int)> get spans => [
+    for (var i = 0; i < _starts.length; i++) (_starts[i], _ends[i]),
   ];
 }

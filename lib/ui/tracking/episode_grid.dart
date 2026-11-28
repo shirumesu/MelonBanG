@@ -15,11 +15,12 @@ import '../core/theme.dart';
 import '../core/tone.dart';
 
 /// All episodes as numbered cells, the specials on rows of their own after
-/// the main episodes, behind an SP label. A click plays the episode's cache
-/// or opens its resources, a right-click offers more and a long press marks;
-/// still pressed, dragging selects the range from the pressed cell to the
-/// pointer. Releasing well outside the cells, the right button or Escape
-/// cancels the mark.
+/// the main episodes, behind an SP label; past 100 main episodes, fifty at
+/// a time with the specials on a page of their own. A click plays the
+/// episode's cache or opens its resources, a right-click offers more and a
+/// long press marks; still pressed, dragging selects the range from the
+/// pressed cell to the pointer. Releasing well outside the cells, the right
+/// button or Escape cancels the mark.
 class EpisodeGrid extends StatefulWidget {
   const EpisodeGrid({
     super.key,
@@ -55,8 +56,18 @@ class EpisodeGrid extends StatefulWidget {
 class _EpisodeGridState extends State<EpisodeGrid> {
   static const _gap = 8.0, _minWidth = 40.0, _height = 32.0, _rows = 4;
   static const _cancelMargin = 48.0;
+
+  /// Main episodes past which the grid pages, and how many a page holds:
+  /// a year-round show's thousand episodes would fill screens.
+  static const _pagedFrom = 100, _pageSize = 50;
   bool expanded = false;
-  int? hovered;
+
+  /// The page chosen; until then the one holding [EpisodeGrid.nextId].
+  int? page;
+
+  /// The cell under the pointer. Its outline is drawn over the cells, so
+  /// moving between them rebuilds none.
+  final hovered = ValueNotifier<int?>(null);
 
   /// Pending mark while a long press is held: the range between the pressed
   /// and the current episode, by id so it survives data refreshes.
@@ -92,7 +103,21 @@ class _EpisodeGridState extends State<EpisodeGrid> {
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onKey);
+    hovered.dispose();
     super.dispose();
+  }
+
+  void _turn(int value) {
+    hovered.value = null;
+    setState(() => page = value);
+  }
+
+  /// The page holding the next episode to watch, else the latest aired.
+  int _autoPage(List<Episode> episodes, int main, int pages) {
+    final next = episodes.indexWhere((e) => e.id == widget.nextId);
+    if (next >= 0) return next < main ? next ~/ _pageSize : pages - 1;
+    final aired = episodes.take(main).toList().lastIndexWhere(widget.aired);
+    return aired < 0 ? 0 : aired ~/ _pageSize;
   }
 
   bool _onKey(KeyEvent event) {
@@ -185,19 +210,38 @@ class _EpisodeGridState extends State<EpisodeGrid> {
         final episodes = ordered;
         final main = episodes.where((e) => e.main).length;
         final specials = episodes.length - main;
-        // Cells by position: the specials start a row after the main
-        // episodes, behind the SP label at [label]; other gaps are null.
-        final slots = <Episode?>[
-          ...episodes.take(main),
-          if (specials > 0) ...[
-            ...List.filled((columns - main % columns) % columns, null),
-            null,
-            ...episodes.skip(main),
+        final paged = main > _pagedFrom;
+        final pages = [
+          if (paged) ...[
+            for (var i = 0; i < main; i += _pageSize)
+              episodes.sublist(i, math.min(main, i + _pageSize)),
+            if (specials > 0) episodes.sublist(main),
           ],
         ];
-        final label = specials > 0 ? slots.length - specials - 1 : -1;
+        final current = paged
+            ? (page ?? _autoPage(episodes, main, pages.length)).clamp(
+                0,
+                pages.length - 1,
+              )
+            : 0;
+        // Cells by position: the specials start a row after the main
+        // episodes, behind the SP label at [label]; other gaps are null.
+        // Paged, each page holds one kind.
+        final slots = <Episode?>[
+          if (paged)
+            ...pages[current]
+          else ...[
+            ...episodes.take(main),
+            if (specials > 0) ...[
+              ...List.filled((columns - main % columns) % columns, null),
+              null,
+              ...episodes.skip(main),
+            ],
+          ],
+        ];
+        final label = specials > 0 && !paged ? slots.length - specials - 1 : -1;
         final rows = (slots.length / columns).ceil();
-        final collapsible = rows > _rows;
+        final collapsible = !paged && rows > _rows;
         var first = 0, count = slots.length;
         if (collapsible && !expanded) {
           final next = slots.indexWhere((e) => e?.id == widget.nextId);
@@ -300,12 +344,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
               decoration: BoxDecoration(
                 color: background,
                 borderRadius: badgeBorderRadius,
-                border: Border.all(
-                  color: hovered == index && dragStatus == null
-                      ? scheme.primary
-                      : border,
-                  width: cached ? 1.5 : 1,
-                ),
+                border: Border.all(color: border, width: cached ? 1.5 : 1),
               ),
               child: Center(
                 child: AnimatedDefaultTextStyle(
@@ -345,6 +384,44 @@ class _EpisodeGridState extends State<EpisodeGrid> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (paged)
+              Padding(
+                padding: const EdgeInsets.only(bottom: Gap.md),
+                child: Row(
+                  children: [
+                    IconButton(
+                      tooltip: '前 $_pageSize 话',
+                      onPressed: current > 0 ? () => _turn(current - 1) : null,
+                      icon: const Icon(Icons.chevron_left_rounded),
+                    ),
+                    MelonChoiceMenu<int>(
+                      tooltip: '选择话数范围',
+                      options: {
+                        for (final (i, range) in pages.indexed)
+                          i: range.first.main
+                              ? '第 ${range.first.number}–${range.last.number} 话'
+                              : '番外与特别篇  ${range.length}',
+                      },
+                      value: current,
+                      onSelected: _turn,
+                    ),
+                    IconButton(
+                      tooltip: '后 $_pageSize 话',
+                      onPressed: current < pages.length - 1
+                          ? () => _turn(current + 1)
+                          : null,
+                      icon: const Icon(Icons.chevron_right_rounded),
+                    ),
+                    const SizedBox(width: Gap.sm),
+                    Flexible(
+                      child: Text(
+                        specials > 0 ? '共 $main 话  番外 $specials' : '共 $main 话',
+                        style: small,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             AnimatedSize(
               duration: motionDuration(context, 280),
               curve: Curves.easeOutCubic,
@@ -407,20 +484,53 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                     cursor: SystemMouseCursors.click,
                     onHover: (event) {
                       final index = indexAt(event.localPosition);
-                      if (index != hovered) {
-                        setState(() => hovered = index);
+                      if (index != hovered.value) {
+                        hovered.value = index;
                         widget.onHover(index == null ? null : visible[index]!);
                       }
                     },
                     onExit: (_) {
-                      setState(() => hovered = null);
+                      hovered.value = null;
                       widget.onHover(null);
                     },
-                    child: Wrap(
-                      spacing: _gap,
-                      runSpacing: _gap,
+                    child: Stack(
                       children: [
-                        for (var i = 0; i < visible.length; i++) cell(i),
+                        Wrap(
+                          spacing: _gap,
+                          runSpacing: _gap,
+                          children: [
+                            for (var i = 0; i < visible.length; i++) cell(i),
+                          ],
+                        ),
+                        ValueListenableBuilder<int?>(
+                          valueListenable: hovered,
+                          builder: (context, index, _) {
+                            if (index == null ||
+                                index >= visible.length ||
+                                dragStatus != null) {
+                              return const SizedBox.shrink();
+                            }
+                            return Positioned(
+                              left: index % columns * (width + _gap),
+                              top: index ~/ columns * (_height + _gap),
+                              width: width,
+                              height: _height,
+                              child: IgnorePointer(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    borderRadius: badgeBorderRadius,
+                                    border: Border.all(
+                                      color: scheme.primary,
+                                      width: widget.cached(visible[index]!)
+                                          ? 1.5
+                                          : 1,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ],
                     ),
                   ),

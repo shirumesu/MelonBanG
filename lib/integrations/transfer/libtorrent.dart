@@ -916,6 +916,20 @@ class LibtorrentTransfer implements TorrentTransfer {
     _schedule();
   }
 
+  /// libtorrent reports only the run of whole pieces from where the player
+  /// last read. Its nominal readahead is 16 MiB of pieces, which gives their
+  /// size; pieces larger than that leave the run unknown.
+  @override
+  List<(int, int)>? streamedRanges(int streamId) {
+    if (_closed || !_streams.containsKey(streamId)) return null;
+    final info = lt.MelonLibtorrent.instance.getStreamInfo(streamId);
+    if (info == null) return null;
+    if (info.readaheadWindow == 0 || info.bufferPieces == 0) return const [];
+    final piece = (16 << 20) ~/ info.readaheadWindow;
+    final end = info.readHead + info.bufferPieces * piece;
+    return [(info.readHead, end < info.fileSize ? end : info.fileSize)];
+  }
+
   void _emit() {
     if (!_closed) _changes.add(null);
   }

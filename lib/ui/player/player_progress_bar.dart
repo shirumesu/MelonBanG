@@ -7,19 +7,22 @@ import '../core/overlay_glass.dart';
 import '../core/theme.dart';
 
 /// Thin seek bar that thickens on hover and shows the time under the pointer.
-/// [marks] are small dots, such as where the OP ends; hovering one names it.
+/// [available] lightens what plays without waiting, as `[start, end)`
+/// seconds. [marks] are small dots, such as where the OP ends; hovering one
+/// names it.
 class PlayerProgressBar extends StatefulWidget {
   const PlayerProgressBar({
     super.key,
     required this.position,
     required this.duration,
-    required this.buffered,
+    required this.available,
     required this.onDragStart,
     required this.onDragChanged,
     required this.onDragEnd,
     this.marks = const [],
   });
-  final double position, duration, buffered;
+  final double position, duration;
+  final List<(double, double)> available;
   final List<({double at, String label})> marks;
   final ValueChanged<double> onDragStart, onDragChanged, onDragEnd;
 
@@ -113,9 +116,15 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
                           played: enabled
                               ? widget.position / widget.duration
                               : 0,
-                          buffered: enabled
-                              ? widget.buffered / widget.duration
-                              : 0,
+                          available: enabled
+                              ? [
+                                  for (final (start, end) in widget.available)
+                                    (
+                                      start / widget.duration,
+                                      end / widget.duration,
+                                    ),
+                                ]
+                              : const [],
                           hover: hoverX == null ? null : hoverX! / width,
                           marks: [
                             for (final mark in marks) mark.at / widget.duration,
@@ -171,12 +180,13 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
 class _ProgressPainter extends CustomPainter {
   _ProgressPainter({
     required this.played,
-    required this.buffered,
+    required this.available,
     required this.hover,
     required this.marks,
     required this.emphasis,
   });
-  final double played, buffered, emphasis;
+  final double played, emphasis;
+  final List<(double, double)> available;
   final double? hover;
   final List<double> marks;
 
@@ -185,16 +195,32 @@ class _ProgressPainter extends CustomPainter {
     final height = 3 + 2 * emphasis;
     final top = (size.height - height) / 2;
     final radius = Radius.circular(height / 2);
-    RRect bar(double fraction) => RRect.fromLTRBR(
-      0,
+    RRect span(double start, double end) => RRect.fromLTRBR(
+      size.width * start.clamp(0.0, 1.0),
       top,
-      size.width * fraction.clamp(0.0, 1.0),
+      size.width * end.clamp(0.0, 1.0),
       top + height,
       radius,
     );
-    canvas
-      ..drawRRect(bar(1), Paint()..color = Colors.white24)
-      ..drawRRect(bar(buffered), Paint()..color = Colors.white38);
+    RRect bar(double fraction) => span(0, fraction);
+    canvas.drawRRect(bar(1), Paint()..color = Colors.white24);
+    // Overlapping ranges are merged first, or their overlaps would show
+    // lighter through the translucent fill.
+    final ranges = [
+      for (final range in available)
+        if (range.$2 > range.$1) range,
+    ]..sort((a, b) => a.$1.compareTo(b.$1));
+    final fill = Paint()..color = Colors.white38;
+    (double, double)? run;
+    for (final (start, end) in ranges) {
+      if (run != null && start <= run.$2) {
+        run = (run.$1, math.max(run.$2, end));
+        continue;
+      }
+      if (run != null) canvas.drawRRect(span(run.$1, run.$2), fill);
+      run = (start, end);
+    }
+    if (run != null) canvas.drawRRect(span(run.$1, run.$2), fill);
     if (hover case final hover? when hover > played) {
       canvas.drawRRect(bar(hover), Paint()..color = Colors.white30);
     }
@@ -218,12 +244,12 @@ class _ProgressPainter extends CustomPainter {
   @override
   bool shouldRepaint(_ProgressPainter old) =>
       old.played != played ||
-      old.buffered != buffered ||
+      !_same(old.available, available) ||
       old.hover != hover ||
       old.emphasis != emphasis ||
-      !_sameMarks(old.marks, marks);
+      !_same(old.marks, marks);
 
-  static bool _sameMarks(List<double> a, List<double> b) {
+  static bool _same<T>(List<T> a, List<T> b) {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
       if (a[i] != b[i]) return false;

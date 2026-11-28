@@ -642,6 +642,12 @@ class PosterMeta extends StatelessWidget {
 
 String scoreLabel(Object? value) =>
     value is num && value > 0 ? value.toStringAsFixed(1) : '—';
+
+/// [value] with a comma every three digits, as Bangumi writes counts.
+String thousands(int value) => value.toString().replaceAllMapped(
+  RegExp(r'\B(?=(\d{3})+(?!\d))'),
+  (_) => ',',
+);
 Color collectionColor(CollectionStatus status) => switch (status) {
   CollectionStatus.wish => sky,
   CollectionStatus.onHold => gold,

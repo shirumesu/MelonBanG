@@ -335,6 +335,85 @@ class MelonChoiceMenu<T> extends StatelessWidget {
   );
 }
 
+/// A choice as a small rounded button: [icon], [label], then [count]
+/// quieter, filled when [selected]. [tinted] fills it while unselected too
+/// and makes it [tintedHeight] tall, for chips on a menu or panel rather
+/// than in a toolbar.
+class MelonChip extends StatelessWidget {
+  const MelonChip({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onPressed,
+    this.count,
+    this.icon,
+    this.tinted = false,
+    this.tooltip,
+  });
+  final String label;
+  final String? count, tooltip;
+  final IconData? icon;
+  final bool selected, tinted;
+  final VoidCallback? onPressed;
+
+  static const height = 32.0, tintedHeight = 28.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final ink = selected ? scheme.onPrimaryContainer : scheme.onSurface;
+    final chip = Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected
+            ? scheme.primaryContainer
+            : tinted
+            ? scheme.surfaceContainer
+            : Colors.transparent,
+        borderRadius: controlBorderRadius,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: controlBorderRadius,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: tinted ? tintedHeight : height,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 16, color: ink),
+                    const SizedBox(width: 6),
+                  ],
+                  Text(
+                    label,
+                    style: TextStyle(fontSize: FontSize.body, color: ink),
+                  ),
+                  if (count != null) ...[
+                    const SizedBox(width: 6),
+                    Text(
+                      count!,
+                      style: TextStyle(
+                        fontSize: FontSize.small,
+                        color: selected ? ink : scheme.onSurfaceVariant,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return tooltip == null ? chip : Tooltip(message: tooltip, child: chip);
+  }
+}
+
 class MelonFilterOption<T> {
   const MelonFilterOption(
     this.value,
@@ -777,6 +856,7 @@ class MelonMenuAnchor extends StatelessWidget {
     this.alignmentOffset = Offset.zero,
     this.maxWidth,
     this.maxHeight = 440,
+    this.footer,
     this.onOpen,
     this.onClose,
   });
@@ -789,6 +869,10 @@ class MelonMenuAnchor extends StatelessWidget {
 
   /// Taller content scrolls inside the panel.
   final double maxHeight;
+
+  /// Stays at the foot of the panel while [menuChildren] scroll above it,
+  /// such as the buttons that apply a choice.
+  final Widget? footer;
   final VoidCallback? onOpen, onClose;
 
   /// Room around the panel for its shadow, which MenuAnchor's own scroll
@@ -817,7 +901,12 @@ class MelonMenuAnchor extends StatelessWidget {
       ),
     ),
     menuChildren: [
-      _MenuPanel(margin: _margin, maxHeight: maxHeight, children: menuChildren),
+      _MenuPanel(
+        margin: _margin,
+        maxHeight: maxHeight,
+        footer: footer,
+        children: menuChildren,
+      ),
     ],
     builder: builder,
   );
@@ -827,10 +916,12 @@ class _MenuPanel extends StatefulWidget {
   const _MenuPanel({
     required this.margin,
     required this.maxHeight,
+    required this.footer,
     required this.children,
   });
   final EdgeInsets margin;
   final double maxHeight;
+  final Widget? footer;
   final List<Widget> children;
 
   @override
@@ -864,6 +955,26 @@ class _MenuPanelState extends State<_MenuPanel>
   Widget build(BuildContext context) {
     final style = MenuTheme.of(context).style!;
     final none = <WidgetState>{};
+    final list = SingleChildScrollView(
+      padding: style.padding!.resolve(none),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: widget.children,
+      ),
+    );
+    final footer = widget.footer;
+    // A footer must stay in sight, so the panel also fits the window rather
+    // than leaving MenuAnchor to scroll it whole.
+    final maxHeight = footer == null
+        ? widget.maxHeight
+        : math.min(
+            widget.maxHeight,
+            math.max(
+              160.0,
+              MediaQuery.sizeOf(context).height - widget.margin.vertical - 32,
+            ),
+          );
     return Padding(
       padding: widget.margin,
       child: FadeTransition(
@@ -886,15 +997,26 @@ class _MenuPanelState extends State<_MenuPanel>
             shape: style.shape!.resolve(none),
             clipBehavior: Clip.antiAlias,
             child: ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: widget.maxHeight),
-              child: SingleChildScrollView(
-                padding: style.padding!.resolve(none),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: widget.children,
-                ),
-              ),
+              constraints: BoxConstraints(maxHeight: maxHeight),
+              child: footer == null
+                  ? list
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Its own Material keeps the hover of a row
+                        // scrolled half under the footer from showing
+                        // through it: ink paints on the nearest Material.
+                        Flexible(
+                          child: Material(
+                            type: MaterialType.transparency,
+                            clipBehavior: Clip.hardEdge,
+                            child: list,
+                          ),
+                        ),
+                        footer,
+                      ],
+                    ),
             ),
           ),
         ),

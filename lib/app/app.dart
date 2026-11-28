@@ -772,7 +772,7 @@ class _MelonAppState extends State<MelonApp>
         unawaited(personal.pull());
         unawaited(discovery.loadCalendar());
       case 'calendar':
-        unawaited(discovery.loadCalendar());
+        unawaited(discovery.loadWeek());
     }
   }
 
@@ -1604,13 +1604,19 @@ class _MelonAppState extends State<MelonApp>
         );
       case 'calendar':
         return CalendarPage(
-          calendar: discovery.calendar,
-          loading: discovery.calendarLoading,
-          error: discovery.calendarError,
+          week: discovery.week,
+          monday: discovery.weekMonday,
+          thisMonday: DiscoveryController.mondayOf(
+            service.catalog.scheduleDate,
+          ),
+          loading: discovery.weekLoading,
+          error: discovery.weekError,
+          onWeek: (monday) => unawaited(discovery.loadWeek(monday)),
           onOpenSubject: openSubject,
-          onRetry: discovery.loadCalendar,
+          onRetry: () => unawaited(discovery.loadWeek()),
           filter: scheduleFilter,
           watchingIds: {for (final item in personal.watching) item.id},
+          collectedIds: {for (final item in personal.collection) item.id},
         );
       case 'tracking':
         return TrackingPage(

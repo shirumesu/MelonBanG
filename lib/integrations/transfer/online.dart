@@ -353,6 +353,9 @@ class OnlineDownloads implements OnlineTransfer {
   @override
   void releaseStreamsExcept(int? keep) {}
 
+  @override
+  List<(int, int)>? streamedRanges(int streamId) => null;
+
   Future<void> _persist(Json task) {
     _updateProgress(task);
     return _saved.put(task);

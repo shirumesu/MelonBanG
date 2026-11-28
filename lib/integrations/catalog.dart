@@ -290,6 +290,46 @@ class CatalogRepository implements Catalog {
     return _calendar(response);
   }
 
+  @override
+  Future<ScheduleWeek> week(
+    String monday, {
+    void Function(ScheduleWeek)? onCached,
+  }) async {
+    ScheduleWeek parse(dynamic value) {
+      final response = object(value);
+      final byDate = object(response['byDate']);
+      final start = DateTime.parse('${monday}T00:00:00Z');
+      return ScheduleWeek(
+        monday: monday,
+        incomplete: intOrNull(response['incomplete']) ?? 0,
+        days: [
+          for (var day = 0; day < 7; day++)
+            [
+              for (final item in objects(
+                byDate[start
+                    .add(Duration(days: day))
+                    .toIso8601String()
+                    .substring(0, 10)],
+              ))
+                if (number(item['subjectId']) > 0)
+                  ScheduleSlot.fromJson(_scheduled(item), item),
+            ],
+        ],
+      );
+    }
+
+    // A week still missing details expires on the server within a minute,
+    // and is asked for again then.
+    return parse(
+      await _cached(
+        'week:$monday',
+        _melon('/v1/schedule/latest?startDate=$monday&dayCount=7&view=byDate'),
+        ttl: const Duration(hours: 1),
+        onCached: onCached == null ? null : (value) => onCached(parse(value)),
+      ),
+    );
+  }
+
   List<ScheduleDay> _calendar(dynamic value) {
     final response = object(value);
     final byDate = object(response['byDate']);

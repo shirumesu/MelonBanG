@@ -258,6 +258,11 @@ abstract interface class Transfer {
 
   /// Stops media streams opened by [openMedia], except [keep].
   void releaseStreamsExcept(int? keep);
+
+  /// The parts of stream [streamId]'s file known to be on disk, as sorted
+  /// `[start, end)` byte ranges, for the player's progress bar; null for a
+  /// stream this transfer did not open.
+  List<(int, int)>? streamedRanges(int streamId);
   Future<void> close();
 }
 

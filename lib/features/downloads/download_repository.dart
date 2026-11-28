@@ -211,6 +211,13 @@ class DownloadRepository {
     }
   }
 
+  /// What the transfer of task [id] has on disk of its stream [streamId];
+  /// null once the task or the stream is gone.
+  List<(int, int)>? streamedRanges(String id, int streamId) => transfers
+      .where((transfer) => transfer.contains(id))
+      .firstOrNull
+      ?.streamedRanges(streamId);
+
   void _emit() {
     _revision++;
     if (!_closed) changes.add(snapshot());

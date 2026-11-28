@@ -116,8 +116,9 @@ class _ShownClockState extends State<ShownClock> {
 }
 
 class PageScroll extends StatelessWidget {
-  const PageScroll({super.key, required this.children});
+  const PageScroll({super.key, required this.children, this.controller});
   final List<Widget> children;
+  final ScrollController? controller;
   @override
   Widget build(BuildContext context) {
     final slivers = <Widget>[];
@@ -139,6 +140,7 @@ class PageScroll extends StatelessWidget {
     flush();
     return CustomScrollView(
       key: const PageStorageKey('page-scroll'),
+      controller: controller,
       slivers: [
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(

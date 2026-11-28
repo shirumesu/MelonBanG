@@ -1429,7 +1429,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
             children: [
               Text('收藏统计', style: Theme.of(context).textTheme.titleSmall),
               const Spacer(),
-              Text('共 ${_thousands(total)} 人', style: small),
+              Text('共 ${thousands(total)} 人', style: small),
             ],
           ),
           const SizedBox(height: Gap.md),
@@ -1487,7 +1487,7 @@ class _SubjectDetailState extends State<_SubjectDetail> {
                     ),
                   ),
                   Text(
-                    _thousands(stats[key] ?? 0),
+                    thousands(stats[key] ?? 0),
                     style: const TextStyle(
                       fontSize: FontSize.small,
                       fontFeatures: tabular,
@@ -1508,11 +1508,6 @@ class _SubjectDetailState extends State<_SubjectDetail> {
       ),
     );
   }
-
-  static String _thousands(int value) => value.toString().replaceAllMapped(
-    RegExp(r'\B(?=(\d{3})+(?!\d))'),
-    (_) => ',',
-  );
 
   Widget? _infoPanel(Subject item) {
     final rows = item.infoBox;
