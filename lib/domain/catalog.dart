@@ -573,8 +573,7 @@ class ScheduleDay {
   final List<Subject> items;
 }
 
-/// A Monday-to-Sunday schedule: each day's broadcasts by air time, and each
-/// show's heat that week when the Melon API has it.
+/// A Monday-to-Sunday schedule: each day's broadcasts by air time.
 class ScheduleWeek {
   const ScheduleWeek({
     required this.monday,
@@ -602,14 +601,8 @@ class ScheduleSlot {
   const ScheduleSlot({
     required this.subject,
     this.episode,
-    this.episodeComments,
     this.finale = false,
     this.breakUntil,
-    this.heat,
-    this.previousHeat,
-    this.heatComments,
-    this.collectionGain,
-    this.previousCollectionGain,
   });
 
   factory ScheduleSlot.fromJson(Subject subject, Map<String, dynamic> value) {
@@ -617,14 +610,8 @@ class ScheduleSlot {
     return ScheduleSlot(
       subject: subject,
       episode: _double(episode['ep'] ?? episode['sort']),
-      episodeComments: intOrNull(episode['comments']),
       finale: episode['final'] == true,
       breakUntil: DateTime.tryParse('${value['breakUntil'] ?? ''}'),
-      heat: _double(value['heat']),
-      previousHeat: _double(value['previousHeat']),
-      heatComments: intOrNull(value['heatComments']),
-      collectionGain: intOrNull(value['collectionGain']),
-      previousCollectionGain: intOrNull(value['previousCollectionGain']),
     );
   }
 
@@ -632,24 +619,80 @@ class ScheduleSlot {
 
   /// The main episode it airs, matched by Bangumi's air dates.
   final double? episode;
-  final int? episodeComments;
   final bool finale;
 
   /// Bangumi dates no episode that day but ones before and after: the show
   /// takes the week off until this day (Japan's date).
   final DateTime? breakUntil;
+}
 
-  /// The show's heat in the week, 0 to 100 among the week's shows, and the
-  /// week before's; the Melon API weighs new collections, episode comments
-  /// and Bangumi users watching.
-  final double? heat, previousHeat;
+/// A schedule week's heat from the Melon API, which recomputes it every 15
+/// minutes: each show's, 0 to 100 among the week's shows, weighing new
+/// collections, episode comments and Bangumi users watching.
+class WeekHeat {
+  const WeekHeat({
+    required this.monday,
+    required this.shows,
+    this.incomplete = 0,
+    this.generatedAt,
+    this.expiresAt,
+  });
 
-  /// The episode comments the heat counted: the week's latest aired
-  /// episode's, or the one before's while that is new.
-  final int? heatComments;
+  factory WeekHeat.fromJson(Map<String, dynamic> value) => WeekHeat(
+    monday: value['week'] as String,
+    incomplete: intOrNull(value['incomplete']) ?? 0,
+    generatedAt: DateTime.tryParse('${value['generatedAt'] ?? ''}'),
+    expiresAt: DateTime.tryParse(
+      '${object(value['cache'])['expiresAt'] ?? ''}',
+    ),
+    shows: {
+      for (final show in objects(value['shows']))
+        (show['subjectId'] as num).toInt(): ShowHeat.fromJson(show),
+    },
+  );
 
-  /// Bangumi users who collected the show in the week, and the week before.
-  final int? collectionGain, previousCollectionGain;
+  /// `yyyy-MM-dd`, the week's Monday.
+  final String monday;
+  final Map<int, ShowHeat> shows;
+
+  /// Shows still waiting for details or episodes, so without heat yet.
+  final int incomplete;
+
+  /// When the Melon API computed it, and when it computes it again.
+  final DateTime? generatedAt, expiresAt;
+}
+
+/// A show's heat in a [WeekHeat] and what it is made of.
+class ShowHeat {
+  const ShowHeat({
+    required this.heat,
+    required this.comments,
+    this.previousHeat,
+    this.gain,
+    this.previousGain,
+    this.watching,
+  });
+
+  factory ShowHeat.fromJson(Map<String, dynamic> value) => ShowHeat(
+    heat: (value['heat'] as num).toDouble(),
+    previousHeat: _double(value['previousHeat']),
+    comments: (value['comments'] as num).toInt(),
+    gain: intOrNull(value['gain']),
+    previousGain: intOrNull(value['previousGain']),
+    watching: intOrNull(value['watching']),
+  );
+
+  /// The week's, and the week before's for a show broadcast then.
+  final double heat;
+  final double? previousHeat;
+
+  /// The episode comments counted: the week's latest aired episode's, or
+  /// the one before's while that is new.
+  final int comments;
+
+  /// Bangumi users who collected the show in the week and the week before,
+  /// once counted, and watching it now.
+  final int? gain, previousGain, watching;
 }
 
 enum SubjectSort {
@@ -887,6 +930,10 @@ abstract interface class Catalog implements SubjectCovers {
     String monday, {
     void Function(ScheduleWeek)? onCached,
   });
+
+  /// The heat of the week starting [monday], as fresh as the Melon API has
+  /// it.
+  Future<WeekHeat> weekHeat(String monday, {void Function(WeekHeat)? onCached});
   Future<Subject> subject(
     int id, {
     FutureOr<void> Function(Subject)? onAvailable,

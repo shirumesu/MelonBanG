@@ -76,33 +76,38 @@ ScheduleFold? scheduleFold(Subject subject, DateTime now) {
       : null;
 }
 
-/// A show's place in the week's heat chart, and its move since the week
-/// before: positive up, null for a show not ranked then.
-typedef ChartEntry = ({ScheduleSlot slot, int rank, int? move});
+/// A show's place in the week's heat chart, its heat, and its move since the
+/// week before: positive up, null for a show not ranked then.
+typedef ChartEntry = ({ScheduleSlot slot, ShowHeat heat, int rank, int? move});
 
-/// The week's shows by heat, among those [accepts] lists; [ChartEntry.move]
+/// The week's shows by [heat], among those [accepts] lists; [ChartEntry.move]
 /// compares with the week before's heat among the same shows.
 List<ChartEntry> weeklyChart(
   ScheduleWeek week,
+  WeekHeat heat,
   bool Function(Subject) accepts,
 ) {
-  final shows = <int, ScheduleSlot>{};
+  final shows = <int, (ScheduleSlot, ShowHeat)>{};
   for (final day in week.days) {
     for (final slot in day) {
-      if (accepts(slot.subject)) shows.putIfAbsent(slot.subject.id, () => slot);
+      final show = heat.shows[slot.subject.id];
+      if (show != null && accepts(slot.subject)) {
+        shows.putIfAbsent(slot.subject.id, () => (slot, show));
+      }
     }
   }
-  List<ScheduleSlot> ranked(double? Function(ScheduleSlot) heat) =>
-      shows.values.where((slot) => heat(slot) != null).toList()
-        ..sort((a, b) => heat(b)!.compareTo(heat(a)!));
+  List<(ScheduleSlot, ShowHeat)> ranked(double? Function(ShowHeat) of) =>
+      shows.values.where((show) => of(show.$2) != null).toList()
+        ..sort((a, b) => of(b.$2)!.compareTo(of(a.$2)!));
   final previous = {
-    for (final (i, slot) in ranked((s) => s.previousHeat).indexed)
+    for (final (i, (slot, _)) in ranked((s) => s.previousHeat).indexed)
       slot.subject.id: i + 1,
   };
   return [
-    for (final (i, slot) in ranked((s) => s.heat).indexed)
+    for (final (i, (slot, show)) in ranked((s) => s.heat).indexed)
       (
         slot: slot,
+        heat: show,
         rank: i + 1,
         move: switch (previous[slot.subject.id]) {
           final before? => before - (i + 1),
@@ -114,8 +119,8 @@ List<ChartEntry> weeklyChart(
 
 /// Whether the week before has heat, so a show missing from it is new to
 /// the chart rather than unknown.
-bool chartComparable(ScheduleWeek week) =>
-    week.days.any((day) => day.any((slot) => slot.previousHeat != null));
+bool chartComparable(WeekHeat heat) =>
+    heat.shows.values.any((show) => show.previousHeat != null);
 
 /// The week's final episodes in air order, one per show.
 List<ScheduleSlot> weekFinales(

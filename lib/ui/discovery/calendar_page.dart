@@ -28,8 +28,11 @@ class CalendarPage extends StatefulWidget {
     required this.thisMonday,
     required this.loading,
     required this.error,
+    required this.heat,
+    required this.heatError,
     required this.onWeek,
     required this.onRetry,
+    required this.onRetryHeat,
     required this.onOpenSubject,
     required this.filter,
     this.watchingIds = const {},
@@ -41,8 +44,13 @@ class CalendarPage extends StatefulWidget {
   final String monday, thisMonday;
   final bool loading;
   final String? error;
+
+  /// The heat of the week starting [monday] once loaded, for the chart;
+  /// another week's is ignored.
+  final WeekHeat? heat;
+  final String? heatError;
   final ValueChanged<String> onWeek;
-  final VoidCallback onRetry;
+  final VoidCallback onRetry, onRetryHeat;
   final ValueChanged<Subject> onOpenSubject;
   final SchedulePreference filter;
 
@@ -224,19 +232,31 @@ class _CalendarPageState extends State<CalendarPage> {
               .length,
         ),
     ];
-    final chart = week == null
+    final heat = widget.heat?.monday == widget.monday ? widget.heat : null;
+    final chart = week == null || heat == null
         ? const <ChartEntry>[]
-        : weeklyChart(week, accepts);
+        : weeklyChart(week, heat, accepts);
+    final heatFailed = heat == null && widget.heatError != null;
+    final weekFailed = week == null && !widget.loading && widget.error != null;
     final finales = week == null
         ? const <ScheduleSlot>[]
         : weekFinales(week, accepts);
     final previous = _monday(-1), next = _monday(1);
     final chartView = ChartView(
       monday: widget.monday,
-      week: week,
       entries: chart,
-      comparable: week != null && chartComparable(week),
-      error: widget.error,
+      comparable: heat != null && chartComparable(heat),
+      waiting:
+          !heatFailed &&
+          !weekFailed &&
+          (week == null || heat == null || heat.incomplete > 0),
+      error: heatFailed
+          ? widget.heatError
+          : weekFailed
+          ? widget.error
+          : null,
+      updatedAt: thisWeek ? heat?.generatedAt : null,
+      onRetry: heatFailed ? widget.onRetryHeat : widget.onRetry,
       onPrevious: previous == null ? null : () => widget.onWeek(previous),
       onNext: next == null ? null : () => widget.onWeek(next),
     );
@@ -255,12 +275,11 @@ class _CalendarPageState extends State<CalendarPage> {
     final side = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (week != null)
-          WeeklyChartPanel(
-            view: chartView,
-            full: _chartView!,
-            onOpen: widget.onOpenSubject,
-          ),
+        WeeklyChartPanel(
+          view: chartView,
+          full: _chartView!,
+          onOpen: widget.onOpenSubject,
+        ),
         if (finales.isNotEmpty) ...[
           const SizedBox(height: Gap.lg),
           WeekFinalesPanel(finales: finales, onOpen: widget.onOpenSubject),

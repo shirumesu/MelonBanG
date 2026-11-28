@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -20,32 +22,43 @@ const _panelTitle = TextStyle(
 
 const _tabular = [FontFeature.tabularFigures()];
 
-/// What the full chart shows: the week the page shows and its chart, and
-/// how to step to the weeks either side; the page keeps it current while
-/// the chart is open.
+/// What the chart shows: the week the page shows and its chart, and how to
+/// step to the weeks either side; the page keeps it current while the full
+/// chart is open.
 class ChartView {
   const ChartView({
     required this.monday,
-    required this.week,
     required this.entries,
     required this.comparable,
+    required this.waiting,
     required this.error,
+    required this.updatedAt,
+    required this.onRetry,
     required this.onPrevious,
     required this.onNext,
   });
   final String monday;
-
-  /// Null while [monday]'s week loads, or when it failed to.
-  final ScheduleWeek? week;
   final List<ChartEntry> entries;
 
   /// Whether the week before has heat, so moves can be shown.
   final bool comparable;
+
+  /// Whether the chart is still to come: the week or its heat is loading,
+  /// or the Melon API is still fetching its shows.
+  final bool waiting;
+
+  /// Why the heat could not load, while there is none to show.
   final String? error;
+
+  /// When the Melon API last computed this week's heat; null for other
+  /// weeks, whose heat no longer moves much.
+  final DateTime? updatedAt;
+  final VoidCallback onRetry;
   final VoidCallback? onPrevious, onNext;
 }
 
-/// The week's top ten shows by heat, with 完整榜单 for all of them.
+/// The week's top ten shows by heat, with 完整榜单 for all of them. Rows
+/// glide to their new places as the heat updates.
 class WeeklyChartPanel extends StatelessWidget {
   const WeeklyChartPanel({
     super.key,
@@ -80,9 +93,13 @@ class WeeklyChartPanel extends StatelessWidget {
                 Expanded(
                   child: Text(
                     _range(view.monday, short: true),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: text.bodySmall?.copyWith(fontFeatures: _tabular),
                   ),
                 ),
+                if (view.updatedAt case final at?)
+                  _Updated(at: at, style: text.bodySmall),
                 if (entries.isNotEmpty)
                   // Its label lines up with the rows' right edge.
                   Transform.translate(
@@ -101,14 +118,23 @@ class WeeklyChartPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: Gap.xs),
-          if (entries.isEmpty)
-            EmptyState.compact(text: _emptyText(view.monday))
-          else
-            for (final entry in entries.take(_shown))
-              _ChartRow(
-                entry: entry,
-                comparable: view.comparable,
-                onOpen: onOpen,
+          _placeholder(view, const _ChartRowsSkeleton(rows: _shown)) ??
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final (i, entry) in entries.take(_shown).indexed)
+                    MotionSlide(
+                      key: ValueKey(entry.slot.subject.id),
+                      index: i,
+                      enter: true,
+                      delay: i * 30,
+                      child: _ChartRow(
+                        entry: entry,
+                        comparable: view.comparable,
+                        onOpen: onOpen,
+                      ),
+                    ),
+                ],
               ),
         ],
       ),
@@ -116,10 +142,52 @@ class WeeklyChartPanel extends StatelessWidget {
   }
 }
 
+/// What a chart shows in place of its rows, or null when it has rows: grey
+/// rows while it is still to come, why it failed, or why it is empty.
+Widget? _placeholder(ChartView view, Widget skeleton) {
+  if (view.entries.isNotEmpty) return null;
+  if (view.error case final error?) {
+    return EmptyState.compact(
+      text: '暂时无法加载热度周榜',
+      detail: error,
+      action: view.onRetry,
+    );
+  }
+  if (view.waiting) {
+    return DelayedBusy(
+      busy: true,
+      builder: (context, shown) =>
+          SkeletonGroup(label: '正在加载热度周榜', shown: shown, child: skeleton),
+    );
+  }
+  return EmptyState.compact(text: _emptyText(view.monday));
+}
+
+/// When the heat was last computed, as 10:15 更新.
+class _Updated extends StatelessWidget {
+  const _Updated({required this.at, required this.style});
+  final DateTime at;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: '热度每 15 分钟更新一次',
+    child: MotionSwap(
+      value: at,
+      scale: 1,
+      child: Text(
+        '${shanghaiClock(at)} 更新',
+        style: style?.copyWith(fontFeatures: _tabular),
+      ),
+    ),
+  );
+}
+
 const _chartHelp =
     '热度按这一周 Bangumi 上的新增收藏（35%）、\n'
     '本集吐槽（35%）和在看人数（30%）计算，\n'
-    '每项先按这周最高的一部折算；名次变化对比上一周';
+    '每项先按这周最高的一部折算；名次变化对比上一周。\n'
+    '本周的热度每 15 分钟更新一次';
 
 /// The week starting [monday], as 11/23 – 11/29 or 11月23日 – 11月29日.
 String _range(String monday, {bool short = false}) {
@@ -151,13 +219,12 @@ String _emptyText(String monday) =>
 
 /// A show's episode in the chart's week and, unless [comments] is false,
 /// the comments its heat counted; or that it took the week off.
-String _episodeLine(ScheduleSlot slot, {bool comments = true}) => [
-  if (slot.episode case final episode?)
+String _episodeLine(ChartEntry entry, {bool comments = true}) => [
+  if (entry.slot.episode case final episode?)
     '第 ${episode.round()} 话'
-  else if (slot.breakUntil != null)
+  else if (entry.slot.breakUntil != null)
     '本周停播',
-  if (slot.heatComments case final count? when comments && count > 0)
-    '$count 条吐槽',
+  if (comments && entry.heat.comments > 0) '${entry.heat.comments} 条吐槽',
 ].join('  ');
 
 /// Every show of the week's chart in a table, a week at a time: rank,
@@ -170,6 +237,7 @@ class _ChartDialog extends StatelessWidget {
 
   static const _rank = 32.0, _moveWidth = 40.0, _heat = 56.0;
   static const _number = 80.0, _score = 48.0;
+  static const _gap = SizedBox(width: Gap.lg);
 
   @override
   Widget build(BuildContext context) => Dialog(
@@ -192,26 +260,28 @@ class _ChartDialog extends StatelessWidget {
       width: width,
       child: Text(label, textAlign: TextAlign.end, style: small),
     );
-    const gap = SizedBox(width: Gap.lg);
-    final body = switch (view) {
-      ChartView(week: null, error: final error?) => EmptyState.compact(
-        text: '这一周没能加载：$error',
-      ),
-      ChartView(week: null) => const Padding(
-        padding: EdgeInsets.symmetric(vertical: Gap.xl),
-        child: Center(child: BusyIndicator(size: 20)),
-      ),
-      ChartView(entries: []) => EmptyState.compact(
-        text: _emptyText(view.monday),
-      ),
-      _ => ListView.builder(
-        shrinkWrap: true,
-        padding: const EdgeInsets.only(top: Gap.xs),
-        itemCount: view.entries.length,
-        itemBuilder: (context, index) =>
-            _row(context, view.entries[index], view.comparable),
-      ),
-    };
+    final entries = view.entries;
+    final body =
+        _placeholder(view, const _DialogRowsSkeleton()) ??
+        ListView.builder(
+          shrinkWrap: true,
+          padding: const EdgeInsets.only(top: Gap.xs),
+          itemCount: entries.length,
+          // Rows keep their place in the glide when the heat reorders them.
+          findChildIndexCallback: (key) {
+            final index = entries.indexWhere(
+              (entry) => key == ValueKey(entry.slot.subject.id),
+            );
+            return index < 0 ? null : index;
+          },
+          itemBuilder: (context, index) => MotionSlide(
+            key: ValueKey(entries[index].slot.subject.id),
+            index: index,
+            enter: true,
+            delay: math.min(index, 12) * 25,
+            child: _row(context, entries[index], view.comparable),
+          ),
+        );
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -234,6 +304,10 @@ class _ChartDialog extends StatelessWidget {
                 fontFeatures: _tabular,
               ),
             ),
+            if (view.updatedAt case final at?) ...[
+              const SizedBox(width: Gap.md),
+              _Updated(at: at, style: small),
+            ],
             const SizedBox(width: Gap.xs),
             const HelpHint(message: _chartHelp),
             const Spacer(),
@@ -259,19 +333,19 @@ class _ChartDialog extends StatelessWidget {
                 width: _rank,
                 child: Text('名次', style: small),
               ),
-              gap,
+              _gap,
               SizedBox(
                 width: _moveWidth,
                 child: Text('变化', style: small),
               ),
-              gap,
+              _gap,
               Expanded(child: Text('番剧', style: small)),
               head('热度', _heat),
-              gap,
+              _gap,
               head('新增收藏', _number),
               head('本集吐槽', _number),
               head('在看', _number),
-              gap,
+              _gap,
               head('评分', _score),
             ],
           ),
@@ -289,32 +363,32 @@ class _ChartDialog extends StatelessWidget {
   Widget _row(BuildContext context, ChartEntry entry, bool comparable) {
     final scheme = Theme.of(context).colorScheme;
     final small = Theme.of(context).textTheme.bodySmall;
-    final slot = entry.slot;
-    final item = slot.subject;
+    final item = entry.slot.subject;
+    final heat = entry.heat;
     final (move, moveColor) = _move(context, entry, comparable);
-    final watching = item.collectionStats[CollectionStatus.watching];
     final score = item.score;
-    String count(int? value) => value == null ? '—' : thousands(value);
-    Widget number(
-      String text,
-      double width, {
-      bool quiet = true,
-      FontWeight? weight,
-    }) => SizedBox(
-      width: width,
-      child: Text(
-        text,
-        textAlign: TextAlign.end,
-        style: TextStyle(
-          fontSize: FontSize.body,
-          fontWeight: weight,
-          color: quiet ? scheme.onSurfaceVariant : null,
-          fontFeatures: _tabular,
-        ),
-      ),
+    TextStyle number({bool quiet = true, FontWeight? weight}) => TextStyle(
+      fontSize: FontSize.body,
+      fontWeight: weight,
+      color: quiet ? scheme.onSurfaceVariant : null,
+      fontFeatures: _tabular,
     );
-    const gap = SizedBox(width: Gap.lg);
-    final episode = _episodeLine(slot, comments: false);
+    Widget cell(double width, Widget child) => SizedBox(
+      width: width,
+      child: Align(alignment: Alignment.centerRight, child: child),
+    );
+    // Counts tick to their new values as the heat updates.
+    Widget count(int? value, double width, {bool quiet = true}) => cell(
+      width,
+      value == null
+          ? Text('—', style: number(quiet: quiet))
+          : MotionCount(
+              value: value,
+              builder: (context, value) =>
+                  Text(thousands(value), style: number(quiet: quiet)),
+            ),
+    );
+    final episode = _episodeLine(entry, comments: false);
     return InkWell(
       borderRadius: controlBorderRadius,
       onTap: () {
@@ -339,18 +413,22 @@ class _ChartDialog extends StatelessWidget {
                 ),
               ),
             ),
-            gap,
+            _gap,
             SizedBox(
               width: _moveWidth,
-              child: Text(
-                move,
-                style: small?.copyWith(
-                  color: moveColor,
-                  fontFeatures: _tabular,
+              child: MotionSwap(
+                value: move,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  move,
+                  style: small?.copyWith(
+                    color: moveColor,
+                    fontFeatures: _tabular,
+                  ),
                 ),
               ),
             ),
-            gap,
+            _gap,
             SizedBox(
               width: 30,
               height: 42,
@@ -381,20 +459,27 @@ class _ChartDialog extends StatelessWidget {
                 ],
               ),
             ),
-            number(
-              '${slot.heat!.round()}',
+            cell(
               _heat,
-              quiet: false,
-              weight: FontWeight.w700,
+              MotionValue(
+                value: heat.heat,
+                builder: (context, value) => Text(
+                  '${value.round()}',
+                  style: number(quiet: false, weight: FontWeight.w700),
+                ),
+              ),
             ),
-            gap,
-            number(count(slot.collectionGain), _number, quiet: false),
-            number(count(slot.heatComments), _number, quiet: false),
-            number(count(watching), _number),
-            gap,
-            number(
-              score == null || score <= 0 ? '—' : scoreLabel(score),
+            _gap,
+            count(heat.gain, _number, quiet: false),
+            count(heat.comments, _number, quiet: false),
+            count(heat.watching, _number),
+            _gap,
+            cell(
               _score,
+              Text(
+                score == null || score <= 0 ? '—' : scoreLabel(score),
+                style: number(),
+              ),
             ),
           ],
         ),
@@ -435,17 +520,130 @@ class _ChartRow extends StatelessWidget {
         ),
       ),
       item: item,
-      detail: _episodeLine(entry.slot),
+      detail: _episodeLine(entry),
       trailing: SizedBox(
         width: 32,
-        child: Text(
-          move,
-          textAlign: TextAlign.end,
-          style: small?.copyWith(color: moveColor, fontFeatures: _tabular),
+        child: MotionSwap(
+          value: move,
+          alignment: Alignment.centerRight,
+          child: Text(
+            move,
+            textAlign: TextAlign.end,
+            style: small?.copyWith(color: moveColor, fontFeatures: _tabular),
+          ),
         ),
       ),
     );
   }
+}
+
+/// [_ChartRow]s in grey while the chart is still to come.
+class _ChartRowsSkeleton extends StatelessWidget {
+  const _ChartRowsSkeleton({required this.rows});
+  final int rows;
+
+  static const _shares = [.8, .6, .9, .5, .7];
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      for (var i = 0; i < rows; i++)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          child: Row(
+            children: [
+              const SizedBox(
+                width: 22,
+                child: Center(child: SkeletonBlock(width: 12, height: 14)),
+              ),
+              const SizedBox(width: Gap.md),
+              const SkeletonBlock(width: 34, height: 48),
+              const SizedBox(width: Gap.md),
+              Expanded(child: _SkeletonLines(share: _shares[i % 5])),
+            ],
+          ),
+        ),
+    ],
+  );
+}
+
+/// The full chart's rows in grey while it is still to come.
+class _DialogRowsSkeleton extends StatelessWidget {
+  const _DialogRowsSkeleton();
+
+  static const _shares = [.55, .4, .7, .35, .6, .45, .5, .65];
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: Gap.xs),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final share in _shares)
+          Padding(
+            padding: const EdgeInsets.all(Gap.sm),
+            child: Row(
+              children: [
+                const SizedBox(
+                  width: _ChartDialog._rank,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: SkeletonBlock(width: 16, height: 18),
+                  ),
+                ),
+                const SizedBox(width: _ChartDialog._moveWidth + 2 * Gap.lg),
+                const SkeletonBlock(
+                  width: 30,
+                  height: 42,
+                  radius: tightBorderRadius,
+                ),
+                const SizedBox(width: Gap.md),
+                Expanded(child: _SkeletonLines(share: share)),
+                const _SkeletonNumber(width: _ChartDialog._heat),
+                const SizedBox(width: Gap.lg),
+                for (var i = 0; i < 3; i++)
+                  const _SkeletonNumber(width: _ChartDialog._number),
+                const SizedBox(width: Gap.lg + _ChartDialog._score),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
+/// A table cell's number in grey, at its right edge.
+class _SkeletonNumber extends StatelessWidget {
+  const _SkeletonNumber({required this.width});
+  final double width;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: width,
+    child: const Align(
+      alignment: Alignment.centerRight,
+      child: SkeletonBlock(width: 28, height: 12),
+    ),
+  );
+}
+
+/// A show's title over its detail, in grey, the title [share] of the width.
+class _SkeletonLines extends StatelessWidget {
+  const _SkeletonLines({required this.share});
+  final double share;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      FractionallySizedBox(
+        widthFactor: share,
+        child: const SkeletonBlock(height: 12),
+      ),
+      const SizedBox(height: Gap.sm),
+      const SkeletonBlock(width: 72, height: 10),
+    ],
+  );
 }
 
 /// The week's final episodes, each with its day and time.

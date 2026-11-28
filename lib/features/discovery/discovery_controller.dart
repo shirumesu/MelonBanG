@@ -184,6 +184,7 @@ class DiscoveryController extends ChangeNotifier {
     weekLoading = true;
     weekError = null;
     notifyListeners();
+    unawaited(loadHeat());
     void show(ScheduleWeek value) {
       if (ticket != _weekTicket) return;
       week = value;
@@ -206,9 +207,78 @@ class DiscoveryController extends ChangeNotifier {
     }
   }
 
+  /// The shown week's heat, once loaded; a failure stays in [heatError].
+  WeekHeat? heat;
+  bool heatLoading = false;
+  String? heatError;
+  int _heatTicket = 0;
+  Timer? _heatPoll;
+  bool _followingHeat = false;
+
+  /// While [on], as when the schedule is on screen, the heat loads again
+  /// whenever the Melon API recomputes it.
+  void followHeat(bool on) {
+    if (_followingHeat == on) return;
+    _followingHeat = on;
+    final expires = heat?.expiresAt;
+    // Back on the schedule after the heat expired, it loads at once.
+    if (on &&
+        !heatLoading &&
+        expires != null &&
+        expires.isBefore(DateTime.now())) {
+      unawaited(loadHeat());
+    } else {
+      _pollHeat();
+    }
+  }
+
+  /// Loads the shown week's heat, showing a cached copy first.
+  Future<void> loadHeat() async {
+    final target = weekMonday;
+    final ticket = ++_heatTicket;
+    _heatPoll?.cancel();
+    if (heat?.monday != target) heat = null;
+    heatLoading = true;
+    heatError = null;
+    notifyListeners();
+    void show(WeekHeat value) {
+      if (ticket != _heatTicket) return;
+      heat = value;
+      notifyListeners();
+    }
+
+    try {
+      show(await catalog.weekHeat(target, onCached: show));
+    } catch (e) {
+      if (ticket == _heatTicket) heatError = errorMessage(e);
+    } finally {
+      if (ticket == _heatTicket) {
+        heatLoading = false;
+        notifyListeners();
+        _pollHeat();
+      }
+    }
+  }
+
+  /// Asks for the heat again just after it expires on the server, at most
+  /// once a minute; a failed load waits a minute too.
+  void _pollHeat() {
+    _heatPoll?.cancel();
+    if (!_followingHeat || heatLoading) return;
+    final expires = heatError == null ? heat?.expiresAt : null;
+    final wait = expires == null
+        ? const Duration(minutes: 1)
+        : expires.difference(DateTime.now()) + const Duration(seconds: 5);
+    _heatPoll = Timer(
+      wait < const Duration(minutes: 1) ? const Duration(minutes: 1) : wait,
+      () => unawaited(loadHeat()),
+    );
+  }
+
   @override
   void dispose() {
     _weekRetry?.cancel();
+    _heatPoll?.cancel();
     super.dispose();
   }
 

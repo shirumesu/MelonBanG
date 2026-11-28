@@ -103,7 +103,15 @@ class _MelonAppState extends State<MelonApp>
   final List<_PageLocation> history = [];
   final subscriptions = <StreamSubscription<dynamic>>[];
   final homeFeedback = ActionFeedback();
-  String route = 'home', selectedSection = 'home';
+  String _route = 'home', selectedSection = 'home';
+  String get route => _route;
+
+  /// The schedule's heat stays current while the schedule is shown.
+  set route(String value) {
+    _route = value;
+    if (ready) discovery.followHeat(value == 'calendar');
+  }
+
   bool ready = false, fullScreen = false;
   bool closing = false, sidebarVisible = true, windowFullScreen = false;
 
@@ -1640,9 +1648,12 @@ class _MelonAppState extends State<MelonApp>
           ),
           loading: discovery.weekLoading,
           error: discovery.weekError,
+          heat: discovery.heat,
+          heatError: discovery.heatError,
           onWeek: (monday) => unawaited(discovery.loadWeek(monday)),
           onOpenSubject: openSubject,
           onRetry: () => unawaited(discovery.loadWeek()),
+          onRetryHeat: () => unawaited(discovery.loadHeat()),
           filter: scheduleFilter,
           watchingIds: {for (final item in personal.watching) item.id},
           collectedIds: {for (final item in personal.collection) item.id},

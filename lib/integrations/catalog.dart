@@ -330,6 +330,24 @@ class CatalogRepository implements Catalog {
     );
   }
 
+  @override
+  Future<WeekHeat> weekHeat(
+    String monday, {
+    void Function(WeekHeat)? onCached,
+  }) async {
+    WeekHeat parse(dynamic value) => WeekHeat.fromJson(object(value));
+    // The server's expiry decides when to ask again; 15 minutes is its
+    // longest for the current week.
+    return parse(
+      await _cached(
+        'heat:$monday',
+        _melon('/v1/schedule/heat?week=$monday'),
+        ttl: const Duration(minutes: 15),
+        onCached: onCached == null ? null : (value) => onCached(parse(value)),
+      ),
+    );
+  }
+
   List<ScheduleDay> _calendar(dynamic value) {
     final response = object(value);
     final byDate = object(response['byDate']);
